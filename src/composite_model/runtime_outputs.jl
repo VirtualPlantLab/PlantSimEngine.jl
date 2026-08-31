@@ -429,6 +429,17 @@ struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,BI,OT,ENV,TS,OR,C,E}
     environment::E
 end
 
+abstract type AbstractExecutionBatch end
+
+mutable struct LazyCallExecutionBatches <: AbstractVector{AbstractExecutionBatch}
+    owner::Any
+    batches::Any
+end
+
+LazyCallExecutionBatches() = LazyCallExecutionBatches(nothing, nothing)
+
+Base.IndexStyle(::Type{LazyCallExecutionBatches}) = IndexLinear()
+
 """
     CallTargets <: AbstractVector{CallTarget}
 
@@ -464,17 +475,26 @@ function CallTargets(
     publication_allowed,
     environment,
 )
-    execution_batches = _compiled_call_mode(binding) === :initializer ?
-                        () :
-                        _compiled_call_execution_batches(
-        compiled,
-        environment_bindings,
-        binding,
-        temporal_streams,
-        output_retention,
-        constants,
-    )
-    return CallTargets(
+    execution_batches = if _compiled_call_mode(binding) === :initializer
+        ()
+    elseif binding.multiplicity === :many
+        # Large `Many` bindings are commonly executed with an object filter
+        # while organs are emitted. Defer their complete batch construction
+        # until an unfiltered view or execution actually needs it.
+        LazyCallExecutionBatches()
+    else
+        # Preserve the concrete, allocation-free lookup path promised by
+        # `call_model` for `One` and `OptionalOne` bindings.
+        _compiled_call_execution_batches(
+            compiled,
+            environment_bindings,
+            binding,
+            temporal_streams,
+            output_retention,
+            constants,
+        )
+    end
+    targets = CallTargets(
         compiled,
         environment_bindings,
         binding,
@@ -486,7 +506,45 @@ function CallTargets(
         environment,
         execution_batches,
     )
+    execution_batches isa LazyCallExecutionBatches &&
+        (execution_batches.owner = targets)
+    return targets
 end
+
+function _materialize_call_execution_batches!(targets::CallTargets)
+    cached = targets.execution_batches
+    cached isa LazyCallExecutionBatches || return cached
+    isnothing(cached.batches) || return cached.batches
+    cached.batches = _compiled_call_execution_batches(
+        targets.compiled,
+        targets.environment_bindings,
+        targets.binding,
+        targets.temporal_streams,
+        targets.output_retention,
+        targets.constants,
+    )
+    return cached.batches
+end
+
+function _cached_call_execution_batches(targets::CallTargets)
+    cached = targets.execution_batches
+    cached isa LazyCallExecutionBatches || return cached
+    return cached.batches
+end
+
+_call_execution_batches_materialized(targets::CallTargets) =
+    !isnothing(_cached_call_execution_batches(targets))
+
+Base.length(batches::LazyCallExecutionBatches) =
+    length(_materialize_call_execution_batches!(batches.owner))
+
+Base.size(batches::LazyCallExecutionBatches) = (length(batches),)
+
+Base.getindex(batches::LazyCallExecutionBatches, index::Int) =
+    getindex(_materialize_call_execution_batches!(batches.owner), index)
+
+Base.iterate(batches::LazyCallExecutionBatches, state...) =
+    iterate(_materialize_call_execution_batches!(batches.owner), state...)
 
 Base.IndexStyle(::Type{<:CallTargets}) = IndexLinear()
 Base.eltype(::Type{<:CallTargets}) = CallTarget
@@ -577,7 +635,6 @@ end
     return nothing
 end
 
-abstract type AbstractExecutionBatch end
 struct UnspecifiedModelEnvironment end
 const _UNSPECIFIED_SCENE_ENVIRONMENT = UnspecifiedModelEnvironment()
 struct RawGlobalModelEnvironment{M}
@@ -1192,6 +1249,109 @@ function _model_output_reference(
     )
 end
 
+function _initialize_model_output_stream!(
+    streams,
+    compiled::CompiledCompositeModel,
+    retention::OutputRetentionPlan,
+    application,
+    object_id::ObjectId,
+    variable::Symbol,
+    sizehint_steps::Integer,
+)
+    key = _model_stream_key(application.id, object_id, variable)
+    haskey(streams, key) && return streams
+    reference = _model_output_reference(
+        compiled,
+        application,
+        object_id,
+        variable,
+    )
+    isnothing(reference) && error(
+        "Application `$(application.id)` declares retained output ",
+        "`$(variable)`, but object `$(object_id.value)` status has no ",
+        "such variable.",
+    )
+    stream = _model_new_output_stream(
+        reference[],
+        retention,
+        application.id,
+        variable,
+    )
+    if stream isa Vector && sizehint_steps > 0
+        sizehint!(
+            stream,
+            max(
+                1,
+                ceil(
+                    Int,
+                    float(sizehint_steps) /
+                    float(application.clock.dt),
+                ),
+            ),
+        )
+    end
+    streams[key] = stream
+    return streams
+end
+
+function _initialize_changed_model_output_streams!(
+    streams,
+    compiled::CompiledCompositeModel,
+    retention::OutputRetentionPlan,
+    sizehint_steps::Integer,
+    target_keys,
+)
+    for (application_id, object_id) in target_keys
+        variables = get(
+            retention.retained_outputs_by_application,
+            application_id,
+            (),
+        )
+        isempty(variables) && continue
+        application = _compiled_application_by_id(compiled, application_id)
+        model_outputs = keys(outputs_(application.spec))
+        if haskey(compiled.status_views_by_target, (application_id, object_id))
+            for variable in variables
+                variable in model_outputs || continue
+                _initialize_model_output_stream!(
+                    streams,
+                    compiled,
+                    retention,
+                    application,
+                    object_id,
+                    variable,
+                    sizehint_steps,
+                )
+            end
+        end
+        compiled.distributed_outputs isa CompiledDistributedOutputs || continue
+        groups = get(
+            compiled.distributed_outputs.by_execution_target,
+            (application_id, object_id),
+            nothing,
+        )
+        isnothing(groups) && continue
+        for binding in values(groups)
+            for variable_ in keys(binding.declarations)
+                variable = Symbol(variable_)
+                variable in variables || continue
+                for destination_id in binding.destination_ids
+                    _initialize_model_output_stream!(
+                        streams,
+                        compiled,
+                        retention,
+                        application,
+                        destination_id,
+                        variable,
+                        sizehint_steps,
+                    )
+                end
+            end
+        end
+    end
+    return streams
+end
+
 function _initialize_model_output_streams!(
     streams,
     compiled::CompiledCompositeModel,
@@ -1199,6 +1359,13 @@ function _initialize_model_output_streams!(
     sizehint_steps::Integer=0,
     target_keys=nothing,
 )
+    !isnothing(target_keys) && return _initialize_changed_model_output_streams!(
+        streams,
+        compiled,
+        retention,
+        sizehint_steps,
+        target_keys,
+    )
     for (application_id, variables) in retention.retained_outputs_by_application
         application = _compiled_application_by_id(compiled, application_id)
         for variable in variables
@@ -1207,43 +1374,15 @@ function _initialize_model_output_streams!(
                 application,
                 variable,
             )
-                !isnothing(target_keys) &&
-                    !((application_id, object_id) in target_keys) &&
-                    compiled.distributed_outputs isa NoCompiledDistributedOutputs &&
-                    continue
-                key = _model_stream_key(application_id, object_id, variable)
-                haskey(streams, key) && continue
-                reference = _model_output_reference(
+                _initialize_model_output_stream!(
+                    streams,
                     compiled,
+                    retention,
                     application,
                     object_id,
                     variable,
+                    sizehint_steps,
                 )
-                isnothing(reference) && error(
-                    "Application `$(application_id)` declares retained output ",
-                    "`$(variable)`, but object `$(object_id.value)` status has no ",
-                    "such variable.",
-                )
-                stream = _model_new_output_stream(
-                    reference[],
-                    retention,
-                    application_id,
-                    variable,
-                )
-                if stream isa Vector && sizehint_steps > 0
-                    sizehint!(
-                        stream,
-                        max(
-                            1,
-                            ceil(
-                                Int,
-                                float(sizehint_steps) /
-                                float(application.clock.dt),
-                            ),
-                        ),
-                    )
-                end
-                streams[key] = stream
             end
         end
     end
@@ -3205,16 +3344,50 @@ end
 function _model_execution_inputs_match(
     runtime_inputs::Tuple,
     compiled_inputs::Tuple,
+    temporal_streams=nothing,
 )
     length(runtime_inputs) == length(compiled_inputs) || return false
+    additions = Tuple{Any,Vector{Any}}[]
     for index in eachindex(runtime_inputs)
         runtime_input = runtime_inputs[index]
         compiled_input = compiled_inputs[index]
         if runtime_input isa RuntimeTemporalInput
             runtime_input.compiled === compiled_input || return false
+            binding = compiled_input.binding
+            binding.multiplicity == :many || continue
+            source_streams = runtime_input.source_streams
+            if !(source_streams isa Vector)
+                length(source_streams) == length(binding.source_ids) ||
+                    return false
+                continue
+            end
+            current_count = length(source_streams)
+            source_count = length(binding.source_ids)
+            current_count <= source_count || return false
+            current_count == source_count && continue
+            binding.policy isa PreviousTimeStep || return false
+            isnothing(temporal_streams) && return false
+            length(compiled_input.initial) == source_count || return false
+            length(compiled_input.reference[]) == source_count || return false
+            length(compiled_input.source_applications) == source_count ||
+                return false
+            new_streams = Any[]
+            for source_index in (current_count + 1):source_count
+                stream = _runtime_temporal_source_stream(
+                    temporal_streams,
+                    compiled_input,
+                    source_index,
+                )
+                stream isa eltype(source_streams) || return false
+                push!(new_streams, stream)
+            end
+            push!(additions, (source_streams, new_streams))
         else
             runtime_input === compiled_input || return false
         end
+    end
+    for (source_streams, new_streams) in additions
+        append!(source_streams, new_streams)
     end
     return true
 end
@@ -3225,6 +3398,7 @@ function _model_execution_outputs_match(
     application::CompiledModelApplication,
     object_id::ObjectId,
     output_retention,
+    temporal_streams=nothing,
 )
     variables = output_retention isa OutputRetentionPlan ?
                 get(
@@ -3232,29 +3406,102 @@ function _model_execution_outputs_match(
         application.id,
         (),
     ) : ()
+    output_index = 0
+    dependency_horizons = output_retention isa OutputRetentionPlan ?
+                          output_retention.dependency_horizons :
+                          nothing
+    status_view = get(
+        compiled.status_views_by_target,
+        (application.id, object_id),
+        nothing,
+    )
+    for variable in variables
+        variable in keys(outputs_(application.spec)) || continue
+        output_index += 1
+        output_index <= length(runtime_outputs) || return false
+        output = runtime_outputs[output_index]
+        output isa RuntimeOutputStream || return false
+        _runtime_output_variable(output) == variable || return false
+        expected_horizon = isnothing(dependency_horizons) ?
+                           0.0 :
+                           get(
+            dependency_horizons,
+            (application.id, variable),
+            0.0,
+        )
+        output.dependency_horizon == expected_horizon || return false
+        isnothing(temporal_streams) && continue
+        key = _model_stream_key(application.id, object_id, variable)
+        output.stream === get(temporal_streams, key, nothing) || return false
+        isnothing(status_view) && return false
+        output.reference === refvalue(status_view.status, variable) || return false
+    end
+
+    additions = Tuple{Any,Vector{Any}}[]
     if compiled.distributed_outputs isa CompiledDistributedOutputs
         groups = get(
             compiled.distributed_outputs.by_execution_target,
             (application.id, object_id),
             nothing,
         )
-        if !isnothing(groups) && any(
-            variable -> haskey(
-                compiled.distributed_outputs.destination_ids_by_application_variable,
-                (application.id, variable),
-            ),
-            variables,
-        )
-            # Distributed columns carry lifecycle-specific destination
-            # references. Rebuild this execution target at a lifecycle barrier
-            # instead of trying to compare one runtime entry per variable.
-            return false
+        if !isnothing(groups)
+            isnothing(temporal_streams) && return false
+            for binding in values(groups)
+                for variable_ in keys(binding.declarations)
+                    variable = Symbol(variable_)
+                    variable in variables || continue
+                    output_index += 1
+                    output_index <= length(runtime_outputs) || return false
+                    output = runtime_outputs[output_index]
+                    output isa RuntimeDistributedOutputStream || return false
+                    _runtime_output_variable(output) == variable || return false
+                    output.binding === binding || return false
+                    output.references ===
+                    getproperty(binding.columns, variable) || return false
+                    expected_horizon = isnothing(dependency_horizons) ?
+                                       0.0 :
+                                       get(
+                        dependency_horizons,
+                        (application.id, variable),
+                        0.0,
+                    )
+                    output.dependency_horizon == expected_horizon || return false
+                    destination_ids = binding.destination_ids
+                    runtime_streams = output.streams
+                    length(runtime_streams) <= length(destination_ids) ||
+                        return false
+                    for index in eachindex(runtime_streams)
+                        key = _model_stream_key(
+                            application.id,
+                            destination_ids[index],
+                            variable,
+                        )
+                        runtime_streams[index] ===
+                        get(temporal_streams, key, nothing) || return false
+                    end
+                    length(runtime_streams) == length(destination_ids) &&
+                        continue
+                    runtime_streams isa Vector || return false
+                    new_streams = Any[]
+                    for index in (length(runtime_streams) + 1):length(destination_ids)
+                        key = _model_stream_key(
+                            application.id,
+                            destination_ids[index],
+                            variable,
+                        )
+                        stream = get(temporal_streams, key, nothing)
+                        isnothing(stream) && return false
+                        stream isa eltype(runtime_streams) || return false
+                        push!(new_streams, stream)
+                    end
+                    push!(additions, (runtime_streams, new_streams))
+                end
+            end
         end
     end
-    length(runtime_outputs) == length(variables) || return false
-    for index in eachindex(runtime_outputs)
-        _runtime_output_variable(runtime_outputs[index]) == variables[index] ||
-            return false
+    output_index == length(runtime_outputs) || return false
+    for (runtime_streams, new_streams) in additions
+        append!(runtime_streams, new_streams)
     end
     return true
 end
@@ -3305,12 +3552,39 @@ function _model_execution_output_targets_match(
     )
 end
 
+function _manual_call_binding_has_changed_target(
+    binding,
+    compiled::CompiledCompositeModel,
+)
+    _compiled_call_mode(binding) === :manual || return false
+    for (application_id, object_id) in compiled.changed_execution_target_ids
+        application_id in binding.callee_application_ids || continue
+        first(
+            _sorted_object_id_position(
+                binding.callee_object_ids,
+                object_id,
+            ),
+        ) || continue
+        application = get(compiled.applications_by_id, application_id, nothing)
+        isnothing(application) && continue
+        first(
+            _sorted_object_id_position(
+                application.target_ids,
+                object_id,
+            ),
+        ) || continue
+        return true
+    end
+    return false
+end
+
 function _model_execution_target_change_reason(
     target::CompiledExecutionTarget,
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
     output_retention=nothing,
+    temporal_streams=nothing,
 )
     object_id = target.object_id
     key = (application.id, object_id)
@@ -3332,6 +3606,7 @@ function _model_execution_target_change_reason(
     _model_execution_inputs_match(
         target.input_bindings,
         status_view.temporal_inputs,
+        temporal_streams,
     ) ||
         return :temporal_inputs
     _model_execution_outputs_match(
@@ -3340,18 +3615,26 @@ function _model_execution_target_change_reason(
         application,
         object_id,
         output_retention,
+        temporal_streams,
     ) || return :output_bindings
+    target.environment_binding === _environment_binding_for(
+        env_bindings,
+        application.id,
+        object_id,
+    ) || return :environment_binding
     target.call_bindings ===
     get(compiled.call_bindings_by_target, key, ()) ||
         return :call_bindings
     target.call_bindings_signature ==
     _call_bindings_signature(target.call_bindings) ||
         return :call_bindings
-    target.environment_binding === _environment_binding_for(
-        env_bindings,
-        application.id,
-        object_id,
-    ) || return :environment_binding
+    any(
+        binding -> _manual_call_binding_has_changed_target(
+            binding,
+            compiled,
+        ),
+        target.call_bindings,
+    ) && return :call_bindings
     return nothing
 end
 
@@ -3399,6 +3682,7 @@ function _model_execution_group_reusable(
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
     output_retention=nothing,
+    temporal_streams=nothing,
 )
     group.application === application || return false
     target_index = 0
@@ -3414,6 +3698,7 @@ function _model_execution_group_reusable(
                 env_bindings,
                 application,
                 output_retention,
+                temporal_streams,
             )) || return false
         end
     end
@@ -3489,7 +3774,7 @@ function _model_execution_batch_accepts_target(
     return isequal(provider, batch.environment_provider)
 end
 
-function _extend_execution_target_call_batches!(
+function _extend_execution_target_call_batches_by_prefix!(
     target::CompiledExecutionTarget,
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
@@ -3512,37 +3797,45 @@ function _extend_execution_target_call_batches!(
         _compiled_call_name(binding) || return false
         push!(staged_bindings, (call_targets, binding))
         _compiled_call_mode(binding) === :initializer && continue
-        current_application_ids = Set(binding.callee_application_ids)
+        execution_batches = _cached_call_execution_batches(call_targets)
+        isnothing(execution_batches) && continue
         all(
-            batch -> batch.application.id in current_application_ids,
-            call_targets.execution_batches,
+            batch -> batch.application.id in binding.callee_application_ids,
+            execution_batches,
         ) || return false
         for application_id in binding.callee_application_ids
             application = _compiled_application_by_id(compiled, application_id)
             batches = AbstractExecutionBatch[
-                batch for batch in call_targets.execution_batches
+                batch for batch in execution_batches
                 if batch.application.id == application_id
             ]
             isempty(batches) && return false
-            existing_ids = Set(
-                execution_target.object_id
-                for batch in batches
-                for execution_target in batch.targets
-            )
             current_ids = ObjectId[
                 object_id for object_id in binding.callee_object_ids
                 if _call_binding_target_matches(binding, application, object_id)
             ]
-            all(object_id -> object_id in current_ids, existing_ids) ||
-                return false
-            added_ids = ObjectId[
-                object_id for object_id in current_ids
-                if !(object_id in existing_ids)
-            ]
-            isempty(added_ids) && continue
-            _sort_object_ids!(added_ids)
+            # Call batches are compiled by walking the sorted callee IDs and
+            # only split when their concrete target type changes. A monotonic
+            # lifecycle addition therefore preserves the flattened old target
+            # sequence as an exact prefix. Any removal, reordering, or target
+            # replacement falls back to the general rebuild path.
+            existing_count = 0
+            for batch in batches
+                for execution_target in batch.targets
+                    existing_count += 1
+                    existing_count <= length(current_ids) || return false
+                    execution_target.object_id == current_ids[existing_count] ||
+                        return false
+                    (
+                        application.id,
+                        execution_target.object_id,
+                    ) in compiled.changed_execution_target_ids && return false
+                end
+            end
+            existing_count == length(current_ids) && continue
             destination_batch = last(batches)
-            for object_id in added_ids
+            for index in (existing_count + 1):lastindex(current_ids)
+                object_id = current_ids[index]
                 execution_target = _compiled_model_execution_target(
                     compiled,
                     env_bindings,
@@ -3572,6 +3865,175 @@ function _extend_execution_target_call_batches!(
     target.call_bindings_signature =
         _call_bindings_signature(current_call_bindings)
     return true
+end
+
+function _pure_addition_changed_call_target_ids(
+    binding,
+    compiled::CompiledCompositeModel,
+)
+    application_ids = binding.callee_application_ids
+    changed_ids = ObjectId[]
+    affected_application_ids = Symbol[]
+    for (application_id, object_id) in compiled.changed_execution_target_ids
+        application_id in application_ids || continue
+        first(
+            _sorted_object_id_position(
+                binding.callee_object_ids,
+                object_id,
+            ),
+        ) || continue
+        application = _compiled_application_by_id(compiled, application_id)
+        first(
+            _sorted_object_id_position(
+                application.target_ids,
+                object_id,
+            ),
+        ) || continue
+        push!(changed_ids, object_id)
+        application_id in affected_application_ids ||
+            push!(affected_application_ids, application_id)
+    end
+    _sort_object_ids!(changed_ids)
+    return changed_ids, affected_application_ids
+end
+
+function _extend_execution_target_call_batches_for_pure_addition!(
+    target::CompiledExecutionTarget,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    temporal_streams,
+    output_retention,
+    constants,
+    performance=nothing,
+)
+    compiled.status_view_refresh_is_pure_addition || return nothing
+    context = target.context
+    context isa RunContext || return nothing
+    current_call_bindings = get(
+        compiled.call_bindings_by_target,
+        (context.application.id, target.object_id),
+        (),
+    )
+    length(context.calls) == length(current_call_bindings) || return nothing
+    staged = Tuple{Any,Any}[]
+    staged_bindings = Tuple{Any,Any}[]
+    for (call_targets, binding) in zip(context.calls, current_call_bindings)
+        _compiled_call_name(call_targets.binding) ==
+        _compiled_call_name(binding) || return nothing
+        push!(staged_bindings, (call_targets, binding))
+        _compiled_call_mode(binding) === :initializer && continue
+        execution_batches = _cached_call_execution_batches(call_targets)
+        isnothing(execution_batches) && continue
+        all(
+            batch -> batch.application.id in binding.callee_application_ids,
+            execution_batches,
+        ) || return nothing
+        changed_ids, affected_application_ids =
+            _pure_addition_changed_call_target_ids(binding, compiled)
+        isempty(changed_ids) && continue
+        length(affected_application_ids) == 1 || return nothing
+        length(binding.callee_application_ids) == 1 || return nothing
+        application_id = only(affected_application_ids)
+        application = _compiled_application_by_id(compiled, application_id)
+        batches = AbstractExecutionBatch[
+            batch for batch in execution_batches
+            if batch.application.id == application_id
+        ]
+        isempty(batches) && return false
+        last_old_id = last(last(batches).targets).object_id
+        all(
+            object_id -> _object_id_isless(last_old_id, object_id),
+            changed_ids,
+        ) || return false
+        found_boundary, boundary = _sorted_object_id_position(
+            binding.callee_object_ids,
+            last_old_id,
+        )
+        found_boundary || return false
+        for index in (boundary + 1):lastindex(binding.callee_object_ids)
+            object_id = binding.callee_object_ids[index]
+            first(
+                _sorted_object_id_position(
+                    application.target_ids,
+                    object_id,
+                ),
+            ) || continue
+            first(
+                _sorted_object_id_position(
+                    changed_ids,
+                    object_id,
+                ),
+            ) || return false
+        end
+        destination_batch = last(batches)
+        for object_id in changed_ids
+            execution_target = _compiled_model_execution_target(
+                compiled,
+                env_bindings,
+                application,
+                object_id,
+                temporal_streams,
+                output_retention,
+                constants,
+            )
+            _model_execution_batch_accepts_target(
+                destination_batch,
+                execution_target,
+                env_bindings,
+                application,
+            ) || return false
+            push!(staged, (destination_batch.targets, execution_target))
+        end
+    end
+    for (targets, execution_target) in staged
+        push!(targets, execution_target)
+    end
+    for (call_targets, binding) in staged_bindings
+        call_targets.binding = binding
+    end
+    target.call_bindings = current_call_bindings
+    target.call_bindings_signature =
+        _call_bindings_signature(current_call_bindings)
+    _runtime_performance_count!(
+        performance,
+        :execution_target_call_delta_extensions,
+    )
+    _runtime_performance_count!(
+        performance,
+        :execution_target_call_delta_targets_added,
+        length(staged),
+    )
+    return true
+end
+
+function _extend_execution_target_call_batches!(
+    target::CompiledExecutionTarget,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    temporal_streams,
+    output_retention,
+    constants,
+    performance=nothing,
+)
+    pure_addition_result =
+        _extend_execution_target_call_batches_for_pure_addition!(
+            target,
+            compiled,
+            env_bindings,
+            temporal_streams,
+            output_retention,
+            constants,
+            performance,
+        )
+    isnothing(pure_addition_result) || return pure_addition_result
+    return _extend_execution_target_call_batches_by_prefix!(
+        target,
+        compiled,
+        env_bindings,
+        temporal_streams,
+        output_retention,
+        constants,
+    )
 end
 
 function _refresh_model_execution_group_delta!(
@@ -3629,6 +4091,7 @@ function _refresh_model_execution_group_delta!(
                 env_bindings,
                 application,
                 output_retention,
+                temporal_streams,
             )
         end
         isnothing(change_reason) && continue
@@ -3640,6 +4103,7 @@ function _refresh_model_execution_group_delta!(
             temporal_streams,
             output_retention,
             constants,
+            performance,
         )
             _runtime_performance_count!(
                 performance,
@@ -3791,6 +4255,7 @@ function _refresh_model_execution_plan(
                 env_bindings,
                 application,
                 output_retention,
+                temporal_streams,
             )
                 push!(groups, previous_group)
                 append!(batches, previous_group.batches)
@@ -3838,6 +4303,7 @@ function _refresh_model_execution_plan(
                     env_bindings,
                     application,
                     output_retention,
+                    temporal_streams,
                 )
             end
             if isnothing(change_reason)
@@ -4312,7 +4778,12 @@ end
 function _call_binding_target_matches(binding, application, object_id::ObjectId)
     return (binding.multiplicity != :many &&
             length(binding.callee_application_ids) == 1) ||
-           object_id in application.target_ids
+           first(
+               _sorted_object_id_position(
+                   application.target_ids,
+                   object_id,
+               ),
+           )
 end
 
 _call_target_matches(targets::CallTargets, application, object_id::ObjectId) =
@@ -4491,7 +4962,9 @@ end
     _compiled_call_mode(targets.binding) === :manual ||
         _initializer_requires_dedicated_api(context, name)
     length(targets) == 1 || _call_model_target_count_error(name, targets)
-    return _single_call_model(targets.execution_batches)
+    return _single_call_model(
+        _materialize_call_execution_batches!(targets),
+    )
 end
 
 
@@ -5340,7 +5813,7 @@ function _run_call_targets!(
 )
     _run_compiled_call_batches!(
         targets,
-        targets.execution_batches,
+        _materialize_call_execution_batches!(targets),
         publish,
         sampled_environment,
         environment,

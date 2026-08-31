@@ -5,17 +5,29 @@ using Test
 PlantSimEngine.@process "nested_call_leaf" verbose = false
 PlantSimEngine.@process "nested_call_middle" verbose = false
 PlantSimEngine.@process "nested_call_root" verbose = false
+PlantSimEngine.@process "nested_many_middle" verbose = false
+PlantSimEngine.@process "nested_many_root" verbose = false
 PlantSimEngine.@process "many_call_controller" verbose = false
+PlantSimEngine.@process "selective_many_call_controller" verbose = false
 PlantSimEngine.@process "call_return_shape" verbose = false
 
 struct NestedCallLeafModel <: AbstractNested_Call_LeafModel end
 struct NestedCallMiddleModel <: AbstractNested_Call_MiddleModel end
 struct NestedCallRootModel <: AbstractNested_Call_RootModel end
+struct NestedManyMiddleModel <: AbstractNested_Many_MiddleModel end
+struct NestedManyRootModel <: AbstractNested_Many_RootModel end
 struct ManyCallControllerModel <: AbstractMany_Call_ControllerModel end
+struct SelectiveManyCallControllerModel{O} <:
+       AbstractSelective_Many_Call_ControllerModel
+    objects::O
+end
 struct CallReturnShapeModel <: AbstractCall_Return_ShapeModel end
 
 const CALL_RETURN_CONTEXT = Ref{Any}()
 const NESTED_ROOT_CONTEXT = Ref{Any}()
+const NESTED_MANY_MIDDLE_CONTEXT = Ref{Any}()
+const MANY_CALL_CONTEXT = Ref{Any}()
+const LAZY_MANY_CALL_CONTEXT = Ref{Any}()
 
 function call_lookup_allocations(context)
     call_targets(context, :one)
@@ -83,8 +95,45 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+PlantSimEngine.inputs_(::NestedManyMiddleModel) = NamedTuple()
+PlantSimEngine.outputs_(::NestedManyMiddleModel) = (total=0.0, ncalls=0)
+
+function PlantSimEngine.run!(
+    ::NestedManyMiddleModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    NESTED_MANY_MIDDLE_CONTEXT[] = context
+    leaves = run_call!(context, :leaves; publish=true)
+    status.ncalls = length(leaves)
+    status.total = sum((leaf.status.value for leaf in leaves); init=0.0)
+    return nothing
+end
+
+PlantSimEngine.inputs_(::NestedManyRootModel) = NamedTuple()
+PlantSimEngine.outputs_(::NestedManyRootModel) = (total=0.0, ncalls=0)
+
+function PlantSimEngine.run!(
+    ::NestedManyRootModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    middle = only(run_call!(context, :middle; publish=true))
+    status.ncalls = middle.status.ncalls
+    status.total = middle.status.total
+    return nothing
+end
+
 PlantSimEngine.inputs_(::ManyCallControllerModel) = NamedTuple()
 PlantSimEngine.outputs_(::ManyCallControllerModel) = (total=0.0, ncalls=0)
+
+PlantSimEngine.inputs_(::SelectiveManyCallControllerModel) = NamedTuple()
+PlantSimEngine.outputs_(::SelectiveManyCallControllerModel) =
+    (selected_total=0.0, selected_count=0)
 
 function PlantSimEngine.run!(
     ::ManyCallControllerModel,
@@ -93,9 +142,32 @@ function PlantSimEngine.run!(
     constants,
     context,
 )
+    MANY_CALL_CONTEXT[] = context
     targets = run_call!(context, :children; publish=true)
     status.ncalls = length(targets)
     status.total = sum((target.status.value for target in targets); init=0.0)
+    return nothing
+end
+
+function PlantSimEngine.run!(
+    model::SelectiveManyCallControllerModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    LAZY_MANY_CALL_CONTEXT[] = context
+    selected = run_call!(
+        context,
+        :children;
+        objects=model.objects,
+        publish=true,
+    )
+    status.selected_count = length(selected)
+    status.selected_total = sum(
+        (target.status.value for target in selected);
+        init=0.0,
+    )
     return nothing
 end
 
@@ -173,6 +245,64 @@ end
     )
     @test statuses[:leaf].calls == 3
     @test statuses[:middle].calls == 3
+end
+
+@testset "nested manual Many owners refresh transitively" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:middle; scale=:Plant, name=:middle, parent=:scene),
+        Object(:leaf_a; scale=:Leaf, parent=:middle);
+        applications=(
+            ModelSpec(
+                NestedManyRootModel();
+                name=:root,
+                on=One(name=:scene),
+                calls=(
+                    :middle => One(
+                        name=:middle,
+                        within=Subtree(),
+                        application=:middle,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedManyMiddleModel();
+                name=:middle,
+                on=One(name=:middle),
+                calls=(
+                    :leaves => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:leaf,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:leaf,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none)
+    root = only(model_objects(model; name=:scene)).status
+    scenario_plan = simulation.compiled.scenario_plan
+    @test root.ncalls == 1
+    @test root.total == 1.0
+    @test length(call_targets(NESTED_MANY_MIDDLE_CONTEXT[], :leaves)) == 1
+
+    register_object!(
+        model,
+        Object(:leaf_b; scale=:Leaf, parent=:middle),
+    )
+    continue!(simulation)
+
+    @test simulation.compiled.scenario_plan === scenario_plan
+    @test root.ncalls == 2
+    @test root.total == 3.0
+    @test length(call_targets(NESTED_MANY_MIDDLE_CONTEXT[], :leaves)) == 2
 end
 
 @testset "hard-call ownership cycles fail before execution" begin
@@ -389,6 +519,14 @@ end
     )
     @test getproperty.(rows, :object_id) == [:leaf_a, :leaf_b]
     @test getproperty.(rows, :value) == [1.0, 1.0]
+    initial_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
+    initial_execution_targets = [
+        target
+        for batch in initial_call_view.execution_batches
+        for target in batch.targets
+    ]
+    @test getproperty.(initial_execution_targets, :object_id) ==
+          ObjectId[ObjectId(:leaf_a), ObjectId(:leaf_b)]
 
     register_object!(
         model,
@@ -397,6 +535,17 @@ end
     continue!(simulation; steps=1)
     performance = Advanced.runtime_performance(simulation)
     @test performance.counts[:execution_target_call_batches_extended] == 1
+    refreshed_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
+    refreshed_execution_targets = [
+        target
+        for batch in refreshed_call_view.execution_batches
+        for target in batch.targets
+    ]
+    @test refreshed_call_view === initial_call_view
+    @test refreshed_execution_targets[1] === initial_execution_targets[1]
+    @test refreshed_execution_targets[2] === initial_execution_targets[2]
+    @test getproperty.(refreshed_execution_targets, :object_id) ==
+          ObjectId[ObjectId(:leaf_a), ObjectId(:leaf_b), ObjectId(:leaf_c)]
     @test controller.ncalls == 3
     @test controller.total == 5.0
 
@@ -404,6 +553,268 @@ end
     continue!(simulation; steps=1)
     @test controller.ncalls == 2
     @test controller.total == 5.0
+end
+
+@testset "large monotonic Many call extension preserves existing targets" begin
+    initial_count = 128
+    initial_leaf_ids = Symbol[
+        Symbol("leaf_", lpad(string(index), 3, '0'))
+        for index in 1:initial_count
+    ]
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        (
+            Object(leaf_id; scale=:Leaf, parent=:scene)
+            for leaf_id in initial_leaf_ids
+        )...;
+        applications=(
+            ModelSpec(
+                ManyCallControllerModel();
+                name=:controller,
+                on=One(name=:scene),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=SceneScope(),
+                        application=:leaf_calls,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:leaf_calls,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none, performance=true)
+    controller = only(model_objects(model; scale=:Scene)).status
+    initial_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
+    initial_execution_targets = [
+        target
+        for batch in initial_call_view.execution_batches
+        for target in batch.targets
+    ]
+    @test length(initial_execution_targets) == initial_count
+    @test getproperty.(initial_execution_targets, :object_id) ==
+          ObjectId.(initial_leaf_ids)
+    @test controller.ncalls == initial_count
+    @test controller.total == initial_count
+
+    added_leaf_id = :leaf_129
+    register_object!(
+        model,
+        Object(added_leaf_id; scale=:Leaf, parent=:scene),
+    )
+    continue!(simulation)
+
+    refreshed_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
+    refreshed_execution_targets = [
+        target
+        for batch in refreshed_call_view.execution_batches
+        for target in batch.targets
+    ]
+    @test refreshed_call_view === initial_call_view
+    @test length(refreshed_execution_targets) == initial_count + 1
+    @test all(
+        refreshed_execution_targets[index] === initial_execution_targets[index]
+        for index in eachindex(initial_execution_targets)
+    )
+    @test refreshed_execution_targets[end].object_id == ObjectId(added_leaf_id)
+    @test all(
+        refreshed_execution_targets[end] !== initial_target
+        for initial_target in initial_execution_targets
+    )
+    @test Advanced.runtime_performance(simulation).counts[
+        :execution_target_call_batches_extended
+    ] == 1
+    @test Advanced.runtime_performance(simulation).counts[
+        :execution_target_call_delta_extensions
+    ] == 1
+    @test Advanced.runtime_performance(simulation).counts[
+        :execution_target_call_delta_targets_added
+    ] == 1
+    @test controller.ncalls == initial_count + 1
+    @test controller.total == 2 * initial_count + 1
+end
+
+@testset "large selective Many call remains lazy until full inspection" begin
+    initial_count = 128
+    initial_leaf_ids = Symbol[
+        Symbol("lazy_leaf_", lpad(string(index), 3, '0'))
+        for index in 1:initial_count
+    ]
+    selected_leaf_ids = (
+        initial_leaf_ids[1],
+        initial_leaf_ids[div(initial_count, 2)],
+        initial_leaf_ids[end],
+    )
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        (
+            Object(leaf_id; scale=:Leaf, parent=:scene)
+            for leaf_id in initial_leaf_ids
+        )...;
+        applications=(
+            ModelSpec(
+                SelectiveManyCallControllerModel(selected_leaf_ids);
+                name=:selective_controller,
+                on=One(name=:scene),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=SceneScope(),
+                        application=:selective_leaf_calls,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:selective_leaf_calls,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none)
+    controller = only(model_objects(model; scale=:Scene)).status
+    context = LAZY_MANY_CALL_CONTEXT[]
+    full_call_view = call_targets(context, :children)
+    @test !PlantSimEngine._call_execution_batches_materialized(
+        full_call_view,
+    )
+    @test controller.selected_count == length(selected_leaf_ids)
+    @test controller.selected_total == length(selected_leaf_ids)
+    @test all(
+        model_status(model, leaf_id).calls == 1
+        for leaf_id in selected_leaf_ids
+    )
+    @test all(
+        model_status(model, leaf_id).calls == 0
+        for leaf_id in setdiff(initial_leaf_ids, selected_leaf_ids)
+    )
+
+    @test call_targets(context, :children) === full_call_view
+    @test !PlantSimEngine._call_execution_batches_materialized(
+        full_call_view,
+    )
+    @test length(full_call_view) == initial_count
+    @test PlantSimEngine._call_execution_batches_materialized(full_call_view)
+    materialized_targets = collect(full_call_view)
+    @test getproperty.(materialized_targets, :object_id) ==
+          ObjectId.(initial_leaf_ids)
+    @test all(
+        model_status(model, leaf_id).calls ==
+        (leaf_id in selected_leaf_ids ? 1 : 0)
+        for leaf_id in initial_leaf_ids
+    )
+
+    executed_targets = run_call!(context, :children; publish=true)
+    @test executed_targets === full_call_view
+    @test PlantSimEngine._call_execution_batches_materialized(
+        executed_targets,
+    )
+    @test sum(target.status.calls for target in executed_targets) ==
+          initial_count + length(selected_leaf_ids)
+    @test sum(target.status.value for target in executed_targets) ==
+          initial_count + length(selected_leaf_ids)
+end
+
+@testset "non-monotonic Many call additions use the rebuild path" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:leaf_b; scale=:Leaf, parent=:scene),
+        Object(:leaf_c; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(
+                ManyCallControllerModel();
+                name=:controller,
+                on=One(name=:scene),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=SceneScope(),
+                        application=:leaf_calls,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:leaf_calls,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none, performance=true)
+    initial_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
+    register_object!(
+        model,
+        Object(:leaf_a; scale=:Leaf, parent=:scene),
+    )
+    continue!(simulation)
+
+    refreshed_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
+    refreshed_object_ids = ObjectId[
+        target.object_id
+        for batch in refreshed_call_view.execution_batches
+        for target in batch.targets
+    ]
+    @test refreshed_object_ids ==
+          ObjectId[ObjectId(:leaf_a), ObjectId(:leaf_b), ObjectId(:leaf_c)]
+    @test refreshed_call_view !== initial_call_view
+    @test get(
+        Advanced.runtime_performance(simulation).counts,
+        :execution_target_call_batches_extended,
+        0,
+    ) == 0
+end
+
+@testset "reparented Many call targets rebuild within a stable scope" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:plant_a; scale=:Plant, parent=:scene),
+        Object(:plant_b; scale=:Plant, parent=:scene),
+        Object(:leaf; scale=:Leaf, parent=:plant_a);
+        applications=(
+            ModelSpec(
+                ManyCallControllerModel();
+                name=:controller,
+                on=One(name=:scene),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=SceneScope(),
+                        application=:leaf_calls,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:leaf_calls,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none, performance=true)
+    reparent_object!(model, :leaf, :plant_b)
+    continue!(simulation)
+
+    refreshed_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
+    refreshed_execution_target =
+        only(only(refreshed_call_view.execution_batches).targets)
+    @test refreshed_execution_target.object_id == ObjectId(:leaf)
+    @test get(
+        Advanced.runtime_performance(simulation).counts,
+        :execution_target_call_batches_extended,
+        0,
+    ) == 0
 end
 
 @testset "call targets refresh after reparenting" begin

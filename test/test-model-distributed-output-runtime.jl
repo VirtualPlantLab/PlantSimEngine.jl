@@ -86,6 +86,21 @@ function _distributed_runtime_value(object_id::ObjectId, time::Real)
     return coefficient * float(time)
 end
 
+function _distributed_runtime_execution_target(
+    simulation,
+    application_id::Symbol,
+    object_id::ObjectId,
+)
+    return only(
+        target
+        for group in simulation.execution_plan.groups
+        if group.application.id == application_id
+        for batch in group.batches
+        for target in batch.targets
+        if target.object_id == object_id
+    )
+end
+
 function PlantSimEngine.run!(
     model::DistributedRuntimeSceneWriterModel,
     status,
@@ -319,12 +334,32 @@ end
         application=:distributed_runtime_writer,
     )
     retained_simulation = run!(retained_model; outputs=request)
+    empty_writer_target = _distributed_runtime_execution_target(
+        retained_simulation,
+        :distributed_runtime_writer,
+        ObjectId(:scene),
+    )
+    empty_distributed_output = only(
+        output for output in empty_writer_target.output_bindings
+        if output isa PlantSimEngine.RuntimeDistributedOutputStream
+    )
+    @test isempty(empty_distributed_output.streams)
     register_object!(
         retained_model,
         Object(:late_leaf; scale=:Leaf);
         parent=:plant,
     )
     continue!(retained_simulation)
+    populated_writer_target = _distributed_runtime_execution_target(
+        retained_simulation,
+        :distributed_runtime_writer,
+        ObjectId(:scene),
+    )
+    @test populated_writer_target !== empty_writer_target
+    @test length(only(
+        output for output in populated_writer_target.output_bindings
+        if output isa PlantSimEngine.RuntimeDistributedOutputStream
+    ).streams) == 1
     @test outputs(retained_simulation)[
         (
             :distributed_runtime_writer,
@@ -339,6 +374,81 @@ end
     )
     @test getproperty.(retained_rows, :timestep) == [2]
     @test getproperty.(retained_rows, :object_id) == [:late_leaf]
+end
+
+@testset "monotonic distributed additions extend retained streams in place" begin
+    model = _distributed_runtime_two_plant_scene()
+    simulation = run!(model; outputs=:all)
+    writer_target = _distributed_runtime_execution_target(
+        simulation,
+        :distributed_runtime_writer,
+        ObjectId(:scene),
+    )
+    distributed_output = only(
+        output for output in writer_target.output_bindings
+        if output isa PlantSimEngine.RuntimeDistributedOutputStream
+    )
+    runtime_streams = distributed_output.streams
+    leaf_a_stream = outputs(simulation)[
+        (:distributed_runtime_writer, ObjectId(:leaf_a), :incident_par)
+    ]
+    @test length(runtime_streams) == 2
+
+    register_object!(
+        model,
+        Object(:z_late_leaf; scale=:Leaf);
+        parent=:plant_a,
+    )
+    continue!(simulation)
+
+    refreshed_writer_target = _distributed_runtime_execution_target(
+        simulation,
+        :distributed_runtime_writer,
+        ObjectId(:scene),
+    )
+    refreshed_distributed_output = only(
+        output for output in refreshed_writer_target.output_bindings
+        if output isa PlantSimEngine.RuntimeDistributedOutputStream
+    )
+    @test refreshed_writer_target === writer_target
+    @test refreshed_distributed_output === distributed_output
+    @test refreshed_distributed_output.streams === runtime_streams
+    @test length(runtime_streams) == 3
+    @test runtime_streams[1] === leaf_a_stream
+    @test outputs(simulation)[
+        (:distributed_runtime_writer, ObjectId(:z_late_leaf), :incident_par)
+    ] == [(2.0, 2.0)]
+end
+
+@testset "targeted stream initialization follows affected distributed writers" begin
+    model = _distributed_runtime_two_plant_scene()
+    compiled = Advanced.refresh_bindings!(model)
+    retention = PlantSimEngine.compile_model_output_retention(
+        compiled,
+        ();
+        retain_all=true,
+    )
+    streams = Dict{Tuple{Symbol,ObjectId,Symbol},Any}()
+    PlantSimEngine._initialize_model_output_streams!(
+        streams,
+        compiled,
+        retention,
+        0,
+        Set([(:distributed_runtime_writer, ObjectId(:scene))]),
+    )
+
+    @test Set(keys(streams)) == Set([
+        (
+            :distributed_runtime_writer,
+            ObjectId(:leaf_a),
+            :incident_par,
+        ),
+        (
+            :distributed_runtime_writer,
+            ObjectId(:leaf_b),
+            :incident_par,
+        ),
+    ])
 end
 
 @testset "Updates defines the final distributed-output producer" begin
@@ -779,6 +889,16 @@ end
     )
     retained_stream = outputs(simulation)[stream_key]
     @test retained_stream == [(1.0, 1.0)]
+    plant_a_target = _distributed_runtime_execution_target(
+        simulation,
+        :distributed_runtime_plant_writer,
+        ObjectId(:plant_a),
+    )
+    plant_b_target = _distributed_runtime_execution_target(
+        simulation,
+        :distributed_runtime_plant_writer,
+        ObjectId(:plant_b),
+    )
     initial_targets =
         simulation.compiled.distributed_outputs.by_execution_target
     @test initial_targets[
@@ -795,6 +915,18 @@ end
 
     reparented_targets =
         simulation.compiled.distributed_outputs.by_execution_target
+    reparented_plant_a_target = _distributed_runtime_execution_target(
+        simulation,
+        :distributed_runtime_plant_writer,
+        ObjectId(:plant_a),
+    )
+    reparented_plant_b_target = _distributed_runtime_execution_target(
+        simulation,
+        :distributed_runtime_plant_writer,
+        ObjectId(:plant_b),
+    )
+    @test reparented_plant_a_target !== plant_a_target
+    @test reparented_plant_b_target !== plant_b_target
     @test isempty(
         reparented_targets[
             (:distributed_runtime_plant_writer, ObjectId(:plant_a))
@@ -822,6 +954,12 @@ end
 
     removed_targets =
         simulation.compiled.distributed_outputs.by_execution_target
+    removed_plant_b_target = _distributed_runtime_execution_target(
+        simulation,
+        :distributed_runtime_plant_writer,
+        ObjectId(:plant_b),
+    )
+    @test removed_plant_b_target !== reparented_plant_b_target
     @test all(
         isempty(
             removed_targets[

@@ -94,6 +94,24 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+struct StabilizationSafeLaggedSumModel <: AbstractStabilization_Lagged_SumModel end
+
+PlantSimEngine.inputs_(::StabilizationSafeLaggedSumModel) =
+    (previous_signals=Default([0.0]),)
+PlantSimEngine.outputs_(::StabilizationSafeLaggedSumModel) =
+    (lagged_total=0.0,)
+
+function PlantSimEngine.run!(
+    ::StabilizationSafeLaggedSumModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    status.lagged_total = sum(status.previous_signals; init=0.0)
+    return nothing
+end
+
 @testset "one-object lowering and initialization report" begin
     model = CompositeModel(
         StabilizationSourceModel(),
@@ -1005,6 +1023,80 @@ function stabilization_selector_candidate_scene(nplants)
     )
 end
 
+function stabilization_scoped_label_candidate_scene()
+    return CompositeModel(
+        Object(:scene; scale=:Scene, kind=:scene),
+        Object(:plant_1; scale=:Plant, parent=:scene),
+        Object(
+            :plant_1_leaf;
+            scale=:Leaf,
+            parent=:plant_1,
+            status=Status(supplied=0.0),
+        ),
+        Object(:plant_2; scale=:Plant, parent=:scene),
+        Object(
+            :plant_2_leaf;
+            scale=:Leaf,
+            parent=:plant_2,
+            status=Status(supplied=0.0),
+        );
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                name=:plant_source,
+                on=Many(scale=:Plant),
+            ),
+            ModelSpec(
+                StabilizationConsumerModel();
+                name=:leaf_consumer,
+                on=Many(scale=:Leaf),
+                inputs=(
+                    :signal => One(
+                        scale=(:Plant, :Axis),
+                        within=SelfPlant(),
+                        application=:plant_source,
+                        var=:signal,
+                    ),
+                ),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+end
+
+function stabilization_relation_candidate_scene()
+    return CompositeModel(
+        Object(:plant; scale=:Plant),
+        Object(
+            :leaf_a;
+            scale=:Leaf,
+            name=:leaf_a,
+            parent=:plant,
+        );
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                name=:leaf_source,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                StabilizationSafeLaggedSumModel();
+                name=:sibling_sum,
+                on=One(name=:leaf_a),
+                inputs=(
+                    :previous_signals => Many(
+                        Relation(:siblings);
+                        scale=:Leaf,
+                        application=:leaf_source,
+                        var=:signal,
+                    ),
+                ),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+end
+
 function stabilization_selector_candidate_refresh_allocations(nplants)
     model = stabilization_selector_candidate_scene(nplants)
     simulation = run!(model; outputs=:none)
@@ -1052,6 +1144,54 @@ end
     )
     @test isempty(plant_bindings[:plant_1])
     @test plant_bindings[:plant_2] == [:plant_1_leaf, :plant_2_leaf]
+
+    scoped_label_model = stabilization_scoped_label_candidate_scene()
+    scoped_label_simulation = run!(
+        scoped_label_model;
+        outputs=:none,
+        performance=true,
+    )
+    register_object!(
+        scoped_label_model,
+        Object(
+            :zz_new_leaf;
+            scale=:Leaf,
+            parent=:plant_1,
+            status=Status(supplied=0.0),
+        ),
+    )
+    continue!(scoped_label_simulation)
+    scoped_label_counts =
+        Advanced.runtime_performance(scoped_label_simulation).counts
+    @test scoped_label_counts[:selector_input_binding_candidates] == 0
+    new_leaf_binding = only(
+        row for row in explain_bindings(scoped_label_model)
+        if row.application_id == :leaf_consumer &&
+           row.consumer_id == :zz_new_leaf &&
+           row.input == :signal
+    )
+    @test new_leaf_binding.source_ids == [:plant_1]
+
+    relation_model = stabilization_relation_candidate_scene()
+    relation_simulation = run!(
+        relation_model;
+        outputs=:none,
+        performance=true,
+    )
+    register_object!(
+        relation_model,
+        Object(:leaf_b; scale=:Leaf, parent=:plant),
+    )
+    continue!(relation_simulation)
+    relation_counts = Advanced.runtime_performance(relation_simulation).counts
+    @test relation_counts[:selector_input_binding_candidates] == 1
+    sibling_binding = only(
+        row for row in explain_bindings(relation_model)
+        if row.application_id == :sibling_sum &&
+           row.consumer_id == :leaf_a &&
+           row.input == :previous_signals
+    )
+    @test sibling_binding.source_ids == [:leaf_b]
 
     stabilization_selector_candidate_refresh_allocations(8)
     small_allocations = minimum(
@@ -1476,6 +1616,11 @@ end
 
     original_view =
         simulation.compiled.status_views_by_target[(:source, ObjectId(:leaf_1))]
+    original_status = only(model_objects(model; scale=:Leaf)).status
+    @test original_view.status === original_status
+    @test original_view.canonical_status === original_status
+    @test isempty(original_view.temporal_inputs)
+    @test isempty(original_view.private_outputs)
     previous_runtime_revision = model.runtime_revision
     register_object!(model, Object(:leaf_2; scale=:Leaf))
     @test model.runtime_revision == previous_runtime_revision + 1
@@ -1553,6 +1698,18 @@ end
     original_plant_view =
         simulation.compiled.status_views_by_target[(:lagged_sum, ObjectId(:plant))]
     original_temporal_input = only(original_plant_view.temporal_inputs)
+    original_temporal_storage = original_temporal_input.reference[]
+    original_temporal_reference = only(parent(original_temporal_storage))
+    original_lagged_target = only(
+        target
+        for batch in simulation.execution_plan.batches
+        if batch.application.id == :lagged_sum
+        for target in batch.targets
+    )
+    original_runtime_temporal_input = only(original_lagged_target.input_bindings)
+    original_source_stream = only(
+        original_runtime_temporal_input.source_streams,
+    )
     @test collect(original_temporal_input.reference[]) == [0.0]
 
     register_object!(
@@ -1572,20 +1729,177 @@ end
         simulation.compiled.status_views_by_target[(:lagged_sum, ObjectId(:plant))]
     refreshed_temporal_input = only(refreshed_plant_view.temporal_inputs)
     @test refreshed_leaf_view === original_leaf_view
-    @test refreshed_plant_view !== original_plant_view
+    @test refreshed_plant_view === original_plant_view
+    @test refreshed_temporal_input === original_temporal_input
+    @test refreshed_temporal_input.reference[] === original_temporal_storage
+    @test first(parent(refreshed_temporal_input.reference[])) ===
+          original_temporal_reference
     @test refreshed_temporal_input.binding.source_ids ==
           ObjectId.([:leaf_1, :leaf_2])
+    refreshed_lagged_target = only(
+        target
+        for batch in simulation.execution_plan.batches
+        if batch.application.id == :lagged_sum
+        for target in batch.targets
+    )
+    refreshed_runtime_temporal_input =
+        only(refreshed_lagged_target.input_bindings)
+    @test refreshed_lagged_target === original_lagged_target
+    @test refreshed_runtime_temporal_input ===
+          original_runtime_temporal_input
+    @test first(refreshed_runtime_temporal_input.source_streams) ===
+          original_source_stream
+    @test length(refreshed_runtime_temporal_input.source_streams) == 2
     @test plant_status.lagged_total == 1.0
 
     continue!(simulation)
     @test plant_status.lagged_total == 3.0
     performance = Advanced.runtime_performance(simulation)
-    @test performance.counts[:status_views_constructed] == 2
+    @test performance.counts[:status_views_constructed] == 1
     @test performance.counts[:lifecycle_barriers] == 1
     @test performance.counts[:lifecycle_added_objects] == 1
     @test performance.counts[:lifecycle_environment_dirty_objects] == 1
     @test performance.counts[:output_retention_reuses] == 1
     @test !haskey(performance.counts, :output_retention_compiles)
+end
+
+@testset "incremental Many source applications use the complete source set" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant; scale=:Plant, parent=:scene),
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:produced,
+            parent=:plant,
+        );
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                name=:source,
+                on=Many(scale=:Leaf, kind=:produced),
+            ),
+            ModelSpec(
+                StabilizationSafeLaggedSumModel();
+                name=:sum,
+                on=One(scale=:Plant),
+                inputs=(
+                    :previous_signals => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:source,
+                        var=:signal,
+                    ),
+                ),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+    simulation = run!(model; outputs=:none)
+    plant = only(model_objects(model; scale=:Plant)).status
+    binding = only(
+        simulation.compiled.input_bindings_by_target[
+            (:sum, ObjectId(:plant))
+        ],
+    )
+    carrier = binding.carrier
+    @test plant.lagged_total == 1.0
+    @test binding.source_application_ids == [:source]
+
+    register_object!(
+        model,
+        Object(
+            :leaf_2;
+            scale=:Leaf,
+            kind=:supplied,
+            parent=:plant,
+            status=Status(signal=10.0),
+        ),
+    )
+    continue!(simulation)
+
+    refreshed_binding = only(
+        simulation.compiled.input_bindings_by_target[
+            (:sum, ObjectId(:plant))
+        ],
+    )
+    @test refreshed_binding === binding
+    @test refreshed_binding.carrier === carrier
+    @test refreshed_binding.source_ids == ObjectId.([:leaf_1, :leaf_2])
+    @test refreshed_binding.source_application_ids == [:source]
+    @test plant.lagged_total == 12.0
+end
+
+@testset "new consumers reuse an updated plant-wide Many carrier" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant; scale=:Plant, parent=:scene),
+        Object(:leaf_1; scale=:Leaf, parent=:plant),
+        Object(:axis_1; scale=:Axis, parent=:plant);
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                name=:source,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                StabilizationSafeLaggedSumModel();
+                name=:plant_wide_sum,
+                on=Many(scale=:Axis),
+                inputs=(
+                    :previous_signals => Many(
+                        scale=:Leaf,
+                        within=SelfPlant(),
+                        application=:source,
+                        var=:signal,
+                    ),
+                ),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+    simulation = run!(model; outputs=:none, performance=true)
+    original_binding = only(
+        simulation.compiled.input_bindings_by_target[
+            (:plant_wide_sum, ObjectId(:axis_1))
+        ],
+    )
+
+    register_object!(model, Object(:leaf_2; scale=:Leaf, parent=:plant))
+    register_object!(model, Object(:axis_2; scale=:Axis, parent=:plant))
+    continue!(simulation)
+
+    refreshed_binding = only(
+        simulation.compiled.input_bindings_by_target[
+            (:plant_wide_sum, ObjectId(:axis_1))
+        ],
+    )
+    new_binding = only(
+        simulation.compiled.input_bindings_by_target[
+            (:plant_wide_sum, ObjectId(:axis_2))
+        ],
+    )
+    @test refreshed_binding === original_binding
+    @test new_binding.source_ids === original_binding.source_ids
+    @test new_binding.source_application_ids ===
+          original_binding.source_application_ids
+    @test new_binding.carrier === original_binding.carrier
+    @test new_binding.source_ids == ObjectId.([:leaf_1, :leaf_2])
+    axis_2_status =
+        PlantSimEngine._model_object(model, ObjectId(:axis_2)).status
+    @test propertynames(axis_2_status) ==
+          (:lagged_total, :previous_signals)
+    @test axis_2_status.previous_signals === new_binding.carrier
+    @test :previous_signals ∉ get(
+        model.input_default_status_variables,
+        ObjectId(:axis_2),
+        Set{Symbol}(),
+    )
+    @test PlantSimEngine._model_object(model, ObjectId(:axis_1)).status !==
+          axis_2_status
+    performance = Advanced.runtime_performance(simulation)
+    @test performance.counts[:many_input_binding_precompile_reuses] == 1
+    @test performance.counts[:input_default_status_rewrites_avoided] == 1
 end
 
 @testset "incremental execution plan reuses unaffected groups" begin

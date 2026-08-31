@@ -6,6 +6,7 @@ using Test
 PlantSimEngine.@process "status_type_lifecycle_increment" verbose = false
 PlantSimEngine.@process "status_type_lifecycle_stream_writer" verbose = false
 PlantSimEngine.@process "status_type_lifecycle_stream_consumer" verbose = false
+PlantSimEngine.@process "status_type_lifecycle_bound_consumer" verbose = false
 
 struct StatusTypeLifecycleIncrementModel <:
        AbstractStatus_Type_Lifecycle_IncrementModel end
@@ -58,6 +59,25 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+struct StatusTypeLifecycleBoundConsumerModel <:
+       AbstractStatus_Type_Lifecycle_Bound_ConsumerModel end
+
+PlantSimEngine.inputs_(::StatusTypeLifecycleBoundConsumerModel) =
+    (bound_value=Default(-1.0),)
+PlantSimEngine.outputs_(::StatusTypeLifecycleBoundConsumerModel) =
+    (seen=0.0,)
+
+function PlantSimEngine.run!(
+    ::StatusTypeLifecycleBoundConsumerModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    status.seen = status.bound_value
+    return nothing
+end
+
 struct StatusTypeLifecycleTransformCounter
     calls::Base.RefValue{Int}
 end
@@ -65,6 +85,78 @@ end
 function (counter::StatusTypeLifecycleTransformCounter)(variable, value)
     counter.calls[] += 1
     return value
+end
+
+@testset "pure additions preserve bound-default conversion diagnostics" begin
+    calls = Ref(0)
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant; scale=:Plant, parent=:scene),
+        Object(:leaf_1; scale=:Leaf, parent=:plant);
+        applications=(
+            ModelSpec(
+                StatusTypeLifecycleIncrementModel();
+                name=:lifecycle_increment,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                StatusTypeLifecycleBoundConsumerModel();
+                name=:bound_consumer,
+                on=Many(scale=:Leaf),
+                inputs=(
+                    bound_value=One(
+                        within=Self(),
+                        application=:lifecycle_increment,
+                        var=:value,
+                    ),
+                ),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+        type_promotion=Dict(Float64 => Float32),
+        status_transform=StatusTypeLifecycleTransformCounter(calls),
+    )
+    simulation = run!(model; outputs=:none, performance=true)
+    calls_before_addition = calls[]
+
+    register_object!(
+        model,
+        Object(:leaf_2; scale=:Leaf, parent=:plant),
+    )
+    continue!(simulation)
+
+    status = model_status(model, :leaf_2)
+    @test propertynames(status) == (:value, :seen, :bound_value)
+    @test PlantSimEngine.refvalue(status, :bound_value) ===
+          PlantSimEngine.refvalue(status, :value)
+    @test status.bound_value === Float32(1)
+    @test status.seen === Float32(1)
+    @test calls[] == calls_before_addition + 3
+    @test haskey(
+        model.status_conversion_records,
+        (
+            :model_input_default,
+            :bound_consumer,
+            ObjectId(:leaf_2),
+            :bound_value,
+        ),
+    )
+    @test :bound_value ∉ get(
+        model.input_default_status_variables,
+        ObjectId(:leaf_2),
+        Set{Symbol}(),
+    )
+    initialization = only(
+        row for row in Diagnostics.explain_initialization(simulation)
+        if row.application_id == :bound_consumer &&
+           row.object_id == :leaf_2 &&
+           row.variable == :bound_value
+    )
+    @test initialization.disposition == :producer_bound
+    @test initialization.status_transform_applied
+    @test initialization.type_mapping_applied
+    performance = Advanced.runtime_performance(simulation)
+    @test performance.counts[:input_default_status_rewrites_avoided] == 1
 end
 
 @testset "register_object! converts status after compilation" begin

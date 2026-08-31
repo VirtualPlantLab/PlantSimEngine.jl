@@ -4500,6 +4500,73 @@ end
         if row.application_id == :moving_probe
     ).handle.cell == :cell_b
 
+    moving_hard_call_backend = ModelObjectMutableEnvironmentBackend(
+        :cell_a => 20.0,
+        :cell_b => 30.0,
+    )
+    moving_hard_call_scene = CompositeModel(
+        Object(
+            :scene;
+            scale=:Scene,
+            kind=:scene,
+            geometry=(cell=:cell_a,),
+            status=Status(move_count=0),
+        ),
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:plant,
+            parent=:scene,
+            geometry=(cell=:cell_a,),
+            status=Status(temperature_seen=0.0, called_temperature=0.0),
+        );
+        applications=(
+            ModelSpec(
+                ModelObjectGeometryMoverModel();
+                name=:geometry_mover,
+                on=One(scale=:Scene),
+            ),
+            ModelSpec(
+                ModelObjectEnvironmentCallSourceModel();
+                name=:environment_source,
+                on=One(scale=:Leaf),
+                environment=Environment(provider=:grid),
+            ),
+            ModelSpec(
+                ModelObjectEnvironmentCallControllerModel(32.5, true);
+                name=:environment_controller,
+                on=One(scale=:Leaf),
+                environment=Environment(provider=:grid, sink=:grid),
+                calls=(
+                    :source => One(
+                        scale=:Leaf,
+                        application=:environment_source,
+                    ),
+                ),
+            ),
+        ),
+        environment=moving_hard_call_backend,
+    )
+    moving_hard_call_simulation = run!(
+        moving_hard_call_scene;
+        outputs=:none,
+        performance=true,
+    )
+    moving_hard_call_status =
+        only(model_objects(moving_hard_call_scene; scale=:Leaf)).status
+    @test moving_hard_call_status.temperature_seen == 32.5
+    @test moving_hard_call_status.called_temperature == 32.5
+    @test moving_hard_call_backend.values ==
+          Dict(:cell_a => 20.0, :cell_b => 32.5)
+    @test only(moving_hard_call_backend.writes).cell == :cell_b
+    moving_controller_group = only(
+        group for group in moving_hard_call_simulation.execution_plan.groups
+        if group.application.id == :environment_controller
+    )
+    moving_controller_target =
+        only(only(moving_controller_group.batches).targets)
+    @test moving_controller_target.environment_binding.handle.cell == :cell_b
+
     multirate_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0));

@@ -59,11 +59,21 @@ function PlantSimEngine.run!(
 end
 
 PlantSimEngine.@process "temporal_view_many_consumer" verbose = false
+PlantSimEngine.@process "temporal_view_manual_controller" verbose = false
 
 struct TemporalViewManyConsumer <: AbstractTemporal_View_Many_ConsumerModel end
 
+struct TemporalViewManualController <:
+       AbstractTemporal_View_Manual_ControllerModel end
+
+const TEMPORAL_VIEW_MANUAL_CONTEXT = Ref{Any}()
+
 PlantSimEngine.inputs_(::TemporalViewManyConsumer) = (signals=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::TemporalViewManyConsumer) = (signal_total=0.0,)
+
+PlantSimEngine.inputs_(::TemporalViewManualController) = NamedTuple()
+PlantSimEngine.outputs_(::TemporalViewManualController) =
+    (signal_total=0.0, source_count=0)
 
 function PlantSimEngine.run!(
     ::TemporalViewManyConsumer,
@@ -74,6 +84,20 @@ function PlantSimEngine.run!(
 )
     status.signal_total = sum(status.signals)
     status.signals .= -999.0
+    return nothing
+end
+
+function PlantSimEngine.run!(
+    ::TemporalViewManualController,
+    status,
+    environment,
+    constants,
+    context,
+)
+    TEMPORAL_VIEW_MANUAL_CONTEXT[] = context
+    consumer = only(run_call!(context, :consumer; publish=true))
+    status.signal_total = consumer.status.signal_total
+    status.source_count = length(consumer.status.signals)
     return nothing
 end
 
@@ -694,6 +718,84 @@ end
     @test_throws "both a temporal input and an output" Advanced.refresh_bindings!(
         ambiguous_overlap,
     )
+end
+
+@testset "manual callee extends PreviousTimeStep Many sources in place" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, status=Status(signals=[0.0])),
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            parent=:scene,
+            status=Status(signal=1.0),
+        );
+        applications=(
+            _temporal_view_source_spec(target=Many(scale=:Leaf)),
+            ModelSpec(
+                TemporalViewManualController();
+                name=:manual_controller,
+                on=One(scale=:Scene),
+                calls=(
+                    :consumer => One(
+                        scale=:Scene,
+                        application=:manual_many_consumer,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                TemporalViewManyConsumer();
+                name=:manual_many_consumer,
+                on=One(scale=:Scene),
+                inputs=(
+                    PreviousTimeStep(:signals) => Many(
+                        scale=:Leaf,
+                        within=SceneScope(),
+                        application=:signal_source,
+                        var=:signal,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    simulation = run!(model; outputs=:all)
+    schedule = Dict(
+        row.application_id => row
+        for row in Diagnostics.explain_schedule(simulation.compiled)
+    )
+    @test schedule[:manual_many_consumer].manual_call_only
+    initial_call_view = call_targets(
+        TEMPORAL_VIEW_MANUAL_CONTEXT[],
+        :consumer,
+    )
+    initial_target = only(only(initial_call_view.execution_batches).targets)
+    initial_temporal_inputs = initial_target.input_bindings
+    @test final_state(simulation, :scene).signal_total == 1.0
+    @test final_state(simulation, :scene).source_count == 1
+
+    register_object!(
+        model,
+        Object(:leaf_2; scale=:Leaf, status=Status(signal=10.0));
+        parent=:scene,
+    )
+    @test_nowarn continue!(simulation; steps=2)
+
+    refreshed_call_view = call_targets(
+        TEMPORAL_VIEW_MANUAL_CONTEXT[],
+        :consumer,
+    )
+    refreshed_target =
+        only(only(refreshed_call_view.execution_batches).targets)
+    @test refreshed_call_view !== initial_call_view
+    @test refreshed_target !== initial_target
+    @test refreshed_target.input_bindings !== initial_temporal_inputs
+    @test length(refreshed_target.status.signals) == 2
+    @test outputs(simulation)[
+        (:manual_controller, ObjectId(:scene), :signal_total)
+    ] == [(1.0, 1.0), (2.0, 12.0), (3.0, 14.0)]
+    @test outputs(simulation)[
+        (:manual_controller, ObjectId(:scene), :source_count)
+    ] == [(1.0, 1), (2.0, 2), (3.0, 2)]
 end
 
 @testset "Heterogeneous PreviousTimeStep materialization is allocation-free" begin

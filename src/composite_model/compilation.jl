@@ -278,7 +278,10 @@ function _selector_candidate_index()
         Dict{Symbol,Vector{Int}}(),
         Dict{Symbol,Vector{Int}}(),
         Dict{Symbol,Vector{Int}}(),
-        Dict{ObjectId,Vector{Int}}(),
+        Dict{
+            Union{ObjectId,Tuple{ObjectId,Symbol,Symbol}},
+            Vector{Int},
+        }(),
     )
 end
 
@@ -302,7 +305,13 @@ function _selector_scope_anchor(
     context=nothing,
     default_scope=nothing,
 )
-    scope = isnothing(matcher.scope) ? default_scope : matcher.scope
+    scope = if !isnothing(matcher.scope)
+        matcher.scope
+    elseif isnothing(matcher.relation)
+        default_scope
+    else
+        nothing
+    end
     scope isa CompiledNamedScope && return scope.root_id
     isnothing(context) && return nothing
     context_id = _object_id_from_context(context)
@@ -350,8 +359,24 @@ function _selector_candidate_destination(
         context=context,
         default_scope=default_scope,
     )
-    !isnothing(anchor) &&
-        return (index.by_scope_anchor, (ObjectId(anchor),))
+    if !isnothing(anchor)
+        anchor_id = ObjectId(anchor)
+        for (label, value) in (
+            (:name, matcher.name),
+            (:scale, matcher.scale),
+            (:kind, matcher.kind),
+            (:species, matcher.species),
+        )
+            isnothing(value) || return (
+                index.by_scope_anchor,
+                Tuple(
+                    (anchor_id, label, candidate)
+                    for candidate in _selector_candidate_values(value)
+                ),
+            )
+        end
+        return (index.by_scope_anchor, (anchor_id,))
+    end
     for (groups, value) in (
         (index.by_name, matcher.name),
         (index.by_scale, matcher.scale),
@@ -409,6 +434,21 @@ function _union_selector_candidates!(
     end
     for anchor in _object_ancestor_ids(model.registry, object_id)
         union!(candidates, get(index.by_scope_anchor, anchor, ()))
+        for (label, value) in (
+            (:name, object.name),
+            (:scale, object.scale),
+            (:kind, object.kind),
+            (:species, object.species),
+        )
+            isnothing(value) || union!(
+                candidates,
+                get(
+                    index.by_scope_anchor,
+                    (anchor, label, value),
+                    (),
+                ),
+            )
+        end
     end
     return candidates
 end
@@ -1630,9 +1670,27 @@ function _compile_added_consumer_bindings!(
     applications_by_object,
     applications_by_id,
     distributed_outputs=NoCompiledDistributedOutputs(),
+    many_binding_cache=nothing,
+    performance=nothing,
 )
     for plan in input_plans
         plan.origin == :inferred_same_object && continue
+        if !isnothing(many_binding_cache)
+            shared_binding = _shared_many_input_binding(
+                many_binding_cache,
+                model,
+                plan,
+                consumer_id,
+            )
+            if !isnothing(shared_binding)
+                push!(bindings, shared_binding)
+                _runtime_performance_count!(
+                    performance,
+                    :many_input_binding_precompile_reuses,
+                )
+                continue
+            end
+        end
         _push_model_input_binding!(
             bindings,
             model,
@@ -1718,17 +1776,21 @@ function _final_inferred_output_plans(
     return isempty(final_matches) ? matches : final_matches
 end
 
-function _many_binding_scope_anchor(model::CompositeModel, binding::CompiledModelInputBinding)
-    selector_criteria = criteria(binding.selector)
+function _many_binding_scope_anchor(
+    model::CompositeModel,
+    selector,
+    consumer_id::ObjectId,
+)
+    selector_criteria = criteria(selector)
     !isnothing(_criteria_get(selector_criteria, :relation, nothing)) &&
-        return (:consumer, binding.consumer_id)
+        return (:consumer, consumer_id)
     explicit_scope = _criteria_scope(selector_criteria)
     scope = isnothing(explicit_scope) ?
-            _default_dependency_scope(model, binding.consumer_id) : explicit_scope
+            _default_dependency_scope(model, consumer_id) : explicit_scope
     if isnothing(scope) || scope isa SceneScope
         return (:scene,)
     elseif scope isa SelfPlant
-        return (:plant, _ancestor_id(model, binding.consumer_id; scale=:Plant))
+        return (:plant, _ancestor_id(model, consumer_id; scale=:Plant))
     elseif scope isa Scope
         return (:scope, scope.name)
     elseif scope isa Ancestor
@@ -1736,13 +1798,41 @@ function _many_binding_scope_anchor(model::CompositeModel, binding::CompiledMode
             :ancestor,
             _ancestor_id(
                 model,
-                binding.consumer_id;
+                consumer_id;
                 scale=scope.scale,
                 include_self=false,
             ),
         )
     end
-    return (:consumer, binding.consumer_id)
+    return (:consumer, consumer_id)
+end
+
+_many_binding_scope_anchor(
+    model::CompositeModel,
+    binding::CompiledModelInputBinding,
+) = _many_binding_scope_anchor(model, binding.selector, binding.consumer_id)
+
+function _many_binding_plan_share_key(
+    model::CompositeModel,
+    plan::CompiledModelInputPlan,
+    consumer_id::ObjectId,
+)
+    plan.multiplicity == :many || return nothing
+    anchor = _many_binding_scope_anchor(model, plan.selector, consumer_id)
+    first(anchor) === :consumer && return nothing
+    any(isnothing, anchor) && return nothing
+    return (:compiled_many_input_plan, plan.slot, anchor)
+end
+
+function _many_binding_plan_share_key(
+    model::CompositeModel,
+    binding::CompiledModelInputBinding,
+)
+    return _many_binding_plan_share_key(
+        model,
+        binding.plan,
+        binding.consumer_id,
+    )
 end
 
 function _many_binding_share_key(model::CompositeModel, binding::CompiledModelInputBinding)
@@ -1774,20 +1864,52 @@ function _binding_with_shared_many_sources(
     )
 end
 
+function _shared_many_input_binding(
+    cache,
+    model::CompositeModel,
+    plan::CompiledModelInputPlan,
+    consumer_id::ObjectId,
+)
+    key = _many_binding_plan_share_key(model, plan, consumer_id)
+    isnothing(key) && return nothing
+    canonical = get(cache, key, nothing)
+    isnothing(canonical) && return nothing
+    canonical.plan.slot == plan.slot || return nothing
+    canonical.multiplicity == :many || return nothing
+    isnothing(canonical.carrier) && return nothing
+    return CompiledModelInputBinding(
+        plan,
+        consumer_id,
+        canonical.source_ids,
+        canonical.source_application_ids,
+        canonical.policy,
+        canonical.carrier_hint,
+        canonical.carrier,
+    )
+end
+
+function _cache_many_binding_plan!(cache, model::CompositeModel, binding)
+    key = _many_binding_plan_share_key(model, binding)
+    isnothing(key) || (cache[key] = binding)
+    return binding
+end
+
 function _share_many_input_binding!(cache, model::CompositeModel, binding)
     key = _many_binding_share_key(model, binding)
     isnothing(key) && return binding
     canonical = get(cache, key, nothing)
     if isnothing(canonical)
         cache[key] = binding
-        return binding
+        return _cache_many_binding_plan!(cache, model, binding)
     end
     if canonical.source_ids != binding.source_ids ||
        canonical.source_application_ids != binding.source_application_ids
         cache[(key, binding.consumer_id)] = binding
         return binding
     end
-    return _binding_with_shared_many_sources(binding, canonical)
+    shared = _binding_with_shared_many_sources(binding, canonical)
+    _cache_many_binding_plan!(cache, model, canonical)
+    return shared
 end
 
 function _share_many_input_bindings!(model::CompositeModel, bindings; cache=Dict{Any,Any}())
@@ -1801,7 +1923,10 @@ function _many_input_binding_cache(model::CompositeModel, bindings)
     cache = Dict{Any,Any}()
     for binding in bindings
         key = _many_binding_share_key(model, binding)
-        isnothing(key) || haskey(cache, key) || (cache[key] = binding)
+        if !isnothing(key)
+            haskey(cache, key) || (cache[key] = binding)
+            _cache_many_binding_plan!(cache, model, cache[key])
+        end
     end
     return cache
 end
@@ -1825,10 +1950,22 @@ function _append_added_many_sources!(
             context=binding.consumer_id,
             default_to_context=true,
             default_scope=default_scope,
-        ) && !(object_id in binding.source_ids)
+        ) && !first(
+            _sorted_object_id_position(binding.source_ids, object_id),
+        )
     ]
     isempty(new_source_ids) && return true
     _sort_object_ids!(new_source_ids)
+    _filter_many_input_sources_by_writer!(
+        new_source_ids,
+        binding.selector,
+        binding.source_var,
+        binding.process,
+        binding.application,
+        applications_by_id,
+        distributed_outputs,
+    )
+    isempty(new_source_ids) && return true
 
     # The growth path allocates monotonically increasing IDs. Appending preserves the
     # selector's stable order and, critically, keeps the carrier already installed in
@@ -1843,13 +1980,11 @@ function _append_added_many_sources!(
     existing_refs = parent(binding.carrier)
     new_refs = parent(new_carrier)
     eltype(new_refs) <: eltype(existing_refs) || return false
-    append!(existing_refs, new_refs)
-    append!(binding.source_ids, new_source_ids)
 
-    new_application_ids = if _selector_from_status(binding.selector)
+    source_application_ids = if _selector_from_status(binding.selector)
         Symbol[]
     else
-        _matching_input_source_applications(
+        new_application_ids = _matching_input_source_applications(
             applications_by_object,
             new_source_ids,
             binding.source_var,
@@ -1857,13 +1992,46 @@ function _append_added_many_sources!(
             binding.application,
             distributed_outputs;
             applications_by_id=applications_by_id,
-            allow_empty=binding.selector isa OptionalOne,
+            allow_empty=true,
         )
+        if !isempty(binding.source_application_ids) && all(
+            application_id ->
+                application_id in binding.source_application_ids,
+            new_application_ids,
+        )
+            copy(binding.source_application_ids)
+        else
+            combined_source_ids = [binding.source_ids; new_source_ids]
+            resolved = _matching_input_source_applications(
+                applications_by_object,
+                combined_source_ids,
+                binding.source_var,
+                binding.process,
+                binding.application,
+                distributed_outputs;
+                applications_by_id=applications_by_id,
+                allow_empty=false,
+            )
+            if length(resolved) > 1
+                _final_many_source_applications(
+                    combined_source_ids,
+                    resolved,
+                    binding.source_var,
+                    applications_by_id,
+                    distributed_outputs,
+                )
+            else
+                resolved
+            end
+        end
     end
-    for application_id in new_application_ids
-        application_id in binding.source_application_ids ||
-            push!(binding.source_application_ids, application_id)
-    end
+
+    # Resolve every fallible piece before mutating the shared carrier/binding.
+    # Several consumers may share these vectors through `many_binding_cache`.
+    append!(existing_refs, new_refs)
+    append!(binding.source_ids, new_source_ids)
+    empty!(binding.source_application_ids)
+    append!(binding.source_application_ids, source_application_ids)
     return true
 end
 
@@ -2052,6 +2220,113 @@ function _preserve_recompiled_model_status_views!(
     return current
 end
 
+function _stage_temporal_many_extension(
+    model::CompositeModel,
+    temporal_input::CompiledTemporalInput,
+    previous_source_ids,
+    applications_by_id,
+    application_positions,
+    distributed_outputs,
+)
+    binding = temporal_input.binding
+    binding.multiplicity == :many || return nothing
+    binding.policy isa PreviousTimeStep || return nothing
+    previous_count = length(previous_source_ids)
+    previous_count > 0 || return nothing
+    source_ids = binding.source_ids
+    length(source_ids) > previous_count || return nothing
+    @views source_ids[1:previous_count] == previous_source_ids || return nothing
+
+    initial = temporal_input.initial
+    storage = temporal_input.reference[]
+    source_applications = temporal_input.source_applications
+    initial isa Vector || return nothing
+    storage isa Union{RefVector,ObjectRefVector} || return nothing
+    source_applications isa Vector || return nothing
+    length(initial) == previous_count || return nothing
+    length(storage) == previous_count || return nothing
+    length(source_applications) == previous_count || return nothing
+
+    source_values = _input_value(binding.carrier)
+    source_values isa AbstractVector || return nothing
+    length(source_values) == length(source_ids) || return nothing
+    new_indices = (previous_count + 1):length(source_ids)
+    new_initial = Any[
+        _private_temporal_value(source_values[index])
+        for index in new_indices
+    ]
+    new_source_applications = Union{Nothing,Symbol}[
+        _temporal_source_application(
+            binding,
+            source_ids[index],
+            applications_by_id,
+            application_positions,
+            distributed_outputs,
+        )
+        for index in new_indices
+    ]
+    storage_references = parent(storage)
+    new_storage_references = Base.RefValue[
+        Ref(_private_temporal_value(value)) for value in new_initial
+    ]
+    all(reference -> reference isa eltype(storage_references), new_storage_references) ||
+        return nothing
+    all(application -> application isa eltype(source_applications), new_source_applications) ||
+        return nothing
+    return (
+        initial,
+        storage_references,
+        source_applications,
+        new_initial,
+        new_storage_references,
+        new_source_applications,
+    )
+end
+
+function _extend_temporal_many_inputs_in_place!(
+    model::CompositeModel,
+    view::CompiledModelStatusView,
+    key,
+    previous_temporal_sources,
+    applications_by_id,
+    application_positions,
+    distributed_outputs,
+)
+    staged = Any[]
+    for temporal_input in view.temporal_inputs
+        previous_source_ids = get(
+            previous_temporal_sources,
+            (key..., temporal_input.binding.input),
+            nothing,
+        )
+        isnothing(previous_source_ids) && continue
+        extension = _stage_temporal_many_extension(
+            model,
+            temporal_input,
+            previous_source_ids,
+            applications_by_id,
+            application_positions,
+            distributed_outputs,
+        )
+        isnothing(extension) && return false
+        push!(staged, extension)
+    end
+    isempty(staged) && return false
+    for (
+        initial,
+        storage_references,
+        source_applications,
+        new_initial,
+        new_storage_references,
+        new_source_applications,
+    ) in staged
+        append!(initial, new_initial)
+        append!(storage_references, new_storage_references)
+        append!(source_applications, new_source_applications)
+    end
+    return true
+end
+
 function _extend_model_status_views(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -2084,6 +2359,21 @@ function _extend_model_status_views(
         application_id => index
         for (index, application_id) in pairs(application_order)
     )
+    for key in affected_temporal_keys
+        view = get(views, key, nothing)
+        isnothing(view) && continue
+        if _extend_temporal_many_inputs_in_place!(
+            model,
+            view,
+            key,
+            previous_temporal_sources,
+            applications_by_id,
+            positions,
+            distributed_outputs,
+        )
+            delete!(affected_keys, key)
+        end
+    end
     for key in affected_keys
         application_id, object_id = key
         application = applications_by_id[application_id]
@@ -2136,7 +2426,12 @@ function _append_added_many_call_targets!(
             context=binding.consumer_id,
             default_to_context=true,
             default_scope=default_scope,
-        ) && !(object_id in binding.callee_object_ids)
+        ) && !first(
+            _sorted_object_id_position(
+                binding.callee_object_ids,
+                object_id,
+            ),
+        )
     ]
     isempty(new_target_ids) && return true
     _sort_object_ids!(new_target_ids)
@@ -2164,6 +2459,84 @@ function _append_added_many_call_targets!(
         end
     end
     return true
+end
+
+function _propagate_changed_manual_call_owners!(
+    changed_target_ids,
+    changed_callee_target_ids,
+    call_bindings,
+    call_owners,
+)
+    frontier = Dict{Symbol,Vector{ObjectId}}()
+    for (application_id, object_id) in changed_callee_target_ids
+        push!(get!(frontier, application_id, ObjectId[]), object_id)
+    end
+    seen_owner_keys = Set{Tuple{Symbol,ObjectId}}(changed_callee_target_ids)
+    while !isempty(frontier)
+        owner_application_ids = Set{Symbol}()
+        for application_id in keys(frontier)
+            hasproperty(call_owners, application_id) || continue
+            union!(
+                owner_application_ids,
+                getproperty(call_owners, application_id),
+            )
+        end
+        isempty(owner_application_ids) && break
+        next_frontier = Dict{Symbol,Vector{ObjectId}}()
+        for binding in call_bindings
+            binding.application_id in owner_application_ids || continue
+            _compiled_call_mode(binding) === :manual || continue
+            affected = false
+            for callee_application_id in binding.callee_application_ids
+                object_ids = get(frontier, callee_application_id, nothing)
+                isnothing(object_ids) && continue
+                if any(object_ids) do object_id
+                    first(
+                        _sorted_object_id_position(
+                            binding.callee_object_ids,
+                            object_id,
+                        ),
+                    )
+                end
+                    affected = true
+                    break
+                end
+            end
+            affected || continue
+            owner_key = (binding.application_id, binding.consumer_id)
+            owner_key in seen_owner_keys && continue
+            push!(seen_owner_keys, owner_key)
+            push!(changed_target_ids, owner_key)
+            push!(
+                get!(
+                    next_frontier,
+                    binding.application_id,
+                    ObjectId[],
+                ),
+                binding.consumer_id,
+            )
+        end
+        frontier = next_frontier
+    end
+    return changed_target_ids
+end
+
+function _changed_previous_time_step_targets(
+    previous_temporal_sources,
+    status_views_by_target,
+)
+    changed_target_ids = Set{Tuple{Symbol,ObjectId}}()
+    for (application_id, object_id, input) in keys(previous_temporal_sources)
+        target_key = (application_id, object_id)
+        view = get(status_views_by_target, target_key, nothing)
+        isnothing(view) && continue
+        any(view.temporal_inputs) do temporal_input
+            temporal_input.binding.input == input &&
+                temporal_input.binding.policy isa PreviousTimeStep
+        end || continue
+        push!(changed_target_ids, target_key)
+    end
+    return changed_target_ids
 end
 
 function _prepare_structural_compiled_delta(
@@ -2303,7 +2676,12 @@ function _remove_stale_status_views!(
     for key in candidate_keys
         application_id, object_id = key
         application = compiled.applications_by_id[application_id]
-        object_id in application.target_ids && continue
+        first(
+            _sorted_object_id_position(
+                application.target_ids,
+                object_id,
+            ),
+        ) && continue
         delete!(compiled.status_views_by_target, key)
     end
     return compiled
@@ -2747,6 +3125,8 @@ function _extend_compiled_scene(
                 applications_by_object,
                 applications_by_id,
                 distributed_outputs,
+                many_binding_cache,
+                performance,
             )
             last_new_binding = length(input_bindings)
             if first_new_binding <= last_new_binding
@@ -2819,8 +3199,20 @@ function _extend_compiled_scene(
         end
         (added_applications..., rewired_applications...)
     end
-    _prepare_model_input_defaults!(model, affected_input_applications)
-    _wire_model_input_carriers!(model, changed_bindings)
+    final_input_references = pure_addition ?
+                             _model_input_status_references(changed_bindings) :
+                             nothing
+    _prepare_model_input_defaults!(
+        model,
+        affected_input_applications;
+        final_references=final_input_references,
+        performance=performance,
+    )
+    _wire_model_input_carriers!(
+        model,
+        changed_bindings;
+        final_references=final_input_references,
+    )
     _validate_model_required_inputs!(
         model,
         affected_input_applications,
@@ -2884,6 +3276,23 @@ function _extend_compiled_scene(
             ),
         )
     end
+    changed_manual_target_ids = Set{Tuple{Symbol,ObjectId}}(
+        key for key in changed_execution_target_ids
+        if first(key) in manual_application_ids
+    )
+    union!(
+        changed_manual_target_ids,
+        _changed_previous_time_step_targets(
+            previous_temporal_sources,
+            status_views_by_target,
+        ),
+    )
+    _propagate_changed_manual_call_owners!(
+        changed_execution_target_ids,
+        changed_manual_target_ids,
+        call_bindings,
+        call_owners,
+    )
     changed_execution_application_ids = Set(
         first(key) for key in changed_execution_target_ids
     )
@@ -3712,7 +4121,12 @@ function _compile_model_writer_ownership(
         for destination_id in resolved.destination_ids
             for variable_ in keys(plan.declarations)
                 variable = Symbol(variable_)
-                if destination_id in application.target_ids &&
+                if first(
+                       _sorted_object_id_position(
+                           application.target_ids,
+                           destination_id,
+                       ),
+                   ) &&
                    variable in keys(outputs_(application.spec)) &&
                    _publish_mode_for_output(application.spec, variable) ==
                    :stream_only
@@ -4480,7 +4894,12 @@ function _incremental_distributed_output_addition!(
                 context=binding.execution_object_id,
                 default_to_context=true,
                 default_scope=default_scope,
-            ) && !(object_id in binding.destination_ids)
+            ) && !first(
+                _sorted_object_id_position(
+                    binding.destination_ids,
+                    object_id,
+                ),
+            )
         ]
         isempty(destination_ids) && continue
         _sort_object_ids!(destination_ids)
@@ -4632,7 +5051,30 @@ function _refresh_model_distributed_outputs(
     return current, _changed_distributed_output_target_ids(previous, current)
 end
 
-function _prepare_model_input_defaults!(model::CompositeModel, applications)
+_model_input_status_reference(binding) =
+    binding.carrier isa Base.RefValue ?
+    binding.carrier : Ref(binding.carrier)
+
+function _model_input_status_references(bindings)
+    references = Dict{Tuple{Symbol,ObjectId,Symbol},Any}()
+    for binding in bindings
+        binding.carrier_hint == :temporal_stream && continue
+        isnothing(binding.carrier) && continue
+        references[(
+            binding.application_id,
+            binding.consumer_id,
+            binding.input,
+        )] = _model_input_status_reference(binding)
+    end
+    return references
+end
+
+function _prepare_model_input_defaults!(
+    model::CompositeModel,
+    applications;
+    final_references=nothing,
+    performance=nothing,
+)
     for application in applications
         schema = _input_schema(application.spec)
         defaults = _input_default_values(schema)
@@ -4641,6 +5083,38 @@ function _prepare_model_input_defaults!(model::CompositeModel, applications)
             for (variable, value) in pairs(defaults)
                 variable = Symbol(variable)
                 variable in propertynames(status) && continue
+                reference = isnothing(final_references) ?
+                            nothing :
+                            get(
+                    final_references,
+                    (application.id, object_id, variable),
+                    nothing,
+                )
+                if !isnothing(reference)
+                    # Preserve conversion callbacks, validation, and diagnostic
+                    # records while avoiding a default Status that the resolved
+                    # carrier would replace immediately below.
+                    _no_status_conversion(model.status_conversion) ||
+                        _materialize_status_value(
+                            model,
+                            variable,
+                            value;
+                            object_id=object_id,
+                            application_id=application.id,
+                            origin=:model_input_default,
+                            private_copy=true,
+                        )
+                    status = _status_with_reference(
+                        status,
+                        variable,
+                        reference,
+                    )
+                    _runtime_performance_count!(
+                        performance,
+                        :input_default_status_rewrites_avoided,
+                    )
+                    continue
+                end
                 status = _status_with_default(
                     model,
                     status,
@@ -4665,14 +5139,44 @@ function _prepare_model_input_defaults!(model::CompositeModel, applications)
     return model
 end
 
-function _wire_model_input_carriers!(model::CompositeModel, bindings)
+function _wire_model_input_carriers!(
+    model::CompositeModel,
+    bindings;
+    final_references=nothing,
+)
     for binding in bindings
         binding.carrier_hint == :temporal_stream && continue
         isnothing(binding.carrier) && continue
         object = _model_object(model, binding.consumer_id)
         status = object.status
         status isa Status || continue
-        reference = binding.carrier isa Base.RefValue ? binding.carrier : Ref(binding.carrier)
+        reference = if isnothing(final_references)
+            _model_input_status_reference(binding)
+        else
+            get(
+                final_references,
+                (
+                    binding.application_id,
+                    binding.consumer_id,
+                    binding.input,
+                ),
+                nothing,
+            )
+        end
+        isnothing(reference) &&
+            (reference = _model_input_status_reference(binding))
+        if binding.input in propertynames(status) &&
+           refvalue(status, binding.input) === reference
+            delete!(
+                get!(
+                    model.input_default_status_variables,
+                    binding.consumer_id,
+                    Set{Symbol}(),
+                ),
+                binding.input,
+            )
+            continue
+        end
         _replace_model_object_status!(
             model,
             object,
@@ -4847,6 +5351,21 @@ function _compile_model_status_view(
         if binding.carrier_hint == :temporal_stream
     )
     _validate_temporal_input_output_overlap!(application, temporal_bindings)
+    output_defaults = outputs_(application.spec)
+    private_output_names = Tuple(
+        Symbol(variable) for variable in keys(output_defaults)
+        if _publish_mode_for_output(application.spec, variable) ==
+           :stream_only
+    )
+    if isempty(temporal_bindings) && isempty(private_output_names)
+        return CompiledModelStatusView(
+            canonical_status,
+            canonical_status,
+            (),
+            NamedTuple(),
+            _compiled_bound_many_inputs(input_bindings, canonical_status),
+        )
+    end
     temporal_inputs = Tuple(begin
         initial = _temporal_input_initial(binding, canonical_status)
         CompiledTemporalInput(
@@ -4868,12 +5387,6 @@ function _compile_model_status_view(
     temporal_by_name = Dict(
         temporal_input.binding.input => temporal_input
         for temporal_input in temporal_inputs
-    )
-    output_defaults = outputs_(application.spec)
-    private_output_names = Tuple(
-        Symbol(variable) for variable in keys(output_defaults)
-        if _publish_mode_for_output(application.spec, variable) ==
-           :stream_only
     )
     private_outputs = NamedTuple{private_output_names}(Tuple(begin
         initial, _, _ = _materialize_status_value(
@@ -5040,7 +5553,12 @@ function _application_writes_object_variable(
     object_id::ObjectId,
     variable::Symbol,
 )
-    return object_id in application.target_ids &&
+    return first(
+        _sorted_object_id_position(
+            application.target_ids,
+            object_id,
+        ),
+    ) &&
            variable in _model_output_names(application)
 end
 
@@ -5050,7 +5568,12 @@ function _application_writes_object_variable(
     object_id::ObjectId,
     variable::Symbol,
 )
-    object_id in application.target_ids &&
+    first(
+        _sorted_object_id_position(
+            application.target_ids,
+            object_id,
+        ),
+    ) &&
         variable in _model_output_names(application) && return true
     return any(
         owner -> owner.application_id == application.id,
@@ -5702,7 +6225,12 @@ function _final_many_source_applications(
         if isnothing(final_owner)
             for application_id in source_application_ids
                 application = applications_by_id[application_id]
-                source_id in application.target_ids || continue
+                first(
+                    _sorted_object_id_position(
+                        application.target_ids,
+                        source_id,
+                    ),
+                ) || continue
                 source_var in _model_output_names(application) || continue
                 application_id in canonical_ids ||
                     push!(canonical_ids, application_id)
