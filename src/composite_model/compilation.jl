@@ -262,16 +262,19 @@ struct CompiledApplicationSchedule{E,A,P,G}
 end
 
 """Reverse candidate index for compiled selector matchers."""
-struct SelectorCandidateIndex{W,S,K,SP,N,A}
+struct SelectorCandidateIndex{W,S,K,SP,N,A,R,L,C}
     wildcard::W
     by_scale::S
     by_kind::K
     by_species::SP
     by_name::N
     by_scope_anchor::A
+    scope_roots::R
+    template_label_values::L
+    application_target_templates::C
 end
 
-function _selector_candidate_index()
+function _selector_candidate_index(; application_targets::Bool=false)
     return SelectorCandidateIndex(
         Int[],
         Dict{Symbol,Vector{Int}}(),
@@ -282,6 +285,9 @@ function _selector_candidate_index()
             Union{ObjectId,Tuple{ObjectId,Symbol,Symbol}},
             Vector{Int},
         }(),
+        Set{ObjectId}(),
+        Dict{Symbol,Set{Symbol}}(),
+        application_targets ? Dict{Any,Any}() : nothing,
     )
 end
 
@@ -294,6 +300,12 @@ function _freeze_selector_candidate_index(index::SelectorCandidateIndex)
         freeze(index.by_species),
         freeze(index.by_name),
         freeze(index.by_scope_anchor),
+        Set(index.scope_roots),
+        Dict(
+            label => Set(values)
+            for (label, values) in index.template_label_values
+        ),
+        Dict{Any,Any}(),
     )
 end
 
@@ -353,6 +365,16 @@ function _selector_candidate_destination(
     if scope isa Self && isnothing(matcher.relation)
         return nothing
     end
+    # `Ancestor(scale=S)` combined with a source at `scale=S` selects the
+    # nearest matching ancestor. Adding a descendant cannot change that source
+    # for an existing consumer, so this binding only needs the structural
+    # removal/reparenting refresh path.
+    if isnothing(matcher.relation) &&
+       scope isa Ancestor &&
+       !isnothing(matcher.scale) &&
+       matcher.scale == scope.scale
+        return nothing
+    end
     anchor = _selector_scope_anchor(
         model,
         matcher;
@@ -397,6 +419,18 @@ function _index_selector_candidate!(
     context=nothing,
     default_scope=nothing,
 )
+    tracks_application_targets =
+        !isnothing(index.application_target_templates)
+    if tracks_application_targets
+        for label in (:scale, :kind, :species, :name)
+            value = getproperty(matcher, label)
+            isnothing(value) && continue
+            union!(
+                get!(index.template_label_values, label, Set{Symbol}()),
+                _selector_candidate_values(value),
+            )
+        end
+    end
     destination = _selector_candidate_destination(
         index,
         model,
@@ -411,6 +445,11 @@ function _index_selector_candidate!(
     else
         for value in values
             push!(get!(groups, value, Int[]), candidate_index)
+            tracks_application_targets &&
+                groups === index.by_scope_anchor && push!(
+                index.scope_roots,
+                value isa Tuple ? first(value) : value,
+            )
         end
     end
     return index
@@ -454,7 +493,7 @@ function _union_selector_candidates!(
 end
 
 function _application_target_candidate_index(model, application_plans)
-    index = _selector_candidate_index()
+    index = _selector_candidate_index(; application_targets=true)
     for plan in application_plans
         _index_selector_candidate!(
             index,
@@ -1674,6 +1713,84 @@ function _compile_scene(
     )
 end
 
+struct _ApplicationTargetTemplate{C,M}
+    candidate_slots::C
+    matched_slots::M
+end
+
+function _application_target_template_label(
+    index::SelectorCandidateIndex,
+    label::Symbol,
+    value,
+)
+    selected_values = get(index.template_label_values, label, nothing)
+    isnothing(selected_values) && return nothing
+    return value in selected_values ? value : nothing
+end
+
+function _application_target_template_key(
+    index::SelectorCandidateIndex,
+    model::CompositeModel,
+    object_id::ObjectId,
+)
+    object = _model_object(model, object_id)
+    ancestors = _object_ancestor_ids(model.registry, object_id)
+    scope_roots = Tuple(
+        ancestor_id for ancestor_id in ancestors
+        if ancestor_id in index.scope_roots
+    )
+    return (
+        _application_target_template_label(index, :scale, object.scale),
+        _application_target_template_label(index, :kind, object.kind),
+        _application_target_template_label(index, :species, object.species),
+        _application_target_template_label(index, :name, object.name),
+        scope_roots,
+    )
+end
+
+function _application_target_template(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    object_id::ObjectId,
+    performance=nothing,
+)
+    index = compiled.scenario_plan.application_target_candidates
+    key = _application_target_template_key(index, model, object_id)
+    cached = get(index.application_target_templates, key, nothing)
+    if !isnothing(cached)
+        _runtime_performance_count!(
+            performance,
+            :lifecycle_application_target_template_cache_hits,
+        )
+        return cached
+    end
+    candidate_slots = Set{Int}()
+    _union_selector_candidates!(
+        candidate_slots,
+        index,
+        model,
+        object_id,
+    )
+    sorted_candidates = Tuple(sort!(collect(candidate_slots)))
+    matched_slots = Tuple(
+        slot for slot in sorted_candidates if _selector_matches_object_id(
+            model,
+            compiled.applications[slot].target_matcher,
+            object_id,
+        )
+    )
+    template = _ApplicationTargetTemplate(
+        sorted_candidates,
+        matched_slots,
+    )
+    index.application_target_templates[key] = template
+    _runtime_performance_count!(
+        performance,
+        :lifecycle_application_target_template_cache_misses,
+    )
+    return template
+end
+
 function _new_application_targets(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -1681,37 +1798,32 @@ function _new_application_targets(
     performance=nothing,
 )
     candidate_slots = Set{Int}()
+    targets = Dict{Symbol,Vector{ObjectId}}()
     for object_id in added_ids
-        _union_selector_candidates!(
-            candidate_slots,
-            compiled.scenario_plan.application_target_candidates,
+        template = _application_target_template(
             model,
+            compiled,
             object_id,
+            performance,
         )
+        union!(candidate_slots, template.candidate_slots)
+        for slot in template.matched_slots
+            application = compiled.applications[slot]
+            push!(get!(targets, application.id, ObjectId[]), object_id)
+        end
     end
     _runtime_performance_count!(
         performance,
         :selector_application_candidates,
         length(candidate_slots),
     )
-    targets = Dict{Symbol,Vector{ObjectId}}()
-    for slot in sort!(collect(candidate_slots))
-        application = compiled.applications[slot]
-        matched = ObjectId[
-            object_id for object_id in added_ids
-            if _selector_matches_object_id(
-                model,
-                application.target_matcher,
-                object_id,
-            )
-        ]
-        isempty(matched) && continue
+    for (application_id, matched) in targets
+        application = compiled.applications_by_id[application_id]
         new_count = length(application.target_ids) + length(matched)
         if (application.applies_to isa One && new_count != 1) ||
            (application.applies_to isa OptionalOne && new_count > 1)
             return nothing
         end
-        targets[application.id] = matched
     end
     return targets
 end

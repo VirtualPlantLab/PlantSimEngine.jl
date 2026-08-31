@@ -1232,12 +1232,52 @@ function stabilization_relation_candidate_scene()
     )
 end
 
+function stabilization_nearest_ancestor_candidate_scene()
+    return CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant; scale=:Plant, parent=:scene),
+        Object(:phytomer_a; scale=:Phytomer, parent=:plant),
+        Object(
+            :female_a;
+            scale=:Female,
+            parent=:phytomer_a,
+            status=Status(supplied=0.0),
+        );
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                name=:ancestor_source,
+                on=Many(scale=:Phytomer),
+            ),
+            ModelSpec(
+                StabilizationConsumerModel();
+                name=:ancestor_consumer,
+                on=Many(scale=:Female),
+                inputs=(
+                    :signal => One(
+                        scale=:Phytomer,
+                        within=Ancestor(scale=:Phytomer),
+                        application=:ancestor_source,
+                        var=:signal,
+                    ),
+                ),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+end
+
 function stabilization_selector_candidate_refresh_allocations(nplants)
     model = stabilization_selector_candidate_scene(nplants)
     simulation = run!(model; outputs=:none)
     register_object!(
         model,
-        Object(:zz_new_leaf; scale=:Leaf, parent=:plant_1),
+        Object(
+            :zz_new_leaf;
+            scale=:Leaf,
+            name=:unique_new_leaf_1,
+            parent=:plant_1,
+        ),
     )
     return @allocated PlantSimEngine._refresh_simulation_runtime!(simulation)
 end
@@ -1245,15 +1285,46 @@ end
 @testset "lifecycle reverse selector candidates remain local" begin
     model = stabilization_selector_candidate_scene(64)
     simulation = run!(model; outputs=:none, performance=true)
+    for index in (
+        simulation.compiled.dynamic_input_binding_indices,
+        simulation.compiled.dynamic_call_binding_indices,
+    )
+        @test isnothing(index.application_target_templates)
+        @test isempty(index.template_label_values)
+        @test isempty(index.scope_roots)
+    end
     register_object!(
         model,
-        Object(:zz_new_leaf; scale=:Leaf, parent=:plant_1),
+        Object(
+            :zz_new_leaf;
+            scale=:Leaf,
+            name=:unique_new_leaf_1,
+            parent=:plant_1,
+        ),
     )
     continue!(simulation)
     counts = Advanced.runtime_performance(simulation).counts
     @test counts[:selector_application_candidates] == 1
     @test counts[:selector_input_binding_candidates] == 1
     @test get(counts, :selector_call_binding_candidates, 0) == 0
+    @test counts[:lifecycle_application_target_template_cache_misses] == 1
+
+    register_object!(
+        model,
+        Object(
+            :zz_new_leaf_2;
+            scale=:Leaf,
+            name=:unique_new_leaf_2,
+            parent=:plant_1,
+        ),
+    )
+    continue!(simulation)
+    @test Advanced.runtime_performance(simulation).counts[
+        :lifecycle_application_target_template_cache_hits
+    ] == 1
+    @test Advanced.runtime_performance(simulation).counts[
+        :lifecycle_application_target_template_cache_misses
+    ] == 1
 
     reparented_model = stabilization_selector_candidate_scene(64)
     reparented_simulation = run!(
@@ -1338,6 +1409,143 @@ end
         for _ in 1:2
     )
     @test large_allocations <= small_allocations + 32_768
+end
+
+@testset "application target templates preserve instance scope" begin
+    template = CompositeModelTemplate((
+        ModelSpec(
+            StabilizationSourceModel();
+            name=:source,
+            on=Many(scale=:Leaf),
+        ),
+    ))
+    palm_1 = ObjectInstance(
+        :palm_1,
+        template;
+        root=Object(:template_plant_1; scale=:Plant, parent=:scene),
+        objects=(
+            Object(
+                :template_leaf_1a;
+                scale=:Leaf,
+                name=:unique_leaf_1a,
+                parent=:template_plant_1,
+            ),
+            Object(
+                :template_leaf_1b;
+                scale=:Leaf,
+                name=:unique_leaf_1b,
+                parent=:template_plant_1,
+            ),
+        ),
+    )
+    palm_2 = ObjectInstance(
+        :palm_2,
+        template;
+        root=Object(:template_plant_2; scale=:Plant, parent=:scene),
+        objects=(
+            Object(
+                :template_leaf_2;
+                scale=:Leaf,
+                name=:unique_leaf_2,
+                parent=:template_plant_2,
+            ),
+        ),
+    )
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        palm_1,
+        palm_2,
+    )
+    compiled = Advanced.refresh_bindings!(model)
+    index = compiled.scenario_plan.application_target_candidates
+    key_1a = PlantSimEngine._application_target_template_key(
+        index,
+        model,
+        ObjectId(:template_leaf_1a),
+    )
+    key_1b = PlantSimEngine._application_target_template_key(
+        index,
+        model,
+        ObjectId(:template_leaf_1b),
+    )
+    key_2 = PlantSimEngine._application_target_template_key(
+        index,
+        model,
+        ObjectId(:template_leaf_2),
+    )
+    @test key_1a == key_1b
+    @test key_1a != key_2
+    @test index.template_label_values == Dict(:scale => Set([:Leaf]))
+
+    target_template_1 = PlantSimEngine._application_target_template(
+        model,
+        compiled,
+        ObjectId(:template_leaf_1a),
+    )
+    target_template_2 = PlantSimEngine._application_target_template(
+        model,
+        compiled,
+        ObjectId(:template_leaf_2),
+    )
+    @test Tuple(
+        compiled.applications[slot].id
+        for slot in target_template_1.matched_slots
+    ) == (:palm_1__source,)
+    @test Tuple(
+        compiled.applications[slot].id
+        for slot in target_template_2.matched_slots
+    ) == (:palm_2__source,)
+end
+
+@testset "nearest Ancestor bindings ignore descendant additions" begin
+    model = stabilization_nearest_ancestor_candidate_scene()
+    simulation = run!(model; outputs=:none, performance=true)
+
+    register_object!(
+        model,
+        Object(:phytomer_z; scale=:Phytomer, parent=:phytomer_a),
+    )
+    continue!(simulation)
+
+    @test Advanced.runtime_performance(simulation).counts[
+        :selector_input_binding_candidates
+    ] == 0
+    existing_binding = only(
+        row for row in explain_bindings(model)
+        if row.application_id == :ancestor_consumer &&
+           row.consumer_id == :female_a &&
+           row.input == :signal
+    )
+    @test existing_binding.source_ids == [:phytomer_a]
+    @test model_status(model, :female_a).observed == 2.0
+
+    register_object!(
+        model,
+        Object(
+            :female_z;
+            scale=:Female,
+            parent=:phytomer_z,
+            status=Status(supplied=0.0),
+        ),
+    )
+    continue!(simulation)
+    new_binding = only(
+        row for row in explain_bindings(model)
+        if row.application_id == :ancestor_consumer &&
+           row.consumer_id == :female_z &&
+           row.input == :signal
+    )
+    @test new_binding.source_ids == [:phytomer_z]
+
+    reparent_object!(model, :female_z, :phytomer_a)
+    continue!(simulation)
+    reparented_binding = only(
+        row for row in explain_bindings(model)
+        if row.application_id == :ancestor_consumer &&
+           row.consumer_id == :female_z &&
+           row.input == :signal
+    )
+    @test reparented_binding.source_ids == [:phytomer_a]
 end
 
 @testset "repeated applications require explicit identity" begin
@@ -2376,7 +2584,7 @@ end
             ModelSpec(StabilizationSourceModel(); name=:scene_source, on=One(scale=:Scene)),
         ),
     )
-    simulation = run!(model; performance=true)
+    simulation = run!(model; outputs=:all, performance=true)
     original_groups = simulation.execution_plan.groups
     original_batches = simulation.execution_plan.batches
     original_groups_by_application_slot =
@@ -2388,6 +2596,8 @@ end
     )
     original_leaf_batch = only(original_leaf_group.batches)
     original_leaf_target = only(original_leaf_batch.targets)
+    original_leaf_context = original_leaf_target.context
+    @test original_leaf_context isa PlantSimEngine.RunContext
     original_scene_group = only(
         group for group in original_groups
         if group.application.id == :scene_source
@@ -2418,14 +2628,60 @@ end
     @test refreshed_leaf_group === original_leaf_group
     @test only(refreshed_leaf_group.batches) === original_leaf_batch
     @test first(original_leaf_batch.targets) === original_leaf_target
+    @test first(original_leaf_batch.targets).context === original_leaf_context
     @test [target.object_id for target in original_leaf_batch.targets] ==
           ObjectId.([:leaf_1, :leaf_2])
+    @test original_leaf_batch.context_state.compiled === simulation.compiled
+    @test original_leaf_batch.context_state.environment_bindings ===
+          simulation.environment_bindings
+    @test all(original_leaf_batch.targets) do target
+        target.context.compiled === simulation.compiled &&
+            target.context.environment_bindings ===
+            simulation.environment_bindings &&
+            target.context.time == current_step(simulation)
+    end
     @test refreshed_scene_group === original_scene_group
     @test refreshed_scene_target === original_scene_target
     @test performance.counts[:execution_groups_reused] == 1
     @test performance.counts[:execution_targets_constructed] == 1
     @test performance.counts[:execution_batches_constructed] == 0
     @test performance.counts[:execution_groups_updated_in_place] == 1
+
+    current_compiled = simulation.compiled
+    current_environment_bindings = simulation.environment_bindings
+    continue!(simulation)
+    @test original_leaf_batch.context_state.compiled === current_compiled
+    @test original_leaf_batch.context_state.environment_bindings ===
+          current_environment_bindings
+    @test all(
+        target -> target.context.time == current_step(simulation),
+        original_leaf_batch.targets,
+    )
+
+    float32_time = Float32(current_step(simulation) + 1)
+    @test isnothing(PlantSimEngine._synchronize_model_execution_batch_contexts!(
+        original_leaf_batch,
+        simulation.compiled,
+        simulation.environment_bindings,
+        simulation.temporal_streams,
+        simulation.output_retention,
+        float32_time,
+        simulation.constants,
+    ))
+    float32_target = first(original_leaf_batch.targets)
+    @test PlantSimEngine._run_model_execution_target!(
+        simulation.compiled,
+        simulation.environment_bindings,
+        original_leaf_batch.application,
+        float32_target,
+        float32_time,
+        simulation.constants,
+        simulation.temporal_streams,
+        simulation.output_retention,
+        nothing,
+        false,
+    ) === float32_target.status
+    @test float32_target.context.time == Float64(float32_time)
 end
 
 @testset "execution plan addition falls back when a group is created" begin

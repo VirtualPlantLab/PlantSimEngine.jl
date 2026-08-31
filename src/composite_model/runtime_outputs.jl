@@ -883,12 +883,33 @@ function _call_bindings_signature(call_bindings)
     return signature
 end
 
+mutable struct ExecutionBatchContextState
+    # Scheduled root batches always use the default publication/environment
+    # state. Hard-call batches deliberately bypass this synchronization cache.
+    compiled::Any
+    environment_bindings::Any
+end
+
 struct CompiledExecutionBatch{A,T<:AbstractVector,MP,OP} <: AbstractExecutionBatch
     application::A
     targets::T
     environment_provider::MP
     output_publication::OP
+    context_state::ExecutionBatchContextState
 end
+
+CompiledExecutionBatch(
+    application,
+    targets,
+    environment_provider,
+    output_publication,
+) = CompiledExecutionBatch(
+    application,
+    targets,
+    environment_provider,
+    output_publication,
+    ExecutionBatchContextState(nothing, nothing),
+)
 
 struct CompiledApplicationExecutionGroup{A,B}
     application::A
@@ -2528,6 +2549,43 @@ end
     )
 end
 
+function _synchronize_model_execution_batch_contexts!(
+    batch::CompiledExecutionBatch,
+    compiled,
+    environment_bindings,
+    temporal_streams,
+    output_retention,
+    time::Real,
+    constants,
+)
+    state = batch.context_state
+    state.compiled === compiled &&
+        state.environment_bindings === environment_bindings && return nothing
+    for target in batch.targets
+        context = target.context
+        context isa RunContext || continue
+        _prepare_model_execution_context!(
+            context,
+            compiled,
+            environment_bindings,
+            batch.application,
+            target.object_id,
+            target.bound_inputs,
+            target.output_targets,
+            temporal_streams,
+            output_retention,
+            time,
+            constants,
+        )
+    end
+    # Mark the batch current only after every retained context has been
+    # synchronized. If preparation throws, the next execution retries the
+    # complete slow path.
+    state.compiled = compiled
+    state.environment_bindings = environment_bindings
+    return nothing
+end
+
 @inline function _run_model_execution_target_without_calls!(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
@@ -2558,19 +2616,8 @@ end
         time,
     ) : sampled_environment
     context = if target.context isa RunContext
-        _prepare_model_execution_context!(
-            target.context,
-            compiled,
-            env_bindings,
-            application,
-            target.object_id,
-            target.bound_inputs,
-            target.output_targets,
-            temporal_streams,
-            output_retention,
-            time,
-            constants,
-        )
+        target.context.time = time
+        target.context
     else
         RunContext(
             compiled,
@@ -2582,7 +2629,7 @@ end
             target.output_targets,
             temporal_streams,
             output_retention,
-            float(time),
+            time,
             constants,
             true,
             _NO_ENVIRONMENT_OVERRIDE,
@@ -2637,19 +2684,24 @@ end
         target.environment_binding,
         time,
     ) : sampled_environment
-    context = _prepare_model_execution_context!(
-        target.context,
-        compiled,
-        env_bindings,
-        application,
-        target.object_id,
-        target.bound_inputs,
-        target.output_targets,
-        temporal_streams,
-        output_retention,
-        time,
-        constants,
-    )
+    context = if target.context isa RunContext
+        target.context.time = time
+        target.context
+    else
+        _prepare_model_execution_context!(
+            target.context,
+            compiled,
+            env_bindings,
+            application,
+            target.object_id,
+            target.bound_inputs,
+            target.output_targets,
+            temporal_streams,
+            output_retention,
+            time,
+            constants,
+        )
+    end
     run!(target.model, status, environment_value, constants, context)
     if publish_outputs
         isempty(target.output_bindings) ||
@@ -2715,11 +2767,21 @@ end
     temporal_streams,
     output_retention,
 )
+    batch_time = float(time)
     shared_environment = _model_execution_batch_environment(
         batch.environment_provider,
         env_bindings,
         batch.application,
         time,
+    )
+    _synchronize_model_execution_batch_contexts!(
+        batch,
+        compiled,
+        env_bindings,
+        temporal_streams,
+        output_retention,
+        batch_time,
+        constants,
     )
     publish_outputs = batch.output_publication.enabled
     if isempty(first(batch.targets).call_bindings)
@@ -2730,7 +2792,7 @@ end
                     env_bindings,
                     batch.application,
                     target,
-                    time,
+                    batch_time,
                     constants,
                     temporal_streams,
                     output_retention,
@@ -2760,19 +2822,7 @@ end
             ) : shared_environment
             context = target.context
             if context isa RunContext
-                _prepare_model_execution_context!(
-                    context,
-                    compiled,
-                    env_bindings,
-                    batch.application,
-                    target.object_id,
-                    target.bound_inputs,
-                    target.output_targets,
-                    temporal_streams,
-                    output_retention,
-                    time,
-                    constants,
-                )
+                context.time = batch_time
             else
                 context = _prepare_model_execution_context!(
                     context,
@@ -2784,7 +2834,7 @@ end
                     target.output_targets,
                     temporal_streams,
                     output_retention,
-                    time,
+                    batch_time,
                     constants,
                 )
             end
@@ -2811,7 +2861,7 @@ end
             env_bindings,
             batch.application,
             target,
-            time,
+            batch_time,
             constants,
             temporal_streams,
             output_retention,
@@ -2832,6 +2882,7 @@ function _run_model_execution_batch_profiled!(
     output_retention,
     performance::RuntimePerformanceCounters,
 )
+    batch_time = float(time)
     started_at = _runtime_performance_start(performance)
     shared_environment = _model_execution_batch_environment(
         batch.environment_provider,
@@ -2843,6 +2894,15 @@ function _run_model_execution_batch_profiled!(
         performance,
         :environment_sampling,
         started_at,
+    )
+    _synchronize_model_execution_batch_contexts!(
+        batch,
+        compiled,
+        env_bindings,
+        temporal_streams,
+        output_retention,
+        batch_time,
+        constants,
     )
     publish_outputs = batch.output_publication.enabled
     for target in batch.targets
@@ -2878,19 +2938,24 @@ function _run_model_execution_batch_profiled!(
             started_at,
         )
 
-        context = _prepare_model_execution_context!(
-            target.context,
-            compiled,
-            env_bindings,
-            batch.application,
-            target.object_id,
-            target.bound_inputs,
-            target.output_targets,
-            temporal_streams,
-            output_retention,
-            time,
-            constants,
-        )
+        context = if target.context isa RunContext
+            target.context.time = batch_time
+            target.context
+        else
+            _prepare_model_execution_context!(
+                target.context,
+                compiled,
+                env_bindings,
+                batch.application,
+                target.object_id,
+                target.bound_inputs,
+                target.output_targets,
+                temporal_streams,
+                output_retention,
+                batch_time,
+                constants,
+            )
+        end
         started_at = _runtime_performance_start(performance)
         run!(
             target.model,

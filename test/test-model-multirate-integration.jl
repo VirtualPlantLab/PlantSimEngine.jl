@@ -212,6 +212,64 @@ end
     @test all(row.event_driven for row in values(schedule))
 end
 
+@testset "non-due batches synchronize retained contexts when next due" begin
+    log = Tuple{Int,Symbol}[]
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf_1; scale=:Leaf, parent=:scene),
+        Object(:leaf_2; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(
+                EventScheduleProbeModel(:leaf_probe, log);
+                name=:leaf_probe,
+                on=Many(scale=:Leaf),
+                every=Hour(2),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+    simulation = run!(model; steps=1, outputs=:all)
+    batch = only(simulation.execution_plan.batches)
+    contexts = getproperty.(batch.targets, :context)
+    initial_compiled = simulation.compiled
+    initial_environment_bindings = simulation.environment_bindings
+
+    register_object!(
+        model,
+        Object(:unmatched_axis; scale=:Axis, parent=:scene),
+    )
+    continue!(simulation)
+
+    @test only(simulation.execution_plan.batches) === batch
+    @test simulation.compiled !== initial_compiled
+    @test batch.context_state.compiled === initial_compiled
+    @test batch.context_state.environment_bindings ===
+          initial_environment_bindings
+    @test all(context -> context.time == 1.0, contexts)
+
+    continue!(simulation)
+
+    @test batch.context_state.compiled === simulation.compiled
+    @test batch.context_state.environment_bindings ===
+          simulation.environment_bindings
+    @test all(contexts) do context
+        context.compiled === simulation.compiled &&
+            context.environment_bindings ===
+            simulation.environment_bindings &&
+            context.time == 3.0
+    end
+    @test all(
+        object -> object.status.runs == 2,
+        model_objects(model; scale=:Leaf),
+    )
+    @test log == [
+        (1, :leaf_probe),
+        (1, :leaf_probe),
+        (3, :leaf_probe),
+        (3, :leaf_probe),
+    ]
+end
+
 @testset "generic clocks retain phase semantics" begin
     model = CompositeModel(
         Object(:generic_slot; scale=:ScheduleSlot);
