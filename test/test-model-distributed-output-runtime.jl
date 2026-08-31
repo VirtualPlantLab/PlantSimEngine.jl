@@ -78,7 +78,7 @@ function _distributed_runtime_value(object_id::ObjectId, time::Real)
         10.0
     elseif object_id == ObjectId(:leaf_b)
         20.0
-    elseif object_id == ObjectId(:late_leaf)
+    elseif object_id in (ObjectId(:late_leaf), ObjectId(:leaf_z))
         30.0
     else
         1.0
@@ -1044,9 +1044,40 @@ end
     @test binding.source_application_ids ==
           [:distributed_runtime_sun_only_writer]
 
-    simulation = run!(model; outputs=:none)
+    original_carrier = binding.carrier
+    original_references = parent(original_carrier)
+    simulation = run!(model; outputs=:none, performance=true)
     @test final_state(simulation, :plant).integrated_total == 10.0
     @test final_state(simulation, :leaf_b).incident_par == 20.0
+
+    register_object!(
+        model,
+        Object(
+            :leaf_z;
+            scale=:Leaf,
+            kind=:sun,
+            parent=:plant,
+        ),
+    )
+    continue!(simulation)
+
+    refreshed = only(
+        candidate for candidate in simulation.compiled.input_bindings
+        if candidate.application_id ==
+           :distributed_runtime_sun_only_consumer
+    )
+    @test refreshed === binding
+    @test refreshed.carrier === original_carrier
+    @test parent(refreshed.carrier) === original_references
+    @test refreshed.source_ids == ObjectId.([:leaf_a, :leaf_z])
+    @test parent(refreshed.carrier)[end] === PlantSimEngine.refvalue(
+        model_status(model, :leaf_z),
+        :incident_par,
+    )
+    @test final_state(simulation, :plant).integrated_total == 80.0
+    counts = Advanced.runtime_performance(simulation).counts
+    @test counts[:lifecycle_many_input_binding_direct_appends] == 1
+    @test counts[:lifecycle_many_input_binding_direct_sources_appended] == 1
 end
 
 @testset "Many default policy follows final distributed Updates writer" begin

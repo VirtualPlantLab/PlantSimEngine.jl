@@ -2096,6 +2096,10 @@ end
     original_bindings =
         stabilization_shared_many_bindings(simulation, axis_count)
     original = first(original_bindings)
+    original_source_ids = original.source_ids
+    original_source_application_ids = original.source_application_ids
+    original_carrier = original.carrier
+    original_references = parent(original.carrier)
     @test all(
         binding ->
             binding.source_ids === original.source_ids &&
@@ -2117,9 +2121,26 @@ end
     @test Advanced.runtime_performance(simulation).counts[
         :selector_input_binding_candidates
     ] == 1
+    @test Advanced.runtime_performance(simulation).counts[
+        :lifecycle_many_input_binding_direct_appends
+    ] == 1
+    @test Advanced.runtime_performance(simulation).counts[
+        :lifecycle_many_input_binding_direct_sources_appended
+    ] == 1
+    direct_append_row = only(
+        row for row in Diagnostics.explain_runtime_performance(simulation)
+        if row.metric == :lifecycle_many_input_binding_direct_appends
+    )
+    @test direct_append_row.phase == :lifecycle_buffer_update
     @test refreshed === original
+    @test refreshed.source_ids === original_source_ids
+    @test refreshed.source_application_ids ===
+          original_source_application_ids
     @test refreshed.source_ids == ObjectId.([:leaf_a, :leaf_z])
-    @test refreshed.carrier === original.carrier
+    @test refreshed.carrier === original_carrier
+    @test parent(refreshed.carrier) === original_references
+    @test parent(refreshed.carrier)[end] ===
+          PlantSimEngine.refvalue(model_status(model, :leaf_z), :signal)
     @test all(
         binding ->
             binding.source_ids === refreshed.source_ids &&
@@ -2132,6 +2153,8 @@ end
         model_object(model, Symbol(:axis_, index)).status.lagged_total == 3.0
         for index in 1:axis_count
     )
+    model_status(model, :leaf_z).signal = 11.0
+    @test refreshed.carrier[end] == 11.0
 end
 
 @testset "shared Many fallback rewires every consumer and rebuilds its index" begin
@@ -2159,6 +2182,11 @@ end
     @test Advanced.runtime_performance(simulation).counts[
         :selector_input_binding_candidates
     ] == 1
+    @test get(
+        Advanced.runtime_performance(simulation).counts,
+        :lifecycle_many_input_binding_direct_appends,
+        0,
+    ) == 0
     @test rebuilt.carrier !== initial_carrier
     @test rebuilt.source_ids == ObjectId.([:leaf_a, :leaf_z])
     @test all(binding -> binding.carrier === rebuilt.carrier, rebuilt_bindings)

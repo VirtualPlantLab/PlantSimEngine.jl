@@ -2069,6 +2069,55 @@ function _shared_same_rate_many_binding_indices(bindings, binding)
     ]
 end
 
+function _can_append_stable_many_sources(binding::CompiledModelInputBinding)
+    binding.multiplicity == :many || return false
+    binding.carrier_hint === :ref_vector || return false
+    binding.carrier isa RefVector || return false
+    potential_application_ids = binding.potential_source_application_ids
+    source_application_ids = binding.source_application_ids
+    length(source_application_ids) == length(potential_application_ids) ||
+        return false
+    return all(
+        application_id -> application_id in source_application_ids,
+        potential_application_ids,
+    )
+end
+
+function _append_stable_many_source_references!(
+    model::CompositeModel,
+    binding::CompiledModelInputBinding,
+    new_source_ids,
+    performance,
+)
+    _can_append_stable_many_sources(binding) || return false
+    existing_references = parent(binding.carrier)
+    added_references = eltype(existing_references)[]
+    sizehint!(added_references, length(new_source_ids))
+    for object_id in new_source_ids
+        reference = _status_ref_or_nothing(
+            _model_object(model, object_id).status,
+            binding.source_var,
+        )
+        reference isa eltype(existing_references) || return false
+        push!(added_references, reference)
+    end
+
+    # Resolve every fallible reference before mutating the vectors shared by
+    # all consumers in this same-rate `Many(...)` group.
+    append!(existing_references, added_references)
+    append!(binding.source_ids, new_source_ids)
+    _runtime_performance_count!(
+        performance,
+        :lifecycle_many_input_binding_direct_appends,
+    )
+    _runtime_performance_count!(
+        performance,
+        :lifecycle_many_input_binding_direct_sources_appended,
+        length(new_source_ids),
+    )
+    return true
+end
+
 function _append_added_many_sources!(
     model::CompositeModel,
     binding::CompiledModelInputBinding,
@@ -2076,6 +2125,8 @@ function _append_added_many_sources!(
     applications_by_object,
     applications_by_id,
     distributed_outputs,
+    ;
+    performance=nothing,
 )
     binding.multiplicity == :many || return false
     default_scope = _default_dependency_scope(model, binding.consumer_id)
@@ -2112,6 +2163,13 @@ function _append_added_many_sources!(
        !_object_id_isless(last(binding.source_ids), first(new_source_ids))
         return false
     end
+
+    _append_stable_many_source_references!(
+        model,
+        binding,
+        new_source_ids,
+        performance,
+    ) && return true
 
     new_carrier = _input_carrier(model, binding.selector, new_source_ids, binding.source_var)
     isnothing(new_carrier) && return false
@@ -3201,7 +3259,7 @@ function _extend_compiled_scene(
                 continue
             end
         end
-        if !force_rebuild
+        if !force_rebuild && binding.multiplicity != :many
             _selector_matches_any_object_id(
                 model,
                 binding.matcher,
@@ -3221,6 +3279,8 @@ function _extend_compiled_scene(
                 applications_by_object,
                 applications_by_id,
                 distributed_outputs,
+                ;
+                performance=performance,
             )
         end
         if appended_sources
