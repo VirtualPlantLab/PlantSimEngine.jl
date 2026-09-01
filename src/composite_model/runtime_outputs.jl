@@ -6953,11 +6953,18 @@ function _refresh_simulation_runtime!(simulation::Simulation)
     return simulation
 end
 
-function _simulation_runtime_dirty(simulation::Simulation)
-    _runtime_performance_count!(
-        simulation.performance,
-        :runtime_dirty_checks,
-    )
+@inline function _simulation_runtime_dirty(
+    simulation::Simulation,
+    ::Nothing,
+)
+    return simulation.runtime_revision != simulation.model.runtime_revision
+end
+
+@inline function _simulation_runtime_dirty(
+    simulation::Simulation,
+    performance::RuntimePerformanceCounters,
+)
+    _runtime_performance_count!(performance, :runtime_dirty_checks)
     return simulation.runtime_revision != simulation.model.runtime_revision
 end
 
@@ -6974,6 +6981,64 @@ function _mark_schedule_prefix_completed!(
         )
     end
     return completed_applications
+end
+
+@inline function _run_model_execution_group!(
+    group::CompiledApplicationExecutionGroup,
+    simulation::Simulation,
+    step::Integer,
+    ::Nothing,
+)
+    for batch in group.batches
+        _run_model_execution_batch!(
+            batch,
+            simulation.compiled,
+            simulation.environment_bindings,
+            step,
+            simulation.constants,
+            simulation.temporal_streams,
+            simulation.output_retention,
+        )
+    end
+    return nothing
+end
+
+@inline function _run_model_execution_group!(
+    group::CompiledApplicationExecutionGroup,
+    simulation::Simulation,
+    step::Integer,
+    performance::RuntimePerformanceCounters,
+)
+    _runtime_performance_count!(
+        performance,
+        :application_groups_considered,
+    )
+    for batch in group.batches
+        _run_model_execution_batch_profiled!(
+            batch,
+            simulation.compiled,
+            simulation.environment_bindings,
+            step,
+            simulation.constants,
+            simulation.temporal_streams,
+            simulation.output_retention,
+            performance,
+        )
+        _runtime_performance_count!(
+            performance,
+            :execution_batches_visited,
+        )
+        _runtime_performance_count!(
+            performance,
+            :execution_targets_visited,
+            length(batch.targets),
+        )
+    end
+    _runtime_performance_count!(
+        performance,
+        :application_groups_visited,
+    )
+    return nothing
 end
 
 function _run_model_execution_step!(simulation::Simulation, step::Integer)
@@ -7007,46 +7072,11 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
             schedule_entry.application_slot
         ]
         isnothing(group) && continue
-        _runtime_performance_count!(
+        _run_model_execution_group!(
+            group,
+            simulation,
+            step,
             simulation.performance,
-            :application_groups_considered,
-        )
-        for batch in group.batches
-            if isnothing(simulation.performance)
-                _run_model_execution_batch!(
-                    batch,
-                    simulation.compiled,
-                    simulation.environment_bindings,
-                    step,
-                    simulation.constants,
-                    simulation.temporal_streams,
-                    simulation.output_retention,
-                )
-            else
-                _run_model_execution_batch_profiled!(
-                    batch,
-                    simulation.compiled,
-                    simulation.environment_bindings,
-                    step,
-                    simulation.constants,
-                    simulation.temporal_streams,
-                    simulation.output_retention,
-                    simulation.performance,
-                )
-            end
-            _runtime_performance_count!(
-                simulation.performance,
-                :execution_batches_visited,
-            )
-            _runtime_performance_count!(
-                simulation.performance,
-                :execution_targets_visited,
-                length(batch.targets),
-            )
-        end
-        _runtime_performance_count!(
-            simulation.performance,
-            :application_groups_visited,
         )
 
         if !isnothing(completed_applications)
@@ -7058,7 +7088,10 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
             )
             completed_schedule_entry = entry_index
         end
-        _simulation_runtime_dirty(simulation) || continue
+        _simulation_runtime_dirty(
+            simulation,
+            simulation.performance,
+        ) || continue
         if isnothing(completed_applications)
             completed_applications = Set{Symbol}()
             _mark_schedule_prefix_completed!(

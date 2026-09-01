@@ -1912,9 +1912,11 @@ end
     performance = Advanced.runtime_performance(simulation)
 
     @test performance.counts[:steps_executed] == 3
+    @test performance.counts[:application_groups_considered] == 3
     @test performance.counts[:application_groups_visited] == 3
     @test performance.counts[:execution_batches_visited] == 3
     @test performance.counts[:execution_targets_visited] == 3
+    @test performance.counts[:runtime_dirty_checks] == 3
     @test performance.counts[:initial_application_plans_compiled] == 1
     @test performance.counts[:initial_input_plans_compiled] == 0
     @test performance.counts[:initial_call_plans_compiled] == 0
