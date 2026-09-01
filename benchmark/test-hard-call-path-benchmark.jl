@@ -397,6 +397,17 @@ end
 
 benchmark_compiled_hard_call_step(simulation) = step!(simulation)
 
+function setup_call_binding_signature_benchmark(target_count::Int=4_096)
+    simulation = setup_compiled_hard_call_step(
+        kind=:many,
+        target_count=target_count,
+    )
+    return only(simulation.compiled.call_bindings)
+end
+
+Base.@noinline benchmark_call_binding_signature(binding) =
+    PlantSimEngine._call_bindings_signature((binding,))
+
 function benchmark_compiled_hard_call_invocation(
     context::T;
     repeats=1,

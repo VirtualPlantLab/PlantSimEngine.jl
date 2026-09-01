@@ -505,6 +505,38 @@ function _descendant_ids(model::CompositeModel, root_id::ObjectId)
     return _append_descendant_ids!(ObjectId[], model, root_id)
 end
 
+# Object-relative selectors created with a newborn organ commonly cover only a
+# handful of objects. Probe at most 32 objects before falling back to the
+# registry-index heuristic so that those tiny scopes avoid copying a scene-wide
+# label index without making large plant subtrees pay for a full extra walk.
+const _SCOPE_FIRST_DESCENDANT_LIMIT = 32
+
+function _append_descendant_ids_up_to!(
+    ids::Vector{ObjectId},
+    model::CompositeModel,
+    root_id::ObjectId,
+    limit::Int,
+)
+    length(ids) >= limit && return false
+    push!(ids, root_id)
+    object = _model_object(model, root_id)
+    for child_id in object.children
+        _append_descendant_ids_up_to!(ids, model, child_id, limit) ||
+            return false
+    end
+    return true
+end
+
+function _descendant_ids_up_to(
+    model::CompositeModel,
+    root_id::ObjectId,
+    limit::Int,
+)
+    ids = ObjectId[]
+    complete = _append_descendant_ids_up_to!(ids, model, root_id, limit)
+    return complete ? ids : nothing
+end
+
 function _ancestor_id(
     model::CompositeModel,
     current_id::ObjectId;
@@ -1188,14 +1220,43 @@ function _resolve_object_ids(
         return ObjectId[_object_id_from_context(context)]
     end
 
-    indexed_ids = _indexed_object_ids(
-        model;
-        scale=scale,
-        kind=kind,
-        species=species,
-        name=name,
-    )
-    candidate_ids = if isnothing(relation)
+    has_indexed_criteria = !isnothing(scale) ||
+                           !isnothing(kind) ||
+                           !isnothing(species) ||
+                           !isnothing(name)
+    scope_candidate_ids = if isnothing(relation) && has_indexed_criteria
+        if scope isa Self
+            _scope_object_ids(model, scope, context)
+        elseif scope isa Subtree
+            current_id = _object_id_from_context(context)
+            isnothing(current_id) && error(
+                "`Subtree()` selectors require a current object context.",
+            )
+            _descendant_ids_up_to(
+                model,
+                current_id,
+                _SCOPE_FIRST_DESCENDANT_LIMIT,
+            )
+        else
+            nothing
+        end
+    else
+        nothing
+    end
+    indexed_ids = if isnothing(scope_candidate_ids)
+        _indexed_object_ids(
+            model;
+            scale=scale,
+            kind=kind,
+            species=species,
+            name=name,
+        )
+    else
+        nothing
+    end
+    candidate_ids = if !isnothing(scope_candidate_ids)
+        scope_candidate_ids
+    elseif isnothing(relation)
         if scope isa Ancestor && !isnothing(scale) && scale == scope.scale
             current_id = _object_id_from_context(context)
             isnothing(current_id) && error(
@@ -1232,11 +1293,22 @@ function _resolve_object_ids(
     end
     ids = ObjectId[
         id for id in candidate_ids
-        if _matches_object_criteria(_model_object(model, id); scale=scale, kind=kind, species=species, name=name)
+        if _matches_object_criteria(
+            _model_object(model, id);
+            scale=scale,
+            kind=kind,
+            species=species,
+            name=name,
+        )
     ]
     _sort_object_ids!(ids)
 
-    diagnostic_candidate_ids = if isempty(ids) && !isnothing(indexed_ids)
+    diagnostic_candidate_ids = if !isnothing(scope_candidate_ids)
+        # Indexed candidates already satisfy the requested labels. Preserve
+        # that diagnostic contract for ambiguous singular matches, while an
+        # empty match still reports every label available inside the scope.
+        isempty(ids) ? scope_candidate_ids : ids
+    elseif isempty(ids) && !isnothing(indexed_ids)
         if isnothing(relation)
             _scope_object_ids(model, scope, context)
         else

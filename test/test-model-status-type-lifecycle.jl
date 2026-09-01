@@ -6,6 +6,9 @@ using Test
 PlantSimEngine.@process "status_type_lifecycle_increment" verbose = false
 PlantSimEngine.@process "status_type_lifecycle_stream_writer" verbose = false
 PlantSimEngine.@process "status_type_lifecycle_stream_consumer" verbose = false
+PlantSimEngine.@process "status_type_lifecycle_bound_consumer" verbose = false
+PlantSimEngine.@process "status_type_lifecycle_output_transaction" verbose = false
+PlantSimEngine.@process "status_type_lifecycle_input_transaction" verbose = false
 
 struct StatusTypeLifecycleIncrementModel <:
        AbstractStatus_Type_Lifecycle_IncrementModel end
@@ -58,6 +61,25 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+struct StatusTypeLifecycleBoundConsumerModel <:
+       AbstractStatus_Type_Lifecycle_Bound_ConsumerModel end
+
+PlantSimEngine.inputs_(::StatusTypeLifecycleBoundConsumerModel) =
+    (bound_value=Default(-1.0),)
+PlantSimEngine.outputs_(::StatusTypeLifecycleBoundConsumerModel) =
+    (seen=0.0,)
+
+function PlantSimEngine.run!(
+    ::StatusTypeLifecycleBoundConsumerModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    status.seen = status.bound_value
+    return nothing
+end
+
 struct StatusTypeLifecycleTransformCounter
     calls::Base.RefValue{Int}
 end
@@ -65,6 +87,270 @@ end
 function (counter::StatusTypeLifecycleTransformCounter)(variable, value)
     counter.calls[] += 1
     return value
+end
+
+struct StatusTypeLifecycleFailOn
+    variable::Symbol
+end
+
+function (transform::StatusTypeLifecycleFailOn)(variable, value)
+    variable == transform.variable && error("intentional conversion failure")
+    return value
+end
+
+struct StatusTypeLifecycleOutputTransactionModel <:
+       AbstractStatus_Type_Lifecycle_Output_TransactionModel end
+
+PlantSimEngine.outputs_(::StatusTypeLifecycleOutputTransactionModel) =
+    (first_output=0.0, failing_output=0.0)
+
+function PlantSimEngine.run!(
+    ::StatusTypeLifecycleOutputTransactionModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    return nothing
+end
+
+struct StatusTypeLifecycleInputTransactionModel <:
+       AbstractStatus_Type_Lifecycle_Input_TransactionModel end
+
+PlantSimEngine.inputs_(::StatusTypeLifecycleInputTransactionModel) =
+    (first_default=Default(1.0), failing_default=Default(2.0))
+PlantSimEngine.outputs_(::StatusTypeLifecycleInputTransactionModel) =
+    (seen=0.0,)
+
+function PlantSimEngine.run!(
+    ::StatusTypeLifecycleInputTransactionModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    return nothing
+end
+
+@testset "pure additions preserve bound-default conversion diagnostics" begin
+    calls = Ref(0)
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant; scale=:Plant, parent=:scene),
+        Object(:leaf_1; scale=:Leaf, parent=:plant);
+        applications=(
+            ModelSpec(
+                StatusTypeLifecycleIncrementModel();
+                name=:lifecycle_increment,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                StatusTypeLifecycleBoundConsumerModel();
+                name=:bound_consumer,
+                on=Many(scale=:Leaf),
+                inputs=(
+                    bound_value=One(
+                        within=Self(),
+                        application=:lifecycle_increment,
+                        var=:value,
+                    ),
+                ),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+        type_promotion=Dict(Float64 => Float32),
+        status_transform=StatusTypeLifecycleTransformCounter(calls),
+    )
+    simulation = run!(model; outputs=:none, performance=true)
+    calls_before_addition = calls[]
+
+    register_object!(
+        model,
+        Object(:leaf_2; scale=:Leaf, parent=:plant),
+    )
+    continue!(simulation)
+
+    status = model_status(model, :leaf_2)
+    @test propertynames(status) == (:value, :seen, :bound_value)
+    references = PlantSimEngine.refvalues(status)
+    @test isconcretetype(typeof(references))
+    @test all(isconcretetype, fieldtypes(typeof(references)))
+    @test PlantSimEngine.refvalue(status, :bound_value) ===
+          PlantSimEngine.refvalue(status, :value)
+    @test status.bound_value === Float32(1)
+    @test status.seen === Float32(1)
+    @test calls[] == calls_before_addition + 3
+    @test haskey(
+        model.status_conversion_records,
+        (
+            :model_input_default,
+            :bound_consumer,
+            ObjectId(:leaf_2),
+            :bound_value,
+        ),
+    )
+    @test :bound_value ∉ get(
+        model.input_default_status_variables,
+        ObjectId(:leaf_2),
+        Set{Symbol}(),
+    )
+    initialization = only(
+        row for row in Diagnostics.explain_initialization(simulation)
+        if row.application_id == :bound_consumer &&
+           row.object_id == :leaf_2 &&
+           row.variable == :bound_value
+    )
+    @test initialization.disposition == :producer_bound
+    @test initialization.status_transform_applied
+    @test initialization.type_mapping_applied
+    performance = Advanced.runtime_performance(simulation)
+    @test performance.counts[:input_default_status_rewrites_avoided] == 1
+    @test performance.counts[
+        :lifecycle_binding_refresh_status_recipe_materializations
+    ] == 2
+    @test performance.counts[
+        :lifecycle_binding_refresh_status_recipe_fields_applied
+    ] == 3
+    @test performance.counts[
+        :lifecycle_binding_refresh_status_recipe_materializations_avoided
+    ] == 2
+    @test only(
+        row for row in Diagnostics.explain_runtime_performance(simulation)
+        if row.metric ==
+           :lifecycle_binding_refresh_status_recipe_materializations
+    ).phase == :lifecycle_buffer_update
+end
+
+@testset "batched recipes preserve arbitrary Ref aliases" begin
+    external_storage = [7.5]
+    external_reference = Ref(external_storage, 1)
+    initial_status = Status((external_value=external_reference,))
+    @test PlantSimEngine.refvalue(initial_status, :external_value) ===
+          external_reference
+
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant; scale=:Plant, parent=:scene);
+        applications=(
+            ModelSpec(
+                StatusTypeLifecycleIncrementModel();
+                name=:lifecycle_increment,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                StatusTypeLifecycleBoundConsumerModel();
+                name=:bound_consumer,
+                on=Many(scale=:Leaf),
+                inputs=(
+                    bound_value=One(
+                        within=Self(),
+                        application=:lifecycle_increment,
+                        var=:value,
+                    ),
+                ),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+    Advanced.refresh_bindings!(model)
+    register_object!(
+        model,
+        Object(
+            :late_leaf;
+            scale=:Leaf,
+            parent=:plant,
+            status=initial_status,
+        ),
+    )
+
+    Advanced.refresh_bindings!(model)
+    refreshed = model_status(model, :late_leaf)
+    @test propertynames(refreshed) ==
+          (:external_value, :value, :seen, :bound_value)
+    @test PlantSimEngine.refvalue(refreshed, :external_value) ===
+          external_reference
+    @test PlantSimEngine.refvalue(refreshed, :bound_value) ===
+          PlantSimEngine.refvalue(refreshed, :value)
+
+    external_storage[1] = 9.25
+    @test refreshed.external_value == 9.25
+end
+
+@testset "batched output recipes commit conversion metadata atomically" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant; scale=:Plant, parent=:scene);
+        applications=(
+            ModelSpec(
+                StatusTypeLifecycleOutputTransactionModel();
+                name=:output_transaction,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+        status_transform=StatusTypeLifecycleFailOn(:failing_output),
+    )
+    Advanced.refresh_bindings!(model)
+    register_object!(
+        model,
+        Object(:late_leaf; scale=:Leaf, parent=:plant),
+    )
+
+    @test_throws ErrorException Advanced.refresh_bindings!(model)
+    @test isnothing(model_status(model, :late_leaf))
+    @test !any(
+        key -> key[3] == ObjectId(:late_leaf),
+        keys(model.status_conversion_records),
+    )
+end
+
+@testset "batched input recipes commit metadata atomically" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant; scale=:Plant, parent=:scene);
+        applications=(
+            ModelSpec(
+                StatusTypeLifecycleInputTransactionModel();
+                name=:input_transaction,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+        status_transform=StatusTypeLifecycleFailOn(:failing_default),
+    )
+    Advanced.refresh_bindings!(model)
+    register_object!(
+        model,
+        Object(:late_leaf; scale=:Leaf, parent=:plant),
+    )
+
+    performance = Advanced.RuntimePerformanceCounters()
+    @test_throws ErrorException Advanced.refresh_bindings!(
+        model;
+        performance=performance,
+    )
+    @test propertynames(model_status(model, :late_leaf)) == (:seen,)
+    @test !haskey(
+        model.status_conversion_records,
+        (
+            :model_input_default,
+            :input_transaction,
+            ObjectId(:late_leaf),
+            :first_default,
+        ),
+    )
+    @test isempty(
+        get(
+            model.input_default_status_variables,
+            ObjectId(:late_leaf),
+            Set{Symbol}(),
+        ),
+    )
+    @test get(
+        performance.counts,
+        :input_default_status_rewrites_avoided,
+        0,
+    ) == 0
 end
 
 @testset "register_object! converts status after compilation" begin
