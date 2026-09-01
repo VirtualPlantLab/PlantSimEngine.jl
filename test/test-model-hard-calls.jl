@@ -257,7 +257,19 @@ end
     model = CompositeModel(
         Object(:scene; scale=:Scene, name=:scene),
         Object(:middle; scale=:Plant, name=:middle, parent=:scene),
-        Object(:leaf_a; scale=:Leaf, parent=:middle);
+        Object(:leaf_a; scale=:Leaf, parent=:middle),
+        Object(
+            :unrelated_middle;
+            scale=:Plant,
+            name=:unrelated_middle,
+            parent=:scene,
+        ),
+        Object(
+            :unrelated_leaf;
+            scale=:Leaf,
+            name=:unrelated_leaf,
+            parent=:unrelated_middle,
+        );
         applications=(
             ModelSpec(
                 NestedManyRootModel();
@@ -284,6 +296,18 @@ end
                 ),
             ),
             ModelSpec(
+                NestedCallMiddleModel();
+                name=:unrelated_middle,
+                on=One(name=:unrelated_middle),
+                calls=(
+                    :leaf => One(
+                        name=:unrelated_leaf,
+                        within=Subtree(),
+                        application=:leaf,
+                    ),
+                ),
+            ),
+            ModelSpec(
                 NestedCallLeafModel();
                 name=:leaf,
                 on=Many(scale=:Leaf),
@@ -292,7 +316,7 @@ end
         environment=(duration=Hour(1),),
     )
 
-    simulation = run!(model; outputs=:none)
+    simulation = run!(model; outputs=:none, performance=true)
     root = only(model_objects(model; name=:scene)).status
     scenario_plan = simulation.compiled.scenario_plan
     @test root.ncalls == 1
@@ -309,6 +333,17 @@ end
     @test root.ncalls == 2
     @test root.total == 3.0
     @test length(call_targets(NESTED_MANY_MIDDLE_CONTEXT[], :leaves)) == 2
+    performance = Advanced.runtime_performance(simulation)
+    @test length(simulation.compiled.call_bindings) == 3
+    @test performance.counts[
+        :lifecycle_manual_call_owner_binding_candidates
+    ] == 3
+    @test performance.counts[
+        :lifecycle_manual_call_owner_binding_candidates
+    ] < 2 * length(simulation.compiled.call_bindings)
+    @test performance.counts[
+        :lifecycle_manual_call_owner_targets_propagated
+    ] == 1
 end
 
 @testset "hard-call ownership cycles fail before execution" begin
@@ -570,6 +605,10 @@ end
 
     simulation = run!(model; outputs=:all, performance=true)
     controller = only(model_objects(model; scale=:Scene)).status
+    manual_owner_index =
+        simulation.compiled.manual_call_binding_indices_by_owner_application
+    call_binding_index = only(eachindex(simulation.compiled.call_bindings))
+    @test manual_owner_index[:controller] == [call_binding_index]
     @test controller.ncalls == 2
     @test controller.total == 2.0
     rows = filter(
@@ -594,6 +633,9 @@ end
     continue!(simulation; steps=1)
     performance = Advanced.runtime_performance(simulation)
     @test performance.counts[:execution_target_call_batches_extended] == 1
+    @test simulation.compiled.manual_call_binding_indices_by_owner_application ===
+          manual_owner_index
+    @test manual_owner_index[:controller] == [call_binding_index]
     @test only(simulation.compiled.call_bindings) === call_binding
     addition_membership_generation =
         PlantSimEngine._compiled_call_membership_generation(call_binding)
@@ -618,6 +660,11 @@ end
 
     remove_object!(model, :leaf_b)
     continue!(simulation; steps=1)
+    rebuilt_manual_owner_index =
+        simulation.compiled.manual_call_binding_indices_by_owner_application
+    @test rebuilt_manual_owner_index !== manual_owner_index
+    @test rebuilt_manual_owner_index[:controller] ==
+          [only(eachindex(simulation.compiled.call_bindings))]
     removal_membership_generation =
         PlantSimEngine._compiled_call_membership_generation(call_binding)
     @test removal_membership_generation ==
@@ -625,6 +672,74 @@ end
     @test removal_membership_generation > addition_membership_generation
     @test controller.ncalls == 2
     @test controller.total == 5.0
+end
+
+@testset "new manual call owner extends observed owner index" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:plant_a; scale=:Plant, parent=:scene),
+        Object(:leaf_a; scale=:Leaf, parent=:plant_a);
+        applications=(
+            ModelSpec(
+                ManyCallControllerModel();
+                name=:controller,
+                on=Many(scale=:Plant),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:leaf_calls,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:leaf_calls,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none)
+    manual_owner_index =
+        simulation.compiled.manual_call_binding_indices_by_owner_application
+    initial_binding_indices = copy(manual_owner_index[:controller])
+    @test length(initial_binding_indices) == 1
+    @test all(
+        PlantSimEngine._compiled_call_membership_is_observed(
+            simulation.compiled.call_bindings[binding_index],
+        )
+        for binding_index in initial_binding_indices
+    )
+
+    register_object!(
+        model,
+        Object(:plant_b; scale=:Plant, parent=:scene),
+    )
+    register_object!(
+        model,
+        Object(:leaf_b; scale=:Leaf, parent=:plant_b),
+    )
+    continue!(simulation)
+
+    @test simulation.compiled.manual_call_binding_indices_by_owner_application ===
+          manual_owner_index
+    extended_binding_indices = manual_owner_index[:controller]
+    @test length(extended_binding_indices) == 2
+    @test length(unique(extended_binding_indices)) == 2
+    @test first(initial_binding_indices) in extended_binding_indices
+    indexed_bindings =
+        simulation.compiled.call_bindings[extended_binding_indices]
+    @test Set(getproperty.(indexed_bindings, :consumer_id)) == Set(
+        ObjectId[ObjectId(:plant_a), ObjectId(:plant_b)],
+    )
+    @test all(
+        PlantSimEngine._compiled_call_membership_is_observed,
+        indexed_bindings,
+    )
+    @test model_status(model, :plant_a).ncalls == 1
+    @test model_status(model, :plant_b).ncalls == 1
 end
 
 @testset "large monotonic Many call extension preserves existing targets" begin
@@ -830,6 +945,13 @@ end
     call_binding = only(simulation.compiled.call_bindings)
     @test !PlantSimEngine._compiled_call_membership_is_observed(call_binding)
     @test !PlantSimEngine._call_execution_batches_materialized(full_call_view)
+    @test isempty(
+        get(
+            simulation.compiled.manual_call_binding_indices_by_owner_application,
+            :selective_controller,
+            Int[],
+        ),
+    )
 
     register_object!(
         model,
@@ -864,6 +986,18 @@ end
         :selector_call_binding_candidates,
         0,
     ) == 0
+    @test get(
+        Advanced.runtime_performance(simulation).counts,
+        :lifecycle_manual_call_owner_binding_candidates,
+        0,
+    ) == 0
+    @test isempty(
+        get(
+            simulation.compiled.manual_call_binding_indices_by_owner_application,
+            :selective_controller,
+            Int[],
+        ),
+    )
 
     # The wrapper obtained before all three lifecycle changes stays cached.
     # Its first complete inspection catches up once, then activates the normal
@@ -873,6 +1007,25 @@ end
     @test PlantSimEngine._compiled_call_membership_is_observed(call_binding)
     @test getproperty.(collect(full_call_view), :object_id) ==
           ObjectId[ObjectId(:leaf_keep)]
+    call_binding_index = findfirst(
+        candidate -> candidate === call_binding,
+        simulation.compiled.call_bindings,
+    )
+    @test !isnothing(call_binding_index)
+    indexed_call_bindings = copy(
+        get(
+            simulation.compiled.manual_call_binding_indices_by_owner_application,
+            :selective_controller,
+            Int[],
+        ),
+    )
+    @test indexed_call_bindings == [call_binding_index]
+    @test length(full_call_view) == 1
+    @test get(
+        simulation.compiled.manual_call_binding_indices_by_owner_application,
+        :selective_controller,
+        Int[],
+    ) == indexed_call_bindings
 
     register_object!(
         model,
@@ -888,6 +1041,17 @@ end
     @test Advanced.runtime_performance(simulation).counts[
         :selector_call_binding_candidates
     ] == 1
+    @test Advanced.runtime_performance(simulation).counts[
+        :lifecycle_manual_call_owner_binding_candidates
+    ] == 1
+    @test Advanced.runtime_performance(simulation).counts[
+        :lifecycle_manual_call_owner_targets_propagated
+    ] == 1
+    @test get(
+        simulation.compiled.manual_call_binding_indices_by_owner_application,
+        :selective_controller,
+        Int[],
+    ) == indexed_call_bindings
 end
 
 @testset "retained cold Many synchronizes when a multirate owner is not due" begin

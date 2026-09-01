@@ -233,6 +233,7 @@ function _model_graph_compiled(
             many_input_binding_cache,
         ),
         _index_dynamic_call_bindings(model, call_bindings),
+        _index_manual_call_bindings_by_owner_application(call_bindings),
         many_input_binding_cache,
         distributed_outputs,
         scenario_plan.call_owners,
