@@ -1,12 +1,12 @@
 # Public Symbol Inventory
 
-This page records the supported default namespace and the four focused public
+This page records the supported default namespace and the five focused public
 submodules. Compiler representations and cache controls are intentionally
 listed separately under [`PlantSimEngine.Advanced`](#advanced-namespace).
 
 `using PlantSimEngine` imports the ordinary model-author and simulation-user
-workflow plus the `Diagnostics`, `GraphEditor`, `EnvironmentAPI`, and
-`Evaluation` module names. Their members remain qualified unless a user
+workflow plus the `Authoring`, `Diagnostics`, `GraphEditor`, `EnvironmentAPI`,
+and `Evaluation` module names. Their members remain qualified unless a user
 explicitly imports one of those submodules.
 
 ## Scenario composition
@@ -65,6 +65,38 @@ inspection:
 - Normalized selector addresses: `Diagnostics.ObjectAddress`,
   `Diagnostics.object_address`.
 
+## Authoring namespace
+
+`PlantSimEngine.Authoring` is the stable inspection surface for model authors
+and agents:
+
+- Discovery: `Authoring.available_processes` and
+  `Authoring.available_models`.
+- Exact instance description: `Authoring.describe_model` and
+  `Authoring.model_interface`.
+- Alternative comparison: `Authoring.compare_models`, including separate
+  `requires_binding_changes` and `requires_reconfiguration` results.
+- Structural validation: `Authoring.validate_model` and
+  `Authoring.validate_scenario`.
+- Explicit scientific metadata: `Authoring.model_metadata` and
+  `Authoring.parameter_metadata`.
+- Stable serialization: `Authoring.to_dict`, `Authoring.to_json`, and
+  `Authoring.SCHEMA_VERSION`.
+- Editable scenario reconstruction: `Authoring.scenario_source`.
+- Readable resolved execution: `Authoring.compiled_model_source` and
+  `Authoring.write_compiled_model_source`.
+- Typed reports: `Authoring.ModelDescription`, `Authoring.ModelComparison`,
+  `Authoring.ModelValidationReport`, and
+  `Authoring.ScenarioValidationReport`.
+
+A description built from a concrete instance includes its explicit `process`
+identity and exact model values. Inspect nested `field_provenance` because
+declarations, source information, and constructor metadata have independent
+origins. A type-only description is best effort and never invents constructor
+arguments or a dummy instance. A type-only interface requires a real
+zero-argument constructor. Authoring validation is structural; it does not
+establish scientific validity.
+
 ## Model-author contract
 
 - Model identity: `AbstractModel`, `@process`, `process`.
@@ -107,9 +139,8 @@ for declared status or environment variables.
 
 ## GraphEditor namespace
 
-- Discovery and DTOs: `GraphEditor.available_models`,
-  `GraphEditor.model_descriptor`, `GraphEditor.compile_model_report`,
-  `GraphEditor.ModelGraphView`, and `GraphEditor.model_graph_view`.
+- Graph DTOs: `GraphEditor.ModelGraphView` and
+  `GraphEditor.model_graph_view`.
 - Serialization and static views: `GraphEditor.model_graph_view_json`,
   `GraphEditor.model_graph_view_html`, and
   `GraphEditor.write_model_graph_view`.

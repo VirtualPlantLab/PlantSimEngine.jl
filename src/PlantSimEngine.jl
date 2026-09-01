@@ -32,6 +32,7 @@ include("variables_wrappers.jl")
 include("Abstract_model_structs.jl")
 include("input_schema.jl")
 include("variable_contracts.jl")
+include("authoring_interface.jl")
 
 # Multi-rate scaffolding:
 include("time/multirate.jl")
@@ -72,8 +73,62 @@ include("time/runtime/environment_backends.jl")
 include("visualization/model_graph_view.jl")
 include("visualization/model_graph_editor_api.jl")
 
+# Reconstructible source for authored CompositeModel scenarios:
+include("scenario_source.jl")
+
+# Public model-authoring and scenario-inspection reports:
+include("authoring.jl")
+
 # Fitting
 include("evaluation/fit.jl")
+
+"""
+    PlantSimEngine.Authoring
+
+Stable model discovery, exact instance descriptions, interface comparison, and
+structured model/scenario validation for model authors and tooling.
+"""
+module Authoring
+import ..PlantSimEngine:
+    AUTHORING_SCHEMA_VERSION,
+    ModelInterface,
+    ValidationDiagnostic,
+    ModelParameterDescription,
+    ModelPortDescription,
+    ModelDependencyDescription,
+    ModelDescription,
+    ModelDifference,
+    ModelComparison,
+    ModelValidationReport,
+    ScenarioValidationReport,
+    available_processes,
+    available_models,
+    describe_model,
+    model_interface,
+    compare_models,
+    validate_model,
+    validate_scenario,
+    model_metadata,
+    parameter_metadata,
+    scenario_source,
+    compiled_model_source,
+    write_compiled_model_source,
+    to_dict,
+    to_json
+
+const SCHEMA_VERSION = AUTHORING_SCHEMA_VERSION
+
+export SCHEMA_VERSION
+export ModelInterface, ModelDescription, ModelParameterDescription
+export ModelPortDescription, ModelDependencyDescription
+export ModelDifference, ModelComparison
+export ValidationDiagnostic, ModelValidationReport, ScenarioValidationReport
+export available_processes, available_models
+export describe_model, model_interface, compare_models
+export validate_model, validate_scenario, model_metadata, parameter_metadata
+export scenario_source, compiled_model_source, write_compiled_model_source
+export to_dict, to_json
+end
 
 """
     PlantSimEngine.Advanced
@@ -187,14 +242,8 @@ sessions.
 """
 module GraphEditor
 import ..PlantSimEngine:
-    available_processes,
-    available_models,
-    model_descriptor,
-    model_constructor_descriptor,
     ModelGraphDiagnostic,
-    CompositeModelCompilationReport,
     ModelGraphView,
-    compile_model_report,
     compile_model_graph,
     model_graph_view,
     model_graph_view_json,
@@ -243,10 +292,8 @@ import ..PlantSimEngine:
     undo!,
     redo!
 
-export available_processes, available_models
-export model_descriptor, model_constructor_descriptor
-export ModelGraphDiagnostic, CompositeModelCompilationReport, ModelGraphView
-export compile_model_report, compile_model_graph, model_graph_view
+export ModelGraphDiagnostic, ModelGraphView
+export compile_model_graph, model_graph_view
 export model_graph_view_json, model_graph_view_html, write_model_graph_view
 export AbstractModelGraphEdit, ModelApplicationRef
 export GlobalApplicationRef, TemplateApplicationRef
@@ -340,7 +387,7 @@ export environment_bindings, environment_window, output_routing, updates
 export environment_inputs, environment_outputs
 export validate_environment_inputs
 export run!, continue!, step!
-export Advanced, Diagnostics, GraphEditor, EnvironmentAPI, Evaluation
+export Authoring, Advanced, Diagnostics, GraphEditor, EnvironmentAPI, Evaluation
 
 # Re-exporting PlantMeteo main functions:
 export Atmosphere, Constants, Weather

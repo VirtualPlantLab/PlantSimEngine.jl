@@ -94,23 +94,28 @@ inside its own `run!` method:
 
 ```julia
 PlantSimEngine.dep(::EnergyBalance) = (
-    photosynthesis=AbstractPhotosynthesisModel,
+    photosynthesis=Call(One(process=:photosynthesis)),
 )
 ```
 
-The scenario binds the dependency with `ModelSpec(...; calls=...)`. The parent executes all
-resolved targets with `run_call!(context, :photosynthesis)`, which always returns
-a vector-like collection. Use `call_targets` plus `run_call!(target)` when the
-parent needs selective trials and accepted publication.
+The scenario may override that default selector with
+`ModelSpec(...; calls=...)`. The parent executes all resolved targets with
+`run_call!(context, :photosynthesis)`, which always returns a vector-like
+collection. Use `call_targets` plus `run_call!(target)` when the parent needs
+selective trials and accepted publication.
 
 ## Timing
 
-`timespec(model)` declares the model's default clock. The default is
+`timespec(model)` declares a model clock in simulation steps. The default is
 `ClockSpec(1.0, 0.0)`.
 
 ```julia
-PlantSimEngine.timespec(::Type{<:DailyGrowth}) = ClockSpec(Dates.Day(1))
+PlantSimEngine.timespec(::Type{<:DailyGrowth}) = ClockSpec(24.0, 1.0)
 ```
+
+Use `ModelSpec(...; every=Dates.Day(1))` when the cadence should be expressed
+as a physical duration relative to the scenario environment. A
+`Dates.Period` is not a `ClockSpec` constructor argument.
 
 `output_policy(model)` declares the default temporal policy per output:
 

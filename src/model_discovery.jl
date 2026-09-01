@@ -57,70 +57,32 @@ function available_models(process_type::Type{<:AbstractModel})
 end
 
 """
-    model_descriptor(::Type{<:AbstractModel})
-
-Return JSON-compatible discovery metadata for a model implementation type.
-Input and output metadata is inferred best-effort from a zero-argument or dummy
-instance when the type can be constructed safely.
-"""
-function model_descriptor(::Type{T}) where {T<:AbstractModel}
-    process_type = _process_type_for_model(T)
-    process_name = isnothing(process_type) ? nothing : process_(process_type)
-    module_ = parentmodule(T)
-    return Dict{String,Any}(
-        "type" => string(T),
-        "name" => string(nameof(T)),
-        "module" => string(module_),
-        "package" => _model_package_name(module_),
-        "process" => isnothing(process_name) ? nothing : string(process_name),
-        "processType" => isnothing(process_type) ? nothing : string(process_type),
-        "inputs" => _model_input_descriptor(T),
-        "outputs" => _model_var_descriptor(T, outputs_),
-        "environmentInputs" => _model_var_descriptor(T, environment_inputs_),
-        "environmentOutputs" => _model_var_descriptor(T, environment_outputs_),
-        "variableContracts" => _model_contract_descriptor(T),
-        "timespec" => _safe_string_trait(T, timespec),
-        "outputPolicy" => _safe_string_trait(T, output_policy),
-        "timestepHint" => _safe_string_trait(T, timestep_hint),
-        "environmentHint" => _safe_string_trait(T, environment_hint),
-        "constructor" => model_constructor_descriptor(T),
-    )
-end
-
-function _model_contract_descriptor(::Type{T}) where {T<:AbstractModel}
-    instance = _try_zero_arg_model(T)
-    isnothing(instance) && (instance = _try_dummy_model(T))
-    isnothing(instance) && return Dict{String,Any}()
-    contracts = try
-        variable_contracts(instance)
-    catch err
-        return Dict{String,Any}("_error" => sprint(showerror, err))
-    end
-    return Dict(
-        string(name) => Dict(
-            string(field) => (isnothing(value) ? nothing : string(value))
-            for (field, value) in pairs(_contract_fields(contract))
-        )
-        for (name, contract) in pairs(contracts)
-    )
-end
-
-"""
     model_constructor_descriptor(::Type{<:AbstractModel})
 
-Return constructor metadata inferred from struct fields and an optional
-zero-argument constructor. Fields that share a type parameter share a type
-choice in the editor.
+Return best-effort constructor metadata inferred from struct fields, declared
+constructor methods, and an optional zero-argument constructor. Type inspection
+never executes a placeholder construction. Fields that share a type parameter
+share a type choice in the editor.
 """
 function model_constructor_descriptor(::Type{T}) where {T<:AbstractModel}
+    return _model_constructor_descriptor(T, _try_zero_arg_model(T))
+end
+
+function _model_constructor_descriptor(::Type{T}, default_instance) where {T<:AbstractModel}
     unwrapped_type = Base.unwrap_unionall(T)
     names = collect(fieldnames(unwrapped_type))
     declared_types = collect(fieldtypes(unwrapped_type))
-    default_instance = _try_zero_arg_model(T)
     has_defaults = !isnothing(default_instance)
-    positional_values = _dummy_constructor_values(declared_types)
-    positional_constructible = !isnothing(positional_values) &&
-                               _can_construct_with(T, positional_values)
+    has_zero_arg_constructor = try
+        hasmethod(T, Tuple{})
+    catch
+        false
+    end
+    has_declared_constructor = try
+        !isempty(methods(T))
+    catch
+        false
+    end
 
     fields = Dict{String,Any}[]
     parameter_groups = Dict{String,Vector{String}}()
@@ -151,8 +113,9 @@ function model_constructor_descriptor(::Type{T}) where {T<:AbstractModel}
         "name" => string(nameof(T)),
         "fields" => fields,
         "parameterGroups" => parameter_groups,
-        "hasZeroArgConstructor" => has_defaults,
-        "constructible" => has_defaults || positional_constructible,
+        "hasZeroArgConstructor" => has_zero_arg_constructor,
+        "hasInspectedDefaults" => has_defaults,
+        "constructible" => has_defaults || has_declared_constructor,
         "positional" => true,
         "keyword" => false,
     )
@@ -201,112 +164,12 @@ function _process_name_for_type(type::Type)
     return isnothing(process_type) ? Symbol(nameof(type)) : process_(process_type)
 end
 
-function _model_var_descriptor(::Type{T}, accessor) where {T<:AbstractModel}
-    instance = _try_zero_arg_model(T)
-    isnothing(instance) && (instance = _try_dummy_model(T))
-    isnothing(instance) && return Dict{String,Any}()
-    variables = try
-        accessor(instance)
-    catch err
-        return Dict{String,Any}("_error" => sprint(showerror, err))
-    end
-    return Dict(string(name) => _jsonable_model_value(value) for (name, value) in pairs(variables))
-end
-
-function _model_input_descriptor(::Type{T}) where {T<:AbstractModel}
-    instance = _try_zero_arg_model(T)
-    isnothing(instance) && (instance = _try_dummy_model(T))
-    isnothing(instance) && return Dict{String,Any}()
-    schema = try
-        _input_schema(instance)
-    catch err
-        return Dict{String,Any}("_error" => sprint(showerror, err))
-    end
-    return Dict(
-        string(name) => Dict{String,Any}(
-            "declaration" => declaration isa Required ? "required" : "defaulted",
-            "expectedType" => string(_input_expected_type(declaration)),
-            "default" => declaration isa Default ?
-                         _jsonable_model_value(declaration.value) :
-                         nothing,
-            "defaultJulia" => declaration isa Default ?
-                              repr(declaration.value) :
-                              nothing,
-        )
-        for (name, declaration) in pairs(schema)
-    )
-end
-
-function _safe_string_trait(::Type{T}, trait) where {T<:AbstractModel}
-    value = try
-        trait(T)
-    catch
-        instance = _try_zero_arg_model(T)
-        isnothing(instance) && return nothing
-        try
-            trait(instance)
-        catch err
-            return string("error: ", sprint(showerror, err))
-        end
-    end
-    return string(value)
-end
-
 function _try_zero_arg_model(::Type{T}) where {T<:AbstractModel}
     try
         return T()
     catch
         return nothing
     end
-end
-
-function _try_dummy_model(::Type{T}) where {T<:AbstractModel}
-    unwrapped_type = Base.unwrap_unionall(T)
-    names = fieldnames(unwrapped_type)
-    isempty(names) && return nothing
-    values = _dummy_constructor_values(fieldtypes(unwrapped_type))
-    isnothing(values) && return nothing
-    try
-        return T(values...)
-    catch
-        return nothing
-    end
-end
-
-function _dummy_constructor_values(field_types)
-    values = Any[]
-    for field_type in field_types
-        value = _dummy_field_value(field_type)
-        isnothing(value) && return nothing
-        push!(values, value)
-    end
-    return values
-end
-
-function _can_construct_with(::Type{T}, values) where {T<:AbstractModel}
-    try
-        T(values...)
-        return true
-    catch
-        return false
-    end
-end
-
-_dummy_field_value(::TypeVar) = 0.0
-
-function _dummy_field_value(type)
-    try
-        type === Any && return 0.0
-        type === Bool && return false
-        type <: Integer && return zero(type)
-        type <: AbstractFloat && return zero(type)
-        type <: Real && return zero(type)
-        type <: Symbol && return :value
-        type <: AbstractString && return ""
-    catch
-        return nothing
-    end
-    return nothing
 end
 
 _field_type_parameter_key(field_type) = field_type isa TypeVar ? string(field_type.name) : nothing

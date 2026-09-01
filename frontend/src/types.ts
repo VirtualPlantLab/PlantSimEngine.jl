@@ -257,6 +257,16 @@ export type ModelDescriptor = {
   outputs: Record<string, unknown>;
   environmentInputs: Record<string, unknown>;
   environmentOutputs: Record<string, unknown>;
+  provenance?: "exact" | "best_effort";
+  fieldProvenance?: ModelFieldProvenanceMap;
+  complete?: boolean;
+  diagnostics?: Array<{
+    code: string;
+    severity: string;
+    message: string;
+    context: Record<string, unknown>;
+    suggestions: string[];
+  }>;
   timespec?: string | null;
   timestepHint?: string | null;
   environmentHint?: string | null;
@@ -265,9 +275,21 @@ export type ModelDescriptor = {
     fields: ModelConstructorField[];
     parameterGroups: Record<string, string[]>;
     hasZeroArgConstructor: boolean;
+    hasInspectedDefaults?: boolean;
     constructible: boolean;
   };
 };
+
+export type ModelFieldProvenance =
+  | "exact"
+  | "declared"
+  | "inferred"
+  | "best_effort"
+  | "unavailable";
+
+export interface ModelFieldProvenanceMap {
+  [field: string]: ModelFieldProvenance | ModelFieldProvenanceMap;
+}
 
 export type ModelGraphView = {
   schemaVersion: number;

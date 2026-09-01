@@ -216,10 +216,66 @@ Use the `Diagnostics` namespace instead of inspecting internals:
 See [Migrating To The CompositeModel/Object API](../migration_composite_model.md) for
 translations from removed APIs.
 
+### Model authoring and scenario validation
+
+Use the neutral `Authoring` namespace for model discovery and machine-readable
+validation:
+
+- `Authoring.available_processes()` and `Authoring.available_models(...)`
+  discover models from loaded Julia modules;
+- `Authoring.describe_model(instance)` records explicit process identity plus
+  the parameter values, ports, contracts, dependencies, traits, metadata, and
+  source location of a concrete instance. Its nested `field_provenance`
+  separately marks exact or declared model information, inferred source
+  information, and the independent provenance of constructor fields, defaults,
+  and methods;
+- `Authoring.describe_model(ModelType)` is explicitly best effort and returns
+  an incomplete report when no real zero-argument constructor exists. It never
+  fabricates parameter values or constructs a dummy instance;
+- current values from `Authoring.describe_model(instance)` stay in
+  `parameters`; they are never relabeled as constructor defaults. Defaults are
+  inspected only from a real zero-argument type description;
+- `Authoring.model_interface(instance)` returns the exact interface enforced
+  for object and instance overrides;
+- `Authoring.model_interface(ModelType)` is best effort only when that type has
+  a real zero-argument constructor; otherwise it raises `ArgumentError` rather
+  than inventing parameter values;
+- `Authoring.compare_models(a, b)` distinguishes common process identity from
+  direct override compatibility, binding changes, and other scenario
+  reconfiguration. Inspect `requires_binding_changes` for interface differences
+  that affect binding configuration and `requires_reconfiguration` for any
+  difference that prevents a direct override; each structured difference
+  records its `path`, `kind`, values, `affects_override`, and
+  `affects_bindings`;
+- `Authoring.validate_model(model; strict=false)` validates declarations
+  without executing the scientific kernel. Strict mode requires a complete
+  `VariableContract` for every declared port;
+- `Authoring.validate_scenario(model; strict=false)` preserves a partial
+  compilation report and structured diagnostics for incomplete scenarios;
+- `Authoring.to_dict(report)` and `Authoring.to_json(report)` expose the
+  versioned report schema without serializing compiler internals;
+- `Authoring.scenario_source(model; environments=...)` reconstructs readable,
+  editable Julia scenario code. Pass named runtime environment values through
+  `environments` so the generated code can refer to them explicitly;
+- `Authoring.compiled_model_source(model_or_simulation)` produces an executable,
+  readable view of the resolved application order, targets, input provenance,
+  calls, and invoked kernel bodies;
+- `Authoring.write_compiled_model_source(path, value)` writes that view
+  explicitly.
+
+These functions validate declared structure and coupling. They do not infer
+units, assumptions, references, domains of validity, or scientific
+equivalence. The compiled source is an explanatory execution view over the
+normal compiled runtime, not a second scheduler. Use `scenario_source` when the
+goal is to edit or version the scenario declaration; use
+`compiled_model_source` when the goal is to inspect what compilation resolved.
+A package may extend `Authoring.model_metadata(model)` with explicit metadata
+such as summary, hypothesis, references, and maturity. It may extend
+`Authoring.parameter_metadata(model)` with descriptions, units, domains,
+defaults, references, or constraints for the fields of the model type.
+
 ### CompositeModel graph visualization and editing
 
-- `GraphEditor.compile_model_report(model; strict=false)` preserves partial graph state and
-  structured diagnostics for incomplete or cyclic composite models.
 - `GraphEditor.model_graph_view(model; level=:applications)` returns the typed graph view.
 - `GraphEditor.model_graph_view_json(model)` serializes the same DTO used by the browser.
 - `GraphEditor.write_model_graph_view(path, model)` writes a self-contained static viewer.
@@ -275,6 +331,7 @@ Pages = ["API_public.md"]
 ```@autodocs
 Modules = [
     PlantSimEngine,
+    PlantSimEngine.Authoring,
     PlantSimEngine.Diagnostics,
     PlantSimEngine.GraphEditor,
     PlantSimEngine.EnvironmentAPI,

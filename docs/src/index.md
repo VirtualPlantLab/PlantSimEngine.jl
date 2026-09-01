@@ -247,6 +247,9 @@ once.
   executable journey and runs a coupled simulation over many timesteps.
 - [Run the coupling on several objects](journeys/users/several_objects.md)
   introduces stable object identity and `Many`.
+- [Implement a basic model](journeys/modelers/basic_model.md) is the canonical
+  executable path for parameters, ports, contracts, a direct kernel test, and
+  runtime composition.
 - [Public API](API/API_public.md) lists the composite-model/object constructors,
   selectors, lifecycle hooks, and explanation helpers.
 - [Model traits](model_traits.md) explains `inputs_`, `outputs_`, `dep`,

@@ -300,25 +300,15 @@ function _instance_override_models(instance::ObjectInstance, specs)
     return selected
 end
 
-function _model_contract(model)
-    return (
-        process=process(model),
-        inputs=Tuple(Symbol.(keys(_input_schema(model)))),
-        outputs=Tuple(Symbol.(keys(outputs_(model)))),
-        environment_inputs=Tuple(Symbol.(keys(environment_inputs_(model)))),
-        environment_outputs=Tuple(Symbol.(keys(environment_outputs_(model)))),
-        variable_contracts=variable_contracts(model),
-    )
-end
-
 function _validate_model_override_contract!(base, replacement; description)
-    base_contract = _model_contract(base)
-    replacement_contract = _model_contract(replacement)
-    base_contract == replacement_contract && return nothing
+    base_contract = model_interface(base)
+    replacement_contract = model_interface(replacement)
+    isequal(base_contract, replacement_contract) && return nothing
     error(
         "$(description) has an incompatible model contract. Expected ",
         "`$(base_contract)`, got `$(replacement_contract)`. Object and instance ",
-        "overrides may change parameters or implementation, but not process or declared variables."
+        "overrides may change parameters or implementation, but not the full compiled " *
+        "interface (port schemas, contracts, dependencies, or runtime traits)."
     )
 end
 

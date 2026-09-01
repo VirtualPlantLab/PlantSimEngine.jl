@@ -6,8 +6,8 @@ contract. Object selection and topology remain scenario concerns.
 See [Build One Multiscale Plant](@ref) for the simulation-user construction
 journey.
 
-The plain Julia block below is an excerpt from a shipped example whose
-declarations and compositions are tested in `test/test-toy_models.jl`.
+Every block below executes during the documentation build using the tested,
+shipped example models.
 
 ## Model 4: consume one scalar from another object
 
@@ -54,22 +54,21 @@ resolves a shared `Ref`.
 `ToyMaintenanceRespirationModel` runs once per leaf and publishes `Rm`.
 `ToyPlantRmModel` declares one vector-like input and reduces it:
 
-```julia
-PlantSimEngine.inputs_(::ToyPlantRmModel) = (
-    Rm_organs=Required(AbstractVector{<:Real}),
+```@example modeler_cross_object
+plant_respiration = ToyPlantRmModel()
+plant_status = Status(Rm_organs=[0.2, 0.3], Rm=-Inf)
+PlantSimEngine.run!(
+    plant_respiration,
+    plant_status,
+    NamedTuple(),
+    nothing,
+    nothing,
 )
-PlantSimEngine.outputs_(::ToyPlantRmModel) = (Rm=-Inf,)
-
-function PlantSimEngine.run!(
-    model::ToyPlantRmModel,
-    status,
-    environment,
-    constants,
-    context,
+(
+    inputs=PlantSimEngine.inputs_(plant_respiration),
+    outputs=PlantSimEngine.outputs_(plant_respiration),
+    total=plant_status.Rm,
 )
-    status.Rm = sum(status.Rm_organs)
-    return nothing
-end
 ```
 
 The scenario decides that `Rm_organs` means all descendant leaf outputs:

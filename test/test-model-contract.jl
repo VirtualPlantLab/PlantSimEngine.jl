@@ -226,8 +226,10 @@ end
         ContractInvalidDeclaration(),
     )
 
-    descriptor = PlantSimEngine.model_descriptor(ContractPlantSource)
-    @test descriptor["variableContracts"]["aPPFD"] == Dict(
+    descriptor = PlantSimEngine.Authoring.to_dict(
+        PlantSimEngine.Authoring.describe_model(ContractPlantSource()),
+    )
+    @test descriptor["interface"]["variableContracts"]["aPPFD"] == Dict(
         "unit" => "mol_photon",
         "basis" => "plant",
         "temporal" => "day",

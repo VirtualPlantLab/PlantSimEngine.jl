@@ -1,156 +1,151 @@
-# Implement A Basic Model
+# Implement a basic model
 
-**New concept:** the complete one-step model contract. This page then proves
-that the same kernel composes automatically on one object and runs unchanged
-over several objects.
+**New concept:** the complete one-step model boundary: process identity,
+parameters, ports, scientific contracts, and a readable five-argument kernel.
+This page uses the tested canonical fixture shipped with the PlantSimEngine
+skill, first directly and then through the ordinary runtime.
 
-For the simulation-user view of these scenarios, see
-[Couple Models On One Object](@ref) and
-[Run The Coupling On Several Objects](@ref).
+Before creating a type, follow [New process or new model?](@ref). The example
+below is one hypothesis for the `biomass_production` process. Its coefficients
+are pedagogical, not a calibrated crop model.
 
-## Model 1: declare the complete contract
+## Load the canonical fixture
 
-`ToyDevelopmentModel` has one generic parameter, one required input, one true
-default, one output initial value, and the final five-argument kernel. This is
-the complete tested implementation from `examples/ToyModelDeveloper.jl`:
-
-```julia
-struct ToyDevelopmentModel{T} <: AbstractToy_DevelopmentModel
-    efficiency::T
-end
-
-PlantSimEngine.inputs_(::ToyDevelopmentModel) = (
-    TT=Required(Real),
-    stress=Default(1.0),
-)
-PlantSimEngine.outputs_(model::ToyDevelopmentModel) = (
-    growth=zero(model.efficiency),
-)
-
-function PlantSimEngine.run!(
-    model::ToyDevelopmentModel,
-    status,
-    environment,
-    constants,
-    context,
-)
-    status.growth = model.efficiency * status.TT * status.stress
-    return nothing
-end
-```
-
-`Required(Real)` is a contract, not an initialization value. `Default(1.0)`
-means the scientific model genuinely defines unstressed growth as its
-fallback. Output values initialize model state and should match the parameter's
-numeric type where practical.
-
-Test the kernel directly before involving a scenario:
+The documentation and agent skill use the same executable source instead of
+maintaining two copies:
 
 ```@example modeler_basic
-using Dates, PlantMeteo, PlantSimEngine, DataFrames
-using PlantSimEngine.Examples
+using Dates, PlantSimEngine
 
-development = ToyDevelopmentModel(0.5)
-status = Status(TT=8.0, stress=0.75, growth=0.0)
-PlantSimEngine.run!(
-    development,
-    status,
-    nothing,
-    nothing,
-    nothing,
+asset = joinpath(
+    pkgdir(PlantSimEngine),
+    "skills",
+    "plantsimengine",
+    "assets",
+    "minimal-model.jl",
 )
-status.growth
-```
+include(asset)
+using .MinimalModelExample
 
-## Model 2: let one object couple it automatically
-
-`ToyDegreeDaysCumulModel` publishes `TT`; `ToyDevelopmentModel` requires `TT`.
-Because both applications target the same object and the producer is unique,
-the scenario needs no explicit `inputs` wiring:
-
-```@example modeler_basic
-one_object = CompositeModel(
-    Object(:leaf; scale=:Leaf);
-    applications=(
-        ModelSpec(
-            ToyDegreeDaysCumulModel(T_base=10.0);
-            name=:thermal_time,
-            on=One(scale=:Leaf),
-        ),
-        ModelSpec(
-            development;
-            name=:development,
-            on=One(scale=:Leaf),
-        ),
-    ),
-    environment=Atmosphere(
-        T=18.0,
-        Wind=1.0,
-        Rh=0.7,
-        duration=Day(1),
-    ),
-)
-
-select(
-    DataFrame(Diagnostics.explain_bindings(one_object)),
-    :application_id,
-    :input,
-    :origin,
-    :source_application_ids,
-    :carrier_kind,
+boundary = RadiationUseEfficiency(1.5f0)
+description = Authoring.describe_model(boundary)
+validation = Authoring.validate_model(boundary; strict=true)
+(
+    runtime_process=process(boundary),
+    described_process=description.process,
+    inputs=inputs(boundary),
+    outputs=outputs(boundary),
+    contracts=variable_contracts(boundary),
+    description_provenance=description.provenance,
+    field_provenance=description.field_provenance,
+    structurally_valid=validation.valid,
 )
 ```
 
+The loaded declaration is deliberately short. `RadiationUseEfficiency{T}`
+stores `rue`; its schemas declare `intercepted_par` and
+`biomass_increment`, plus explicitly empty environment inputs and outputs. The
+two ports receive complete contracts, and the complete kernel equation is
+`status.biomass_increment = model.rue * status.intercepted_par` followed by
+`return nothing`. This description is derived from the asset included above,
+so the tutorial does not maintain a second untested copy of its source.
+
+The model struct stores only the fixed radiation-use-efficiency parameter.
+`Required(Real)` is a type requirement, not an initial value. The output
+initial value follows the parameter's numeric type. The complete
+`VariableContract` declarations state that intercepted radiation and biomass
+increment are daily, plant-scale totals with explicit units.
+
+The kernel reads as the scientific calculation from input to output. It does
+not select objects, find producers, choose a cadence, or retain output rows;
+those are scenario responsibilities.
+
+## Test the kernel directly
+
+Use a minimal `Status` before involving the compiler:
+
 ```@example modeler_basic
-one_simulation = run!(one_object)
-final_state(one_simulation)
+direct = direct_example(Float32)
+(
+    biomass_increment=direct.biomass_increment,
+    value_type=typeof(direct.biomass_increment),
+)
 ```
 
-PlantSimEngine creates `stress=1.0` from the model default and connects `TT`
-through a shared `Ref`. The development kernel knows neither fact.
+This test isolates the equation and proves that the fixture preserves
+`Float32`. Model packages should also test edge cases and supported enriched
+number types.
 
-## Model 3: reuse the kernel over several objects
+## Compose it on one object
 
-Change only application multiplicity from `One` to `Many`:
+The asset provides the smallest full scenario with the required input supplied
+as initial status:
 
 ```@example modeler_basic
+one_object = single_object_scenario(Float32)
+(
+    initialization=Diagnostics.explain_initialization(one_object),
+    final=final_state(run!(one_object)),
+)
+```
+
+`Diagnostics.explain_initialization` distinguishes supplied inputs, model
+defaults, produced outputs, environment bindings, and unresolved requirements.
+Inspect this report before running a larger scenario.
+
+## Reuse the same kernel over several objects
+
+Object selection remains outside the model. Change only the application
+multiplicity and provide each object with initial radiation:
+
+```@example modeler_basic
+development = RadiationUseEfficiency(1.5f0)
 several_objects = CompositeModel(
-    Object(:leaf_1; scale=:Leaf),
-    Object(:leaf_2; scale=:Leaf);
+    Object(
+        :plant_1;
+        scale=:Plant,
+        status=Status(intercepted_par=10.0f0),
+    ),
+    Object(
+        :plant_2;
+        scale=:Plant,
+        status=Status(intercepted_par=6.0f0),
+    );
     applications=(
         ModelSpec(
-            ToyDegreeDaysCumulModel(T_base=10.0);
-            name=:thermal_time,
-            on=Many(scale=:Leaf),
-        ),
-        ModelSpec(
             development;
-            name=:development,
-            on=Many(scale=:Leaf),
+            name=:biomass_production,
+            on=Many(scale=:Plant),
         ),
-    ),
-    environment=Atmosphere(
-        T=18.0,
-        Wind=1.0,
-        Rh=0.7,
-        duration=Day(1),
     ),
 )
 
-final_state(run!(several_objects), Many(scale=:Leaf))
+final_state(run!(several_objects), Many(scale=:Plant))
 ```
 
-Do not loop over objects inside `ToyDevelopmentModel.run!`. PlantSimEngine
-compiles homogeneous execution targets and invokes the one-target kernel for
-each selected object.
+Do not loop over objects inside `RadiationUseEfficiency.run!`.
+PlantSimEngine compiles homogeneous targets and invokes the one-target kernel
+for each selected object.
+
+## Continue the authoring path
+
+- [Port an existing model](@ref) explains the readable-kernel convention.
+- [Model repository layout and tests](@ref) shows where to place alternatives,
+  documentation, and each test level.
+- [Implement Cross-Object Values](@ref) adds `One`, `Many`, and `Subtree()`
+  bindings.
+- [Coupling models](@ref) explains when `OptionalOne` is valid and
+  distinguishes value coupling, hard calls, and explicit physical adapters.
+- [Model compatibility and replacement](@ref) checks whether another
+  hypothesis is genuinely substitutable.
 
 ## Model-author recap
 
-- **You implemented:** parameters, `Required`/`Default` inputs, output initial
-  state, and one-target arithmetic.
-- **PlantSimEngine inferred:** default initialization, same-object coupling,
-  execution order, and repeated targets.
-- **The scenario author keeps explicit:** objects, application names,
-  multiplicity, and environment data.
-- **New API names:** `AbstractModel`, `inputs_`, `outputs_`, `Required`,
-  `Default`, and `run!`.
+- **You implemented:** one immutable parameter type, declared ports, complete
+  scientific contracts, and a continuous one-target kernel.
+- **PlantSimEngine inferred:** initialization, target execution, and generic
+  status construction.
+- **The scenario author keeps explicit:** object identities, target
+  multiplicity, initial radiation, cadence, and output retention.
+- **New API names:** `AbstractModel`, `inputs_`, `outputs_`,
+  `variable_contracts_`, `VariableContract`, `Required`, `Status`, and `run!`.

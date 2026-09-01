@@ -240,6 +240,7 @@ end
         :Aggregate,
         :Ancestor,
         :Atmosphere,
+        :Authoring,
         :BoundMany,
         :Call,
         :CallTarget,
@@ -347,6 +348,7 @@ end
     ])
     @test public_names == expected_public_names
     advanced_names = names(PlantSimEngine.Advanced)
+    authoring_names = names(PlantSimEngine.Authoring)
     diagnostic_names = names(PlantSimEngine.Diagnostics)
     graph_editor_names = names(PlantSimEngine.GraphEditor)
     environment_api_names = names(PlantSimEngine.EnvironmentAPI)
@@ -388,6 +390,34 @@ end
         :refresh_environment_bindings!,
         :runtime_performance,
     ])
+    @test Set(authoring_names) == Set([
+        :Authoring,
+        :ModelComparison,
+        :ModelDependencyDescription,
+        :ModelDescription,
+        :ModelDifference,
+        :ModelInterface,
+        :ModelParameterDescription,
+        :ModelPortDescription,
+        :ModelValidationReport,
+        :SCHEMA_VERSION,
+        :ScenarioValidationReport,
+        :ValidationDiagnostic,
+        :available_models,
+        :available_processes,
+        :compare_models,
+        :compiled_model_source,
+        :describe_model,
+        :model_interface,
+        :model_metadata,
+        :parameter_metadata,
+        :scenario_source,
+        :to_dict,
+        :to_json,
+        :validate_model,
+        :validate_scenario,
+        :write_compiled_model_source,
+    ])
     @test Set(diagnostic_names) == Set([
         :Diagnostics,
         :ObjectAddress,
@@ -419,7 +449,6 @@ end
         :AddModelInstance,
         :AddModelObject,
         :BreakModelCycle,
-        :CompositeModelCompilationReport,
         :GraphEditor,
         :MarkModelPreviousTimeStep,
         :ModelApplicationRef,
@@ -455,14 +484,9 @@ end
         :UpdateModelApplication,
         :apply_edit!,
         :apply_model_graph_edit,
-        :available_models,
-        :available_processes,
         :compile_model_graph,
-        :compile_model_report,
         :current_model,
         :edit_graph,
-        :model_constructor_descriptor,
-        :model_descriptor,
         :model_graph_view,
         :model_graph_view_html,
         :model_graph_view_json,
@@ -503,6 +527,7 @@ end
         :final_state,
         :model_objects,
         :runtime_model,
+        :Authoring,
         :Diagnostics,
         :GraphEditor,
         :EnvironmentAPI,
@@ -522,9 +547,18 @@ end
         @test diagnostic_name ∉ public_names
         @test diagnostic_name ∈ diagnostic_names
     end
+    for authoring_name in (
+        :describe_model,
+        :model_interface,
+        :compare_models,
+        :validate_model,
+        :validate_scenario,
+    )
+        @test authoring_name ∉ public_names
+        @test authoring_name ∈ authoring_names
+    end
     for graph_editor_name in (
         :ModelGraphView,
-        :compile_model_report,
         :model_graph_view,
         :AddModelApplication,
         :edit_graph,

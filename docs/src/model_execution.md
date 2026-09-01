@@ -99,6 +99,34 @@ These explanations are intended for both users and agents. They report the
 compiled object ids, applications, carriers, clocks, environment bindings, and
 manual-call targets that the runtime will use.
 
+### Readable source views
+
+PlantSimEngine exposes two deliberately different source views. Reconstruct an
+editable scenario declaration with:
+
+```julia
+scenario_code = Authoring.scenario_source(
+    model;
+    environments=(weather=weather,),
+)
+```
+
+The `environments` catalog names runtime values that generated code must refer
+to rather than attempt to serialize. For code review or agent inspection,
+generate an executable Julia view of the resolved plan instead:
+
+```julia
+source = Authoring.compiled_model_source(model)
+Authoring.write_compiled_model_source("compiled_model.jl", model)
+```
+
+The generated source spells out application order, selected targets, input
+provenance, hard calls, and the kernel bodies invoked through normal
+PlantSimEngine status, environment, output, and lifecycle machinery. It is
+optimized for explanation and review, not as an alternative scheduler. It
+represents the resolved plan; `scenario_source` reconstructs the scenario that
+an author can edit and compile again.
+
 ## Soft Dependencies With Inputs
 
 Soft dependencies are value dependencies. A consumer model reads a variable

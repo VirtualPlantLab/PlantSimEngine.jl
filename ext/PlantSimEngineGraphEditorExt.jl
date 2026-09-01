@@ -169,7 +169,7 @@ function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.GraphEdit
         PlantSimEngine.GraphEditor.SetCompositeModelEnvironment,
         PlantSimEngine.GraphEditor.SetModelApplicationEnvironment,
     }
-        report = PlantSimEngine.GraphEditor.compile_model_report(candidate)
+        report = PlantSimEngine.Authoring.validate_scenario(candidate).compilation
         _, environment_plans_by_id =
             PlantSimEngine._compile_environment_application_plans(
                 candidate,
@@ -373,7 +373,7 @@ function _preview_instance_payload(session, command)
     )
     name = Symbol(command["name"])
     instance = only(item for item in candidate.instances if item.name == name)
-    report = PlantSimEngine.GraphEditor.compile_model_report(candidate)
+    report = PlantSimEngine.Authoring.validate_scenario(candidate).compilation
     application_ids = PlantSimEngine._instance_application_ids(candidate, instance)
     payload = _state_payload(session)
     payload["instancePreview"] = Dict{String,Any}(
@@ -452,7 +452,7 @@ function _preview_input_binding_payload(session, command)
             _selector_for_application(session, application, command["selector"]),
         ),
     )
-    report = PlantSimEngine.GraphEditor.compile_model_report(candidate)
+    report = PlantSimEngine.Authoring.validate_scenario(candidate).compilation
     bindings = [
         binding for binding in report.input_bindings
         if binding.application_id in application_ids && binding.input == input
@@ -815,7 +815,7 @@ end
 
 function _resolve_model_type(label)
     text = String(label)
-    for model_type in PlantSimEngine.GraphEditor.available_models()
+    for model_type in PlantSimEngine.Authoring.available_models()
         text in (string(model_type), string(nameof(model_type))) && return model_type
     end
     error("No loaded model type matches `$(text)`. Load the defining package with `using PackageName` first.")
@@ -823,8 +823,8 @@ end
 
 function _construct_model(session, label, parameters)
     model_type = _resolve_model_type(label)
-    descriptor = PlantSimEngine.GraphEditor.model_constructor_descriptor(model_type)
-    fields = descriptor["fields"]
+    description = PlantSimEngine.Authoring.describe_model(model_type)
+    fields = description.constructor["fields"]
     isempty(fields) && return model_type()
     default_instance = try
         model_type()
@@ -957,7 +957,10 @@ function _state_payload(session; ok=true, diagnostics=String[])
         "canUndo" => !isempty(session.history),
         "canRedo" => !isempty(session.future),
         "url" => session.url,
-        "modelCode" => _model_to_julia(session),
+        "modelCode" => PlantSimEngine.Authoring.scenario_source(
+            session.model;
+            environments=session.environments,
+        ),
         "autosavePath" => session.autosave_path,
         "savePath" => session.save_path,
         "recentPaths" => session.recent_paths,
@@ -1001,7 +1004,7 @@ function _load_model_file(path; allow_julia_eval::Bool, environments=Dict{Symbol
     isfile(path) || error("Composite model file `$(path)` does not exist.")
     source = read(path, String)
     required_match = match(
-        r"(?m)^# Requires `editor_environments` with named values: ([^.]+)\.$",
+        r"(?m)^# Requires `scenario_environments` with named values: ([^.]+)\.$",
         source,
     )
     if !isnothing(required_match)
@@ -1017,7 +1020,7 @@ function _load_model_file(path; allow_julia_eval::Bool, environments=Dict{Symbol
     environment_values = (; (
         name => value for (name, value) in sort!(collect(environments); by=first)
     )...)
-    Core.eval(workspace, :(editor_environments = $environment_values))
+    Core.eval(workspace, :(scenario_environments = $environment_values))
     included = Base.include(workspace, path)
     model = isdefined(workspace, :model) ? getfield(workspace, :model) : included
     model isa PlantSimEngine.CompositeModel || error(
@@ -1040,474 +1043,11 @@ function _editor_html(session)
     return replace(html, "</head>" => "$(script)</head>")
 end
 
-function _status_conversion_module_code(module_::Module)
-    label = string(module_)
-    all(Base.isidentifier, split(label, '.')) || return nothing
-    return label
-end
-
-function _status_conversion_type_code(type_)
-    type_ isa DataType || return nothing
-    name = String(nameof(type_))
-    Base.isidentifier(name) || return nothing
-    occursin('#', name) && return nothing
-    module_ = parentmodule(type_)
-    module_code = _status_conversion_module_code(module_)
-    isnothing(module_code) && return nothing
-    isdefined(module_, Symbol(name)) || return nothing
-    getfield(module_, Symbol(name)) === type_.name.wrapper || return nothing
-    base = module_ in (Base, Core) ? name : "$(module_code).$(name)"
-    isempty(type_.parameters) && return base
-    parameter_codes = String[]
-    for parameter in type_.parameters
-        code = parameter isa Type ?
-               _status_conversion_type_code(parameter) :
-               _status_conversion_literal_code(parameter)
-        isnothing(code) && return nothing
-        push!(parameter_codes, code)
-    end
-    return "$(base){$(join(parameter_codes, ", "))}"
-end
-
-function _status_conversion_tuple_code(codes::Vector{String})
-    isempty(codes) && return "()"
-    length(codes) == 1 && return "($(only(codes)),)"
-    return "($(join(codes, ", ")))"
-end
-
-function _status_conversion_array_code(value::Array)
-    element_type = _status_conversion_type_code(eltype(value))
-    isnothing(element_type) && return nothing
-    elements = String[]
-    for item in value
-        code = _status_conversion_literal_code(item)
-        isnothing(code) && return nothing
-        push!(elements, code)
-    end
-    vector = "$(element_type)[$(join(elements, ", "))]"
-    ndims(value) == 1 && return vector
-    ndims(value) == 0 && return "reshape($(vector), ())"
-    return "reshape($(vector), $(join(size(value), ", ")))"
-end
-
-function _status_conversion_literal_code(value)
-    value === nothing && return "nothing"
-    value === missing && return "missing"
-    value isa Type && return _status_conversion_type_code(value)
-    if value isa PlantSimEngine.ObjectId
-        identifier = _status_conversion_literal_code(value.value)
-        isnothing(identifier) && return nothing
-        return "PlantSimEngine.ObjectId($(identifier))"
-    end
-    value isa Union{Bool,Integer,Float16,Float32,Float64,Char,AbstractString,Symbol} &&
-        return repr(value)
-    if value isa Pair
-        first_code = _status_conversion_literal_code(first(value))
-        last_code = _status_conversion_literal_code(last(value))
-        (isnothing(first_code) || isnothing(last_code)) && return nothing
-        return "$(first_code) => $(last_code)"
-    end
-    if value isa NamedTuple
-        names_code = _status_conversion_literal_code(Tuple(keys(value)))
-        values_code = _status_conversion_literal_code(Tuple(values(value)))
-        (isnothing(names_code) || isnothing(values_code)) && return nothing
-        return "NamedTuple{$(names_code)}($(values_code))"
-    end
-    if value isa Tuple
-        codes = String[]
-        for item in value
-            code = _status_conversion_literal_code(item)
-            isnothing(code) && return nothing
-            push!(codes, code)
-        end
-        return _status_conversion_tuple_code(codes)
-    end
-    value isa Array && return _status_conversion_array_code(value)
-    return nothing
-end
-
-function _status_transform_code(transform)
-    isnothing(transform) && return "nothing"
-    try
-        Meta.parse(repr(transform))
-    catch
-        return nothing
-    end
-
-    transform_type = typeof(transform)
-    type_name = String(nameof(transform_type))
-    (Base.isidentifier(type_name) && !occursin('#', type_name)) || return nothing
-    if transform isa Function
-        name = nameof(transform)
-        module_ = parentmodule(transform_type)
-        module_code = _status_conversion_module_code(module_)
-        isnothing(module_code) && return nothing
-        isdefined(module_, name) || return nothing
-        getfield(module_, name) === transform || return nothing
-        return "$(module_code).$(name)"
-    end
-
-    type_code = _status_conversion_type_code(transform_type)
-    isnothing(type_code) && return nothing
-    fields = Any[getfield(transform, index) for index in 1:fieldcount(transform_type)]
-    field_codes = String[]
-    for field in fields
-        code = _status_conversion_literal_code(field)
-        isnothing(code) && return nothing
-        push!(field_codes, code)
-    end
-    applicable(transform_type, fields...) || return nothing
-    reconstructed = try
-        transform_type(fields...)
-    catch
-        return nothing
-    end
-    typeof(reconstructed) === transform_type || return nothing
-    all(
-        isequal(getfield(reconstructed, index), getfield(transform, index))
-        for index in 1:fieldcount(transform_type)
-    ) || return nothing
-    return "$(type_code)($(join(field_codes, ", ")))"
-end
-
-function _status_conversion_policy_code(model, diagnostics)
-    policy = model.status_conversion
-    isempty(policy.rules) && isnothing(policy.transform) && return nothing
-
-    rule_codes = String[]
-    mapping_safe = true
-    for rule in policy.rules
-        source = _status_conversion_type_code(first(rule))
-        target = _status_conversion_type_code(last(rule))
-        if isnothing(source) || isnothing(target)
-            mapping_safe = false
-            break
-        end
-        push!(rule_codes, "$(source) => $(target)")
-    end
-    if !mapping_safe
-        empty!(rule_codes)
-        push!(
-            diagnostics,
-            "The Composite model type_promotion rules are not reconstructed because at least one mapped type has no safe Julia representation. Existing effective Status values are preserved, but future status materialization will not apply the mapping.",
-        )
-    end
-    sort!(rule_codes)
-
-    transform_code = _status_transform_code(policy.transform)
-    if isnothing(transform_code)
-        transform_repr = replace(repr(policy.transform), '\n' => ' ')
-        push!(
-            diagnostics,
-            "The Composite model status_transform `$(transform_repr)` is not reconstructed because its repr is not a safely reconstructible named function or functor. Existing effective Status values are preserved, but future defaults and registered objects use only reconstructible type_promotion rules.",
-        )
-        transform_code = "nothing"
-    elseif !isnothing(policy.transform) &&
-           Base.moduleroot(parentmodule(typeof(policy.transform))) === Main
-        push!(
-            diagnostics,
-            "The Composite model status_transform type $(typeof(policy.transform)) is defined in Main. Define or include it before evaluating this generated Composite model script.",
-        )
-    end
-
-    rules = _status_conversion_tuple_code(rule_codes)
-    return "PlantSimEngine.StatusConversionPolicy($(rules), $(transform_code))"
-end
-
-function _status_conversion_record_code(record)
-    record isa PlantSimEngine.StatusConversionRecord || return nothing
-    arguments = String[]
-    for field in fieldnames(typeof(record))
-        code = _status_conversion_literal_code(getfield(record, field))
-        isnothing(code) && return nothing
-        push!(arguments, code)
-    end
-    return "PlantSimEngine.StatusConversionRecord($(join(arguments, ", ")))"
-end
-
-function _status_conversion_records_code(model, diagnostics)
-    isempty(model.status_conversion_records) && return nothing
-    entries = String[]
-    for (key, record) in model.status_conversion_records
-        key_code = _status_conversion_literal_code(key)
-        record_code = _status_conversion_record_code(record)
-        if isnothing(key_code) || isnothing(record_code)
-            push!(
-                diagnostics,
-                "The Composite model status-conversion records contain a value with no safe Julia representation. Generated code omits those diagnostic records while preserving effective Status values and the reconstructible policy.",
-            )
-            return nothing
-        end
-        push!(entries, "$(key_code) => $(record_code)")
-    end
-    sort!(entries)
-    return "Dict{Any,Any}($(join(entries, ", ")))"
-end
-
-function _model_to_julia(session::GraphEditorSession)
-    model = session.model
-    io = IOBuffer()
-    diagnostics = String[]
-    status_conversion = _status_conversion_policy_code(model, diagnostics)
-    status_conversion_records = isnothing(status_conversion) ?
-                                nothing :
-                                _status_conversion_records_code(model, diagnostics)
-    modules = _model_code_modules(model)
-    for module_name in sort!(collect(modules))
-        println(io, "using $(module_name)")
-    end
-    println(io, "using Dates")
-    println(io)
-    if !isnothing(model.source_adapter)
-        push!(diagnostics, "The Composite model source_adapter is runtime-specific and is not reconstructed by generated code.")
-    end
-    for model in _model_code_models(model)
-        Base.moduleroot(parentmodule(typeof(model))) === Main || continue
-        push!(
-            diagnostics,
-            "Model $(typeof(model)) is defined in Main. Define or include that model before evaluating this generated Composite model script.",
-        )
-    end
-    for diagnostic in unique(diagnostics)
-        println(io, "# WARNING: ", diagnostic)
-    end
-    required_environments = _required_environment_names(session)
-    if !isempty(required_environments)
-        names = join(sort!(string.(collect(required_environments))), ", ")
-        println(io, "# Requires `editor_environments` with named values: ", names, ".")
-    end
-    isempty(diagnostics) || println(io)
-    println(io, "objects = (")
-    for object in PlantSimEngine.model_objects(model)
-        println(io, "    ", _object_code(session, object), ",")
-    end
-    println(io, ")")
-
-    templates = Any[]
-    for instance in model.instances
-        any(template -> template === instance.template, templates) || push!(templates, instance.template)
-    end
-    for (index, template) in pairs(templates)
-        println(io)
-        println(io, "template_$(index) = ", _template_code(session, template))
-    end
-
-    if !isempty(model.instances)
-        println(io)
-        println(io, "instances = (")
-        for instance in model.instances
-            template_index = only(index for (index, template) in pairs(templates) if template === instance.template)
-            println(io, "    ", _instance_code(instance, template_index), ",")
-        end
-        println(io, ")")
-    else
-        println(io)
-        println(io, "instances = ()")
-    end
-
-    mounted_ids = Set{Symbol}()
-    for instance in model.instances
-        union!(mounted_ids, PlantSimEngine._instance_application_ids(model, instance))
-    end
-    global_applications = [
-        application for application in model.applications
-        if PlantSimEngine._model_edit_application_id(application) ∉ mounted_ids
-    ]
-    println(io, "applications = (")
-    for application in global_applications
-        println(io, "    ", _application_code(session, PlantSimEngine.as_model_spec(application)), ",")
-    end
-    println(io, ")")
-    environment = _environment_value_code(session, model.environment)
-    options = String[
-        "applications=applications",
-        "instances=instances",
-        "environment=$(environment)",
-    ]
-    if !isnothing(status_conversion)
-        push!(options, "_status_conversion=$(status_conversion)")
-        push!(options, "_status_values_materialized=true")
-        isnothing(status_conversion_records) ||
-            push!(options, "_status_conversion_records=$(status_conversion_records)")
-    end
-    print(io, "model = CompositeModel(objects...; $(join(options, ", ")))")
-    return String(take!(io))
-end
-
-function _required_environment_names(session)
-    names = Set{Symbol}()
-    add_value = function (value)
-        for (name, environment) in session.environments
-            environment === value && push!(names, name)
-        end
-    end
-    add_value(session.model.environment)
-    add_spec = function (raw_spec)
-        spec = PlantSimEngine.as_model_spec(raw_spec)
-        environment = PlantSimEngine.environment_config(spec)
-        isnothing(environment) && return
-        payload = environment isa PlantSimEngine.EnvironmentConfig ? environment.config : environment
-        payload isa NamedTuple && haskey(payload, :backend) && add_value(payload.backend)
-    end
-    foreach(add_spec, session.model.applications)
-    for object in PlantSimEngine.model_objects(session.model)
-        isnothing(object.applications) || foreach(add_spec, object.applications)
-    end
-    for instance in session.model.instances
-        foreach(add_spec, instance.template.applications)
-    end
-    return names
-end
-
-function _model_code_models(model)
-    models = Any[]
-    add_application = function (application)
-        process_model = PlantSimEngine.model_(PlantSimEngine.as_model_spec(application))
-        if process_model isa PlantSimEngine.ObjectModelOverrides
-            push!(models, process_model.base)
-            append!(models, values(process_model.overrides))
-        else
-            push!(models, process_model)
-        end
-    end
-    foreach(add_application, model.applications)
-    for object in PlantSimEngine.model_objects(model)
-        isnothing(object.applications) && continue
-        foreach(add_application, object.applications)
-    end
-    for instance in model.instances
-        foreach(add_application, instance.template.applications)
-        append!(models, values(instance.overrides))
-        append!(models, (override.model for override in instance.object_overrides))
-    end
-    return models
-end
-
-function _model_code_modules(model)
-    modules = Set{String}(["PlantSimEngine"])
-    add_model = function (model)
-        module_ = parentmodule(typeof(model))
-        module_ in (Base, Core, Main) || push!(modules, string(module_))
-    end
-    foreach(add_model, _model_code_models(model))
-    return modules
-end
-
-function _object_code(session, object)
-    keywords = String[
-        "scale=$(repr(object.scale))",
-        "kind=$(repr(object.kind))",
-        "species=$(repr(object.species))",
-        "name=$(repr(object.name))",
-        "parent=$(isnothing(object.parent) ? "nothing" : repr(object.parent.value))",
-    ]
-    if object.status isa PlantSimEngine.Status
-        values = join(("$(name)=$(repr(object.status[name]))" for name in propertynames(object.status)), ", ")
-        push!(keywords, "status=Status(; $(values))")
-    end
-    isnothing(object.geometry) || push!(keywords, "geometry=$(repr(object.geometry))")
-    if !isnothing(object.applications) && object.applications != ()
-        applications = join(
-            (_application_code(session, PlantSimEngine.as_model_spec(application)) for application in object.applications),
-            ", ",
-        )
-        push!(keywords, "applications=($(applications),)")
-    end
-    return "Object($(repr(object.id.value)); $(join(keywords, ", ")))"
-end
-
-function _template_code(session, template)
-    applications = join(
-        ("        " * _application_code(session, PlantSimEngine.as_model_spec(application)) * "," for application in template.applications),
-        "\n",
-    )
-    return "CompositeModelTemplate((\n$(applications)\n    ); kind=$(repr(template.kind)), species=$(repr(template.species)), parameters=$(repr(template.parameters)))"
-end
-
-function _instance_code(instance, template_index)
-    overrides = if isempty(keys(instance.overrides))
-        "NamedTuple()"
-    else
-        entries = join(("$(key)=$(repr(model))" for (key, model) in pairs(instance.overrides)), ", ")
-        "($(entries),)"
-    end
-    object_overrides = if isempty(instance.object_overrides)
-        "()"
-    else
-        entries = join((_object_override_code(override) for override in instance.object_overrides), ", ")
-        "($(entries),)"
-    end
-    return "ObjectInstance($(repr(instance.name)), template_$(template_index); root=$(repr(PlantSimEngine._instance_root_id(instance).value)), overrides=$(overrides), object_overrides=$(object_overrides))"
-end
-
-function _object_override_code(override)
-    options = String["object=$(repr(override.object.value))"]
-    isnothing(override.application) || push!(options, "application=$(repr(override.application))")
-    push!(options, "model=$(repr(override.model))")
-    return "Override(; $(join(options, ", ")))"
-end
-
-function _environment_value_code(session, value)
-    isnothing(value) && return "nothing"
-    for (name, environment) in session.environments
-        environment === value && return "editor_environments.$(name)"
-    end
-    return repr(value)
-end
-
-function _environment_configuration_code(session, payload)
-    payload isa NamedTuple || return repr(payload)
-    entries = String[]
-    for (name, value) in pairs(payload)
-        code = Symbol(name) == :backend ? _environment_value_code(session, value) : repr(value)
-        push!(entries, "$(name)=$(code)")
-    end
-    return isempty(entries) ? "NamedTuple()" : "($(join(entries, ", ")),)"
-end
-
-function _application_code(session, spec)
-    options = String["name=$(repr(PlantSimEngine.application_name(spec)))"]
-    selector = PlantSimEngine.applies_to(spec)
-    isnothing(selector) || push!(options, "on=$(repr(selector))")
-    isempty(keys(PlantSimEngine.value_inputs(spec))) ||
-        push!(options, "inputs=$(repr(PlantSimEngine.value_inputs(spec)))")
-    isempty(keys(PlantSimEngine.model_calls(spec))) ||
-        push!(options, "calls=$(repr(PlantSimEngine.model_calls(spec)))")
-    environment = PlantSimEngine.environment_config(spec)
-    if !isnothing(environment)
-        payload = environment isa PlantSimEngine.EnvironmentConfig ? environment.config : environment
-        push!(options, "environment=Environment($(_environment_configuration_code(session, payload)))")
-    end
-    isnothing(spec.timestep) || push!(options, "every=$(repr(spec.timestep))")
-    if !isempty(keys(PlantSimEngine.environment_bindings(spec)))
-        push!(
-            options,
-            "environment_bindings=$(repr(PlantSimEngine.environment_bindings(spec)))",
-        )
-    end
-    if !isnothing(PlantSimEngine.environment_window(spec))
-        push!(
-            options,
-            "environment_window=$(repr(PlantSimEngine.environment_window(spec)))",
-        )
-    end
-    isempty(keys(PlantSimEngine.output_routing(spec))) ||
-        push!(options, "output_routing=$(repr(PlantSimEngine.output_routing(spec)))")
-    update_codes = String[]
-    for update in PlantSimEngine.updates(spec)
-        variables = join(repr.(collect(update.variables)), ", ")
-        push!(update_codes, "Updates($(variables); after=$(repr(update.after)))")
-    end
-    if length(update_codes) == 1
-        push!(options, "updates=$(only(update_codes))")
-    elseif !isempty(update_codes)
-        push!(options, "updates=($(join(update_codes, ", ")),)")
-    end
-    return "ModelSpec($(repr(PlantSimEngine.model_(spec))); $(join(options, ", ")))"
-end
-
 function _persist_model!(session)
-    code = _model_to_julia(session) * "\n"
+    code = PlantSimEngine.Authoring.scenario_source(
+        session.model;
+        environments=session.environments,
+    ) * "\n"
     isnothing(session.autosave_path) || _atomic_write(session.autosave_path, code)
     isnothing(session.save_path) || _atomic_write(session.save_path, code)
     return nothing

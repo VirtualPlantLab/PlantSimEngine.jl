@@ -1739,7 +1739,57 @@ function _model_graph_cycle_dict(report, component, index)
 end
 
 function _model_graph_model_library()
-    return [model_descriptor(type) for type in available_models()]
+    return [_model_graph_model_descriptor(type) for type in available_models()]
+end
+
+function _model_graph_model_descriptor(type::Type{<:AbstractModel})
+    description = Authoring.describe_model(type)
+    serialized = Authoring.to_dict(description)
+    ports = description.ports
+
+    inputs = Dict{String,Any}(
+        string(port.name) => Dict{String,Any}(
+            "declaration" => string(port.declaration),
+            "expectedType" => port.expected_type,
+            "default" => port.declaration == :defaulted ?
+                         _model_graph_json_value(port.initial_value) : nothing,
+            "defaultJulia" => port.declaration == :defaulted ?
+                              repr(port.initial_value) : nothing,
+        )
+        for port in ports if port.role == :input
+    )
+    values_for(role) = Dict{String,Any}(
+        string(port.name) => _model_graph_json_value(port.initial_value)
+        for port in ports if port.role == role
+    )
+    trait(name) = haskey(description.traits, name) ?
+                  string(getproperty(description.traits, name)) : nothing
+    interface = serialized["interface"]
+
+    return Dict{String,Any}(
+        "type" => description.model_type,
+        "name" => string(description.name),
+        "module" => description.module_name,
+        "package" => description.package,
+        "process" => string(description.process),
+        "processType" => description.process_type,
+        "inputs" => inputs,
+        "outputs" => values_for(:output),
+        "environmentInputs" => values_for(:environment_input),
+        "environmentOutputs" => values_for(:environment_output),
+        "variableContracts" => isnothing(interface) ?
+                               Dict{String,Any}() :
+                               interface["variableContracts"],
+        "timespec" => trait(:timespec),
+        "outputPolicy" => trait(:output_policy),
+        "timestepHint" => trait(:timestep_hint),
+        "environmentHint" => trait(:environment_hint),
+        "constructor" => description.constructor,
+        "provenance" => string(description.provenance),
+        "fieldProvenance" => serialized["fieldProvenance"],
+        "complete" => description.complete,
+        "diagnostics" => serialized["diagnostics"],
+    )
 end
 
 function _normalize_model_graph_level(level)

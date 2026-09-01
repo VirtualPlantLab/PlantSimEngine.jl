@@ -232,9 +232,9 @@ end
         )
 
         code = read(output_path, String)
-        @test occursin("Requires `editor_environments`", code)
-        @test occursin("editor_environments.weather", code)
-        @test occursin("editor_environments.canopy", code)
+        @test occursin("Requires `scenario_environments`", code)
+        @test occursin("scenario_environments.weather", code)
+        @test occursin("scenario_environments.canopy", code)
         portable_template = CompositeModelTemplate((
             ModelSpec(PlantSimEngine.Examples.ToyPlantRmModel(); name=:maintenance, on=Many(scale=:Leaf)),
         ))
@@ -321,7 +321,13 @@ end
         @test output_path in session.recent_paths
 
         snapshot_path = joinpath(mktempdir(), "saved-model.jl")
-        write(snapshot_path, Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)._model_to_julia(session))
+        write(
+            snapshot_path,
+            PlantSimEngine.Authoring.scenario_source(
+                session.model;
+                environments=session.environments,
+            ),
+        )
         apply_edit!(session, AddModelObject(Object(:soil; name=:soil, scale=:Soil)))
         @test length(model_objects(current_model(session))) == 2
         response = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)._handle_command!(session, Dict(
@@ -670,7 +676,10 @@ end
     )
     session = edit_graph(original; port=0, open_browser=false, autosave=false)
     code = try
-        editor_extension._model_to_julia(session)
+        PlantSimEngine.Authoring.scenario_source(
+            session.model;
+            environments=session.environments,
+        )
     finally
         close(session)
     end
@@ -708,7 +717,10 @@ end
     ))
     local_session = edit_graph(local_model; port=0, open_browser=false, autosave=false)
     local_code = try
-        editor_extension._model_to_julia(local_session)
+        PlantSimEngine.Authoring.scenario_source(
+            local_session.model;
+            environments=local_session.environments,
+        )
     finally
         close(local_session)
     end
@@ -747,7 +759,10 @@ end
           (Float32 => Float16, Float64 => Float32)
     @test edited_model.status_conversion.transform isa EditorNamedStatusTransform
     code = try
-        editor_extension._model_to_julia(session)
+        PlantSimEngine.Authoring.scenario_source(
+            session.model;
+            environments=session.environments,
+        )
     finally
         close(session)
     end
@@ -818,7 +833,10 @@ end
         autosave=false,
     )
     closure_code = try
-        editor_extension._model_to_julia(closure_session)
+        PlantSimEngine.Authoring.scenario_source(
+            closure_session.model;
+            environments=closure_session.environments,
+        )
     finally
         close(closure_session)
     end

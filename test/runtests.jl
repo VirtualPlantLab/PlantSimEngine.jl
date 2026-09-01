@@ -42,6 +42,22 @@ else
         include("test-model-api-stabilization.jl")
     end
 
+    @testset "Public model authoring API" begin
+        include("test-authoring-api.jl")
+    end
+
+    @testset "Process authoring tutorial" begin
+        include("test-process-generation.jl")
+    end
+
+    @testset "Packaged PlantSimEngine agent skill" begin
+        include("test-agent-skill.jl")
+    end
+
+    @testset "Readable CompositeModel source" begin
+        include("test-model-source-compilation.jl")
+    end
+
     @testset "Composite model hard calls" begin
         include("test-model-hard-calls.jl")
     end

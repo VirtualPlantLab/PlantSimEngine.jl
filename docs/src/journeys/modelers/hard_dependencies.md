@@ -7,7 +7,7 @@ in `inputs_`.
 Simulation users wire and inspect advanced calls in
 [Control Advanced Execution](@ref).
 
-The plain Julia blocks below are excerpts from the shipped, tested
+The examples below execute the shipped, tested
 `ToySelectiveCallControllerModel`.
 
 ## Model 8: declare and execute the call
@@ -15,49 +15,28 @@ The plain Julia blocks below are excerpts from the shipped, tested
 `ToySelectiveCallControllerModel` declares a reusable default by process,
 scale, and relative scope. It cannot know future application names:
 
-```julia
-PlantSimEngine.dep(::ToySelectiveCallControllerModel) = (
-    readers=Call(Many(
-        scale=:Leaf,
-        process=:toy_environment_reader,
-        within=Subtree(),
-    )),
-)
-```
-
-Inside `run!`, the controller inspects the vector-like collection, restricts
-the declared call by object id, runs trials without publication, and publishes
-one accepted execution:
-
-```julia
-targets = call_targets(context, :readers)
-selected = only(call_targets(
-    context,
-    :readers;
-    objects=(ObjectId(model.selected_object),),
-))
-
-for temperature in model.trial_temperatures
-    run_call!(
-        selected;
-        sampled_environment=(T=temperature,),
-        publish=false,
-    )
-end
-run_call!(
-    selected;
-    sampled_environment=(T=model.accepted_temperature,),
-    publish=true,
-)
-```
-
-The source excerpt is exercised by the example-model contract suite. Build a
-scenario without a `calls` keyword to use that model default:
-
 ```@example modeler_hard_dependency
 using PlantSimEngine, DataFrames
 using PlantSimEngine.Examples
 
+controller = ToySelectiveCallControllerModel(
+    (28.0, 31.0),
+    22.0;
+    selected_object=:sun_leaf,
+)
+PlantSimEngine.dep(controller)
+```
+
+Inside `run!`, the controller inspects the vector-like target collection,
+restricts the declared call by object id, runs trials with `publish=false`, and
+publishes one accepted execution with `publish=true`. The complete scenario
+below executes that real kernel, so this page does not duplicate an untested
+source excerpt.
+
+The shipped model is exercised by the example-model contract suite. Build a
+scenario without a `calls` keyword to use that model default:
+
+```@example modeler_hard_dependency
 environment = ToySpatialEnvironment(
     Dict(
         :sun => (T=26.0,),
@@ -87,11 +66,7 @@ model = CompositeModel(
             environment=Environment(backend=environment),
         ),
         ModelSpec(
-            ToySelectiveCallControllerModel(
-                (28.0, 31.0),
-                22.0;
-                selected_object=:sun_leaf,
-            );
+            controller;
             name=:controller,
             on=One(scale=:Plant),
         ),
@@ -122,29 +97,18 @@ identity or target selection differs.
 The selective example above intentionally materializes one public target
 because it chooses an object and gives each trial its own sampled value. If the
 algorithm executes every resolved target with the same already-sampled
-environment, use the bulk path instead:
-
-```julia
-run_call!(
-    context,
-    :readers;
-    sampled_environment=environment,
-    publish=false,
-)
-```
+environment, use the bulk `run_call!` path with `context`, `:readers`,
+`sampled_environment=environment`, and `publish=false`.
 
 This executes the compiler's cached typed batches directly. It avoids creating
 or indexing `CallTarget` wrappers inside a timestep loop.
 
 Some iterative algorithms must inspect a singular dependency model before
-executing it. Keep that dispatch concrete with `call_model`, then execute the
-same declared call in bulk:
-
-```julia
-reader_model = call_model(context, :reader)
-trial = prepare_trial(reader_model, status, environment)
-run_call!(context, :reader; sampled_environment=trial, publish=false)
-```
+executing it. Keep that dispatch concrete with
+`reader_model = call_model(context, :reader)`, let the application build its
+own scientifically meaningful trial state from that concrete model, then
+execute the same declared call in bulk. PlantSimEngine does not define or infer
+that application-specific trial builder.
 
 `call_model` requires exactly one resolved target. Use `call_targets` when the
 algorithm also needs target status, object selection, a custom order, or

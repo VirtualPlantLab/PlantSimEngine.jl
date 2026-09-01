@@ -89,7 +89,7 @@ declared inputs and outputs: `ToyLAIModel` receives `TT_cu` from
 
 ```julia
 select(
-    DataFrame(explain_bindings(model)),
+    DataFrame(Diagnostics.explain_bindings(model)),
     :application_id,
     :input,
     :source_application_ids,
@@ -132,8 +132,9 @@ scene_status = only(model_objects(plant_scene; scale=:Scene)).status
 (total_surface=scene_status.total_surface, LAI=scene_status.LAI)
 ```
 
-Use `within=Self()` for plant-local aggregations, for example a plant
-allocation model summing only the leaves inside the current plant. Use
+Use `within=Subtree()` for plant-local descendant aggregations, for example a
+plant allocation model summing only the leaves below the current plant.
+`Self()` selects only the object where the consumer runs. Use
 `within=SceneScope()` for model-wide aggregation.
 
 ## Manual Calls
@@ -191,13 +192,16 @@ it. `run_call!(target; publish=false)` is the default for trial iterations, and
 Useful inspection helpers include:
 
 ```julia
-explain_objects(model)
-explain_scopes(model)
-explain_bindings(model)
-explain_calls(model)
-explain_environment_bindings(model)
-explain_schedule(model)
-explain_execution_plan(model)
+Authoring.describe_model(model_instance)
+Authoring.validate_model(model_instance; strict=true)
+Authoring.validate_scenario(model)
+Diagnostics.explain_objects(model)
+Diagnostics.explain_scopes(model)
+Diagnostics.explain_bindings(model)
+Diagnostics.explain_calls(model)
+Diagnostics.explain_environment_bindings(model)
+Diagnostics.explain_schedule(model)
+Diagnostics.explain_execution_plan(model)
 ```
 
 ## Documentation
@@ -205,6 +209,8 @@ explain_execution_plan(model)
 - [Stable documentation](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable)
 - [Development documentation](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev)
 - [CompositeModel/object quickstart](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/composite_model/quickstart/)
+- [Implement a model](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/journeys/modelers/basic_model/)
+- [AI agent skill](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/agent_skill/)
 - [CompositeModel/object migration guide](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/migration_composite_model/)
 - [Public API reference](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/API/API_public/)
 
@@ -226,8 +232,8 @@ have been measured much faster than equivalent implementations in typical
 scientific scripting languages.
 
 For performance-sensitive composite models, inspect the compiled representation with
-`explain_execution_plan(model)` to see homogeneous batches and concrete carrier
-types.
+`Diagnostics.explain_execution_plan(model)` to see homogeneous batches and
+concrete carrier types.
 
 ## License And Contributions
 

@@ -277,9 +277,22 @@ The **Save** action writes readable Julia code whose final binding is
 that file. The editor also keeps a temporary recovery file and lists recent
 CompositeModel scripts in **Open**.
 
+The same core generator is available without starting the HTTP editor:
+
+```julia
+source = Authoring.scenario_source(
+    model;
+    environments=(weather=weather, canopy=canopy_backend),
+)
+```
+
+This is editable scenario code. It is distinct from
+`Authoring.compiled_model_source(model)`, which exposes the resolved execution
+plan for inspection and is not a second scheduler.
+
 Generated code is best effort for arbitrary Julia values and external runtime
 resources. Templates and instances are written inline. Named environment values are
-referenced through an `editor_environments` named tuple, and the generated header
+referenced through a `scenario_environments` named tuple, and the generated header
 lists the keys that must be supplied when reopening the file:
 
 ```julia

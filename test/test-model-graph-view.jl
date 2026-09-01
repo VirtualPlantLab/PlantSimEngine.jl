@@ -1,4 +1,5 @@
 abstract type AbstractModelGraphSourceModel <: PlantSimEngine.AbstractModel end
+using PlantSimEngine.Authoring
 import Dates
 
 model_graph_global(application_id) = GlobalApplicationRef(application_id)
@@ -9,6 +10,7 @@ abstract type AbstractModelGraphCycleBModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphEnvironmentModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphDistributedWriterModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphGenericTypeModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractModelGraphNoDummyModel <: PlantSimEngine.AbstractModel end
 
 PlantSimEngine.process_(::Type{AbstractModelGraphSourceModel}) = :model_graph_source
 PlantSimEngine.process_(::Type{AbstractModelGraphConsumerModel}) = :model_graph_consumer
@@ -19,6 +21,7 @@ PlantSimEngine.process_(::Type{AbstractModelGraphDistributedWriterModel}) =
     :model_graph_distributed_writer
 PlantSimEngine.process_(::Type{AbstractModelGraphGenericTypeModel}) =
     :model_graph_generic_type
+PlantSimEngine.process_(::Type{AbstractModelGraphNoDummyModel}) = :model_graph_no_dummy
 
 struct ModelGraphSourceModel{T} <: AbstractModelGraphSourceModel
     coefficient::T
@@ -54,6 +57,20 @@ struct ModelGraphGenericTypeModel <: AbstractModelGraphGenericTypeModel end
 PlantSimEngine.inputs_(::ModelGraphGenericTypeModel) = (driver=Required(Real),)
 PlantSimEngine.outputs_(::ModelGraphGenericTypeModel) = (result=0.0,)
 
+const MODEL_GRAPH_NO_DUMMY_CONSTRUCTIONS = Ref(0)
+
+struct ModelGraphNoDummyModel <: AbstractModelGraphNoDummyModel
+    coefficient::Float64
+
+    function ModelGraphNoDummyModel(coefficient::Float64)
+        MODEL_GRAPH_NO_DUMMY_CONSTRUCTIONS[] += 1
+        return new(coefficient)
+    end
+end
+
+PlantSimEngine.inputs_(::ModelGraphNoDummyModel) = (driver=Required(Float64),)
+PlantSimEngine.outputs_(::ModelGraphNoDummyModel) = (result=0.0,)
+
 struct ModelGraphStatusTransformCounter
     calls::Base.RefValue{Int}
 end
@@ -74,14 +91,32 @@ PlantSimEngine.EnvironmentAPI.get_nsteps(::Union{ModelGraphWeatherBackend,ModelG
     @test AbstractModelGraphSourceModel in available_processes()
     @test ModelGraphSourceModel in available_models(:model_graph_source)
 
-    descriptor = model_descriptor(ModelGraphSourceModel)
-    @test descriptor["process"] == "model_graph_source"
-    @test descriptor["inputs"]["driver"]["declaration"] == "required"
-    @test descriptor["inputs"]["driver"]["expectedType"] == "Float64"
-    @test isnothing(descriptor["inputs"]["driver"]["default"])
-    @test descriptor["outputs"]["signal"] == "-Inf"
+    description = describe_model(ModelGraphSourceModel())
+    descriptor = to_dict(description)
+    @test description.interface.process == :model_graph_source
+    @test only(port for port in description.ports if port.name == :driver).declaration ==
+          :required
+    @test only(port for port in description.ports if port.name == :driver).expected_type ==
+          "Float64"
+    @test isnothing(only(port for port in description.ports if port.name == :driver).initial_value)
+    @test only(port for port in description.ports if port.name == :signal).initial_value == -Inf
     @test descriptor["constructor"]["hasZeroArgConstructor"]
     @test descriptor["constructor"]["fields"][1]["name"] == "coefficient"
+
+    MODEL_GRAPH_NO_DUMMY_CONSTRUCTIONS[] = 0
+    library = PlantSimEngine._model_graph_model_library()
+    no_dummy = only(item for item in library if item["type"] == string(ModelGraphNoDummyModel))
+    @test MODEL_GRAPH_NO_DUMMY_CONSTRUCTIONS[] == 0
+    @test no_dummy["provenance"] == "best_effort"
+    @test !no_dummy["complete"]
+    @test !no_dummy["constructor"]["hasZeroArgConstructor"]
+    @test !no_dummy["constructor"]["hasInspectedDefaults"]
+    @test no_dummy["process"] == "model_graph_no_dummy"
+    @test no_dummy["fieldProvenance"]["interface"] == "unavailable"
+    @test no_dummy["fieldProvenance"]["constructor"]["defaults"] == "unavailable"
+    @test isempty(no_dummy["inputs"])
+    @test isempty(no_dummy["outputs"])
+    @test only(no_dummy["diagnostics"])["code"] == "model_instance_required"
 end
 
 @testset "CompositeModel selector diagnostics preserve normalized fields" begin
@@ -136,7 +171,7 @@ end
         ),
     )
 
-    report = compile_model_report(model)
+    report = PlantSimEngine.compile_model_report(model)
     @test isempty(report.diagnostics)
     @test !isnothing(report.compiled)
     @test report.application_order == [:source, :consumer]
@@ -224,8 +259,8 @@ end
         ),
     )
 
-    report = compile_model_report(model)
-    strict_report = compile_model_report(model; strict=true)
+    report = PlantSimEngine.compile_model_report(model)
+    strict_report = PlantSimEngine.compile_model_report(model; strict=true)
 
     @test isempty(report.diagnostics)
     @test !isnothing(report.compiled)
@@ -300,8 +335,8 @@ end
             ),
         ),
     )
-    empty_report = compile_model_report(empty_model)
-    empty_strict_report = compile_model_report(empty_model; strict=true)
+    empty_report = PlantSimEngine.compile_model_report(empty_model)
+    empty_strict_report = PlantSimEngine.compile_model_report(empty_model; strict=true)
     @test isempty(empty_report.diagnostics)
     @test isempty(empty_report.input_bindings)
     @test empty_report.application_order == [:empty_writer, :empty_consumer]
@@ -405,7 +440,7 @@ end
             objects=(Object(:leaf_b; scale=:Leaf, parent=:plant_b, status=Status(driver=1.0)),),
         ),
     )
-    report = compile_model_report(model)
+    report = PlantSimEngine.compile_model_report(model)
     bindings = [binding for binding in report.input_bindings if binding.input == :signal]
 
     @test length(bindings) == 2
@@ -474,9 +509,9 @@ end
         Object(:leaf; name=:leaf, scale=:Leaf);
         applications=(ModelSpec(ModelGraphSourceModel(); name=:source),),
     )
-    invalid_report = compile_model_report(invalid_scene)
+    invalid_report = PlantSimEngine.compile_model_report(invalid_scene)
     @test any(diagnostic -> diagnostic.phase == :applications, invalid_report.diagnostics)
-    @test_throws Exception compile_model_report(invalid_scene; strict=true)
+    @test_throws Exception PlantSimEngine.compile_model_report(invalid_scene; strict=true)
 
     cyclic_scene = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status());
@@ -485,7 +520,7 @@ end
             ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(name=:leaf)),
         ),
     )
-    report = compile_model_report(cyclic_scene)
+    report = PlantSimEngine.compile_model_report(cyclic_scene)
     @test report.cycles == [[:cycle_a, :cycle_b]]
     @test any(diagnostic -> diagnostic.code == :application_cycle, report.diagnostics)
     @test isnothing(report.compiled)
@@ -880,7 +915,7 @@ end
     @test PlantSimEngine.criteria(renamed_binding.selector).application ==
           :renamed_source
 
-    report = compile_model_report(renamed; strict=true)
+    report = PlantSimEngine.compile_model_report(renamed; strict=true)
     call = only(report.call_bindings)
     @test PlantSimEngine._compiled_call_mode(call) == :initializer
     @test isempty(call.callee_object_ids)

@@ -265,7 +265,7 @@ conductance model manually:
 
 ```julia
 dep(::LeafEnergyBalanceModel) = (
-    stomatal_conductance = Call(process=:stomatal_conductance),
+    stomatal_conductance = Call(One(process=:stomatal_conductance)),
 )
 ```
 

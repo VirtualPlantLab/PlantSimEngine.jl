@@ -4,6 +4,11 @@
 
 ### Breaking changes
 
+- Object and instance overrides now require the complete compiled model
+  interface to match: full status/environment schemas, variable contracts,
+  model-authored dependencies, cadence, output policy, timestep hint, and
+  environment hint. Alternatives of the same process that differ in any of
+  these declarations must use a reconfigured `ModelSpec` instead.
 - Environment backends now compile an opaque per-target handle with
   `bind_environment`. Accepted state is committed explicitly with
   `commit_environment!`, while provider-aware trial state is passed with
@@ -13,14 +18,25 @@
   `run_call!(context::RunContext, name::Symbol; ...)`, which executes every
   selector-resolved target and always returns a vector-like `CallTargets`
   collection.
-- The singular hard-call accessor and string-name hard-call methods were
-  removed. Use `only(call_targets(context, :name))` for fine-grained access to
-  a `One` dependency.
+- String-name hard-call methods were removed. `call_model(context, :name)` is
+  the singular convenience for retrieving the concrete model behind a call
+  that resolves exactly one target; use `call_targets(context, :name)` for
+  target status, selective execution, or plural calls.
 - Direct recursive dependency execution is no longer supported. Model kernels
   must run inside a compiled `CompositeModel` and receive a `RunContext`.
 
 ### Added
 
+- `PlantSimEngine.Authoring`, a versioned, serializable API for process/model
+  discovery, exact instance descriptions, optional parameter metadata,
+  interface comparison, and structured model/scenario validation.
+- `Authoring.scenario_source` for reconstructing an editable
+  `CompositeModel`, plus `Authoring.compiled_model_source` and
+  `Authoring.write_compiled_model_source` for reviewing an executable,
+  readable view of the resolved application plan.
+- A package-owned PlantSimEngine agent skill organized as a short router with
+  focused authoring, coupling, lifecycle, diagnostics, and repository
+  references. Its canonical examples are executed by the package test suite.
 - `CallTargets`, a cached `AbstractVector` view over compiled hard-call targets
   that is allocation-free to retrieve.
 - `run_call!(context, name)` for the common execute-all operation while
@@ -34,6 +50,10 @@
 
 ### Fixed
 
+- Model discovery and the GraphEditor model library now use the same
+  `Authoring` descriptions. Type-only inspection no longer executes guessed
+  placeholder constructors, and reports field-level provenance when an exact
+  instance is unavailable.
 - Removed ambiguities in distributed-output runtime dispatch when temporal
   streams are absent and output retention is either absent or compiled.
 - Construct dynamic `Status` values directly from the final ordered payload,

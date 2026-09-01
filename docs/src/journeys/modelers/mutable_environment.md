@@ -8,7 +8,7 @@ Simulation users first encounter this workflow in
 [Modify The Environment](@ref). Backend packages implement the separate
 [Environment Backend Extensions](@ref) contract.
 
-The plain Julia blocks below are excerpts from the shipped, tested
+The examples below execute the shipped, tested
 `ToyEnvironmentControllerModel`.
 
 ## Model 9: declare commit permission
@@ -16,35 +16,22 @@ The plain Julia blocks below are excerpts from the shipped, tested
 `ToyEnvironmentControllerModel` declares its reader hard dependency and the
 environment variable it may commit:
 
-```julia
-PlantSimEngine.dep(::ToyEnvironmentControllerModel) = (
-    reader=Call(One(process=:toy_environment_reader)),
+```@example modeler_mutable_environment
+using PlantSimEngine, DataFrames
+using PlantSimEngine.Examples
+
+controller = ToyEnvironmentControllerModel(30.0, 22.0)
+(
+    dependency=PlantSimEngine.dep(controller),
+    commit_schema=PlantSimEngine.environment_outputs_(controller),
 )
-PlantSimEngine.environment_outputs_(
-    model::ToyEnvironmentControllerModel,
-) = (T=zero(model.accepted_temperature),)
 ```
 
-Its tested kernel keeps trial, commit, and accepted publication separate:
-
-```julia
-trial_environment = (T=model.trial_temperature,)
-trial_target = only(run_call!(
-    context,
-    :reader;
-    environment=trial_environment,
-    publish=false,
-))
-
-accepted_environment = (T=model.accepted_temperature,)
-commit_environment!(context, accepted_environment)
-accepted_target = only(run_call!(
-    context,
-    :reader;
-    environment=accepted_environment,
-    publish=true,
-))
-```
+Its tested kernel keeps trial, commit, and accepted publication separate. It
+runs the reader against the trial environment with `publish=false`, calls
+`commit_environment!` only for the accepted environment, then publishes one
+accepted reader execution. The complete scenario below executes that source
+instead of repeating it as an unchecked excerpt.
 
 `environment_outputs_` is commit permission, not object-status output.
 PlantSimEngine validates that the accepted state provides every declared
@@ -56,9 +43,6 @@ The reader needs only a provider. The controller additionally receives
 `sink=:cells`; the backend defines what that sink means:
 
 ```@example modeler_mutable_environment
-using PlantSimEngine, DataFrames
-using PlantSimEngine.Examples
-
 environment = ToySpatialEnvironment(
     Dict(:canopy => (T=20.0,));
     step_seconds=3600.0,
@@ -77,7 +61,7 @@ model = CompositeModel(
             environment=Environment(backend=environment),
         ),
         ModelSpec(
-            ToyEnvironmentControllerModel(30.0, 22.0);
+            controller;
             name=:controller,
             on=One(scale=:Leaf),
             environment=Environment(

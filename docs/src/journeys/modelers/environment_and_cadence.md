@@ -12,39 +12,6 @@ application clocks in [Give Models Different Cadences](@ref).
 `ToyMaintenanceRespirationModel` reads object state and sampled temperature.
 The tested contract names that environment field explicitly:
 
-```julia
-PlantSimEngine.inputs_(::ToyMaintenanceRespirationModel) = (
-    carbon_biomass=Required(Real),
-)
-PlantSimEngine.environment_inputs_(
-    model::ToyMaintenanceRespirationModel,
-) = (T=zero(model.T_ref),)
-PlantSimEngine.outputs_(model::ToyMaintenanceRespirationModel) = (
-    Rm=oftype(model.Rm_base, -Inf),
-)
-```
-
-The kernel reads model parameters from `model`, object state from `status`, and
-forcing from `environment`:
-
-```julia
-function PlantSimEngine.run!(
-    model::ToyMaintenanceRespirationModel,
-    status,
-    environment,
-    constants,
-    context,
-)
-    status.Rm =
-        status.carbon_biomass *
-        model.P_alive *
-        model.nitrogen_content *
-        model.Rm_base *
-        model.Q10^((environment.T - model.T_ref) / 10)
-    return nothing
-end
-```
-
 ```@example modeler_environment_time
 using Dates, PlantMeteo, PlantSimEngine, DataFrames
 using PlantSimEngine.Examples
@@ -56,6 +23,30 @@ respiration = ToyMaintenanceRespirationModel(
     0.5,
     0.02,
 )
+(
+    inputs=PlantSimEngine.inputs_(respiration),
+    environment_inputs=PlantSimEngine.environment_inputs_(respiration),
+    environment_outputs=PlantSimEngine.environment_outputs_(respiration),
+    outputs=PlantSimEngine.outputs_(respiration),
+)
+```
+
+The kernel reads model parameters from `model`, object state from `status`, and
+forcing from `environment`:
+
+```@example modeler_environment_time
+direct_status = Status(carbon_biomass=10.0, Rm=-Inf)
+PlantSimEngine.run!(
+    respiration,
+    direct_status,
+    (T=25.0,),
+    nothing,
+    nothing,
+)
+direct_status
+```
+
+```@example modeler_environment_time
 model = CompositeModel(
     Object(
         :leaf;
@@ -92,12 +83,12 @@ The model does not name a provider or inspect raw weather storage.
 model-level traits say “every 24 simulation steps, starting at step 1” and
 “consumers may hold the last daily value between publications”:
 
-```julia
-PlantSimEngine.timespec(::Type{<:ToyDailyDevelopmentModel}) =
-    ClockSpec(24.0, 1.0)
-PlantSimEngine.output_policy(
-    ::Type{<:ToyDailyDevelopmentModel},
-) = (daily_growth=HoldLast(),)
+```@example modeler_environment_time
+daily = ToyDailyDevelopmentModel(2.0)
+(
+    clock=PlantSimEngine.timespec(daily),
+    outputs=PlantSimEngine.output_policy(daily),
+)
 ```
 
 `ClockSpec` is expressed in simulation steps. Use
@@ -105,7 +96,6 @@ PlantSimEngine.output_policy(
 duration-relative cadence or override the model default.
 
 ```@example modeler_environment_time
-daily = ToyDailyDevelopmentModel(2.0)
 daily_model = CompositeModel(
     Object(:plant; scale=:Plant);
     applications=(
