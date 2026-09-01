@@ -1414,7 +1414,10 @@ mutable struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,
     call_bindings_by_target::CBI
     dynamic_input_binding_indices::DBI
     dynamic_call_binding_indices::DCBI
-    manual_call_binding_indices_by_owner_application::MCBI
+    # Observed manual bindings are indexed by executable callee
+    # application/object targets so lifecycle propagation can start from an
+    # exact changed target rather than scanning every owner binding.
+    observed_manual_call_binding_indices_by_callee_target::MCBI
     many_input_binding_cache::MBC
     distributed_outputs::DO
     call_owners::CO
@@ -1510,27 +1513,182 @@ function _index_dynamic_call_bindings(model::CompositeModel, bindings)
     return index
 end
 
-function _index_manual_call_binding_by_owner_application!(
+function _push_observed_manual_call_binding_index!(
     index,
-    binding::CompiledModelCallBinding,
+    callee_application_id::Symbol,
+    callee_object_id::ObjectId,
     binding_index::Int,
 )
-    _compiled_call_mode(binding) === :manual || return index
-    _compiled_call_membership_is_observed(binding) || return index
-    binding_indices = get!(index, binding.application_id) do
+    binding_indices = get!(
+        index,
+        (callee_application_id, callee_object_id),
+    ) do
         Int[]
     end
-    push!(binding_indices, binding_index)
+    position = searchsortedfirst(binding_indices, binding_index)
+    if position > lastindex(binding_indices) ||
+       @inbounds(binding_indices[position] != binding_index)
+        insert!(binding_indices, position, binding_index)
+    end
     return index
 end
 
-function _index_manual_call_bindings_by_owner_application(bindings)
-    index = Dict{Symbol,Vector{Int}}()
-    for (binding_index, binding) in pairs(bindings)
-        _index_manual_call_binding_by_owner_application!(
+function _call_binding_target_matches(
+    binding,
+    application,
+    object_id::ObjectId,
+)
+    return (binding.multiplicity != :many &&
+            length(binding.callee_application_ids) == 1) ||
+           first(
+               _sorted_object_id_position(
+                   application.target_ids,
+                   object_id,
+               ),
+           )
+end
+
+function _index_observed_manual_call_binding_application_targets!(
+    index,
+    binding::CompiledModelCallBinding,
+    binding_index::Int,
+    callee_application_id::Symbol,
+    application,
+)
+    if binding.multiplicity != :many &&
+       length(binding.callee_application_ids) == 1
+        for callee_object_id in binding.callee_object_ids
+            _push_observed_manual_call_binding_index!(
+                index,
+                callee_application_id,
+                callee_object_id,
+                binding_index,
+            )
+        end
+        return index
+    end
+
+    application_target_ids = application.target_ids
+    binding_target_ids = binding.callee_object_ids
+    if length(application_target_ids) <= length(binding_target_ids)
+        for callee_object_id in application_target_ids
+            first(
+                _sorted_object_id_position(
+                    binding_target_ids,
+                    callee_object_id,
+                ),
+            ) || continue
+            _push_observed_manual_call_binding_index!(
+                index,
+                callee_application_id,
+                callee_object_id,
+                binding_index,
+            )
+        end
+    else
+        for callee_object_id in binding_target_ids
+            first(
+                _sorted_object_id_position(
+                    application_target_ids,
+                    callee_object_id,
+                ),
+            ) || continue
+            _push_observed_manual_call_binding_index!(
+                index,
+                callee_application_id,
+                callee_object_id,
+                binding_index,
+            )
+        end
+    end
+    return index
+end
+
+function _index_observed_manual_call_binding_by_callee_target!(
+    index,
+    binding::CompiledModelCallBinding,
+    binding_index::Int,
+    applications_by_id,
+)
+    _compiled_call_mode(binding) === :manual || return index
+    _compiled_call_membership_is_observed(binding) || return index
+    for callee_application_id in binding.callee_application_ids
+        application = applications_by_id[callee_application_id]
+        _index_observed_manual_call_binding_application_targets!(
             index,
             binding,
             binding_index,
+            callee_application_id,
+            application,
+        )
+    end
+    return index
+end
+
+function _index_observed_manual_call_bindings_by_callee_target(
+    bindings,
+    applications_by_id,
+)
+    index = Dict{Tuple{Symbol,ObjectId},Vector{Int}}()
+    for (binding_index, binding) in pairs(bindings)
+        _index_observed_manual_call_binding_by_callee_target!(
+            index,
+            binding,
+            binding_index,
+            applications_by_id,
+        )
+    end
+    return index
+end
+
+function _extend_observed_manual_call_binding_callee_target_index!(
+    index,
+    binding::CompiledModelCallBinding,
+    binding_index::Int,
+    previous_object_count::Int,
+    previous_application_count::Int,
+    applications_by_id,
+    applications_by_object,
+)
+    _compiled_call_mode(binding) === :manual || return index
+    _compiled_call_membership_is_observed(binding) || return index
+
+    # Index new objects through their actual applications rather than scanning
+    # the application/object product. A newly discovered application is then
+    # intersected with the complete binding membership to cover any existing
+    # targets without materializing that product.
+    new_object_positions =
+        (previous_object_count + 1):length(binding.callee_object_ids)
+    for object_position in new_object_positions
+        callee_object_id = binding.callee_object_ids[object_position]
+        for application in get(
+            applications_by_object,
+            callee_object_id,
+            (),
+        )
+            callee_application_id = application.id
+            callee_application_id in binding.callee_application_ids ||
+                continue
+            _push_observed_manual_call_binding_index!(
+                index,
+                callee_application_id,
+                callee_object_id,
+                binding_index,
+            )
+        end
+    end
+    new_application_positions =
+        (previous_application_count + 1):length(binding.callee_application_ids)
+    for application_position in new_application_positions
+        callee_application_id =
+            binding.callee_application_ids[application_position]
+        application = applications_by_id[callee_application_id]
+        _index_observed_manual_call_binding_application_targets!(
+            index,
+            binding,
+            binding_index,
+            callee_application_id,
+            application,
         )
     end
     return index
@@ -1727,7 +1885,10 @@ function _compile_scene(
             many_input_binding_cache,
         ),
         _index_dynamic_call_bindings(model, call_bindings),
-        _index_manual_call_bindings_by_owner_application(call_bindings),
+        _index_observed_manual_call_bindings_by_callee_target(
+            call_bindings,
+            applications_by_id,
+        ),
         many_input_binding_cache,
         distributed_outputs,
         call_owners,
@@ -2753,7 +2914,9 @@ function _append_added_many_call_targets!(
     added_ids,
     applications_by_object,
 )
-    binding.multiplicity == :many || return false
+    binding.multiplicity == :many || return nothing
+    previous_object_count = length(binding.callee_object_ids)
+    previous_application_count = length(binding.callee_application_ids)
     default_scope = _default_dependency_scope(model, binding.consumer_id)
     new_target_ids = ObjectId[
         object_id for object_id in added_ids
@@ -2771,7 +2934,10 @@ function _append_added_many_call_targets!(
             ),
         )
     ]
-    isempty(new_target_ids) && return true
+    isempty(new_target_ids) && return (
+        previous_object_count=previous_object_count,
+        previous_application_count=previous_application_count,
+    )
     _sort_object_ids!(new_target_ids)
 
     # Monotonically increasing lifecycle IDs preserve the selector's compiled
@@ -2781,7 +2947,7 @@ function _append_added_many_call_targets!(
         last(binding.callee_object_ids),
         first(new_target_ids),
     )
-        return false
+        return nothing
     end
 
     append!(binding.callee_object_ids, new_target_ids)
@@ -2797,86 +2963,55 @@ function _append_added_many_call_targets!(
         end
     end
     _mark_compiled_call_membership_changed!(binding, model.revision)
-    return true
+    return (
+        previous_object_count=previous_object_count,
+        previous_application_count=previous_application_count,
+    )
 end
 
 function _propagate_changed_manual_call_owners!(
     changed_target_ids,
     changed_callee_target_ids,
     call_bindings,
-    manual_call_binding_indices_by_owner_application,
-    call_owners,
+    observed_manual_call_binding_indices_by_callee_target,
     performance=nothing,
 )
-    frontier = Dict{Symbol,Vector{ObjectId}}()
-    for (application_id, object_id) in changed_callee_target_ids
-        object_ids = get!(frontier, application_id) do
-            ObjectId[]
-        end
-        push!(object_ids, object_id)
-    end
+    frontier = Tuple{Symbol,ObjectId}[
+        key for key in changed_callee_target_ids
+    ]
     seen_owner_keys = Set{Tuple{Symbol,ObjectId}}(changed_callee_target_ids)
     while !isempty(frontier)
         _runtime_performance_count!(
             performance,
             :lifecycle_manual_call_owner_frontier_waves,
         )
-        owner_application_ids = Set{Symbol}()
-        for application_id in keys(frontier)
-            hasproperty(call_owners, application_id) || continue
-            union!(
-                owner_application_ids,
-                getproperty(call_owners, application_id),
-            )
-        end
-        isempty(owner_application_ids) && break
-        next_frontier = Dict{Symbol,Vector{ObjectId}}()
-        for owner_application_id in owner_application_ids
+        candidate_binding_indices = Set{Int}()
+        for callee_key in frontier
             binding_indices = get(
-                manual_call_binding_indices_by_owner_application,
-                owner_application_id,
+                observed_manual_call_binding_indices_by_callee_target,
+                callee_key,
                 nothing,
             )
-            isnothing(binding_indices) && continue
-            for binding_index in binding_indices
-                _runtime_performance_count!(
-                    performance,
-                    :lifecycle_manual_call_owner_binding_candidates,
-                )
-                binding = call_bindings[binding_index]
-                owner_key = (binding.application_id, binding.consumer_id)
-                owner_key in seen_owner_keys && continue
-                affected = false
-                for callee_application_id in binding.callee_application_ids
-                    object_ids = get(frontier, callee_application_id, nothing)
-                    isnothing(object_ids) && continue
-                    if any(object_ids) do object_id
-                        first(
-                            _sorted_object_id_position(
-                                binding.callee_object_ids,
-                                object_id,
-                            ),
-                        )
-                    end
-                        affected = true
-                        break
-                    end
-                end
-                affected || continue
-                push!(seen_owner_keys, owner_key)
-                push!(changed_target_ids, owner_key)
-                _runtime_performance_count!(
-                    performance,
-                    :lifecycle_manual_call_owner_targets_propagated,
-                )
-                next_object_ids = get!(
-                    next_frontier,
-                    binding.application_id,
-                ) do
-                    ObjectId[]
-                end
-                push!(next_object_ids, binding.consumer_id)
-            end
+            isnothing(binding_indices) ||
+                union!(candidate_binding_indices, binding_indices)
+        end
+        isempty(candidate_binding_indices) && break
+        next_frontier = Tuple{Symbol,ObjectId}[]
+        for binding_index in candidate_binding_indices
+            _runtime_performance_count!(
+                performance,
+                :lifecycle_manual_call_owner_binding_candidates,
+            )
+            binding = call_bindings[binding_index]
+            owner_key = (binding.application_id, binding.consumer_id)
+            owner_key in seen_owner_keys && continue
+            push!(seen_owner_keys, owner_key)
+            push!(changed_target_ids, owner_key)
+            _runtime_performance_count!(
+                performance,
+                :lifecycle_manual_call_owner_targets_propagated,
+            )
+            push!(next_frontier, owner_key)
         end
         frontier = next_frontier
     end
@@ -3013,7 +3148,10 @@ function _prepare_structural_compiled_delta(
             many_input_binding_cache,
         ),
         _index_dynamic_call_bindings(model, call_bindings),
-        _index_manual_call_bindings_by_owner_application(call_bindings),
+        _index_observed_manual_call_bindings_by_callee_target(
+            call_bindings,
+            compiled.applications_by_id,
+        ),
         many_input_binding_cache,
         compiled.distributed_outputs,
         compiled.call_owners,
@@ -3169,6 +3307,8 @@ function _extend_compiled_scene(
         Set{Tuple{Symbol,ObjectId}}(forced_call_target_keys)
     changed_call_target_keys =
         Set{Tuple{Symbol,ObjectId}}(forced_call_target_keys)
+    observed_manual_call_binding_indices_by_callee_target =
+        compiled.observed_manual_call_binding_indices_by_callee_target
     if has_calls
         candidate_call_binding_indices = Set{Int}()
         for object_id in added_ids
@@ -3196,15 +3336,27 @@ function _extend_compiled_scene(
             ) || continue
             key = (binding.application_id, binding.consumer_id)
             push!(changed_call_target_keys, key)
-            appended = key in forced_call_target_keys ?
-                       false :
-                       _append_added_many_call_targets!(
+            extension = key in forced_call_target_keys ?
+                        nothing :
+                        _append_added_many_call_targets!(
                 model,
                 binding,
                 added_ids,
                 applications_by_object,
             )
-            appended || push!(rebuilt_existing_call_targets, key)
+            if isnothing(extension)
+                push!(rebuilt_existing_call_targets, key)
+            elseif pure_addition
+                _extend_observed_manual_call_binding_callee_target_index!(
+                    observed_manual_call_binding_indices_by_callee_target,
+                    binding,
+                    binding_index,
+                    extension.previous_object_count,
+                    extension.previous_application_count,
+                    applications_by_id,
+                    applications_by_object,
+                )
+            end
         end
     end
     new_call_bindings = has_calls ?
@@ -3268,6 +3420,14 @@ function _extend_compiled_scene(
             "for application `$(first(key))` on object `$(last(key).value)`.",
         )
         for binding in existing
+            binding_index = findfirst(
+                candidate -> candidate === binding,
+                call_bindings,
+            )
+            isnothing(binding_index) && error(
+                "Incremental hard-call refresh lost the existing compiled binding ",
+                "for application `$(first(key))` on object `$(last(key).value)`.",
+            )
             replacement_index = findfirst(
                 candidate ->
                     _compiled_call_name(candidate) ===
@@ -3297,13 +3457,25 @@ function _extend_compiled_scene(
                     binding,
                     model.revision,
                 )
+                pure_addition &&
+                    _index_observed_manual_call_binding_by_callee_target!(
+                        observed_manual_call_binding_indices_by_callee_target,
+                        binding,
+                        binding_index,
+                        applications_by_id,
+                    )
             end
         end
     end
     append!(call_bindings, new_call_bindings)
     dynamic_call_binding_indices = compiled.dynamic_call_binding_indices
-    manual_call_binding_indices_by_owner_application =
-        compiled.manual_call_binding_indices_by_owner_application
+    if !pure_addition
+        observed_manual_call_binding_indices_by_callee_target =
+            _index_observed_manual_call_bindings_by_callee_target(
+                call_bindings,
+                applications_by_id,
+            )
+    end
     first_new_call_binding = length(call_bindings) - length(new_call_bindings) + 1
     for binding_index in first_new_call_binding:length(call_bindings)
         _index_dynamic_call_binding!(
@@ -3312,11 +3484,13 @@ function _extend_compiled_scene(
             call_bindings[binding_index],
             binding_index,
         )
-        _index_manual_call_binding_by_owner_application!(
-            manual_call_binding_indices_by_owner_application,
-            call_bindings[binding_index],
-            binding_index,
-        )
+        pure_addition &&
+            _index_observed_manual_call_binding_by_callee_target!(
+                observed_manual_call_binding_indices_by_callee_target,
+                call_bindings[binding_index],
+                binding_index,
+                applications_by_id,
+            )
     end
     _validate_model_writers_for_objects!(
         applications,
@@ -3720,8 +3894,7 @@ function _extend_compiled_scene(
         changed_execution_target_ids,
         changed_manual_target_ids,
         call_bindings,
-        manual_call_binding_indices_by_owner_application,
-        call_owners,
+        observed_manual_call_binding_indices_by_callee_target,
         performance,
     )
     changed_execution_application_ids = Set(
@@ -3745,7 +3918,7 @@ function _extend_compiled_scene(
         call_bindings_by_target,
         dynamic_input_binding_indices,
         dynamic_call_binding_indices,
-        manual_call_binding_indices_by_owner_application,
+        observed_manual_call_binding_indices_by_callee_target,
         many_binding_cache,
         distributed_outputs,
         call_owners,
@@ -7286,10 +7459,11 @@ function _observe_compiled_call_membership!(
             binding,
             binding_index,
         )
-        _index_manual_call_binding_by_owner_application!(
-            compiled.manual_call_binding_indices_by_owner_application,
+        _index_observed_manual_call_binding_by_callee_target!(
+            compiled.observed_manual_call_binding_indices_by_callee_target,
             binding,
             binding_index,
+            compiled.applications_by_id,
         )
     end
     return binding

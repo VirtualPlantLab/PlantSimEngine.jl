@@ -337,7 +337,10 @@ end
     @test length(simulation.compiled.call_bindings) == 3
     @test performance.counts[
         :lifecycle_manual_call_owner_binding_candidates
-    ] == 3
+    ] == 2
+    @test performance.counts[
+        :lifecycle_manual_call_owner_frontier_waves
+    ] == 2
     @test performance.counts[
         :lifecycle_manual_call_owner_binding_candidates
     ] < 2 * length(simulation.compiled.call_bindings)
@@ -605,10 +608,15 @@ end
 
     simulation = run!(model; outputs=:all, performance=true)
     controller = only(model_objects(model; scale=:Scene)).status
-    manual_owner_index =
-        simulation.compiled.manual_call_binding_indices_by_owner_application
+    observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
     call_binding_index = only(eachindex(simulation.compiled.call_bindings))
-    @test manual_owner_index[:controller] == [call_binding_index]
+    @test observed_callee_target_index[
+        (:leaf_calls, ObjectId(:leaf_a))
+    ] == [call_binding_index]
+    @test observed_callee_target_index[
+        (:leaf_calls, ObjectId(:leaf_b))
+    ] == [call_binding_index]
     @test controller.ncalls == 2
     @test controller.total == 2.0
     rows = filter(
@@ -633,9 +641,11 @@ end
     continue!(simulation; steps=1)
     performance = Advanced.runtime_performance(simulation)
     @test performance.counts[:execution_target_call_batches_extended] == 1
-    @test simulation.compiled.manual_call_binding_indices_by_owner_application ===
-          manual_owner_index
-    @test manual_owner_index[:controller] == [call_binding_index]
+    @test simulation.compiled.observed_manual_call_binding_indices_by_callee_target ===
+          observed_callee_target_index
+    @test observed_callee_target_index[
+        (:leaf_calls, ObjectId(:leaf_c))
+    ] == [call_binding_index]
     @test only(simulation.compiled.call_bindings) === call_binding
     addition_membership_generation =
         PlantSimEngine._compiled_call_membership_generation(call_binding)
@@ -660,11 +670,16 @@ end
 
     remove_object!(model, :leaf_b)
     continue!(simulation; steps=1)
-    rebuilt_manual_owner_index =
-        simulation.compiled.manual_call_binding_indices_by_owner_application
-    @test rebuilt_manual_owner_index !== manual_owner_index
-    @test rebuilt_manual_owner_index[:controller] ==
-          [only(eachindex(simulation.compiled.call_bindings))]
+    rebuilt_observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
+    @test rebuilt_observed_callee_target_index !== observed_callee_target_index
+    @test !haskey(
+        rebuilt_observed_callee_target_index,
+        (:leaf_calls, ObjectId(:leaf_b)),
+    )
+    @test rebuilt_observed_callee_target_index[
+        (:leaf_calls, ObjectId(:leaf_a))
+    ] == [only(eachindex(simulation.compiled.call_bindings))]
     removal_membership_generation =
         PlantSimEngine._compiled_call_membership_generation(call_binding)
     @test removal_membership_generation ==
@@ -674,7 +689,7 @@ end
     @test controller.total == 5.0
 end
 
-@testset "new manual call owner extends observed owner index" begin
+@testset "new manual call owner extends observed callee target index" begin
     model = CompositeModel(
         Object(:scene; scale=:Scene, name=:scene),
         Object(:plant_a; scale=:Plant, parent=:scene),
@@ -702,9 +717,11 @@ end
     )
 
     simulation = run!(model; outputs=:none)
-    manual_owner_index =
-        simulation.compiled.manual_call_binding_indices_by_owner_application
-    initial_binding_indices = copy(manual_owner_index[:controller])
+    observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
+    initial_binding_indices = copy(
+        observed_callee_target_index[(:leaf_calls, ObjectId(:leaf_a))],
+    )
     @test length(initial_binding_indices) == 1
     @test all(
         PlantSimEngine._compiled_call_membership_is_observed(
@@ -723,9 +740,12 @@ end
     )
     continue!(simulation)
 
-    @test simulation.compiled.manual_call_binding_indices_by_owner_application ===
-          manual_owner_index
-    extended_binding_indices = manual_owner_index[:controller]
+    @test simulation.compiled.observed_manual_call_binding_indices_by_callee_target ===
+          observed_callee_target_index
+    extended_binding_indices = vcat(
+        observed_callee_target_index[(:leaf_calls, ObjectId(:leaf_a))],
+        observed_callee_target_index[(:leaf_calls, ObjectId(:leaf_b))],
+    )
     @test length(extended_binding_indices) == 2
     @test length(unique(extended_binding_indices)) == 2
     @test first(initial_binding_indices) in extended_binding_indices
@@ -740,6 +760,154 @@ end
     )
     @test model_status(model, :plant_a).ncalls == 1
     @test model_status(model, :plant_b).ncalls == 1
+end
+
+@testset "observed callee target index extends exact membership" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:leaf_a; scale=:Leaf, kind=:a, parent=:scene);
+        applications=(
+            ModelSpec(
+                ManyCallControllerModel();
+                name=:controller,
+                on=One(name=:scene),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        process=:nested_call_leaf,
+                        within=SceneScope(),
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:leaf_a_calls,
+                on=Many(scale=:Leaf, kind=:a),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:leaf_b_calls,
+                on=Many(scale=:Leaf, kind=:b),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none, performance=true)
+    call_binding = only(simulation.compiled.call_bindings)
+    call_binding_index = only(eachindex(simulation.compiled.call_bindings))
+    observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
+    @test call_binding.callee_application_ids == [:leaf_a_calls]
+    @test observed_callee_target_index == Dict(
+        (:leaf_a_calls, ObjectId(:leaf_a)) => [call_binding_index],
+    )
+
+    register_object!(
+        model,
+        Object(:leaf_b; scale=:Leaf, kind=:b, parent=:scene),
+    )
+    register_object!(
+        model,
+        Object(:leaf_c; scale=:Leaf, kind=:b, parent=:scene),
+    )
+    continue!(simulation)
+
+    @test simulation.compiled.observed_manual_call_binding_indices_by_callee_target ===
+          observed_callee_target_index
+    @test Set(call_binding.callee_application_ids) ==
+          Set((:leaf_a_calls, :leaf_b_calls))
+    @test Set(keys(observed_callee_target_index)) == Set((
+        (:leaf_a_calls, ObjectId(:leaf_a)),
+        (:leaf_b_calls, ObjectId(:leaf_b)),
+        (:leaf_b_calls, ObjectId(:leaf_c)),
+    ))
+    @test all(
+        binding_indices == [call_binding_index]
+        for binding_indices in values(observed_callee_target_index)
+    )
+    @test model_status(model, :scene).ncalls == 3
+    @test model_status(model, :scene).total == 4.0
+    @test Advanced.runtime_performance(simulation).counts[
+        :lifecycle_manual_call_owner_binding_candidates
+    ] == 1
+end
+
+@testset "shared exact callee target reindexes after owner removal" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:plant_a; scale=:Plant, parent=:scene),
+        Object(:plant_b; scale=:Plant, parent=:scene);
+        applications=(
+            ModelSpec(
+                ManyCallControllerModel();
+                name=:controller,
+                on=Many(scale=:Plant),
+                calls=(
+                    :children => Many(
+                        name=:shared_leaf,
+                        within=SceneScope(),
+                        application=:leaf_calls,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:leaf_calls,
+                on=Many(name=:shared_leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none, performance=true)
+    @test isempty(
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target,
+    )
+
+    register_object!(
+        model,
+        Object(
+            :shared_leaf;
+            scale=:Leaf,
+            name=:shared_leaf,
+            parent=:scene,
+        ),
+    )
+    continue!(simulation)
+
+    shared_key = (:leaf_calls, ObjectId(:shared_leaf))
+    observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
+    @test observed_callee_target_index[shared_key] == [1, 2]
+    @test getproperty.(simulation.compiled.call_bindings, :consumer_id) ==
+          ObjectId[ObjectId(:plant_a), ObjectId(:plant_b)]
+    for binding_index in reverse(eachindex(simulation.compiled.call_bindings))
+        PlantSimEngine._index_observed_manual_call_binding_by_callee_target!(
+            observed_callee_target_index,
+            simulation.compiled.call_bindings[binding_index],
+            binding_index,
+            simulation.compiled.applications_by_id,
+        )
+    end
+    @test observed_callee_target_index[shared_key] == [1, 2]
+    @test Advanced.runtime_performance(simulation).counts[
+        :lifecycle_manual_call_owner_binding_candidates
+    ] == 2
+    @test Advanced.runtime_performance(simulation).counts[
+        :lifecycle_manual_call_owner_targets_propagated
+    ] == 2
+
+    remove_object!(model, :plant_a)
+    continue!(simulation)
+
+    rebuilt_observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
+    @test rebuilt_observed_callee_target_index !==
+          observed_callee_target_index
+    @test rebuilt_observed_callee_target_index[shared_key] == [1]
+    @test only(simulation.compiled.call_bindings).consumer_id ==
+          ObjectId(:plant_b)
 end
 
 @testset "large monotonic Many call extension preserves existing targets" begin
@@ -946,11 +1114,7 @@ end
     @test !PlantSimEngine._compiled_call_membership_is_observed(call_binding)
     @test !PlantSimEngine._call_execution_batches_materialized(full_call_view)
     @test isempty(
-        get(
-            simulation.compiled.manual_call_binding_indices_by_owner_application,
-            :selective_controller,
-            Int[],
-        ),
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target,
     )
 
     register_object!(
@@ -992,11 +1156,7 @@ end
         0,
     ) == 0
     @test isempty(
-        get(
-            simulation.compiled.manual_call_binding_indices_by_owner_application,
-            :selective_controller,
-            Int[],
-        ),
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target,
     )
 
     # The wrapper obtained before all three lifecycle changes stays cached.
@@ -1012,18 +1172,20 @@ end
         simulation.compiled.call_bindings,
     )
     @test !isnothing(call_binding_index)
+    observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
     indexed_call_bindings = copy(
         get(
-            simulation.compiled.manual_call_binding_indices_by_owner_application,
-            :selective_controller,
+            observed_callee_target_index,
+            (:selective_leaf_calls, ObjectId(:leaf_keep)),
             Int[],
         ),
     )
     @test indexed_call_bindings == [call_binding_index]
     @test length(full_call_view) == 1
     @test get(
-        simulation.compiled.manual_call_binding_indices_by_owner_application,
-        :selective_controller,
+        observed_callee_target_index,
+        (:selective_leaf_calls, ObjectId(:leaf_keep)),
         Int[],
     ) == indexed_call_bindings
 
@@ -1047,9 +1209,11 @@ end
     @test Advanced.runtime_performance(simulation).counts[
         :lifecycle_manual_call_owner_targets_propagated
     ] == 1
+    @test simulation.compiled.observed_manual_call_binding_indices_by_callee_target ===
+          observed_callee_target_index
     @test get(
-        simulation.compiled.manual_call_binding_indices_by_owner_application,
-        :selective_controller,
+        observed_callee_target_index,
+        (:selective_leaf_calls, ObjectId(:leaf_z_after_observation)),
         Int[],
     ) == indexed_call_bindings
 end
@@ -1482,8 +1646,20 @@ end
     )
 
     simulation = run!(model; outputs=:none, performance=true)
+    observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
+    @test observed_callee_target_index[
+        (:leaf_calls, ObjectId(:leaf))
+    ] == [only(eachindex(simulation.compiled.call_bindings))]
     reparent_object!(model, :leaf, :plant_b)
     continue!(simulation)
+
+    rebuilt_observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
+    @test rebuilt_observed_callee_target_index !== observed_callee_target_index
+    @test rebuilt_observed_callee_target_index[
+        (:leaf_calls, ObjectId(:leaf))
+    ] == [only(eachindex(simulation.compiled.call_bindings))]
 
     refreshed_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
     refreshed_execution_target =
@@ -1522,6 +1698,9 @@ end
     @test schedule[:leaf_calls].manual_call_only
     @test !schedule[:leaf_calls].root_scheduled
     @test controller.ncalls == 0
+    initial_observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
+    @test isempty(initial_observed_callee_target_index)
 
     reparent_object!(model, :leaf, :plant_a)
     continue!(simulation; steps=1)
@@ -1533,6 +1712,13 @@ end
     @test performance.counts[:selector_call_binding_candidates] == 1
     @test controller.ncalls == 1
     @test controller.total == 1.0
+    entered_observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
+    @test entered_observed_callee_target_index !==
+          initial_observed_callee_target_index
+    @test entered_observed_callee_target_index[
+        (:leaf_calls, ObjectId(:leaf))
+    ] == [only(eachindex(simulation.compiled.call_bindings))]
 
     reparent_object!(model, :leaf, :plant_b)
     continue!(simulation; steps=1)
@@ -1546,6 +1732,14 @@ end
     @test performance.counts[:selector_call_binding_candidates] == 1
     @test controller.ncalls == 0
     @test controller.total == 0.0
+    left_observed_callee_target_index =
+        simulation.compiled.observed_manual_call_binding_indices_by_callee_target
+    @test left_observed_callee_target_index !==
+          entered_observed_callee_target_index
+    @test !haskey(
+        left_observed_callee_target_index,
+        (:leaf_calls, ObjectId(:leaf)),
+    )
 end
 
 @testset "manual target cadence contract" begin

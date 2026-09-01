@@ -5302,17 +5302,6 @@ end
     return found
 end
 
-function _call_binding_target_matches(binding, application, object_id::ObjectId)
-    return (binding.multiplicity != :many &&
-            length(binding.callee_application_ids) == 1) ||
-           first(
-               _sorted_object_id_position(
-                   application.target_ids,
-                   object_id,
-               ),
-           )
-end
-
 _call_target_matches(targets::CallTargets, application, object_id::ObjectId) =
     _call_binding_target_matches(targets.binding, application, object_id)
 
