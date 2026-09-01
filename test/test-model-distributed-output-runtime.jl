@@ -1041,6 +1041,8 @@ end
            :distributed_runtime_sun_only_consumer
     )
     @test binding.source_ids == ObjectId[ObjectId(:leaf_a)]
+    @test binding.plan.potential_source_application_ids ==
+          (:distributed_runtime_sun_only_writer,)
     @test binding.source_application_ids ==
           [:distributed_runtime_sun_only_writer]
 

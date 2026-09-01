@@ -1255,6 +1255,12 @@ end
     compiled = Advanced.refresh_bindings!(model)
     @test compiled.applications_by_id[:split_creator].target_ids ==
           [ObjectId(:chain_creator_a), ObjectId(:chain_creator_b)]
+    @test isempty(compiled.applications_by_id[:chain_source].target_ids)
+    sink_plan = only(
+        plan for plan in compiled.scenario_plan.input_plans
+        if plan.application_id == :chain_sink
+    )
+    @test sink_plan.potential_source_application_ids == (:chain_source,)
     run!(model; steps=1, outputs=:none)
     @test model_status(model, :split_chain_source).signal == 7.0
     @test model_status(model, :split_chain_sink).seen == 7.0

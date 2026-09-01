@@ -1597,6 +1597,14 @@ end
         row for row in explain_bindings(ordered_writer_scene)
         if row.application_id == :consumer && row.input == :signal
     )
+    ordered_input_plans =
+        Advanced.refresh_bindings!(ordered_writer_scene).scenario_plan.input_plans
+    ordered_plan = only(
+        plan for plan in ordered_input_plans
+        if plan.application_id == :consumer && plan.input == :signal
+    )
+    @test ordered_plan.potential_source_application_ids ==
+          (:source_a, :source_b)
     @test ordered_binding.source_application_ids == [:source_b]
 end
 

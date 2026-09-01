@@ -2298,7 +2298,8 @@ function _append_added_many_sources!(
             binding.source_var,
             binding.process,
             binding.application,
-            distributed_outputs;
+            distributed_outputs,
+            binding.potential_source_application_ids;
             applications_by_id=applications_by_id,
             allow_empty=true,
         )
@@ -2316,7 +2317,8 @@ function _append_added_many_sources!(
                 binding.source_var,
                 binding.process,
                 binding.application,
-                distributed_outputs;
+                distributed_outputs,
+                binding.potential_source_application_ids;
                 applications_by_id=applications_by_id,
                 allow_empty=false,
             )
@@ -6181,29 +6183,58 @@ function _matching_input_source_applications(
     source_var::Symbol,
     process_filter,
     application_filter,
-    distributed_outputs=NoCompiledDistributedOutputs();
+    distributed_outputs=NoCompiledDistributedOutputs(),
+    potential_source_application_ids=();
     applications_by_id=nothing,
     allow_empty::Bool=false,
 )
-    matches = Symbol[]
-    for source_id in source_ids
-        for application in get(applications_by_object, source_id, Any[])
-            source_var in _model_output_names(application) || continue
-            isnothing(process_filter) || application.process == process_filter || continue
-            isnothing(application_filter) || application.id == application_filter || continue
-            push!(matches, application.id)
+    potential_application_id =
+        length(potential_source_application_ids) == 1 ?
+        only(potential_source_application_ids) : nothing
+    use_planned_singleton = !isnothing(potential_application_id) &&
+                            !isnothing(applications_by_id) &&
+                            haskey(applications_by_id, potential_application_id)
+    matches = if use_planned_singleton
+        application_id = potential_application_id
+        application = applications_by_id[application_id]
+        matched = any(source_ids) do source_id
+            _application_writes_object_variable(
+                distributed_outputs,
+                application,
+                source_id,
+                source_var,
+            ) && return true
+            # Targeted newborn initializers use a partial application overlay
+            # until the lifecycle barrier extends the compiled application.
+            # Preserve that path without rescanning unrelated applications.
+            return any(get(applications_by_object, source_id, ())) do candidate
+                candidate.id == application_id || return false
+                return source_var in _model_output_names(candidate)
+            end
         end
-        _append_distributed_input_source_applications!(
-            matches,
-            distributed_outputs,
-            source_id,
-            source_var,
-            process_filter,
-            application_filter,
-            applications_by_id,
-        )
+        matched ? Symbol[application_id] : Symbol[]
+    else
+        resolved = Symbol[]
+        for source_id in source_ids
+            for application in get(applications_by_object, source_id, Any[])
+                source_var in _model_output_names(application) || continue
+                isnothing(process_filter) || application.process == process_filter || continue
+                isnothing(application_filter) || application.id == application_filter || continue
+                push!(resolved, application.id)
+            end
+            _append_distributed_input_source_applications!(
+                resolved,
+                distributed_outputs,
+                source_id,
+                source_var,
+                process_filter,
+                application_filter,
+                applications_by_id,
+            )
+        end
+        unique!(resolved)
+        resolved
     end
-    unique!(matches)
     if !allow_empty &&
        (!isnothing(process_filter) || !isnothing(application_filter)) &&
        isempty(matches)
@@ -6779,7 +6810,8 @@ function _push_model_input_binding!(
             source_var,
             process_filter,
             application_filter,
-            distributed_outputs;
+            distributed_outputs,
+            plan.potential_source_application_ids;
             applications_by_id=applications_by_id,
             allow_empty=selector isa OptionalOne ||
                         (selector isa Many && isempty(source_ids)),
