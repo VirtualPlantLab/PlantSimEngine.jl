@@ -1767,7 +1767,7 @@ function _model_graph_model_descriptor(type::Type{<:AbstractModel})
     interface = serialized["interface"]
 
     return Dict{String,Any}(
-        "type" => description.model_type,
+        "type" => description.constructor["type"],
         "name" => string(description.name),
         "module" => description.module_name,
         "package" => description.package,

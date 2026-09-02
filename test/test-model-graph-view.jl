@@ -105,6 +105,13 @@ PlantSimEngine.EnvironmentAPI.get_nsteps(::Union{ModelGraphWeatherBackend,ModelG
 
     MODEL_GRAPH_NO_DUMMY_CONSTRUCTIONS[] = 0
     library = PlantSimEngine._model_graph_model_library()
+    parametric = only(
+        item for item in library
+        if item["name"] == string(nameof(ModelGraphSourceModel)) &&
+           item["module"] == string(parentmodule(ModelGraphSourceModel))
+    )
+    @test parametric["type"] == string(ModelGraphSourceModel)
+    @test parametric["type"] == parametric["constructor"]["type"]
     no_dummy = only(item for item in library if item["type"] == string(ModelGraphNoDummyModel))
     @test MODEL_GRAPH_NO_DUMMY_CONSTRUCTIONS[] == 0
     @test no_dummy["provenance"] == "best_effort"
