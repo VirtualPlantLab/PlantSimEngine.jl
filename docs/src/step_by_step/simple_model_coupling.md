@@ -1,127 +1,97 @@
 # Standard model coupling
 
-```@setup usepkg
+```@setup scene_coupling
 using PlantSimEngine
 using PlantSimEngine.Examples
-using PlantMeteo, Dates
+using PlantMeteo, Dates, DataFrames
 
-meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
-models = ModelMapping(
-    ToyLAIModel(),
-    Beer(0.5),
-    ToyRUEGrowthModel(0.2),
-    status=(TT_cu=cumsum(meteo_day.TT),),
+meteo_day = read_weather(
+    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
+    duration=Dates.Day,
 )
-nothing
 ```
+
+This page shows the standard coupling case: one model computes a variable that
+another model reads. In the composite-model/object API, the user describes model
+applications on objects, and the compiler wires the value dependencies.
 
 ## Setting up your environment
 
-Again, make sure you have a working Julia environment with PlantSimengine added to it, and the other recommended companion packages. Details for getting to that point are provided on the [Installing and running PlantSimEngine](@ref) page.
+Make sure you have a working Julia environment with PlantSimEngine and the
+recommended companion packages. Details are provided on the
+[Installing PlantSimEngine](../prerequisites/installing_plantsimengine.md)
+page.
 
-## ModelMapping
+## One object and one model
 
-The [`ModelMapping`](@ref) is a container that holds a list of models, their parameter values, and the status of the variables associated to them.
+A model contains objects. A model application says where a model runs. Here a
+light interception model runs on the model object, uses the environment's
+daily cadence, and reads `LAI` from that object's status:
 
-If one looks at prior examples, the ModelMappings so far have only contained a single model, whose input variables are initialised in the ModelMapping [`status`](@ref) keyword argument. 
+```@example scene_coupling
+light_scene = CompositeModel(
+    Beer(0.5);
+    status=(LAI=2.0,),
+    environment=meteo_day,
+)
 
-Example models are all taken from the example scripts in the [`examples`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/) folder.
-
-Here's a first [`ModelMapping`](@ref) declaration with a light interception model, requiring input Leaf Area Index (LAI): 
-
-```julia
-modellist_coupling_part_1 = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
+light_sim = run!(light_scene; steps=3, outputs=:all)
+first(collect_outputs(light_sim; sink=DataFrame), 3)
 ```
 
-Here's a second one with a Leaf Area Index model, with some example Cumulated Thermal Time as input. (This TT_cu is usually computed from weather data):
+## Coupling two models
 
-```julia
-modellist_coupling_part_2 = ModelMapping(
+Suppose we want `ToyLAIModel` to compute `LAI` for `Beer`. Both models can run
+on the same object. `ToyLAIModel` produces `LAI`, and `Beer` declares `LAI` as
+an input, so the model compiler infers the binding:
+
+```@example scene_coupling
+coupled_scene = CompositeModel(
+    ToyDegreeDaysCumulModel(),
     ToyLAIModel(),
-    status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
+    Beer(0.5);
+    environment=meteo_day,
+)
+
+select(
+    DataFrame(Diagnostics.explain_bindings(coupled_scene)),
+    :application_id,
+    :input,
+    :source_application_ids,
+    :origin,
+    :carrier_kind,
+    :copy_semantics,
 )
 ```
 
-## Combining models
+The `:inferred_same_object` rows are soft dependencies: the consumer input is
+provided by another model output. Same-rate local links use live references, so
+the timestep loop does not copy values between models.
 
-Suppose we want our ToyLAIModel to compute the `LAI` for the light interception model. 
+Run the coupled model:
 
-We can couple the two models by having them be part of a single [`ModelMapping`](@ref). The `LAI` variable will then be a coupled output  computed by the ToyLAIModel, then used as input by `Beer`. It will no longer need to be declared as part of the [`status` .
-
-This is an instance of what we call a ["soft dependency" coupling](@ref hard_dependency_def): a model depends on another model's outputs for its inputs.
-
-Here's a first attempt : 
-
-```@example usepkg
-using PlantSimEngine
-# Import the examples defined in the `Examples` sub-module:
-using PlantSimEngine.Examples
-
-# A ModelMapping with two coupled models
-models = ModelMapping(
-    ToyLAIModel(),
-    Beer(0.5),
-    status=(TT_cu=1.0:2000.0,),
-)
-struct UnexpectedSuccess <: Exception end #hack to enable checking an error without failing docbuild #hide
-# see https://github.com/JuliaDocs/Documenter.jl/issues/1420 #hide
-try #hide
-run!(models)
-throw(UnexpectedSuccess()) #hide
-catch err; err isa UnexpectedSuccess ? rethrow(err) : showerror(stderr, err); end  #hide
+```@example scene_coupling
+coupled_sim = run!(coupled_scene; steps=5)
+coupled_status = final_state(coupled_sim)
+(TT_cu=coupled_status.TT_cu, LAI=coupled_status.LAI, aPPFD=coupled_status.aPPFD)
 ```
 
-Oops, we get an error related to the weather data, with the detailed output being: 
+## Adding another model
 
-```julia
-ERROR: type NamedTuple has no field Ri_PAR_f
-Stacktrace:
-  [1] getindex(mnt::Atmosphere{(), Tuple{}}, i::Symbol)
-    @ PlantMeteo ~/Path/to/PlantMeteo/src/structs/atmosphere.jl:147
-  [2] getcolumn(row::PlantMeteo.TimeStepRow{Atmosphere{(), Tuple{}}}, nm::Symbol)
-    @ PlantMeteo ~/Path/to/PlantMeteo/src/structs/TimeStepTable.jl:205
-    ...
-```
+Additional models are just additional applications. `ToyRUEGrowthModel`
+consumes `aPPFD`, which is produced by `Beer`, so the compiler infers another
+same-object binding:
 
-The `Beer` model requires a specific meteorological parameter. Let's fix that by importing the example weather data :
-
-```@example usepkg
-using PlantSimEngine
-
-# PlantMeteo and CSV packages are now used
-using PlantMeteo, Dates
-
-# Import the examples defined in the `Examples` sub-module:
-using PlantSimEngine.Examples
-
-# Import example weather data
-meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
-
-# A ModelMapping with two coupled models
-models = ModelMapping(
+```@example scene_coupling
+growth_scene = CompositeModel(
+    ToyDegreeDaysCumulModel(),
     ToyLAIModel(),
     Beer(0.5),
-    status=(TT_cu=cumsum(meteo_day.TT),), # We can now compute a genuine cumulative thermal time from the weather data
+    ToyRUEGrowthModel(0.2);
+    environment=meteo_day,
 )
 
-# Add the weather data to the run! call
-outputs_coupled = run!(models, meteo_day)
-outputs_coupled[1:3,:]
-```
-
-And there you have it. The light interception model made its computations using the Leaf Area Index computed by ToyLAIModel.
-
-## Further coupling
-
-Of course, one can keep adding models. Here's an example `ModelMapping` with another model, `ToyRUEGrowthModel`, which computes the carbon biomass increment caused by photosynthesis.
-
-```julia
-models = ModelMapping(
-    ToyLAIModel(),
-    Beer(0.5),
-    ToyRUEGrowthModel(0.2),
-    status=(TT_cu=cumsum(meteo_day.TT),),
-)
-
-nothing # hide
+growth_sim = run!(growth_scene; steps=5)
+growth_status = final_state(growth_sim)
+(LAI=growth_status.LAI, aPPFD=growth_status.aPPFD, biomass=growth_status.biomass)
 ```

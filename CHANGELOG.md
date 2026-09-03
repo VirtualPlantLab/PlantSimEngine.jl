@@ -1,5 +1,238 @@
 # Changelog
 
+## v0.15.0
+
+### Summary
+
+PlantSimEngine 0.15 is a breaking release that replaces the historical
+`ModelMapping`/`MultiScaleModel` execution stack with one compiled
+`CompositeModel`/`Object` runtime. The same scenario representation now covers
+single objects, multiscale plants, several plants or species, shared resources,
+dynamic topology, multirate models, global or spatial environments, and retained
+output streams.
+
+The redesign makes coupling and execution explicit. Model applications declare
+where they run, which values they read, which models they call, where they write,
+their cadence, and their environment through one `ModelSpec` grammar. The
+compiler validates and resolves those declarations before execution, while the
+`Diagnostics` and `Authoring` namespaces expose structured explanations for
+users, graphical tools, tests, and coding agents.
+
+Scientific equations can usually remain unchanged, but model packages must
+adopt `PlantSimEngine.run!(model, status, environment, constants, context)`,
+read parameters from `model`, and update input declarations as well as scenario
+assembly and coupling.
+
+### Breaking changes
+
+- The historical scenario and execution APIs were removed without a
+  compatibility layer: `ModelList`, `ModelMapping`, `GraphSimulation`,
+  `MultiScaleModel`, their direct and batch `run!` methods, and the separate
+  mapping dependency/runtime stack. Scenarios must use `CompositeModel`,
+  `Object`, and named `ModelSpec` applications.
+- Mapping-era configuration wrappers were removed, including `SameScale`,
+  `TimeStepModel`, `InputBindings`, `MeteoBindings`, `MeteoWindow`, and
+  `ScopeModel`, and `OutputRouting`. Their replacements are selectors and the
+  `on`, `inputs`, `every`, `environment`, and `output_routing` fields of
+  `ModelSpec`.
+- Model kernels now read their parameters from `model` and receive a
+  `RunContext` through
+  `PlantSimEngine.run!(model, status, environment, constants, context)`.
+  Direct recursive dependency execution and the former mapping-runtime kernel
+  signatures are no longer supported.
+- `inputs_(model)` must distinguish required inputs from genuine fallbacks with
+  `Required(T)` and `Default(value)`. Plain input literals are rejected because
+  they do not state whether a value is required or optional. Use
+  `init_variables(model)` to obtain only real input defaults and initial output
+  values.
+- `Self()` now selects only the object where the consumer runs. Use `Subtree()`
+  for that object and its descendants, `SelfPlant()` for the nearest containing
+  `scale=:Plant` object and its subtree, or an explicit `SceneScope()`,
+  `Ancestor(...)`, `Scope(...)`, or `Relation(...)` selector for other topology
+  scopes.
+- Repeated applications must be named explicitly. Scenario inputs, calls,
+  output requests, overrides, and ordered updates use canonical application
+  identity rather than assuming that a process identifies one unique
+  application.
+- Singular scenario `process=...` references, output-request `process=...`, and
+  process-only overrides were removed. Use `application=...`; `Many(process=...)`
+  remains available as an explicit multi-application discovery query.
+- Legacy string-keyed mapping scales were removed. Composite-model labels are
+  stored canonically as symbols; use `:Leaf` and `:Plant` in new code.
+- `run!(model; ...)` always starts a fresh timeline and returns a `Simulation`.
+  Use `continue!(simulation)` or `step!(simulation)` to preserve the timeline,
+  temporal histories, environment position, and multirate phase.
+- The `tracked_outputs` keyword was removed. Output retention is explicit with
+  `outputs=:none`, `outputs=:all`, or one or more `OutputRequest`s; the safe
+  default is `outputs=:none`.
+- MTG-backed runtime `Status` objects are owned by the `CompositeModel` registry
+  instead of being stored as live status columns in MTG node attributes.
+- Compiler representations and cache controls moved to
+  `PlantSimEngine.Advanced`. Model discovery, supported diagnostics, graph
+  editing, environment extensions, and evaluation APIs live in the qualified
+  `Authoring`, `Diagnostics`, `GraphEditor`, `EnvironmentAPI`, and `Evaluation`
+  namespaces.
+- PlantMeteo reducers are no longer re-exported. Use qualified names such as
+  `PlantMeteo.MeanReducer` and `PlantMeteo.RadiationEnergy`.
+- Graph visualization and editing moved to the qualified `GraphEditor`
+  namespace. In particular, use `GraphEditor.model_graph_view`,
+  `GraphEditor.write_model_graph_view`, and `GraphEditor.current_model` instead
+  of `graph_view`, `write_graph_view`, and `current_mapping`.
+- Object and instance overrides now require the complete compiled model
+  interface to match: full status/environment schemas, variable contracts,
+  model-authored dependencies, cadence, output policy, timestep hint, and
+  environment hint. Alternatives of the same process that differ in any of
+  these declarations must use a reconfigured `ModelSpec` instead.
+- Environment backends now compile an opaque per-target handle with
+  `EnvironmentAPI.bind_environment`. Accepted state is committed explicitly with
+  `commit_environment!`, while provider-aware trial state is passed with
+  `run_call!(context, name; environment=state)`. The former support/scatter,
+  scoped override, and context-level meteorology APIs were removed.
+- Hard dependencies now execute through
+  `run_call!(context::RunContext, name::Symbol; ...)`, which executes every
+  selector-resolved target and always returns a vector-like `CallTargets`
+  collection. Calls default to `publish=false` for trial states; accepted
+  iterative states must be published explicitly with `publish=true`.
+  Applications used exclusively as manual-call targets are skipped by the root
+  scheduler.
+- String-name hard-call methods were removed. `call_model(context, :name)` is
+  the singular convenience for retrieving the concrete model behind a call
+  that resolves exactly one target; use `call_targets(context, :name)` for
+  target status, selective execution, or plural calls.
+
+### Added
+
+- A unified runtime object registry with stable `ObjectId` identities and an
+  architecture-neutral `Object` hierarchy. `CompositeModelTemplate`,
+  `ObjectInstance`, and `Override` reuse one configuration across several
+  plants or species while allowing compatible object-specific alternatives.
+- One application grammar:
+  `ModelSpec(model; name=..., on=..., inputs=..., calls=..., outputs_to=...,
+  every=..., environment=..., output_routing=..., updates=...)`. Unique
+  same-object inputs are inferred; cross-object couplings remain explicit and
+  are compiled to scalar references, homogeneous reference vectors,
+  heterogeneous object-reference vectors, or typed temporal streams.
+- Model-author dependency defaults through `dep(model)` using `Input(...)`,
+  `Call(...)`, and `Initializer(...)`. Scenario-level `ModelSpec` declarations
+  through `inputs=...` and `calls=...` can replace those defaults.
+- Uniform selectors with `One`, `OptionalOne`, and `Many` multiplicity;
+  `SceneScope`, `Self`, `Subtree`, `SelfPlant`, `Ancestor`, `Scope`, and
+  `Relation` scope; and `kind`, `species`, `scale`, and `name` label criteria.
+- Identity-aware many-input access through `bound_input`, `BoundMany`, and
+  `object_ids`, preserving the alignment between values and source objects.
+- Distributed output assignment with `OutputTo`, `OutputTargets`,
+  `output_targets`, and `assign_outputs!`. Applications can own an output while
+  storing its values on explicitly selected destination objects, with exact
+  identity and writer validation.
+- `Updates(:variable; after=:application)` for intentional writer order and
+  `output_routing=(variable=:stream_only,)` for retaining a publisher's stream
+  without giving it canonical status ownership.
+- `VariableContract` metadata for validating unit, spatial or object basis,
+  temporal basis, aggregation meaning, and intensive/extensive semantics at
+  compiled producer-consumer boundaries without wrapping runtime values.
+- Integrated multirate execution through `ModelSpec(...; every=Dates.Period)`
+  and the `HoldLast`, `Interpolate`, `Integrate`, and `Aggregate` temporal
+  policies. `PreviousTimeStep` expresses an explicit lag and breaks
+  same-timestep dependency cycles.
+- Global and spatial environment backends with compiled per-target handles,
+  source remapping through `Environment`, model-authored environment defaults,
+  and targeted rebinding after geometry changes.
+- MTG adaptation with `objects_from_mtg` and `CompositeModel(mtg; ...)`, plus a
+  complete dynamic lifecycle API for registering, adding, removing,
+  reparenting, moving, and updating the geometry of objects. Affected targets,
+  input carriers, call targets, schedules, writer checks, execution batches,
+  and environment bindings are refreshed automatically.
+- `Initializer` and `run_initializer!` for running an already scheduled
+  application once on a newly registered object during its creation event.
+- `add_organ!(...; use_status_adapter=false)` for MTG-backed models whose new
+  node attributes already form the authoritative initialization payload. The
+  default remains `true`; opting out skips only the stored adapter status
+  initializer while preserving node attributes, explicit initial-value
+  precedence, node identity, object registration, and binding invalidation.
+- `Simulation`, `continue!`, `step!`, `current_step`, `final_state`, `outputs`,
+  `OutputRequest`, and `collect_outputs` for explicit timeline continuation and
+  typed output inspection. Streams are keyed by application, object, and
+  variable so repeated processes cannot overwrite one another.
+- Bounded retention of internal streams required by temporal dependencies, plus
+  `Diagnostics.explain_output_retention` for explaining why each stream is
+  retained.
+- `PlantSimEngine.Authoring`, a versioned, serializable API for process/model
+  discovery, exact instance descriptions, optional parameter metadata,
+  interface comparison, and structured model/scenario validation.
+- `Authoring.scenario_source` for reconstructing an editable
+  `CompositeModel`, plus `Authoring.compiled_model_source` and
+  `Authoring.write_compiled_model_source` for reviewing an executable,
+  readable view of the resolved application plan.
+- A package-owned PlantSimEngine agent skill organized as a short router with
+  focused authoring, coupling, lifecycle, diagnostics, and repository
+  references. Its canonical examples are executed by the package test suite.
+- `CallTargets`, a cached `AbstractVector` view over compiled hard-call targets
+  that is allocation-free to retrieve.
+- `run_call!(context, name)` for the common execute-all operation while
+  retaining `run_call!(target::CallTarget)` for selective, per-target, and
+  iterative control.
+- Structured diagnostics for objects, instances, scopes, applications, value
+  bindings, calls, distributed outputs, environment bindings, schedules,
+  writers, initialization, execution plans, retained outputs, and collected
+  streams.
+
+### Changed
+
+- Model applications are compiled into dependency-ordered, homogeneous
+  execution batches with cached value carriers, hard-call targets, schedules,
+  and environment handles. Dynamic dispatch occurs at concrete batch
+  boundaries instead of once per object.
+- Structural lifecycle changes use targeted indexes to refresh only affected
+  selectors and carriers when possible. Geometry-only changes can refresh
+  environment bindings without rebuilding structural bindings.
+- Compilation now rejects missing required inputs, invalid selectors,
+  cardinality mismatches, incompatible declared `VariableContract`s, ambiguous
+  or unordered writers, unsupported override interfaces, and same-timestep
+  dependency cycles before the simulation starts.
+- Output streams preserve their concrete value type through publication,
+  interpolation, integration, and collection without coercing stream values to
+  `Float64`.
+- Status conversion is configured on
+  `CompositeModel(...; type_promotion=..., status_transform=...)` and applied
+  when status storage is materialized for initial objects, model defaults, and
+  objects registered later.
+- The GraphEditor now edits and visualizes `CompositeModel` scenarios.
+- Compatibility was updated to MultiScaleTreeGraph 0.16 and PlantMeteo 0.9.
+
+### Fixed
+
+- Type-only model discovery no longer executes guessed placeholder constructors
+  and reports field-level provenance when an exact instance is unavailable.
+- Removed ambiguities in distributed-output runtime dispatch when temporal
+  streams are absent and output retention is either absent or compiled.
+- Construct dynamic `Status` values directly from the final ordered payload,
+  preserving precedence and independent `Ref` storage without the generic
+  iterable-to-`NamedTuple` merge path.
+
+### Migration guide
+
+This release intentionally does not retain aliases or fallback methods for the
+removed mapping runtime. The
+[`CompositeModel`/`Object` migration guide](docs/src/migration_composite_model.md)
+provides executable translations for scenario structure, multiscale inputs,
+hard calls, multiple plants, multirate coupling, environments, dynamic organs,
+and output collection.
+
+The principal replacements are:
+
+| Historical configuration | v0.15 replacement |
+| --- | --- |
+| `ModelMapping` scale assembly | `CompositeModel` objects and model applications |
+| `MultiScaleModel(...)` | consumer-side `ModelSpec(...; inputs=...)` |
+| `TimeStepModel(...)` | `ModelSpec(...; every=...)` |
+| `InputBindings(...)` | selector, policy, and window in `ModelSpec(...; inputs=...)` |
+| `MeteoBindings(...)` / `MeteoWindow(...)` | automatic binding, `environment_hint`, and `Environment(...)` |
+| `ScopeModel(...)` | `ModelSpec(...; on=...)` and selector scopes |
+| `SameScale()` | `One(within=Self(), var=:source)` |
+| `OutputRouting(...)` | `ModelSpec(...; output_routing=(...))` |
+| mapping status conversion | `CompositeModel(...; type_promotion=..., status_transform=...)` |
+| mapping output indexing | `outputs(sim)`, `OutputRequest`, and `collect_outputs` |
+
 ## v0.14.1
 
 Changes in this section are based on the git history since [`v0.14.0`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/releases/tag/v0.14.0), corresponding to the GitHub compare view for [`v0.14.1`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/compare/v0.14.0...v0.14.1).
@@ -27,7 +260,7 @@ working with PlantSimEngine internals.
   edges, variable dependency edges, scale filters, relationship filters, search,
   overview/detail modes, and an inspector.
 - An interactive browser-based graph editor through `edit_graph`, backed by a
-  local `HTTP.jl` server and WebSocket session. 
+  local `HTTP.jl` server and WebSocket session.
 - The live graph editor runs as a package extension that depends on
   `HTTP.jl`; static graph visualization is available without loading
   `HTTP`.
@@ -48,7 +281,7 @@ working with PlantSimEngine internals.
 - Visualization of required initialization values and graph diagnostics even
   when a mapping is incomplete or cyclic.
 - A new documentation page for graph visualization and editing:
-  [`docs/src/step_by_step/graph_visualization_editor.md`](docs/src/step_by_step/graph_visualization_editor.md).
+  [`docs/src/guides/graph_visualizer_editor.md`](docs/src/guides/graph_visualizer_editor.md).
 - Playwright end-to-end tests for the browser editor and new Julia tests for
   the static graph viewer and editor extension.
 - A local `plantsimengine` Codex skill describing the package architecture and
@@ -80,7 +313,7 @@ and substantially expands the documentation.
 The main user-facing breaking change in this release is the move toward
 `Symbol`-based scale names in mappings and multi-scale configuration. Code that
 still uses string scales such as `"Leaf"` or `"Plant"` should be updated to use
-symbols such as `:Leaf` and `:Plant`, especially in `ModelMapping(...)`,
+symbols such as `:Leaf` and `:Plant`, especially in `PlantSimEngine.ModelMapping(...)`,
 `MultiScaleModel(...)`, and explicit multi-rate bindings. `ModelList` is also on
 the deprecation path in favor of `ModelMapping`, so this release is a good time
 to migrate mapping code to the newer API.
@@ -95,7 +328,7 @@ to migrate mapping code to the newer API.
   `InputBindings`, `MeteoBindings`, `MeteoWindow`, `OutputRouting`, and
   `ScopeModel`.
 - New model traits for multi-rate inference and defaults:
-  `output_policy`, `timestep_hint`, and `meteo_hint`.
+  `output_policy`, `timestep_hint`, and `environment_hint`.
 - New export API for resampled output streams with `OutputRequest(...)` and
   `collect_outputs(...)`.
 - New debugging/introspection helpers:
@@ -136,12 +369,12 @@ to migrate mapping code to the newer API.
 
 ### Deprecated
 
-- `run!(::ModelList, ...)` is deprecated. Use `run!(ModelMapping(...), ...)`
+- `run!(::ModelList, ...)` is deprecated. Use `run!(PlantSimEngine.ModelMapping(...), ...)`
   instead.
 - `run!` with collections of `ModelList` is deprecated. Use collections of
   `ModelMapping` instead.
 - `run!(mtg, mapping::AbstractDict, ...)` is deprecated. Construct a
-  `ModelMapping(...)` first, or call `run!(mtg, ModelMapping(mapping), ...)`.
+  `PlantSimEngine.ModelMapping(...)` first, or call `run!(mtg, PlantSimEngine.ModelMapping(mapping), ...)`.
 - String scale names are deprecated in multi-scale mapping APIs. Use `Symbol`
   scales such as `:Leaf` instead of `"Leaf"`.
 - `ModelList` remains available for now but is being phased out in favor of
@@ -152,7 +385,7 @@ to migrate mapping code to the newer API.
 #### 1. Replace ad hoc mappings with `ModelMapping`
 
 If you previously used `ModelList(...)` directly for single-scale runs, or a
-plain `Dict` for MTG runs, migrate to `ModelMapping(...)`.
+plain `Dict` for MTG runs, migrate to `PlantSimEngine.ModelMapping(...)`.
 
 Before:
 
@@ -172,13 +405,13 @@ mapping = Dict(
 After:
 
 ```julia
-leaf = ModelMapping(
+leaf = PlantSimEngine.ModelMapping(
     process1 = Process1Model(),
     process2 = Process2Model(),
     status = (x = 1.0,),
 )
 
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (ToyAssimModel(),),
     :Plant => (ToyGrowthModel(),),
 )
@@ -192,7 +425,7 @@ When a model should run at a cadence different from the meteo, wrap it in
 Typical pattern:
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (
         ModelSpec(HourlyLeafModel()) |> TimeStepModel(1.0),
     ),
@@ -239,7 +472,7 @@ If your mappings still use string scales, migrate them to symbols.
 Before:
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     "Leaf" => (ToyAssimModel(),),
 )
 
@@ -250,7 +483,7 @@ MultiScaleModel([:A => "Leaf"])
 After:
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (ToyAssimModel(),),
 )
 
@@ -289,7 +522,7 @@ For reusable models, it is now often worth defining:
 - `output_policy(::Type{<:MyModel})` to describe the natural aggregation rule
   for a produced variable,
 - `timestep_hint(::Type{<:MyModel})` to declare valid/preferred cadences,
-- `meteo_hint(::Type{<:MyModel})` to declare default weather aggregation rules.
+- `environment_hint(::Type{<:MyModel})` to declare default environment aggregation rules.
 
 This is optional, but it makes inference more useful and error messages more
 actionable.

@@ -17,12 +17,12 @@ process(x::Pair{Symbol,A}) where {A<:AbstractModel} = first(x)
 process_(x) = error("process() is not defined for $(x)")
 
 """
-    model_(m::AbstractModel)
+    dep(model)
 
-Get the model of an AbstractModel (it is the model itself if it is not a MultiScaleModel).
+Return model-level default `Input(...)`, `Call(...)`, and `Initializer(...)`
+declarations. Models without explicit coupling requirements return an empty
+`NamedTuple`.
 """
+dep(::AbstractModel) = NamedTuple()
+
 model_(m::AbstractModel) = m
-get_models(m::AbstractModel) = [model_(m)] # Get the models of an AbstractModel
-# Note: it is returning a vector of models, because in this case the user provided a single model instead of a vector of.
-get_status(m::AbstractModel) = nothing
-get_mapped_variables(m::AbstractModel) = Pair{Symbol,String}[]

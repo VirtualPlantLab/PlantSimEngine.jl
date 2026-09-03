@@ -11,26 +11,28 @@ Computes the thermal time in degree days and cumulated degree-days based on the 
 the initial cumulated degree days, the base temperature below which there is no growth, and the maximum 
 temperature for growh.
 """
-struct ToyDegreeDaysCumulModel <: AbstractDegreedaysModel
-    init_TT::Float64
-    T_base::Float64
-    T_max::Float64
+struct ToyDegreeDaysCumulModel{T<:Real} <: AbstractDegreedaysModel
+    init_TT::T
+    T_base::T
+    T_max::T
 end
 
 # Defining default values:
-ToyDegreeDaysCumulModel(; init_TT=0.0, T_base=10.0, T_max=43.0) = ToyDegreeDaysCumulModel(init_TT, T_base, T_max)
+function ToyDegreeDaysCumulModel(; init_TT=0.0, T_base=10.0, T_max=43.0)
+    parameters = promote(float(init_TT), float(T_base), float(T_max))
+    return ToyDegreeDaysCumulModel(parameters...)
+end
 
 # Defining the inputs and outputs of the model:
 PlantSimEngine.inputs_(::ToyDegreeDaysCumulModel) = NamedTuple()
-PlantSimEngine.outputs_(m::ToyDegreeDaysCumulModel) = (TT=-Inf, TT_cu=0.0,)
+PlantSimEngine.outputs_(m::ToyDegreeDaysCumulModel) = (
+    TT=oftype(m.init_TT, -Inf),
+    TT_cu=m.init_TT,
+)
+PlantSimEngine.environment_inputs_(m::ToyDegreeDaysCumulModel) = (T=zero(m.T_base),)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
-function PlantSimEngine.run!(m::ToyDegreeDaysCumulModel, models, status, meteo, constants=nothing, extra=nothing)
-    status.TT = max(0.0, min(meteo.T, m.T_max) - m.T_base)
+function PlantSimEngine.run!(m::ToyDegreeDaysCumulModel, status, environment, constants, context)
+    status.TT = max(zero(m.T_base), min(environment.T, m.T_max) - m.T_base)
     status.TT_cu += status.TT
 end
-
-# The computation of ToyDegreeDaysCumulModel dependents on previous values, but it is independent of other objects.
-# The default trait is that models are dependent of other time-steps and object. So we need to change the default trait
-# for objects:
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyDegreeDaysCumulModel}) = PlantSimEngine.IsObjectIndependent()

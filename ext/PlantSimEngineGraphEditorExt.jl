@@ -2,137 +2,1082 @@ module PlantSimEngineGraphEditorExt
 
 import HTTP
 import JSON
+import Dates
 import PlantSimEngine
-import PlantSimEngine: edit_graph, current_mapping, apply_edit!, undo!, redo!
-import Random
+import PlantSimEngine.GraphEditor: edit_graph, current_model, apply_edit!, undo!, redo!
 
-mutable struct GraphEditorSession{M,G,S} <: PlantSimEngine.AbstractGraphEditorSession
-    mapping::M
-    mtg::G
-    history::Vector{M}
-    future::Vector{M}
-    server::S
+mutable struct GraphEditorSession <: PlantSimEngine.GraphEditor.AbstractModelGraphEditorSession
+    model::PlantSimEngine.CompositeModel
+    templates::Dict{Symbol,Any}
+    environments::Dict{Symbol,Any}
+    history::Vector{Any}
+    future::Vector{Any}
+    server::Any
     host::String
     port::Int
     token::String
     url::String
-    last_saved_path::Union{Nothing,String}
-    save_target_path::Union{Nothing,String}
     autosave_path::Union{Nothing,String}
-    last_autosaved_path::Union{Nothing,String}
-    recent_file_path::String
-    recent_mapping_paths::Vector{String}
+    save_path::Union{Nothing,String}
     allow_julia_eval::Bool
+    recent_paths::Vector{String}
 end
 
-current_mapping(session::GraphEditorSession) = session.mapping
+current_model(session::GraphEditorSession) = session.model
+
+function _normalize_named_catalog(catalog, label)
+    entries = if catalog isa NamedTuple
+        collect(pairs(catalog))
+    elseif catalog isa AbstractDict
+        collect(pairs(catalog))
+    else
+        error("$(label) catalog must be a NamedTuple or dictionary.")
+    end
+    normalized = Dict{Symbol,Any}()
+    for (name_, value) in entries
+        name_ isa Symbol || error("$(label) catalog names must be symbols, got `$(repr(name_))`.")
+        name = name_
+        Base.isidentifier(String(name)) || error(
+            "$(label) catalog name `$(name)` must be a valid Julia identifier.",
+        )
+        haskey(normalized, name) && error("$(label) catalog contains duplicate name `$(name)`.")
+        normalized[name] = value
+    end
+    return normalized
+end
+
+function _normalize_template_catalog(catalog)
+    normalized = _normalize_named_catalog(catalog, "Template")
+    for (name, template) in normalized
+        template isa PlantSimEngine.CompositeModelTemplate || error(
+            "Template catalog entry `$(name)` must be a CompositeModelTemplate.",
+        )
+    end
+    return normalized
+end
+
+_normalize_environment_catalog(catalog) = _normalize_named_catalog(catalog, "Environment")
+
 function Base.close(session::GraphEditorSession)
-    isopen(session.server) || return nothing
-    return close(session.server)
+    try
+        isopen(session.server) && close(session.server)
+    catch
+        close(session.server)
+    end
+    return nothing
 end
 
 function Base.show(io::IO, session::GraphEditorSession)
-    print(io, "GraphEditorSession(url=\"$(session.url)\", host=\"$(session.host)\", port=$(session.port))")
+    print(io, "GraphEditorSession(url=$(repr(session.url)), applications=$(length(session.model.applications)))")
 end
 
 function Base.show(io::IO, ::MIME"text/plain", session::GraphEditorSession)
     println(io, "PlantSimEngineGraphEditorExt.GraphEditorSession")
     println(io, "  Open in browser: $(session.url)")
-    println(io, "  Local state JSON: $(_state_url(session))")
+    println(io, "  State JSON: $(_state_url(session))")
+    println(io, "  Current model: GraphEditor.current_model(session)")
     println(io, "  Quit session: close(session)")
-    println(io, "  Current mapping: current_mapping(session)")
-    isnothing(session.save_target_path) || println(io, "  Auto-saving edits to: $(session.save_target_path)")
     isnothing(session.autosave_path) || println(io, "  Recovery autosave: $(session.autosave_path)")
-    println(io, "  Save mapping code: use the \"Mapping code\" panel in the web editor")
+    isnothing(session.save_path) || println(io, "  Saving changes to: $(session.save_path)")
 end
 
-current_mapping_code(session::GraphEditorSession) = _model_mapping_to_julia(session.mapping)
-
 """
-    edit_graph([mapping]; mtg=nothing, host="127.0.0.1", port=8765, open_browser=true, autosave=true, allow_remote=false, allow_julia_eval=nothing)
+    edit_graph([model]; templates=NamedTuple(), environments=NamedTuple(),
+               host="127.0.0.1", port=0, open_browser=true,
+               autosave=true, allow_remote=false, allow_julia_eval=nothing)
 
-Start a local graph editor session. The returned session owns the current
-`ModelMapping`; call `current_mapping(session)` to recover the edited mapping.
-Call `edit_graph()` without a mapping to start from an empty scratch editor.
-
-Single-scale mappings are automatically normalized to multiscale form at the :Default scale.
-By default, the session URL is opened with the system default browser. Pass
-`open_browser=false` to disable this, for example in scripts or tests.
-The URL includes a session token and the server is restricted to localhost
-unless `allow_remote=true` is passed explicitly.
-Raw `julia` parameter values are disabled by default for remote sessions; pass
-`allow_julia_eval=true` only for trusted sessions.
-When `autosave=true`, a recovery script is written to the temporary directory.
-After saving through the web editor, every successful graph edit, undo, redo,
-or recent-file load rewrites the saved Julia script.
-
-This method is provided by the `PlantSimEngineGraphEditorExt` package extension.
-Load `HTTP` in the active session to make it available.
+Start a local Model graph editor. Julia owns the current Composite model and applies all
+semantic edits received from the browser. Call `edit_graph()` to start from an
+empty Composite model and `close(session)` to stop the server. `templates` is a
+named catalog of `CompositeModelTemplate` presets. `environments` is a named
+catalog of server-side environment values; these values are referenced by name
+and are never serialized to the browser.
 """
 function edit_graph(
-    mapping::PlantSimEngine.ModelMapping=_empty_editor_mapping();
-    mtg=nothing,
+    model::PlantSimEngine.CompositeModel=PlantSimEngine.CompositeModel();
     host::AbstractString="127.0.0.1",
-    port::Integer=8765,
+    port::Integer=0,
     open_browser::Bool=true,
     autosave::Bool=true,
     autosave_path::Union{Nothing,AbstractString}=nothing,
-    recent_file_path::Union{Nothing,AbstractString}=nothing,
+    save_path::Union{Nothing,AbstractString}=nothing,
     allow_remote::Bool=false,
     allow_julia_eval::Union{Nothing,Bool}=nothing,
+    recover_path::Union{Nothing,AbstractString}=nothing,
+    recent_paths=nothing,
+    templates=NamedTuple(),
+    environments=NamedTuple(),
 )
-    if !_is_loopback_host(host) && !allow_remote
-        error("Graph editor sessions are limited to localhost by default. Pass `allow_remote=true` only for a trusted network environment.")
-    end
-
-    # Normalize single-scale to multiscale form for uniform handling downstream
-    mapping = _normalize_to_multiscale(mapping)
-
+    _is_loopback_host(host) || allow_remote || error(
+        "Graph editor sessions are limited to localhost by default. Pass `allow_remote=true` only for a trusted network.",
+    )
+    effective_allow_julia_eval = isnothing(allow_julia_eval) ? !allow_remote : allow_julia_eval
+    template_catalog = _normalize_template_catalog(templates)
+    environment_catalog = _normalize_environment_catalog(environments)
+    catalog_values = (
+        values(template_catalog)...,
+        values(environment_catalog)...,
+    )
+    initial_model = isnothing(recover_path) ? PlantSimEngine._model_graph_deepcopy(
+        model,
+        catalog_values,
+    ) : _load_model_file(
+        _normalized_path(recover_path);
+        allow_julia_eval=effective_allow_julia_eval,
+        environments=environment_catalog,
+    )
     session_ref = Ref{Any}()
-    handler = http -> _handle_http(session_ref[], http)
+    handler = stream -> _handle_http(session_ref[], stream)
     server = HTTP.listen!(handler, host, port; listenany=true, verbose=false)
     actual_port = HTTP.port(server)
     token = _session_token()
-    resolved_allow_julia_eval = isnothing(allow_julia_eval) ? !allow_remote : allow_julia_eval
+    autosave_file = autosave ? _normalized_path(
+        isnothing(autosave_path) ? _default_autosave_path() : autosave_path,
+    ) : nothing
+    remembered_paths = isnothing(recent_paths) ? _load_recent_paths() : String.(recent_paths)
     session = GraphEditorSession(
-        mapping,
-        mtg,
-        typeof(mapping)[],
-        typeof(mapping)[],
+        initial_model,
+        template_catalog,
+        environment_catalog,
+        Any[],
+        Any[],
         server,
         String(host),
         actual_port,
         token,
         "http://$(host):$(actual_port)/?token=$(token)",
-        nothing,
-        nothing,
-        autosave ? _normalized_output_path(isnothing(autosave_path) ? _default_autosave_path() : autosave_path) : nothing,
-        nothing,
-        _normalized_output_path(isnothing(recent_file_path) ? _default_recent_file_path() : recent_file_path),
-        _load_recent_mapping_paths(isnothing(recent_file_path) ? _default_recent_file_path() : recent_file_path),
-        resolved_allow_julia_eval,
+        autosave_file,
+        isnothing(save_path) ? nothing : _normalized_path(save_path),
+        effective_allow_julia_eval,
+        String[_normalized_path(path) for path in remembered_paths],
     )
     session_ref[] = session
-    _persist_session_mapping!(session; write_save_target=false)
+    isnothing(session.save_path) || _remember_path!(session, session.save_path)
+    isnothing(recover_path) || _remember_path!(session, _normalized_path(recover_path))
+    _persist_model!(session)
     open_browser && _open_in_default_browser(session.url)
     return session
 end
 
-_session_token() = bytes2hex(rand(Random.RandomDevice(), UInt8, 16))
-
-function _is_loopback_host(host::AbstractString)
-    value = lowercase(strip(String(host)))
-    return value in ("127.0.0.1", "localhost", "::1", "[::1]", "0:0:0:0:0:0:0:1")
+function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.GraphEditor.AbstractModelGraphEdit)
+    candidate = PlantSimEngine.GraphEditor.apply_model_graph_edit(
+        session.model,
+        edit;
+        preserve=(values(session.templates)..., values(session.environments)...),
+    )
+    if edit isa Union{
+        PlantSimEngine.GraphEditor.SetCompositeModelEnvironment,
+        PlantSimEngine.GraphEditor.SetModelApplicationEnvironment,
+    }
+        report = PlantSimEngine.Authoring.validate_scenario(candidate).compilation
+        _, environment_plans_by_id =
+            PlantSimEngine._compile_environment_application_plans(
+                candidate,
+                report.applications;
+                prepare_runtime=false,
+            )
+        bindings = PlantSimEngine._compile_environment_bindings_for_applications(
+            candidate,
+            report.applications,
+            environment_plans_by_id,
+        )
+        PlantSimEngine._validate_model_environment_inputs!(
+            bindings,
+            Dict(application.id => application for application in report.applications),
+        )
+    end
+    push!(session.history, session.model)
+    empty!(session.future)
+    session.model = candidate
+    _persist_model!(session)
+    return session.model
 end
 
-_base_url(session::GraphEditorSession) = "http://$(session.host):$(session.port)"
-_state_url(session::GraphEditorSession) = "$(_base_url(session))/state?token=$(session.token)"
-_websocket_url(session::GraphEditorSession) = "ws://$(session.host):$(session.port)/ws?token=$(session.token)"
+function undo!(session::GraphEditorSession)
+    isempty(session.history) && return session.model
+    push!(session.future, session.model)
+    session.model = pop!(session.history)
+    _persist_model!(session)
+    return session.model
+end
 
-_empty_editor_mapping() =
-    PlantSimEngine._build_model_mapping(PlantSimEngine.MultiScale, Dict{Symbol,Tuple}(); validated=false)
+function redo!(session::GraphEditorSession)
+    isempty(session.future) && return session.model
+    push!(session.history, session.model)
+    session.model = pop!(session.future)
+    _persist_model!(session)
+    return session.model
+end
 
-function _open_in_default_browser(url::AbstractString)
+_session_token() = PlantSimEngine._graph_editor_session_token()
+
+function _is_loopback_host(host)
+    return lowercase(strip(String(host))) in (
+        "127.0.0.1",
+        "localhost",
+        "::1",
+        "[::1]",
+        "0:0:0:0:0:0:0:1",
+    )
+end
+
+_base_url(session) = "http://$(session.host):$(session.port)"
+_state_url(session) = "$(_base_url(session))/state?token=$(session.token)"
+_websocket_url(session) = "ws://$(session.host):$(session.port)/ws?token=$(session.token)"
+
+function _handle_http(session::GraphEditorSession, stream::HTTP.Stream)
+    request = stream.message
+    path = HTTP.URI(request.target).path
+
+    if HTTP.WebSockets.isupgrade(request)
+        _authorized_request(session, request) || return _write_response(stream, 403, "text/plain", "Forbidden session token.")
+        _authorized_origin(session, request) || return _write_response(stream, 403, "text/plain", "Forbidden websocket origin.")
+        return HTTP.WebSockets.upgrade(stream) do websocket
+            _handle_websocket(session, websocket)
+        end
+    end
+
+    if path == "/health"
+        return _write_response(stream, 200, "application/json", JSON.json(Dict("ok" => true)))
+    end
+    _authorized_request(session, request) || return _write_response(stream, 403, "text/plain", "Forbidden session token.")
+    if path == "/" || path == "/index.html"
+        return _write_response(stream, 200, "text/html; charset=utf-8", _editor_html(session))
+    elseif path == "/static"
+        view = PlantSimEngine.GraphEditor.model_graph_view(
+            session.model;
+            templates=session.templates,
+            environments=session.environments,
+        )
+        return _write_response(
+            stream,
+            200,
+            "text/html; charset=utf-8",
+            PlantSimEngine.GraphEditor.model_graph_view_html(view),
+        )
+    elseif path == "/state"
+        return _write_response(stream, 200, "application/json", _state_json(session))
+    end
+    return _write_response(stream, 404, "text/plain", "Not found")
+end
+
+function _write_response(stream, status, content_type, body)
+    HTTP.setstatus(stream, status)
+    HTTP.setheader(stream, "Content-Type" => content_type)
+    HTTP.setheader(stream, "Connection" => "close")
+    HTTP.setheader(stream, "Content-Length" => string(sizeof(body)))
+    HTTP.startwrite(stream)
+    write(stream, body)
+    return nothing
+end
+
+function _authorized_request(session, request)
+    token = HTTP.header(request, "X-PlantSimEngine-Graph-Token", "")
+    isempty(token) && (token = something(_query_parameter(request.target, "token"), ""))
+    return token == session.token
+end
+
+function _query_parameter(target, requested_name)
+    query = String(HTTP.URI(target).query)
+    isempty(query) && return nothing
+    for component in split(query, '&')
+        pair = split(component, '='; limit=2)
+        length(pair) == 2 || continue
+        first(pair) == requested_name && return last(pair)
+    end
+    return nothing
+end
+
+function _authorized_origin(session, request)
+    origin = HTTP.header(request, "Origin", "")
+    return isempty(origin) || origin == _base_url(session)
+end
+
+function _handle_websocket(session, websocket)
+    _send_websocket(websocket, _state_json(session)) || return nothing
+    try
+        for raw_message in websocket
+            command = JSON.parse(String(raw_message))
+            response = _handle_command!(session, command)
+            _send_websocket(websocket, JSON.json(response)) || return nothing
+        end
+    catch err
+        _is_close_error(err) || _send_websocket(
+            websocket,
+            JSON.json(Dict("ok" => false, "diagnostics" => [sprint(showerror, err)])),
+        )
+    end
+    return nothing
+end
+
+function _send_websocket(websocket, payload)
+    try
+        HTTP.WebSockets.send(websocket, payload)
+        return true
+    catch err
+        _is_close_error(err) && return false
+        rethrow()
+    end
+end
+
+_is_close_error(err) = err isa EOFError || err isa Base.IOError
+
+function _handle_command!(session, command)
+    action = String(get(command, "action", ""))
+    try
+        if action == "undo"
+            undo!(session)
+        elseif action == "redo"
+            redo!(session)
+        elseif action == "edit"
+            apply_edit!(session, _edit_from_command(session, command))
+        elseif action == "save_model_code"
+            session.save_path = _normalized_path(String(command["path"]))
+            _remember_path!(session, session.save_path)
+            _persist_model!(session)
+        elseif action == "open_model_code"
+            path = _normalized_path(String(command["path"]))
+            candidate = _load_model_file(
+                path;
+                allow_julia_eval=session.allow_julia_eval,
+                environments=session.environments,
+            )
+            push!(session.history, session.model)
+            empty!(session.future)
+            session.model = candidate
+            session.save_path = path
+            _remember_path!(session, path)
+            _persist_model!(session)
+        elseif action == "preview_input_binding"
+            return _preview_input_binding_payload(session, command)
+        elseif action == "preview_application_targets"
+            return _preview_application_targets_payload(session, command)
+        elseif action == "preview_instance"
+            return _preview_instance_payload(session, command)
+        elseif action in ("open_add_application", "begin_add_application")
+            # This command only focuses/prefills frontend state. The Composite model is
+            # changed by a subsequent add_application edit.
+        else
+            error("Unsupported graph editor command action `$(action)`.")
+        end
+        return _state_payload(session)
+    catch err
+        return _state_payload(session; ok=false, diagnostics=[sprint(showerror, err)])
+    end
+end
+
+function _preview_instance_payload(session, command)
+    candidate = PlantSimEngine.GraphEditor.apply_model_graph_edit(
+        session.model,
+        _add_instance_edit(session, command),
+    )
+    name = Symbol(command["name"])
+    instance = only(item for item in candidate.instances if item.name == name)
+    report = PlantSimEngine.Authoring.validate_scenario(candidate).compilation
+    application_ids = PlantSimEngine._instance_application_ids(candidate, instance)
+    payload = _state_payload(session)
+    payload["instancePreview"] = Dict{String,Any}(
+        "name" => string(name),
+        "objectIds" => [
+            PlantSimEngine._model_graph_json_value(id.value)
+            for id in PlantSimEngine._instance_object_ids(candidate, instance)
+        ],
+        "applications" => [
+            Dict(
+                "applicationId" => string(application.id),
+                "targetIds" => [
+                    PlantSimEngine._model_graph_json_value(id.value)
+                    for id in application.target_ids
+                ],
+            )
+            for application in report.applications if application.id in application_ids
+        ],
+        "diagnostics" => [diagnostic.message for diagnostic in report.diagnostics],
+    )
+    return payload
+end
+
+function _preview_application_targets_payload(session, command)
+    selector = _selector_from_payload(command["selector"])
+    groups = Dict{String,Any}[]
+    target_ids = if haskey(command, "applicationRef")
+        application = _application_ref_from_command(command)
+        if application.scope == :template
+            _, selected = PlantSimEngine._model_edit_instance(
+                session.model,
+                something(application.instance),
+            )
+            ids = PlantSimEngine.ObjectId[]
+            for instance in session.model.instances
+                instance.template === selected.template || continue
+                scoped = PlantSimEngine._selector_with_scope(
+                    selector,
+                    PlantSimEngine.Scope(instance.name),
+                )
+                selected_ids = PlantSimEngine.resolve_object_ids(session.model, scoped)
+                append!(ids, selected_ids)
+                push!(groups, Dict(
+                    "instance" => string(instance.name),
+                    "objectIds" => [id.value for id in selected_ids],
+                ))
+            end
+            unique(ids)
+        else
+            PlantSimEngine.resolve_object_ids(session.model, selector)
+        end
+    else
+        PlantSimEngine.resolve_object_ids(session.model, selector)
+    end
+    payload = _state_payload(session)
+    payload["targetPreview"] = Dict{String,Any}(
+        "objectIds" => [PlantSimEngine._model_graph_json_value(id.value) for id in target_ids],
+        "count" => length(target_ids),
+        "groups" => groups,
+    )
+    return payload
+end
+
+function _preview_input_binding_payload(session, command)
+    application = _application_ref_from_command(command)
+    application_ids = PlantSimEngine._model_edit_compiled_application_ids(
+        session.model,
+        application,
+    )
+    input = Symbol(command["input"])
+    candidate = PlantSimEngine.GraphEditor.apply_model_graph_edit(
+        session.model,
+        PlantSimEngine.GraphEditor.SetModelInputBinding(
+            application,
+            input,
+            _selector_for_application(session, application, command["selector"]),
+        ),
+    )
+    report = PlantSimEngine.Authoring.validate_scenario(candidate).compilation
+    bindings = [
+        binding for binding in report.input_bindings
+        if binding.application_id in application_ids && binding.input == input
+    ]
+    payload = _state_payload(session)
+    payload["selectorPreview"] = Dict{String,Any}(
+        "applicationRef" => _application_ref_payload(application),
+        "input" => string(input),
+        "consumerObjectIds" => unique([
+            PlantSimEngine._model_graph_json_value(binding.consumer_id.value)
+            for binding in bindings
+        ]),
+        "sourceObjectIds" => unique([
+            PlantSimEngine._model_graph_json_value(source_id.value)
+            for binding in bindings for source_id in binding.source_ids
+        ]),
+        "sourceApplicationIds" => unique([
+            string(source_id) for binding in bindings
+            for source_id in binding.source_application_ids
+        ]),
+        "bindingCount" => length(bindings),
+        "diagnostics" => [diagnostic.message for diagnostic in report.diagnostics],
+    )
+    return payload
+end
+
+function _application_ref_payload(application)
+    return Dict{String,Any}(
+        "scope" => string(application.scope),
+        "applicationId" => string(application.application_id),
+        "instance" => isnothing(application.instance) ? nothing : string(application.instance),
+    )
+end
+
+function _application_ref_from_command(command)
+    payload = get(command, "applicationRef", nothing)
+    payload isa AbstractDict || error("Application commands require an `applicationRef` object.")
+    scope = Symbol(get(payload, "scope", ""))
+    application_id = Symbol(get(payload, "applicationId", ""))
+    scope == :global && return PlantSimEngine.GraphEditor.GlobalApplicationRef(application_id)
+    scope == :template && return PlantSimEngine.GraphEditor.TemplateApplicationRef(
+        payload["instance"],
+        application_id,
+    )
+    error("Unsupported application owner scope `$(scope)`.")
+end
+
+function _model_local_templates(session)
+    templates = Any[]
+    for instance in session.model.instances
+        any(template -> template === instance.template, values(session.templates)) && continue
+        any(template -> template === instance.template, templates) || push!(templates, instance.template)
+    end
+    return templates
+end
+
+function _template_from_id(session, template_id)
+    text = String(template_id)
+    if startswith(text, "catalog:")
+        name = Symbol(chopprefix(text, "catalog:"))
+        haskey(session.templates, name) || error("Unknown template catalog entry `$(name)`.")
+        return session.templates[name]
+    elseif startswith(text, "model:")
+        index = parse(Int, chopprefix(text, "model:"))
+        templates = _model_local_templates(session)
+        checkbounds(Bool, templates, index) || error("Unknown model-local template `$(text)`.")
+        return templates[index]
+    end
+    error("Unsupported template id `$(text)`.")
+end
+
+function _environment_from_id(session, environment_id)
+    isnothing(environment_id) && return nothing
+    text = String(environment_id)
+    text == "none" && return nothing
+    startswith(text, "environment:") || error("Unsupported environment id `$(text)`.")
+    name = Symbol(chopprefix(text, "environment:"))
+    haskey(session.environments, name) || error("Unknown environment catalog entry `$(name)`.")
+    return session.environments[name]
+end
+
+function _edit_from_command(session, command)
+    kind = String(get(command, "kind", ""))
+    kind == "add_instance" && return _add_instance_edit(session, command)
+    kind == "remove_instance" && return PlantSimEngine.GraphEditor.RemoveModelInstance(command["name"])
+    kind == "set_model_environment" && return PlantSimEngine.GraphEditor.SetCompositeModelEnvironment(
+        _environment_from_id(session, get(command, "environmentId", nothing)),
+    )
+    application = kind in (
+        "remove_application", "mark_previous_timestep", "unmark_previous_timestep",
+        "break_cycle", "set_application_targets", "set_input_binding",
+        "remove_input_binding", "set_call_binding", "remove_call_binding",
+        "set_application_cadence", "set_application_environment", "set_output_routing",
+        "set_update_ordering", "set_instance_override", "remove_instance_override",
+        "set_object_override", "remove_object_override", "update_application",
+        "replace_application_model",
+    ) ? _application_ref_from_command(command) : nothing
+    kind == "remove_application" && return PlantSimEngine.GraphEditor.RemoveModelApplication(application)
+    kind == "mark_previous_timestep" && return PlantSimEngine.GraphEditor.MarkModelPreviousTimeStep(
+        application,
+        Symbol(command["input"]),
+    )
+    kind == "unmark_previous_timestep" && return PlantSimEngine.GraphEditor.UnmarkModelPreviousTimeStep(
+        application,
+        Symbol(command["input"]),
+    )
+    kind == "break_cycle" && return PlantSimEngine.GraphEditor.BreakModelCycle(
+        application,
+        Symbol(command["input"]),
+        Bool(get(command, "initializeMissing", false)),
+        _parameter_value(session, get(command, "initialValue", nothing)),
+    )
+    kind == "set_application_targets" && return PlantSimEngine.GraphEditor.SetModelApplicationTargets(
+        application,
+        _selector_for_application(session, application, command["selector"]),
+    )
+    kind == "set_input_binding" && return PlantSimEngine.GraphEditor.SetModelInputBinding(
+        application,
+        Symbol(command["input"]),
+        _selector_for_application(session, application, command["selector"]),
+    )
+    kind == "remove_input_binding" && return PlantSimEngine.GraphEditor.RemoveModelInputBinding(
+        application,
+        Symbol(command["input"]),
+    )
+    if kind == "set_call_binding"
+        selector = _selector_for_application(
+            session,
+            application,
+            command["selector"],
+        )
+        mode = Symbol(get(command, "mode", "manual"))
+        mode in (:manual, :initializer) || error(
+            "Call binding mode must be `manual` or `initializer`, got `$(mode)`.",
+        )
+        binding = mode === :initializer ?
+                  PlantSimEngine.Initializer(selector) : selector
+        return PlantSimEngine.GraphEditor.SetModelCallBinding(
+            application,
+            Symbol(command["call"]),
+            binding,
+        )
+    end
+    kind == "remove_call_binding" && return PlantSimEngine.GraphEditor.RemoveModelCallBinding(
+        application,
+        Symbol(command["call"]),
+    )
+    kind == "set_application_cadence" && return PlantSimEngine.GraphEditor.SetModelApplicationCadence(
+        application,
+        _period_from_payload(get(command, "cadence", nothing)),
+    )
+    kind == "set_application_environment" && return PlantSimEngine.GraphEditor.SetModelApplicationEnvironment(
+        application,
+        _application_environment_from_payload(session, get(command, "configuration", nothing)),
+    )
+    kind == "set_output_routing" && return PlantSimEngine.GraphEditor.SetModelOutputRouting(
+        application,
+        Symbol(command["output"]),
+        Symbol(command["route"]),
+    )
+    kind == "set_update_ordering" && return PlantSimEngine.GraphEditor.SetModelUpdateOrdering(
+        application,
+        _updates_from_payload(application, get(command, "updates", Any[])),
+    )
+    kind == "set_object_status" && return PlantSimEngine.GraphEditor.SetModelObjectStatus(
+        command["objectId"],
+        Symbol(command["variable"]),
+        _parameter_value(session, command["value"]),
+    )
+    kind == "set_object_statuses" && return PlantSimEngine.GraphEditor.SetModelObjectStatuses(
+        command["objectIds"],
+        Symbol(command["variable"]),
+        _parameter_value(session, command["value"]),
+    )
+    kind == "remove_object_status" && return PlantSimEngine.GraphEditor.RemoveModelObjectStatus(
+        command["objectId"],
+        Symbol(command["variable"]),
+    )
+    kind in ("set_object_metadata", "update_object") && return PlantSimEngine.GraphEditor.SetModelObjectMetadata(
+        PlantSimEngine.ObjectId(command["objectId"]),
+        _metadata_from_payload(get(command, "configuration", Dict())),
+    )
+    kind == "add_object" && return PlantSimEngine.GraphEditor.AddModelObject(
+        _object_from_command(session, command),
+    )
+    kind == "remove_object" && return PlantSimEngine.GraphEditor.RemoveModelObject(
+        command["objectId"];
+        recursive=Bool(get(command, "recursive", true)),
+    )
+    kind == "reparent_object" && return PlantSimEngine.ReparentModelObject(
+        command["objectId"],
+        get(command, "parentId", nothing),
+    )
+    kind == "set_instance_override" && return PlantSimEngine.GraphEditor.SetModelInstanceOverride(
+        command["instance"],
+        application.application_id,
+        _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
+    )
+    kind == "remove_instance_override" && return PlantSimEngine.GraphEditor.RemoveModelInstanceOverride(
+        command["instance"],
+        application.application_id,
+    )
+    kind == "set_object_override" && return PlantSimEngine.GraphEditor.SetModelObjectOverride(
+        command["instance"],
+        command["objectId"],
+        application.application_id,
+        _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
+    )
+    kind == "remove_object_override" && return PlantSimEngine.GraphEditor.RemoveModelObjectOverride(
+        command["instance"],
+        command["objectId"],
+        application.application_id,
+    )
+    kind == "add_application" && return _add_application_edit(session, command)
+    kind == "update_application" && return _update_application_edit(session, command)
+    kind == "replace_application_model" && return PlantSimEngine.GraphEditor.ReplaceModelApplicationModel(
+        application,
+        _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
+    )
+    error("Unsupported Model graph edit kind `$(kind)`.")
+end
+
+function _add_instance_edit(session, command)
+    root_payload = get(command, "rootObject", nothing)
+    root = isnothing(root_payload) ? nothing : _object_from_command(session, root_payload)
+    root_id = isnothing(root) ? command["rootId"] : root.id
+    return PlantSimEngine.GraphEditor.AddModelInstance(
+        command["name"],
+        _template_from_id(session, command["templateId"]),
+        root_id;
+        root_object=root,
+    )
+end
+
+function _selector_for_application(session, application, payload)
+    selector = _selector_from_payload(payload)
+    application.scope == :global && return selector
+    _, instance = PlantSimEngine._model_edit_instance(
+        session.model,
+        something(application.instance),
+    )
+    return PlantSimEngine._model_edit_unmount_selector(selector, instance)
+end
+
+function _application_environment_from_payload(session, payload)
+    isnothing(payload) && return nothing
+    payload isa AbstractDict || error("Application environment configuration must be an object.")
+    values = Pair{Symbol,Any}[]
+    backend_id = get(payload, "backendId", "scene")
+    backend_id in (nothing, "scene") || push!(values, :backend => _environment_from_id(session, backend_id))
+    provider = get(payload, "provider", nothing)
+    isnothing(provider) || isempty(strip(String(provider))) || push!(values, :provider => Symbol(provider))
+    sources = get(payload, "sources", Dict())
+    isempty(sources) || push!(values, :sources => (; (
+        Symbol(key) => Symbol(value) for (key, value) in pairs(sources)
+        if !isempty(strip(String(value)))
+    )...))
+    sink = get(payload, "sink", nothing)
+    isnothing(sink) || isempty(strip(String(sink))) || push!(values, :sink => Symbol(sink))
+    extra = _configuration_from_payload(session, get(payload, "extra", Dict()))
+    append!(values, pairs(extra))
+    return (; values...)
+end
+
+function _symbol_keyed_namedtuple(payload)
+    payload isa AbstractDict || error("Expected an object-valued configuration payload.")
+    return (; (Symbol(key) => value for (key, value) in payload)...)
+end
+
+function _metadata_from_payload(payload)
+    payload isa AbstractDict || error("Expected an object metadata payload.")
+    return (; (
+        Symbol(key) => (value isa AbstractString && isempty(strip(value)) ? nothing : value)
+        for (key, value) in payload
+    )...)
+end
+
+function _configuration_from_payload(session, payload)
+    isnothing(payload) && return nothing
+    payload isa AbstractDict || return payload
+    values = Pair{Symbol,Any}[]
+    for (key, value) in payload
+        parsed = if value isa AbstractDict && haskey(value, "type") && haskey(value, "value")
+            _parameter_value(session, value)
+        elseif value isa AbstractDict
+            _configuration_from_payload(session, value)
+        elseif value isa AbstractVector
+            [_configuration_from_payload(session, item) for item in value]
+        else
+            value
+        end
+        push!(values, Symbol(key) => parsed)
+    end
+    return (; values...)
+end
+
+function _updates_from_payload(application, payload)
+    payload isa AbstractVector || error("Update ordering must be an array.")
+    prefix = application.scope == :template ? string(application.instance, "__") : ""
+    return Tuple(
+        PlantSimEngine.Updates(
+            Symbol.(get(item, "variables", Any[]))...;
+            after=Symbol[
+                Symbol(
+                    !isempty(prefix) && startswith(String(value), prefix) ?
+                    chopprefix(String(value), prefix) : String(value),
+                )
+                for value in get(item, "after", Any[])
+            ],
+        )
+        for item in payload
+    )
+end
+
+function _object_from_command(session, command)
+    configuration = get(command, "configuration", Dict())
+    status_payload = get(command, "status", Dict())
+    status = if isempty(status_payload)
+        nothing
+    else
+        PlantSimEngine.Status((; (
+            Symbol(name) => _parameter_value(session, value)
+            for (name, value) in status_payload
+        )...))
+    end
+    return PlantSimEngine.Object(
+        command["objectId"];
+        scale=get(configuration, "scale", nothing),
+        kind=get(configuration, "kind", nothing),
+        species=get(configuration, "species", nothing),
+        name=get(configuration, "name", nothing),
+        parent=get(configuration, "parent", nothing),
+        status=status,
+    )
+end
+
+function _update_application_edit(session, command)
+    application = _application_ref_from_command(command)
+    model = _construct_model(session, command["modelType"], get(command, "parameters", Dict()))
+    return PlantSimEngine.GraphEditor.UpdateModelApplication(
+        application,
+        model,
+        Symbol(get(command, "name", string(application.application_id))),
+        _selector_for_application(session, application, command["selector"]),
+        _period_from_payload(get(command, "cadence", nothing)),
+    )
+end
+
+function _add_application_edit(session, command)
+    model = _construct_model(session, command["modelType"], get(command, "parameters", Dict()))
+    name = Symbol(command["name"])
+    selector = _selector_from_payload(command["selector"])
+    cadence = _period_from_payload(get(command, "cadence", nothing))
+    spec = PlantSimEngine.ModelSpec(model;
+        name=name,
+        on=selector,
+        every=cadence,)
+    return PlantSimEngine.GraphEditor.AddModelApplication(spec)
+end
+
+function _resolve_model_type(label)
+    text = String(label)
+    for model_type in PlantSimEngine.Authoring.available_models()
+        text in (string(model_type), string(nameof(model_type))) && return model_type
+    end
+    error("No loaded model type matches `$(text)`. Load the defining package with `using PackageName` first.")
+end
+
+function _construct_model(session, label, parameters)
+    model_type = _resolve_model_type(label)
+    description = PlantSimEngine.Authoring.describe_model(model_type)
+    fields = description.constructor["fields"]
+    isempty(fields) && return model_type()
+    default_instance = try
+        model_type()
+    catch
+        nothing
+    end
+    values = Any[]
+    for field in fields
+        name = field["name"]
+        if haskey(parameters, name)
+            push!(values, _parameter_value(session, parameters[name]))
+        elseif !isnothing(default_instance)
+            push!(values, getfield(default_instance, Symbol(name)))
+        else
+            error("Missing constructor parameter `$(name)` for model `$(model_type)`.")
+        end
+    end
+    return model_type(values...)
+end
+
+function _parameter_value(session, payload)
+    payload isa AbstractDict || return payload
+    choice = Symbol(get(payload, "type", "julia"))
+    raw = get(payload, "value", nothing)
+    choice == :float && return parse(Float64, string(raw))
+    choice == :integer && return parse(Int, string(raw))
+    choice == :boolean && return parse(Bool, string(raw))
+    choice == :symbol && return Symbol(raw)
+    choice == :string && return String(raw)
+    choice == :nothing && return nothing
+    choice == :julia && session.allow_julia_eval || choice != :julia || error(
+        "Raw Julia parameter values are disabled for this session.",
+    )
+    choice == :julia && return Core.eval(Main, Meta.parse(String(raw)))
+    return raw
+end
+
+function _selector_from_payload(payload)
+    payload isa AbstractDict || error("A selector payload must be an object.")
+    multiplicity = Symbol(get(payload, "multiplicity", "many"))
+    criteria = get(payload, "criteria", Dict())
+    selectors = PlantSimEngine.AbstractObjectSelector[
+        _selector_atom_from_payload(value)
+        for value in get(criteria, "selectors", Any[])
+    ]
+    keyword_pairs = Pair{Symbol,Any}[]
+    for (key, value) in criteria
+        key == "selectors" && continue
+        value === nothing && continue
+        push!(keyword_pairs, Symbol(key) => _selector_value(Symbol(key), value))
+    end
+    keywords = (; keyword_pairs...)
+    multiplicity == :one && return PlantSimEngine.One(selectors...; keywords...)
+    multiplicity == :optional_one && return PlantSimEngine.OptionalOne(selectors...; keywords...)
+    multiplicity == :many && return PlantSimEngine.Many(selectors...; keywords...)
+    error("Unsupported selector multiplicity `$(multiplicity)`.")
+end
+
+function _selector_value(key, value)
+    key in (:scale, :kind, :species, :name, :process, :var, :relation, :application) &&
+        return value isa AbstractVector ? Symbol.(value) : Symbol(value)
+    key == :within && return _selector_atom_from_payload(value)
+    key == :policy && return _policy_from_payload(value)
+    key == :window && return _period_from_payload(value)
+    return value
+end
+
+function _selector_atom_from_payload(payload)
+    payload isa AbstractDict || error("A structured object selector must be an object.")
+    type = String(get(payload, "type", ""))
+    type == "SceneScope" && return PlantSimEngine.SceneScope()
+    type == "Self" && return PlantSimEngine.Self()
+    type == "Subtree" && return PlantSimEngine.Subtree()
+    type == "SelfPlant" && return PlantSimEngine.SelfPlant()
+    type == "Ancestor" && return PlantSimEngine.Ancestor(; scale=get(payload, "scale", nothing))
+    type == "Scope" && return PlantSimEngine.Scope(payload["name"])
+    type == "Relation" && return PlantSimEngine.Relation(payload["relation"])
+    error("Unsupported structured object selector type `$(type)`.")
+end
+
+function _policy_from_payload(payload)
+    payload isa AbstractDict || error("A temporal policy must be a structured object.")
+    type = String(get(payload, "type", ""))
+    type == "PreviousTimeStep" && return PlantSimEngine.PreviousTimeStep(
+        Symbol(payload["variable"]),
+        Symbol(get(payload, "process", "unknown")),
+    )
+    type == "HoldLast" && return PlantSimEngine.HoldLast()
+    type == "Interpolate" && return PlantSimEngine.Interpolate(
+        ;
+        mode=Symbol(get(payload, "mode", "linear")),
+        extrapolation=Symbol(get(payload, "extrapolation", "linear")),
+    )
+    type == "Integrate" && return PlantSimEngine.Integrate()
+    type == "Aggregate" && return PlantSimEngine.Aggregate()
+    error("Unsupported temporal policy type `$(type)`.")
+end
+
+function _period_from_payload(payload)
+    isnothing(payload) && return nothing
+    payload isa AbstractDict || error("A cadence or window payload must be an object.")
+    mode = String(get(payload, "mode", "default"))
+    mode == "default" && return nothing
+    mode == "period" || error("Unsupported cadence/window mode `$(mode)`.")
+    value = parse(Int, string(payload["value"]))
+    value > 0 || error("Cadence/window values must be positive.")
+    unit = String(payload["unit"])
+    constructors = Dict(
+        "Second" => Dates.Second,
+        "Minute" => Dates.Minute,
+        "Hour" => Dates.Hour,
+        "Day" => Dates.Day,
+    )
+    haskey(constructors, unit) || error(
+        "Unsupported period unit `$(unit)`. Use Second, Minute, Hour, or Day.",
+    )
+    return constructors[unit](value)
+end
+
+function _state_payload(session; ok=true, diagnostics=String[])
+    graph = JSON.parse(PlantSimEngine.GraphEditor.model_graph_view_json(
+        session.model;
+        templates=session.templates,
+        environments=session.environments,
+    ))
+    return Dict{String,Any}(
+        "ok" => ok,
+        "diagnostics" => diagnostics,
+        "graph" => graph,
+        "canUndo" => !isempty(session.history),
+        "canRedo" => !isempty(session.future),
+        "url" => session.url,
+        "modelCode" => PlantSimEngine.Authoring.scenario_source(
+            session.model;
+            environments=session.environments,
+        ),
+        "autosavePath" => session.autosave_path,
+        "savePath" => session.save_path,
+        "recentPaths" => session.recent_paths,
+    )
+end
+
+function _remember_path!(session, path)
+    normalized = _normalized_path(path)
+    filter!(!=(normalized), session.recent_paths)
+    pushfirst!(session.recent_paths, normalized)
+    length(session.recent_paths) > 12 && resize!(session.recent_paths, 12)
+    _persist_recent_paths!(session.recent_paths)
+    return normalized
+end
+
+function _recent_paths_file()
+    return joinpath(tempdir(), "PlantSimEngineGraphEditor", "recent-models.json")
+end
+
+function _load_recent_paths()
+    path = _recent_paths_file()
+    isfile(path) || return String[]
+    try
+        values = JSON.parse(read(path, String))
+        values isa AbstractVector || return String[]
+        return String[_normalized_path(value) for value in values if value isa AbstractString]
+    catch
+        return String[]
+    end
+end
+
+function _persist_recent_paths!(paths)
+    path = _recent_paths_file()
+    mkpath(dirname(path))
+    _atomic_write(path, JSON.json(collect(paths)))
+    return path
+end
+
+function _load_model_file(path; allow_julia_eval::Bool, environments=Dict{Symbol,Any}())
+    allow_julia_eval || error("Opening Julia Composite model files is disabled for this editor session.")
+    isfile(path) || error("Composite model file `$(path)` does not exist.")
+    source = read(path, String)
+    required_match = match(
+        r"(?m)^# Requires `scenario_environments` with named values: ([^.]+)\.$",
+        source,
+    )
+    if !isnothing(required_match)
+        required = Set(Symbol(strip(name)) for name in split(required_match.captures[1], ','))
+        missing = sort!(collect(setdiff(required, Set(keys(environments)))); by=string)
+        isempty(missing) || error(
+            "Composite model file `$(path)` requires environment catalog keys $(missing).",
+        )
+    end
+    module_name = Symbol("PlantSimEngineGraphRecovery_", string(time_ns(); base=16))
+    workspace = Module(module_name)
+    Core.eval(workspace, :(using PlantSimEngine))
+    environment_values = (; (
+        name => value for (name, value) in sort!(collect(environments); by=first)
+    )...)
+    Core.eval(workspace, :(scenario_environments = $environment_values))
+    included = Base.include(workspace, path)
+    model = isdefined(workspace, :model) ? getfield(workspace, :model) : included
+    model isa PlantSimEngine.CompositeModel || error(
+        "Composite model file `$(path)` must assign its final PlantSimEngine.CompositeModel to `model`.",
+    )
+    return model
+end
+
+_state_json(session) = JSON.json(_state_payload(session))
+
+function _editor_html(session)
+    view = PlantSimEngine.GraphEditor.model_graph_view(
+        session.model;
+        templates=session.templates,
+        environments=session.environments,
+    )
+    html = PlantSimEngine.GraphEditor.model_graph_view_html(view)
+    config = replace(JSON.json(Dict("websocketUrl" => _websocket_url(session))), "</" => "<\\/")
+    script = "<script type=\"application/json\" id=\"pse-editor-config\">$(config)</script>"
+    return replace(html, "</head>" => "$(script)</head>")
+end
+
+function _persist_model!(session)
+    code = PlantSimEngine.Authoring.scenario_source(
+        session.model;
+        environments=session.environments,
+    ) * "\n"
+    isnothing(session.autosave_path) || _atomic_write(session.autosave_path, code)
+    isnothing(session.save_path) || _atomic_write(session.save_path, code)
+    return nothing
+end
+
+function _atomic_write(path, content)
+    path = _normalized_path(path)
+    mkpath(dirname(path))
+    temporary = tempname(dirname(path))
+    try
+        write(temporary, content)
+        mv(temporary, path; force=true)
+    finally
+        isfile(temporary) && rm(temporary; force=true)
+    end
+    return path
+end
+
+_normalized_path(path) = isabspath(String(path)) ? normpath(String(path)) : normpath(joinpath(pwd(), String(path)))
+
+function _default_autosave_path()
+    return joinpath(
+        tempdir(),
+        "PlantSimEngineGraphEditor",
+        string("session-", time_ns()),
+        "model.autosave.jl",
+    )
+end
+
+function _open_in_default_browser(url)
     try
         if Sys.isapple()
             run(`open $url`)
@@ -141,769 +1086,14 @@ function _open_in_default_browser(url::AbstractString)
         elseif !isnothing(Sys.which("xdg-open"))
             run(`xdg-open $url`)
         else
-            @warn "Could not open graph editor automatically because no supported default-browser command was found." url
+            @warn "Could not locate a default-browser command." url
             return false
         end
         return true
     catch err
-        @warn "Could not open graph editor automatically. Open the session URL manually." url exception = (err, catch_backtrace())
+        @warn "Could not open the graph editor automatically." url exception=(err, catch_backtrace())
         return false
     end
-end
-
-function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.AbstractGraphEdit)
-    updated_mapping = PlantSimEngine.apply_graph_edit(session.mapping, edit)
-    push!(session.history, session.mapping)
-    empty!(session.future)
-    session.mapping = updated_mapping
-    return session.mapping
-end
-
-function undo!(session::GraphEditorSession)
-    isempty(session.history) && return session.mapping
-    push!(session.future, session.mapping)
-    session.mapping = pop!(session.history)
-    return session.mapping
-end
-
-function redo!(session::GraphEditorSession)
-    isempty(session.future) && return session.mapping
-    push!(session.history, session.mapping)
-    session.mapping = pop!(session.future)
-    return session.mapping
-end
-
-function _handle_http(session::GraphEditorSession, http::HTTP.Stream)
-    req = http.message
-    path = HTTP.URI(req.target).path
-
-    if HTTP.WebSockets.isupgrade(http.message)
-        _authorized_request(session, req) || return _write_http_response(http, 403, ["Content-Type" => "text/plain; charset=utf-8"], "Forbidden graph editor session token.")
-        _authorized_origin(session, req) || return _write_http_response(http, 403, ["Content-Type" => "text/plain; charset=utf-8"], "Forbidden graph editor websocket origin.")
-        return HTTP.WebSockets.upgrade(http) do ws
-            _handle_websocket(session, ws)
-        end
-    end
-
-    response = if path == "/" || path == "/index.html" || path == "/state"
-        _authorized_request(session, req) || return _write_http_response(http, 403, ["Content-Type" => "text/plain; charset=utf-8"], "Forbidden graph editor session token.")
-        if path == "/state"
-            (200, ["Content-Type" => "application/json"], _state_json(session))
-        else
-            (200, ["Content-Type" => "text/html; charset=utf-8"], _editor_html(session))
-        end
-    else
-        (404, ["Content-Type" => "text/plain; charset=utf-8"], "Not found")
-    end
-    status, headers, body = response
-    return _write_http_response(http, status, headers, body)
-end
-
-function _write_http_response(http::HTTP.Stream, status::Integer, headers, body::AbstractString)
-    HTTP.setstatus(http, status)
-    for header in headers
-        HTTP.setheader(http, header)
-    end
-    HTTP.setheader(http, "Connection" => "close")
-    HTTP.setheader(http, "Content-Length" => string(sizeof(body)))
-    HTTP.startwrite(http)
-    write(http, body)
-    return nothing
-end
-
-function _authorized_request(session::GraphEditorSession, req)
-    token = _request_token(req)
-    return !isnothing(token) && token == session.token
-end
-
-function _request_token(req)
-    header = HTTP.header(req, "X-PlantSimEngine-Graph-Token", "")
-    isempty(header) || return String(header)
-    return _query_param(String(req.target), "token")
-end
-
-function _query_param(target::AbstractString, name::AbstractString)
-    query = String(HTTP.URI(target).query)
-    isempty(query) && return nothing
-    for part in split(query, '&')
-        pair = split(part, '='; limit=2)
-        length(pair) == 2 || continue
-        first(pair) == name && return last(pair)
-    end
-    return nothing
-end
-
-function _authorized_origin(session::GraphEditorSession, req)
-    origin = HTTP.header(req, "Origin", "")
-    isempty(origin) && return true
-    return String(origin) == _base_url(session)
-end
-
-"""
-    _normalize_to_multiscale(mapping::PlantSimEngine.ModelMapping{PlantSimEngine.SingleScale})
-
-Convert a single-scale ModelMapping to multiscale form at the :Default scale.
-This ensures all downstream logic only deals with MultiScale mappings.
-"""
-function _normalize_to_multiscale(mapping::PlantSimEngine.ModelMapping{PlantSimEngine.SingleScale})
-    entry = mapping[:Default]  # Returns tuple of (models..., status)
-    return PlantSimEngine.ModelMapping(:Default => entry; check=true, type_promotion=PlantSimEngine.type_promotion(mapping))
-end
-
-function _normalize_to_multiscale(mapping::PlantSimEngine.ModelMapping{PlantSimEngine.MultiScale})
-    # Already multiscale, return as is
-    return mapping
-end
-
-function _handle_websocket(session::GraphEditorSession, ws)
-    _websocket_send(ws, _state_json(session)) || return nothing
-    try
-        for message in ws
-            command = JSON.parse(String(message))
-            response = _handle_command!(session, command)
-            _websocket_send(ws, JSON.json(response)) || return nothing
-        end
-    catch err
-        _is_websocket_close_error(err) && return nothing
-        _websocket_send(ws, JSON.json(_error_payload(err)))
-    end
-    return nothing
-end
-
-function _websocket_send(ws, payload::AbstractString)
-    try
-        HTTP.WebSockets.send(ws, payload)
-        return true
-    catch err
-        _is_websocket_close_error(err) && return false
-        rethrow()
-    end
-end
-
-function _is_websocket_close_error(err)
-    err isa EOFError && return true
-    err isa Base.IOError && return true
-    return false
-end
-
-function _handle_command!(session::GraphEditorSession, command)
-    action = get(command, "action", "")
-    try
-        persist = false
-        if action == "undo"
-            undo!(session)
-            persist = true
-        elseif action == "redo"
-            redo!(session)
-            persist = true
-        elseif action == "edit"
-            edit = _edit_from_command(session, command)
-            apply_edit!(session, edit)
-            persist = true
-        elseif action == "write_mapping_code"
-            raw_path = get(command, "path", "")
-            _write_mapping_code!(session, String(raw_path))
-        elseif action == "open_mapping_code"
-            raw_path = get(command, "path", "")
-            _open_mapping_code!(session, String(raw_path))
-            persist = true
-        else
-            error("Unsupported graph editor command action `$action`.")
-        end
-        diagnostics = persist ? _persist_session_mapping!(session) : String[]
-        return _state_payload(session; ok=isempty(diagnostics), diagnostics=diagnostics)
-    catch err
-        return _state_payload(session; ok=false, diagnostics=[sprint(showerror, err)])
-    end
-end
-
-function _edit_from_command(session::GraphEditorSession, command)
-    kind = get(command, "kind", "")
-    kind == "mark_previous_timestep" && return PlantSimEngine.MarkPreviousTimeStep(
-        Symbol(command["scale"]),
-        Symbol(command["process"]),
-        Symbol(command["variable"]),
-    )
-    kind == "unmark_previous_timestep" && return PlantSimEngine.UnmarkPreviousTimeStep(
-        Symbol(command["scale"]),
-        Symbol(command["process"]),
-        Symbol(command["variable"]),
-    )
-    kind == "remove_model" && return PlantSimEngine.RemoveModel(
-        Symbol(command["scale"]),
-        Symbol(command["process"]),
-    )
-    if kind == "update_model"
-        model_type = _resolve_model_type(command["modelType"])
-        parameters = _parameters_from_command(session, get(command, "parameters", Dict()))
-        timestep = _timestep_from_command(get(command, "timestep", nothing); default_sentinel=true)
-        return PlantSimEngine.UpdateModel(
-            Symbol(command["scale"]),
-            Symbol(command["process"]),
-            Symbol(get(command, "targetScale", command["scale"])),
-            model_type,
-            parameters,
-            timestep,
-        )
-    end
-    kind == "set_mapped_variable" && return PlantSimEngine.SetMappedVariable(
-        Symbol(command["scale"]),
-        Symbol(command["process"]),
-        Symbol(command["variable"]),
-        Symbol(command["sourceScale"]),
-        Symbol(command["sourceVariable"]),
-        Symbol(get(command, "mode", "single")),
-        Symbol.(get(command, "extraSourceScales", [])),
-    )
-    kind == "set_initialization" && return PlantSimEngine.SetStatusVariable(
-        Symbol(command["scale"]),
-        Symbol(command["variable"]),
-        _parse_parameter_value(session, get(command, "value", Dict("type" => "julia", "value" => "nothing"))),
-    )
-    if kind in ("add_model", "replace_model")
-        model_type = _resolve_model_type(command["modelType"])
-        parameters = _parameters_from_command(session, get(command, "parameters", Dict()))
-        timestep = _timestep_from_command(get(command, "timestep", nothing))
-        if kind == "add_model"
-            return PlantSimEngine.AddModel(Symbol(command["scale"]), model_type, parameters, timestep)
-        end
-        return PlantSimEngine.ReplaceModel(Symbol(command["scale"]), Symbol(command["process"]), model_type, parameters, timestep)
-    end
-    error("Unsupported graph edit kind `$kind`.")
-end
-
-function _timestep_from_command(timestep; default_sentinel::Bool=false)
-    isnothing(timestep) && return nothing
-    timestep isa AbstractDict || error("Unsupported timestep payload `$(timestep)`.")
-    mode = String(get(timestep, "mode", "default"))
-    mode == "default" && return (default_sentinel ? :default : nothing)
-    mode == "clock" || error("Unsupported timestep mode `$mode`. Use `default` or `clock`.")
-    dt = _parse_real(get(timestep, "dt", "1.0"))
-    phase = _parse_real(get(timestep, "phase", "0.0"))
-    return PlantSimEngine.ClockSpec(dt, phase)
-end
-
-_parse_real(value::Real) = Float64(value)
-_parse_real(value) = parse(Float64, String(value))
-
-function _resolve_model_type(label)
-    for model_type in PlantSimEngine.available_models()
-        string(model_type) == label && return model_type
-        string(nameof(model_type)) == label && return model_type
-    end
-    error("No loaded PlantSimEngine model type matches `$label`. Load the package that defines it first.")
-end
-
-function _parameters_from_command(session::GraphEditorSession, parameters)
-    pairs = Pair{Symbol,Any}[]
-    for (key, value) in parameters
-        push!(pairs, Symbol(key) => _parse_parameter_value(session, value))
-    end
-    return (; pairs...)
-end
-
-function _parse_parameter_value(session::GraphEditorSession, value)
-    value isa AbstractDict || return value
-    choice = Symbol(get(value, "type", "julia"))
-    raw = get(value, "value", nothing)
-    choice == :float && return parse(Float64, raw)
-    choice == :integer && return parse(Int, raw)
-    choice == :boolean && return parse(Bool, raw)
-    choice == :symbol && return Symbol(raw)
-    choice == :string && return String(raw)
-    choice == :nothing && return nothing
-    choice == :julia && !session.allow_julia_eval && error("Raw Julia parameter values are disabled for this graph editor session.")
-    choice == :julia && return Core.eval(Main, Meta.parse(String(raw)))
-    return raw
-end
-
-function _state_payload(session::GraphEditorSession; ok::Bool=true, diagnostics::Vector{String}=String[])
-    graph = JSON.parse(PlantSimEngine.graph_view_json(session.mapping))
-    isempty(get(graph, "scales", Any[])) && (graph["scales"] = ["Default"])
-    append!(graph["diagnostics"], diagnostics)
-    return Dict(
-        "ok" => ok,
-        "diagnostics" => diagnostics,
-        "graph" => graph,
-        "models" => [PlantSimEngine.model_descriptor(T) for T in PlantSimEngine.available_models()],
-        "canUndo" => !isempty(session.history),
-        "canRedo" => !isempty(session.future),
-        "url" => session.url,
-        "mappingCode" => current_mapping_code(session),
-        "initializations" => _initialization_payload(session.mapping),
-        "lastSavedPath" => session.last_saved_path,
-        "saveTargetPath" => session.save_target_path,
-        "autosavePath" => session.autosave_path,
-        "lastAutosavedPath" => session.last_autosaved_path,
-        "recentMappings" => session.recent_mapping_paths,
-    )
-end
-
-_state_json(session::GraphEditorSession) = JSON.json(_state_payload(session))
-_error_payload(err) = Dict("ok" => false, "diagnostics" => [sprint(showerror, err)])
-
-function _editor_html(session::GraphEditorSession)
-    react_html = _react_editor_html(session)
-    isnothing(react_html) || return react_html
-
-    graph_json = PlantSimEngine.graph_view_json(session.mapping)
-    config_json = JSON.json(Dict("websocketUrl" => _websocket_url(session)))
-    return """
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PlantSimEngine Graph Editor</title>
-<script type="application/json" id="pse-graph-data">$(graph_json)</script>
-<script type="application/json" id="pse-editor-config">$(config_json)</script>
-</head>
-<body>
-<main style="font:14px system-ui;padding:24px;max-width:960px;margin:auto">
-<h1>PlantSimEngine Graph Editor</h1>
-<p>This live session is running. The React editor can connect to <code>$(_websocket_url(session))</code>.</p>
-<p>Current graph state is available at <a href="$(_state_url(session))">/state</a>.</p>
-<pre id="graph" style="white-space:pre-wrap;background:#f6f7f8;padding:16px;border:1px solid #ddd;overflow:auto"></pre>
-</main>
-<script>
-document.getElementById("graph").textContent = JSON.stringify(JSON.parse(document.getElementById("pse-graph-data").textContent), null, 2);
-</script>
-</body>
-</html>
-"""
-end
-
-function _react_editor_html(session::GraphEditorSession)
-    assets_dir = _frontend_dist_dir()
-    manifest_path = joinpath(assets_dir, ".vite", "manifest.json")
-    isfile(manifest_path) || return nothing
-
-    manifest = JSON.parse(read(manifest_path, String))
-    entry = nothing
-    for value in values(manifest)
-        if get(value, "isEntry", false) == true
-            entry = value
-            break
-        end
-    end
-    isnothing(entry) && (entry = get(manifest, "index.html", nothing))
-    isnothing(entry) && return nothing
-
-    js_file = get(entry, "file", nothing)
-    isnothing(js_file) && return nothing
-    css_files = get(entry, "css", Any[])
-    js = read(joinpath(assets_dir, js_file), String)
-    css = join([read(joinpath(assets_dir, css_file), String) for css_file in css_files], "\n")
-    graph_json = PlantSimEngine.graph_view_json(session.mapping)
-    config_json = replace(JSON.json(Dict("websocketUrl" => _websocket_url(session))), "</" => "<\\/")
-
-    return """
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>PlantSimEngine Graph Editor</title>
-<script type="application/json" id="pse-graph-data">$(graph_json)</script>
-<script type="application/json" id="pse-editor-config">$(config_json)</script>
-<style>$(css)</style>
-</head>
-<body>
-<div id="root"></div>
-<script type="module">$(js)</script>
-</body>
-</html>
-"""
-end
-
-_frontend_dist_dir() = normpath(joinpath(@__DIR__, "..", "frontend", "dist"))
-
-function _write_mapping_code!(session::GraphEditorSession, raw_path::AbstractString)
-    path = strip(String(raw_path))
-    isempty(path) && error("The output path is empty. Provide a .jl file path.")
-    full_path = _normalized_output_path(path)
-    _atomic_write(full_path, current_mapping_code(session) * "\n")
-    session.last_saved_path = full_path
-    session.save_target_path = full_path
-    _remember_recent_mapping!(session, full_path)
-    return full_path
-end
-
-function _open_mapping_code!(session::GraphEditorSession, raw_path::AbstractString)
-    path = strip(String(raw_path))
-    isempty(path) && error("The input path is empty. Provide a .jl file path.")
-    full_path = _normalized_output_path(path)
-    isfile(full_path) || error("No mapping code file exists at `$full_path`.")
-    mapping = _mapping_from_julia_file(full_path)
-    push!(session.history, session.mapping)
-    empty!(session.future)
-    session.mapping = _normalize_to_multiscale(mapping)
-    session.save_target_path = full_path
-    session.last_saved_path = full_path
-    _remember_recent_mapping!(session, full_path)
-    return session.mapping
-end
-
-function _mapping_from_julia_file(path::AbstractString)
-    module_ = Module(gensym(:PlantSimEngineGraphEditorMapping))
-    Core.eval(module_, :(using Base))
-    Core.eval(module_, :(using PlantSimEngine))
-    result = Core.eval(module_, Meta.parse("begin\n" * read(path, String) * "\nend"))
-    mapping = isdefined(module_, :mapping) ? getfield(module_, :mapping) : result
-    mapping isa PlantSimEngine.ModelMapping || (!isdefined(module_, :mapping) && error("Mapping code `$path` must define a top-level `mapping` variable."))
-    mapping isa PlantSimEngine.ModelMapping || error("`mapping` in `$path` is a $(typeof(mapping)), not a PlantSimEngine.ModelMapping.")
-    return mapping
-end
-
-function _persist_session_mapping!(session::GraphEditorSession; write_save_target::Bool=true)
-    diagnostics = String[]
-    if write_save_target && !isnothing(session.save_target_path)
-        try
-            _atomic_write(session.save_target_path, current_mapping_code(session) * "\n")
-            session.last_saved_path = session.save_target_path
-        catch err
-            push!(diagnostics, "Could not auto-save mapping code to $(session.save_target_path): $(sprint(showerror, err))")
-        end
-    end
-    if !isnothing(session.autosave_path)
-        try
-            _atomic_write(session.autosave_path, current_mapping_code(session) * "\n")
-            session.last_autosaved_path = session.autosave_path
-        catch err
-            push!(diagnostics, "Could not write recovery autosave to $(session.autosave_path): $(sprint(showerror, err))")
-        end
-    end
-    return diagnostics
-end
-
-function _atomic_write(path::AbstractString, content::AbstractString)
-    full_path = _normalized_output_path(path)
-    mkpath(dirname(full_path))
-    tmp = tempname(dirname(full_path))
-    try
-        write(tmp, content)
-        mv(tmp, full_path; force=true)
-    finally
-        isfile(tmp) && rm(tmp; force=true)
-    end
-    return full_path
-end
-
-function _normalized_output_path(path::AbstractString)
-    stripped = strip(String(path))
-    return isabspath(stripped) ? normpath(stripped) : normpath(joinpath(pwd(), stripped))
-end
-
-function _default_autosave_path()
-    stamp = string(round(Int, time() * 1000))
-    suffix = string(rand(UInt32); base=16)
-    return joinpath(tempdir(), "PlantSimEngineGraphEditor", "session-$stamp-$suffix", "mapping.autosave.jl")
-end
-
-_default_recent_file_path() = joinpath(DEPOT_PATH[1], "config", "PlantSimEngine", "graph_editor_recent.json")
-
-function _load_recent_mapping_paths(path::AbstractString)
-    full_path = _normalized_output_path(path)
-    isfile(full_path) || return String[]
-    try
-        payload = JSON.parse(read(full_path, String))
-        values = payload isa AbstractDict ? get(payload, "paths", String[]) : payload
-        return [String(item) for item in values if item isa AbstractString && isfile(String(item))]
-    catch
-        return String[]
-    end
-end
-
-function _remember_recent_mapping!(session::GraphEditorSession, path::AbstractString)
-    full_path = _normalized_output_path(path)
-    filter!(item -> item != full_path, session.recent_mapping_paths)
-    pushfirst!(session.recent_mapping_paths, full_path)
-    length(session.recent_mapping_paths) > 10 && resize!(session.recent_mapping_paths, 10)
-    _write_recent_mapping_paths(session)
-    return session.recent_mapping_paths
-end
-
-function _write_recent_mapping_paths(session::GraphEditorSession)
-    content = JSON.json(Dict("paths" => session.recent_mapping_paths))
-    try
-        _atomic_write(session.recent_file_path, content * "\n")
-    catch err
-        @warn "Could not update graph editor recent mappings." path = session.recent_file_path exception = (err, catch_backtrace())
-    end
-    return session.recent_file_path
-end
-
-function _initialization_payload(mapping::PlantSimEngine.ModelMapping)
-    required_by_scale = _required_status_variables(mapping)
-    payload = Any[]
-    for scale in sort!(collect(keys(required_by_scale)); by=string)
-        status = _scale_status(mapping, scale)
-        for variable in sort!(collect(required_by_scale[scale]); by=string)
-            value_payload = isnothing(status) || !(variable in keys(status)) ?
-                            _status_value_payload(nothing; provided=false) :
-                            _status_value_payload(status[variable]; provided=true)
-            push!(
-                payload,
-                merge(
-                    Dict(
-                        "scale" => string(scale),
-                        "name" => string(variable),
-                    ),
-                    value_payload
-                )
-            )
-        end
-    end
-    return payload
-end
-
-function _scale_status(mapping::PlantSimEngine.ModelMapping, scale::Symbol)
-    haskey(mapping, scale) || return nothing
-    for item in _scale_items(mapping[scale])
-        item isa PlantSimEngine.Status && return item
-    end
-    return nothing
-end
-
-function _status_value_payload(value; provided::Bool)
-    choice, label = _status_value_choice(value, provided)
-    return Dict(
-        "value" => label,
-        "type" => choice,
-        "provided" => provided,
-    )
-end
-
-_status_value_choice(::Nothing, provided::Bool) = provided ? ("nothing", "") : ("julia", "")
-_status_value_choice(value::Bool, ::Bool) = ("boolean", string(value))
-_status_value_choice(value::Integer, ::Bool) = ("integer", string(value))
-_status_value_choice(value::AbstractFloat, ::Bool) = ("float", string(value))
-_status_value_choice(value::Symbol, ::Bool) = ("symbol", string(value))
-_status_value_choice(value::AbstractString, ::Bool) = ("string", String(value))
-_status_value_choice(value, ::Bool) = ("julia", repr(value))
-
-function _model_mapping_to_julia(mapping::PlantSimEngine.ModelMapping)
-    io = IOBuffer()
-    for statement in _using_statements(mapping)
-        println(io, statement)
-    end
-    println(io)
-    if isempty(keys(mapping))
-        println(io, "# Add at least one model in the graph editor to generate a ModelMapping.")
-        print(io, "# mapping = ModelMapping(...)")
-        return String(take!(io))
-    end
-    required_status_variables = _required_status_variables(mapping)
-    println(io, "mapping = ModelMapping(")
-    for scale in keys(mapping)
-        println(io, "    $(_symbol_code(scale)) => (")
-        items = _scale_items(mapping[scale])
-        required = get(required_status_variables, scale, Set{Symbol}())
-        for item in items
-            code = _mapping_item_to_code(item, required)
-            isnothing(code) && continue
-            println(io, "        $(code),")
-        end
-        println(io, "    ),")
-    end
-    print(io, ")")
-    return String(take!(io))
-end
-
-_scale_items(entry) = entry isa Tuple ? entry : (entry,)
-
-function _using_statements(mapping::PlantSimEngine.ModelMapping)
-    modules = Set{Module}([PlantSimEngine])
-    for scale in keys(mapping)
-        for item in _scale_items(mapping[scale])
-            _collect_mapping_modules!(modules, item)
-        end
-    end
-    return ["using $(_module_name(module_))" for module_ in sort!(collect(modules); by=_module_sort_key)]
-end
-
-function _collect_mapping_modules!(modules::Set{Module}, item)
-    item isa PlantSimEngine.Status && return modules
-    if item isa PlantSimEngine.ModelSpec || item isa PlantSimEngine.MultiScaleModel
-        return _collect_spec_modules!(modules, PlantSimEngine.as_model_spec(item))
-    end
-    item isa PlantSimEngine.AbstractModel && return _collect_model_modules!(modules, item)
-    return modules
-end
-
-function _collect_spec_modules!(modules::Set{Module}, spec::PlantSimEngine.ModelSpec)
-    _collect_model_modules!(modules, PlantSimEngine.model_(spec))
-    _collect_value_modules!(modules, PlantSimEngine.mapped_variables_(spec))
-    _collect_value_modules!(modules, PlantSimEngine.timestep(spec))
-    _collect_value_modules!(modules, spec.input_bindings)
-    _collect_value_modules!(modules, spec.meteo_bindings)
-    _collect_value_modules!(modules, spec.meteo_window)
-    _collect_value_modules!(modules, spec.output_routing)
-    _collect_value_modules!(modules, spec.scope)
-    return modules
-end
-
-function _collect_model_modules!(modules::Set{Module}, model::PlantSimEngine.AbstractModel)
-    module_ = parentmodule(typeof(model))
-    module_ in (Base, Core, Main) || push!(modules, module_)
-    return modules
-end
-
-function _collect_value_modules!(modules::Set{Module}, value)
-    value === nothing && return modules
-    if value isa Type
-        module_ = parentmodule(value)
-        module_ in (Base, Core, Main) || push!(modules, module_)
-        return modules
-    end
-    module_ = parentmodule(typeof(value))
-    module_ in (Base, Core, Main) || push!(modules, module_)
-    if value isa Pair
-        _collect_value_modules!(modules, first(value))
-        _collect_value_modules!(modules, last(value))
-    elseif value isa NamedTuple
-        for item in values(value)
-            _collect_value_modules!(modules, item)
-        end
-    elseif value isa Tuple || value isa AbstractArray
-        for item in value
-            _collect_value_modules!(modules, item)
-        end
-    end
-    return modules
-end
-
-function _module_name(module_::Module)
-    return join(string.(Base.fullname(module_)), ".")
-end
-
-function _module_sort_key(module_::Module)
-    module_ === PlantSimEngine && return ""
-    return _module_name(module_)
-end
-
-function _required_status_variables(mapping::PlantSimEngine.ModelMapping)
-    stripped = Dict{Symbol,Any}()
-    status_only_scales = Set{Symbol}()
-    for scale in keys(mapping)
-        items = [item for item in _scale_items(mapping[scale]) if !(item isa PlantSimEngine.Status)]
-        if isempty(items)
-            push!(status_only_scales, scale)
-        else
-            stripped[scale] = tuple(items...)
-        end
-    end
-
-    required = isempty(stripped) ?
-               Dict{Symbol,Vector{Symbol}}() :
-               PlantSimEngine.to_initialize(PlantSimEngine.ModelMapping(stripped; check=true, type_promotion=PlantSimEngine.type_promotion(mapping)))
-
-    required_by_scale = Dict{Symbol,Set{Symbol}}(
-        scale => Set{Symbol}(variables)
-        for (scale, variables) in pairs(required)
-    )
-    for scale in status_only_scales
-        required_by_scale[scale] = Set{Symbol}()
-        for item in _scale_items(mapping[scale])
-            item isa PlantSimEngine.Status || continue
-            union!(required_by_scale[scale], keys(item))
-        end
-    end
-    return required_by_scale
-end
-
-function _mapping_item_to_code(item, required_status_variables=nothing)
-    if item isa PlantSimEngine.Status
-        return _status_to_code(item, required_status_variables)
-    end
-    if item isa PlantSimEngine.ModelSpec || item isa PlantSimEngine.MultiScaleModel
-        return _model_spec_to_code(PlantSimEngine.as_model_spec(item))
-    end
-    return repr(item)
-end
-
-function _status_to_code(status::PlantSimEngine.Status, required_variables)
-    isnothing(required_variables) && (required_variables = Set{Symbol}(keys(status)))
-    kept = Pair{Symbol,Any}[
-        name => status[name]
-        for name in keys(status)
-        if name in required_variables
-    ]
-    isempty(kept) && return nothing
-    names_code = _tuple_code(_symbol_code.(first.(kept)))
-    values_code = _tuple_code([repr(last(item)) for item in kept])
-    return "Status(NamedTuple{$names_code}($values_code))"
-end
-
-_symbol_code(symbol::Symbol) = repr(symbol)
-
-function _tuple_code(items)
-    values = collect(items)
-    suffix = length(values) == 1 ? "," : ""
-    return "(" * join(values, ", ") * suffix * ")"
-end
-
-function _model_spec_to_code(spec::PlantSimEngine.ModelSpec)
-    code = "ModelSpec($(repr(PlantSimEngine.model_(spec))))"
-    mapped_variables = PlantSimEngine.mapped_variables_(spec)
-    isempty(mapped_variables) || (code *= " |> MultiScaleModel($(_mapped_variables_to_code(mapped_variables)))")
-    isnothing(PlantSimEngine.timestep(spec)) || (code *= " |> TimeStepModel($(_timestep_to_code(PlantSimEngine.timestep(spec))))")
-    _is_empty_namedtuple(spec.input_bindings) || (code *= " |> InputBindings($(_julia_code(spec.input_bindings)))")
-    _is_empty_namedtuple(spec.meteo_bindings) || (code *= " |> MeteoBindings($(_julia_code(spec.meteo_bindings)))")
-    isnothing(spec.meteo_window) || (code *= " |> MeteoWindow($(_julia_code(spec.meteo_window)))")
-    _is_empty_namedtuple(spec.output_routing) || (code *= " |> OutputRouting($(_julia_code(spec.output_routing)))")
-    _is_default_scope(spec.scope) || (code *= " |> ScopeModel($(_julia_code(spec.scope)))")
-    return code
-end
-
-_julia_code(value) = repr(value)
-_is_empty_namedtuple(value) = value isa NamedTuple && isempty(keys(value))
-_is_default_scope(scope) = scope == :global
-
-function _timestep_to_code(timestep::PlantSimEngine.ClockSpec)
-    return "ClockSpec($(repr(timestep.dt)), $(repr(timestep.phase)))"
-end
-
-_timestep_to_code(timestep) = repr(timestep)
-
-function _mapped_variables_to_code(mapped_variables)
-    isempty(mapped_variables) && return "[]"
-    return "[" * join((_mapped_variable_to_code(i) for i in mapped_variables), ", ") * "]"
-end
-
-function _mapped_variable_to_code(mapping)
-    lhs = first(mapping)
-    rhs = last(mapping)
-    lhs_code = _mapped_lhs_to_code(lhs)
-    variable = _mapped_variable_symbol(lhs)
-    rhs_code = _mapped_rhs_to_code(rhs, variable)
-    return "$(lhs_code) => $(rhs_code)"
-end
-
-_mapped_variable_symbol(variable::Symbol) = variable
-_mapped_variable_symbol(variable::PlantSimEngine.PreviousTimeStep) = variable.variable
-
-_mapped_lhs_to_code(variable::Symbol) = _symbol_code(variable)
-_mapped_lhs_to_code(variable::PlantSimEngine.PreviousTimeStep) = "PreviousTimeStep($(_symbol_code(variable.variable)))"
-
-function _mapped_rhs_to_code(rhs::Pair{Symbol,Symbol}, variable::Symbol)
-    source_scale = first(rhs)
-    source_variable = last(rhs)
-    if source_scale == Symbol("")
-        return "($(_symbol_code(source_scale)) => $(_symbol_code(source_variable)))"
-    end
-    if source_variable == variable
-        return _symbol_code(source_scale)
-    end
-    return "($(_symbol_code(source_scale)) => $(_symbol_code(source_variable)))"
-end
-
-function _mapped_rhs_to_code(rhs::AbstractVector{<:Pair{Symbol,Symbol}}, variable::Symbol)
-    compact = all(last(i) == variable for i in rhs)
-    if compact
-        return "[" * join((_symbol_code(first(i)) for i in rhs), ", ") * "]"
-    end
-    return "[" * join(("($(_symbol_code(first(i))) => $(_symbol_code(last(i))))" for i in rhs), ", ") * "]"
 end
 
 end

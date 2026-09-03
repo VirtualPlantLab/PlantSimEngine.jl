@@ -2,33 +2,6 @@
 CurrentModule = PlantSimEngine
 ```
 
-```@setup readme
-using PlantSimEngine, PlantMeteo, Dates
-
-# Import the examples defined in the `Examples` sub-module:
-using PlantSimEngine.Examples
-
-# Import the example meteorological data:
-meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
-
-# Define the model mapping:
-model = ModelMapping(
-    ToyLAIModel();
-    status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
-)
-
-out = run!(model)
-
-# Define the mapping for coupled models:
-model2 = ModelMapping(
-    ToyLAIModel(),
-    Beer(0.6);
-    status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
-)
-out2 = run!(model2, meteo_day)
-
-```
-
 # PlantSimEngine
 
 [![Build Status](https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/workflows/CI.yml?query=branch%3Amain)
@@ -40,334 +13,283 @@ out2 = run!(model2, meteo_day)
 
 ```@contents
 Pages = ["index.md"]
-Depth = 5
+Depth = 4
 ```
 
 ## Overview
 
-`PlantSimEngine` is a comprehensive framework for building models of the soil-plant-atmosphere continuum. It includes everything you need to **prototype, evaluate, test, and deploy** plant/crop models at any scale, with a strong emphasis on performance and efficiency, so you can focus on building and refining your models.
+`PlantSimEngine` is a Julia framework for building soil-plant-atmosphere
+simulations from small process models. A modeler writes reusable kernels with
+`inputs_`, `outputs_`, optional dependency traits, and `run!`. A simulation
+author then assembles those kernels on objects in a `CompositeModel`.
 
-**Why choose PlantSimEngine?**
+The public scenario API has one application-construction form:
 
-- **Simplicity**: Write less code, focus on your model's logic, and let the framework handle the rest.
-- **Modularity**: Each model component can be developed, tested, and improved independently. Assemble complex simulations by reusing pre-built, high-quality modules.
-- **Standardisation**: Clear, enforceable guidelines ensure that all models adhere to best practices. This built-in consistency means that once you implement a model, it works seamlessly with others in the ecosystem.
-- **Optimised Performance**: Don't re-invent the wheel. Delegating low-level tasks to PlantSimEngine guarantees that your model will benefit from every improvement in the framework. Enjoy faster prototyping, robust simulations, and efficient execution using Julia's high-performance capabilities.
-
-## Unique Features
-
-### Automatic Model Coupling
-
-**Seamless Integration:** PlantSimEngine leverages Julia's multiple-dispatch capabilities to automatically compute the dependency graph between models. This allows researchers to effortlessly couple models without writing complex connection code or manually managing dependencies.
-
-**Intuitive Multi-Scale Support:** The framework naturally handles models operating at different scales—from organelle to ecosystem—connecting them with minimal effort and maintaining consistency across scales.
-
-Model coupling can be done in Julia scripts or interactively in the graph view (or both):
-
-```@raw html
-<iframe
-  src="www/simple_dependency_graph.html"
-  style="width: 100%; height: 500px; border: 1px solid #d8cfc2; border-radius: 8px; background: #f7f0e7;"
-  title="PlantSimEngine dependency graph example"
-></iframe>
+```julia
+ModelSpec(
+    model;
+    name=:application,
+    on=Many(scale=:Leaf),
+    inputs=(...),
+    calls=(...),
+    every=Dates.Hour(1),
+    environment=Environment(...),
+    output_routing=(...),
+    updates=Updates(...),
+)
 ```
 
-### Flexibility with Precision Control
+### Models And Applications
 
-**Effortless Model Switching:** Researchers can switch between different component models using a simple syntax without rewriting the underlying model code. This enables rapid comparison between different hypotheses and model versions, accelerating the scientific discovery process.
+A model is a reusable implementation of a process. A model application is one
+configured use of that model in a model: it gives the use a name, selects its
+target objects, and configures its inputs, calls, timestep, and environment.
 
-### Multi-rate Execution
+| Concept | Meaning |
+|:--|:--|
+| Process | The biological or physical operation, such as light interception |
+| Model | An implementation of that process, such as `Beer` |
+| Application | One configured use of a model in a `CompositeModel` |
+| Target | An object on which that application executes |
 
-**Mix model cadences in one simulation:** PlantSimEngine can run models at different timesteps within the same MTG simulation. This makes it possible to combine, for example, hourly leaf processes with daily plant balances and weekly reporting models without writing custom scheduling glue.
+One application can target many objects. The same model can also be used in
+several named applications with different parameters, selectors, or cadence.
+During compilation, PlantSimEngine resolves each application into its concrete
+`(application, object)` executions.
 
-**Explicit bindings between rates:** `TimeStepModel`, `InputBindings`, `MeteoBindings`, `ScopeModel`, and `OutputRequest` let you declare how model inputs, meteorology, and exported outputs should behave when rates differ.
+This means the same model can be reused on one object, many leaves, several
+plant species, a shared soil object, or a model-scale energy-balance solver
+without changing the model implementation.
 
-## Batteries included
+## Why PlantSimEngine?
 
-- **Interactive graph editor**: Compose your model by interactively adding sub-models in a graph editor, and let the framework handle the coupling and execution.
-- **Automated Management**: Seamlessly handle inputs, outputs, time-steps, objects, and dependency resolution.
-- **Iterative Development**: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
-- **Control Your Degrees of Freedom**: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.
-- **Multi-Rate Scheduling**: Combine hourly, daily, and coarser models in the same simulation, with explicit policies for input aggregation and meteorological sampling.
-- **High-Speed Computations**: Achieve impressive performance with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
-- **Parallelize and Distribute Computing**: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
-- **Scale Effortlessly**: Methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
-- **Compose Freely**: Use any types as inputs, including [Unitful](https://github.com/PainterQubits/Unitful.jl) for unit propagation and [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for measurement error propagation.
-
-## Performance
-
-PlantSimEngine delivers impressive performance for plant modeling tasks. On an M1 MacBook Pro:
-
-- A toy model for leaf area over a year at daily time-scale took only 260 μs (about 688 ns per day)
-- The same model coupled to a light interception model took 275 μs (756 ns per day)
-
-These benchmarks demonstrate performance on par with compiled languages like Fortran or C, far outpacing typical interpreted language implementations. For example, PlantBiophysics.jl, which implements ecophysiological models using PlantSimEngine, has been measured to run up to 38,000 times faster than equivalent implementations in other scientific computing languages.
-
-## Ask Questions
-
-If you have any questions or feedback, [open an issue](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues) or ask on [discourse](https://fspm.discourse.group/c/software/virtual-plant-lab).
+- **Modular models**: each process model can be developed, tested, calibrated,
+  and replaced independently.
+- **Explicit coupling**: `ModelSpec(...; inputs=...)` declares value
+  dependencies, while `calls=...` gives iterative parent solvers manual
+  control over hard model calls.
+- **Object-based multiscale composite models**: scales are labels on objects, so a plant
+  can be described as plants, axes, internodes, leaves, roots, voxels, or any
+  topology the model requires.
+- **Multirate execution**: use `every=Dates.Hour(1)` or
+  `every=Dates.Day(1)`, with temporal policies such as `Integrate()` or
+  `HoldLast()` in the same model.
+- **Automatic environment binding**: global weather and spatial microclimate
+  backends are bound through `Environment(...)`, model `environment_inputs_`, and
+  explicit accepted-state commits with `commit_environment!`.
+- **Performance-oriented internals**: selectors and bindings are compiled
+  before the timestep loop, same-rate inputs use references when possible, and
+  homogeneous object batches are specialized.
+- **Generic values**: status, model parameters, meteorology, and outputs can
+  carry units, automatic-differentiation values, uncertainty wrappers, or other
+  compatible Julia types.
 
 ## Installation
 
-To install the package, enter the Julia package manager mode by pressing `]` in the REPL, and execute the following command:
+To install the package, enter Julia package mode by pressing `]` in the REPL,
+then run:
 
 ```julia
 add PlantSimEngine
 ```
 
-To use the package, execute this command from the Julia REPL:
+Use it from Julia with:
 
 ```julia
 using PlantSimEngine
 ```
 
-## Example usage
+## Quickstart: One CompositeModel Object
 
-The package is designed to be easy to use, and to help users avoid errors when implementing, coupling and simulating models.
+This example runs three existing toy models on one model object:
 
-### Simple example
+1. `ToyDegreeDaysCumulModel` computes daily thermal time.
+2. `ToyLAIModel` consumes cumulative thermal time and computes LAI.
+3. `Beer` consumes LAI and meteorology to compute absorbed PAR.
 
-Here's a simple example of a model that simulates the growth of a plant, using a simple exponential growth model:
+The model kernels are unchanged; the model application layer says where they
+run. Since no `every` is specified, these applications use the daily
+cadence of `meteo_day`.
 
 ```@example readme
-# ] add PlantSimEngine
-using PlantSimEngine
-
-# Import the examples defined in the `Examples` sub-module
+using PlantSimEngine, PlantMeteo, Dates, DataFrames
 using PlantSimEngine.Examples
 
-# Define the model mapping:
-model = ModelMapping(
-    ToyLAIModel();
-    status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
+meteo_day = read_weather(
+    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
+    duration=Dates.Day,
 )
 
-out = run!(model) # run the model and extract its outputs
-
-out[1:3,:]
-```
-
-> **Note**  
-> The `ToyLAIModel` is available from the [examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples), and is a simple exponential growth model. It is used here for the sake of simplicity, but you can use any model you want, as long as it follows `PlantSimEngine` interface.
-
-Of course you can plot the outputs quite easily:
-
-```@example readme
-# ] add CairoMakie
-using CairoMakie
-
-lines(out[:TT_cu], out[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
-```
-
-### Model coupling
-
-Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the `ModelMapping`. For example, let's couple the `ToyLAIModel` with a model for light interception based on Beer's law:
-
-```@example readme
-# ] add PlantSimEngine, PlantMeteo
-using PlantSimEngine, PlantMeteo, Dates
-
-# Import the examples defined in the `Examples` sub-module
-using PlantSimEngine.Examples
-
-# Import the example meteorological data:
-meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
-
-# Define the mapping for coupled models:
-model2 = ModelMapping(
+model = CompositeModel(
+    ToyDegreeDaysCumulModel(),
     ToyLAIModel(),
     Beer(0.6);
-    status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
+    environment=meteo_day,
 )
 
-# Run the simulation:
-out2 = run!(model2, meteo_day)
-out2[1:3,:]
+sim = run!(model; steps=30, outputs=:all)
+out = collect_outputs(sim; sink=DataFrame)
+first(out, 6)
 ```
 
-The `ModelMapping` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:
+`ToyLAIModel` does not know where `TT_cu` comes from, and `Beer` does not know
+where `LAI` comes from. The compiler infers the unambiguous same-object
+bindings from each model's declared inputs and outputs:
 
-```
-╭──── Dependency graph ──────────────────────────────────────────╮
-│  ╭──── LAI_Dynamic ─────────────────────────────────────────╮  │
-│  │  ╭──── Main model ────────╮                              │  │
-│  │  │  Process: LAI_Dynamic  │                              │  │
-│  │  │  Model: ToyLAIModel    │                              │  │
-│  │  │  Dep: nothing          │                              │  │
-│  │  ╰────────────────────────╯                              │  │
-│  │                  │  ╭──── Soft-coupled model ─────────╮  │  │
-│  │                  │  │  Process: light_interception    │  │  │
-│  │                  └──│  Model: Beer                    │  │  │
-│  │                     │  Dep: (LAI_Dynamic = (:LAI,),)  │  │  │
-│  │                     ╰─────────────────────────────────╯  │  │
-│  ╰──────────────────────────────────────────────────────────╯  │
-╰────────────────────────────────────────────────────────────────╯
+```@example readme
+select(
+    DataFrame(Diagnostics.explain_bindings(model)),
+    :application_id,
+    :input,
+    :source_application_ids,
+    :carrier_kind,
+    :copy_semantics,
+)
 ```
 
-We can plot the results by indexing the outputs with the variable name (e.g. `out2[:LAI]`):
+The outputs can be plotted like any other tabular result:
 
 ```@example readme
 using CairoMakie
+
+lai = out[out.variable .== :LAI, :value]
+appfd = out[out.variable .== :aPPFD, :value]
+tt_cu = out[out.variable .== :TT_cu, :value]
 
 fig = Figure(resolution=(800, 600))
 ax = Axis(fig[1, 1], ylabel="LAI (m² m⁻²)")
-lines!(ax, out2[:TT_cu], out2[:LAI], color=:mediumseagreen)
+lines!(ax, tt_cu, lai, color=:mediumseagreen)
 
 ax2 = Axis(fig[2, 1], xlabel="Cumulated growing degree days since sowing (°C)", ylabel="aPPFD (mol m⁻² d⁻¹)")
-lines!(ax2, out2[:TT_cu], out2[:aPPFD], color=:firebrick1)
-
+lines!(ax2, tt_cu, appfd, color=:firebrick1)
 fig
 ```
 
-### Multi-scale modeling
+## Multi-Object Inputs
 
-> See the [Multi-scale modeling](#multi-scale-modeling) section for more details.
-
-The package is designed to be easily scalable, and can be used to simulate models at different scales. For example, you can simulate a model at the leaf scale, and then couple it with models at any other scale, *e.g.* internode, plant, soil, scene scales. Here's an example of a simple model that simulates plant growth using sub-models operating at different scales:
-
-```@example readme
-mapping = ModelMapping(
-    :Scene => ToyDegreeDaysCumulModel(),
-    :Plant => (
-        MultiScaleModel(
-            model=ToyLAIModel(),
-            mapped_variables=[
-                :TT_cu => :Scene,
-            ],
-        ),
-        Beer(0.6),
-        MultiScaleModel(
-            model=ToyAssimModel(),
-            mapped_variables=[:soil_water_content => :Soil],
-        ),
-        MultiScaleModel(
-            model=ToyCAllocationModel(),
-            mapped_variables=[
-                :carbon_demand => [:Leaf, :Internode],
-                :carbon_allocation => [:Leaf, :Internode]
-            ],
-        ),
-        MultiScaleModel(
-            model=ToyPlantRmModel(),
-            mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
-        ),
-    ),
-    :Internode => (
-        MultiScaleModel(
-            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapped_variables=[:TT => :Scene,],
-        ),
-        MultiScaleModel(
-            model=ToyInternodeEmergence(TT_emergence=20.0),
-            mapped_variables=[:TT_cu => :Scene],
-        ),
-        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
-        Status(carbon_biomass=1.0)
-    ),
-    :Leaf => (
-        MultiScaleModel(
-            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapped_variables=[:TT => :Scene,],
-        ),
-        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
-        Status(carbon_biomass=1.0)
-    ),
-    :Soil => (
-        ToySoilWaterModel(),
-    ),
-);
-nothing # hide
-```
-
-We can import an example plant from the package:
+Use `ModelSpec(...; inputs=...)` when a model needs values from selected objects. Here the
+model-scale LAI model reads live references to all plant surfaces in the model:
 
 ```@example readme
-mtg = import_mtg_example()
-```
-
-Make a fake meteorological data:
-
-```@example readme
-meteo = Weather(
-    [
-    Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0),
-    Atmosphere(T=25.0, Wind=0.5, Rh=0.8, Ri_PAR_f=500.0)
-]
-);
-nothing # hide
-```
-
-And run the simulation:
-
-```@example readme
-out_vars = Dict(
-    :Scene => (:TT_cu,),
-    :Plant => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
-    :Leaf => (:carbon_demand, :carbon_allocation),
-    :Internode => (:carbon_demand, :carbon_allocation),
-    :Soil => (:soil_water_content,),
+plant_scene = CompositeModel(
+    Object(:scene; scale=:Scene, kind=:scene),
+    Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene,
+           status=Status(surface=12.0)),
+    Object(:plant_2; scale=:Plant, kind=:plant, parent=:scene,
+           status=Status(surface=8.0));
+    applications=(
+        ModelSpec(ToyLAIfromLeafAreaModel(100.0); name=:scene_lai, on=One(scale=:Scene), inputs=(:plant_surfaces => Many(
+                    scale=:Plant,
+                    within=SceneScope(),
+                    var=:surface,
+                ),)),
+    ),
 )
 
-out = run!(mtg, mapping, meteo, tracked_outputs=out_vars, executor=SequentialEx());
-nothing # hide
+plant_sim = run!(plant_scene)
+scene_status = final_state(plant_sim, One(scale=:Scene))
+scene_status
 ```
 
-We can then extract the outputs and convert them to a `DataFrame` for each scale and sort them:
+The same `Many(...)` selector would be plant-local if the consumer ran on a
+plant and used `within=Subtree()`. This is the same mechanism used for plant
+allocation models that sum their own leaves, model models that aggregate all
+plants, and microclimate solvers that select objects inside one environment
+cell.
 
-```@example readme
-using DataFrames
-df_outputs = convert_outputs(out, DataFrame)
-leaf_df = df_outputs isa AbstractDict ? df_outputs[:Leaf] : df_outputs
-sort!(leaf_df, [:timestep, :node])
+When a selector reads a value produced by another model application, prefer
+`application=...` to identify the concrete producer. A process name describes
+the reusable scientific contract; an application name identifies the mounted
+producer in this scenario. This matters as soon as several applications
+implement the same process or publish the same variable on different objects.
+
+## Manual Calls For Iterative Solvers
+
+Use `ModelSpec(...; calls=...)` when a parent model must directly run another model, for
+example a model energy-balance solver that iterates leaf temperatures until
+convergence:
+
+```julia
+ModelSpec(SceneEnergyBalance(); name=:scene_energy, on=One(scale=:Scene), calls=(:leaf_energy => Many(
+            kind=:plant,
+            scale=:Leaf,
+            within=SceneScope(),
+            application=:energy_balance,
+        ),
+        :soil => One(
+            kind=:soil,
+            scale=:Soil,
+            within=SceneScope(),
+            application=:soil_water,
+        ),), every=Hour(1))
 ```
 
-An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:
+The same rule applies to manual calls: scenario wiring should select the
+concrete callee application with `application=...`. Model authors use process
+requirements in `dep(model)` when they declare generic dependencies, because
+they cannot know the application names that a user will choose later.
 
-![Plant growth simulation](www/image.png)
+Inside `run!`, use `run_call!(context, :leaf_energy)` to execute every target and
+receive a vector-like collection. Pass `sampled_environment=value` to the same
+bulk call when the parent has already sampled one environment for all targets.
+Use `call_model(context, :leaf_energy)` when a singular call's concrete model
+must guide an iterative algorithm. Reserve `call_targets` and
+`run_call!(target; publish=false)` for selection, custom ordering, target status
+inspection, or different per-target environments. Publish the accepted state
+once, so temporal outputs and mutable environment writes are recorded exactly
+once.
 
-### Multi-rate modeling
+## Where To Go Next
 
-PlantSimEngine also supports multi-rate MTG simulations, where different models run at different cadences inside the same execution. A typical use case is to run leaf-scale processes hourly, aggregate them into daily plant-scale balances, and then export weekly summary series from the same simulation.
+- [A mental model](journeys/users/mental_model.md) introduces the seven ideas
+  used throughout the framework without configuration details.
+- [Couple models on one object](journeys/users/one_object.md) is the first
+  executable journey and runs a coupled simulation over many timesteps.
+- [Run the coupling on several objects](journeys/users/several_objects.md)
+  introduces stable object identity and `Many`.
+- [Implement a basic model](journeys/modelers/basic_model.md) is the canonical
+  executable path for parameters, ports, contracts, a direct kernel test, and
+  runtime composition.
+- [Public API](API/API_public.md) lists the composite-model/object constructors,
+  selectors, lifecycle hooks, and explanation helpers.
+- [Model traits](model_traits.md) explains `inputs_`, `outputs_`, `dep`,
+  `timespec`, `output_policy`, and `environment_inputs_`.
+- [Migration guide](migration_composite_model.md) covers upgrades from earlier
+  PlantSimEngine releases.
 
-The dedicated documentation now has three pages: a short introduction to the
-core ideas, a fuller step-by-step tutorial, and an advanced configuration page:
+## Performance
 
-- [Introduction to multi-rate execution](./multirate/introduction.md)
-- [Step-by-step hourly, daily, weekly simulation](./multirate/multirate_tutorial.md)
-- [Advanced multi-rate configuration](./multirate/advanced_configuration.md)
+PlantSimEngine keeps model kernels close to regular Julia functions while the
+runtime handles dependency scheduling, object selection, temporal aggregation,
+and environment sampling. On an M1 MacBook Pro, toy daily simulations run in
+hundreds of microseconds, and PlantBiophysics.jl models using PlantSimEngine
+have been measured much faster than equivalent implementations in typical
+scientific scripting languages.
 
-## State of the field
+For performance-sensitive composite models, inspect the supported structured
+explanations:
 
-PlantSimEngine is a state-of-the-art plant simulation software that offers significant advantages over existing tools such as OpenAlea, STICS, APSIM, or DSSAT.
+```julia
+Diagnostics.explain_bindings(model)
+Diagnostics.explain_schedule(model)
+Diagnostics.explain_execution_plan(model)
+```
 
-The use of Julia programming language in PlantSimEngine allows for:
+These helpers expose resolved objects, carriers, copy/reference semantics,
+application clocks, and homogeneous execution batches.
 
-- Quick and easy prototyping compared to compiled languages
-- Significantly better performance than typical interpreted languages
-- No need for translation into another compiled language
+## Ask Questions
 
-Julia's features enable PlantSimEngine to provide:
+If you have questions or feedback, [open an issue](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues)
+or ask on [discourse](https://fspm.discourse.group/c/software/virtual-plant-lab).
 
-- Multiple-dispatch for automatic computation of model dependency graphs
-- Type stability for optimized performance
-- Seamless compatibility with powerful tools like MultiScaleTreeGraph.jl for multi-scale computations
-
-PlantSimEngine's approach streamlines the process of model development by automatically managing:
-
-- Model coupling with automated dependency graph computation
-- Time-steps and parallelization
-- Input and output variables
-- Various types of objects used for simulations (vectors, dictionaries, multi-scale tree graphs)
-
-## Projects that use PlantSimEngine
-
-Take a look at these projects that use PlantSimEngine:
+## Projects That Use PlantSimEngine
 
 - [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl)
 - [XPalm](https://github.com/PalmStudio/XPalm.jl)
 
-## Make it yours
+## Make It Yours
 
-The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license.
-
-If you develop such tools and it is not on the list yet, please make a PR or contact me so we can add it! 😃
+PlantSimEngine is distributed under the MIT license. If you develop a package
+or model suite that uses it and want it listed here, please open a pull request
+or contact the maintainers.

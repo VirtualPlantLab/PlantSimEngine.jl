@@ -11,63 +11,70 @@ PlantSimEngine.@process "light_interception" verbose = false
 
 Beer-Lambert law for light interception.
 
-Required inputs: `LAI` in m² m⁻².
-Required meteorology data: `Ri_PAR_f`, the incident flux of atmospheric radiation in the
-PAR, in W m[soil]⁻² (== J m[soil]⁻² s⁻¹).
+Required inputs: `LAI` in m[leaf]² m[ground]⁻².
+Required environment input: `Ri_PAR_f`, the incident flux of atmospheric radiation in the
+PAR, in W m[ground]⁻² (== J m[ground]⁻² s⁻¹).
 
-Output: aPPFD, the absorbed Photosynthetic Photon Flux Density in μmol[PAR] m[leaf]⁻² s⁻¹.
+Output: `aPPFD`, the canopy-absorbed Photosynthetic Photon Flux Density in
+μmol[PAR] m[ground]⁻² s⁻¹. It is not a mean leaf-area-basis PPFD.
 """
 struct Beer{T} <: AbstractLight_InterceptionModel
     k::T
 end
 
-# Beer is parallelizable over time-steps and objects, so we can declare it as such using the trait:
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeStepIndependent()
-PlantSimEngine.ObjectDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsObjectIndependent()
 
 """
-    run!(::Beer, object, meteo, constants=Constants(), extra=nothing)
+    run!(model::Beer, status, environment, constants, context)
 
-Computes the photosynthetic photon flux density (`aPPFD`, µmol m⁻² s⁻¹) absorbed by an 
-object using the incoming PAR radiation flux (`Ri_PAR_f`, W m⁻²) and the Beer-Lambert law
-of light extinction.
+Computes the canopy-absorbed photosynthetic photon flux density (`aPPFD`,
+µmol[PAR] m[ground]⁻² s⁻¹) from the incoming PAR radiation flux (`Ri_PAR_f`,
+W m[ground]⁻²) and the Beer-Lambert law of light extinction.
 
 # Arguments
 
-- `::Beer`: a Beer model, from the model list (*i.e.* m.light_interception)
-- `models`: A `ModelMapping` struct holding the parameters for the model with
-initialisations for `LAI` (m² m⁻²): the leaf area index.
-- `status`: the status of the model, usually the model list status (*i.e.* m.status)
-- `meteo`: meteorology structure, see [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere)
-- `constants = PlantMeteo.Constants()`: physical constants. See `PlantMeteo.Constants` for more details
-- `extra = nothing`: extra arguments, not used here.
+- `model`: the current Beer model instance.
+- `status`: the application-local view of the target [`Object`](@ref) status.
+- `environment`: sampled environment, such as an [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere) row.
+- `constants`: physical constants supplied by the [`CompositeModel`](@ref) run.
+- `context`: runtime context; this kernel does not use it.
 
 # Examples
 
 ```julia
-m = ModelMapping(Beer(0.5), status=(LAI=2.0,))
-
-meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_q=300.0)
-
-run!(m, meteo)
-
-m[:aPPFD]
+model = CompositeModel(
+    Beer(0.5);
+    status=(LAI=2.0,),
+    id=:plant,
+    scale=:Plant,
+    environment=Atmosphere(
+        T=20.0,
+        Wind=1.0,
+        P=101.3,
+        Rh=0.65,
+        Ri_PAR_f=300.0,
+        duration=Hour(1),
+    ),
+)
+run!(model)
+only(model_objects(model; scale=:Plant)).status.aPPFD
 ```
 """
-function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra=nothing)
+function PlantSimEngine.run!(model::Beer, status, environment, constants, context)
     status.aPPFD =
-        meteo.Ri_PAR_f *
-        (1.0 - exp(-models.light_interception.k * status.LAI)) *
+        environment.Ri_PAR_f *
+        (1.0 - exp(-model.k * status.LAI)) *
         constants.J_to_umol
 end
 
 function PlantSimEngine.inputs_(::Beer)
-    (LAI=-Inf,)
+    (LAI=Required(Real),)
 end
 
-function PlantSimEngine.outputs_(::Beer)
-    (aPPFD=-Inf,)
+function PlantSimEngine.outputs_(model::Beer)
+    (aPPFD=oftype(float(model.k), -Inf),)
 end
+
+PlantSimEngine.environment_inputs_(::Beer) = (Ri_PAR_f=0.0,)
 
 
 """
@@ -79,30 +86,104 @@ Compute the `k` parameter of the Beer-Lambert law from measurements.
 
 - `::Type{Beer}`: the model type
 - `df`: a `DataFrame` with the following columns:
-    - `aPPFD`: the measured absorbed Photosynthetic Photon Flux Density in μmol[PAR] m[leaf]⁻² s⁻¹
-    - `LAI`: the measured leaf area index in m² m⁻²
-    - `Ri_PAR_f`: the measured incident flux of atmospheric radiation in the PAR, in W m[soil]⁻² (== J m[soil]⁻² s⁻¹)
+    - `aPPFD`: canopy-absorbed Photosynthetic Photon Flux Density in μmol[PAR] m[ground]⁻² s⁻¹
+    - `LAI`: leaf area index in m[leaf]² m[ground]⁻²
+    - `Ri_PAR_f`: incident PAR flux in W m[ground]⁻² (== J m[ground]⁻² s⁻¹)
+
+`aPPFD` and `Ri_PAR_f * J_to_umol` must use the same ground-area basis.
+`LAI` and the converted incident flux must be finite and strictly positive,
+and the implied absorbed fraction must satisfy `0 ≤ f_abs < 1`.
 
 # Examples
 
 Import the example models defined in the `Examples` sub-module:
 
 ```julia
-using PlantSimEngine
+using PlantSimEngine, PlantMeteo, DataFrames
 using PlantSimEngine.Examples
 ```
 
-Create a model list with a Beer model, and fit it to the data:
+Create a `CompositeModel` with one canopy model on a plant object, then fit
+`Beer` to the data:
 
 ```julia
-m = ModelMapping(Beer(0.6), status=(LAI=2.0,))
-meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
-run!(m, meteo)
-df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
-fit(Beer, df)
+meteo = Atmosphere(
+    T=20.0,
+    Wind=1.0,
+    P=101.3,
+    Rh=0.65,
+    Ri_PAR_f=300.0,
+)
+model = CompositeModel(
+    Beer(0.6);
+    status=(LAI=2.0,),
+    id=:plant,
+    scale=:Plant,
+    environment=meteo,
+)
+simulation = run!(model)
+plant = final_state(simulation, One(scale=:Plant))
+df = DataFrame(
+    aPPFD=[plant.aPPFD],
+    LAI=[plant.LAI],
+    Ri_PAR_f=[meteo.Ri_PAR_f[1]],
+)
+Evaluation.fit(Beer, df)
 ```
 """
-function PlantSimEngine.fit(::Type{Beer}, df; J_to_umol=PlantMeteo.Constants().J_to_umol)
-    k = Statistics.mean(-log.(1 .- df.aPPFD ./ (J_to_umol .* df.Ri_PAR_f)) ./ df.LAI)
+function PlantSimEngine.Evaluation.fit(
+    ::Type{Beer},
+    df;
+    J_to_umol=PlantMeteo.Constants().J_to_umol,
+)
+    (J_to_umol isa Real && isfinite(J_to_umol) && J_to_umol > 0) || throw(
+        DomainError(
+            J_to_umol,
+            "Beer fit requires a finite J_to_umol > 0; got $(repr(J_to_umol))",
+        ),
+    )
+
+    k_observations = map(eachindex(df.LAI, df.Ri_PAR_f, df.aPPFD)) do row
+        lai = df.LAI[row]
+        (lai isa Real && isfinite(lai) && lai > 0) || throw(
+            DomainError(
+                lai,
+                "Beer fit requires finite LAI > 0 at row $(row); got $(repr(lai))",
+            ),
+        )
+
+        incident_par = df.Ri_PAR_f[row]
+        (incident_par isa Real && isfinite(incident_par) && incident_par > 0) || throw(
+            DomainError(
+                incident_par,
+                "Beer fit requires finite Ri_PAR_f > 0 at row $(row); " *
+                "got $(repr(incident_par))",
+            ),
+        )
+
+        incident_ppfd = incident_par * J_to_umol
+        (incident_ppfd isa Real && isfinite(incident_ppfd) && incident_ppfd > 0) || throw(
+            DomainError(
+                incident_ppfd,
+                "Beer fit requires finite incident PAR > 0 at row $(row) to define " *
+                "an absorbed fraction; got $(repr(incident_ppfd))",
+            ),
+        )
+
+        f_abs = df.aPPFD[row] / incident_ppfd
+        (f_abs isa Real && isfinite(f_abs) && 0 <= f_abs < 1) || throw(
+            DomainError(
+                f_abs,
+                "Beer fit requires an absorbed fraction in [0, 1) at row $(row); " *
+                "got $(repr(f_abs))",
+            ),
+        )
+
+        -log1p(-f_abs) / lai
+    end
+    isempty(k_observations) && throw(
+        ArgumentError("Beer fit requires at least one observation"),
+    )
+    k = Statistics.mean(k_observations)
     return (k=k,)
 end

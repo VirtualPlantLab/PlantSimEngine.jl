@@ -1,10 +1,11 @@
 """
     @process(process::String, doc::String=""; verbose::Bool=true)
 
-This macro generate the abstract type and some boilerplate code for the simulation of a process, along 
-with its documentation. It also prints out a short tutorial for implementing a model if `verbose=true`.
+This macro generates the abstract type and process identity required to simulate a
+process, together with its documentation. It also prints a short tutorial for
+implementing a model when `verbose=true`.
 
-The abstract process type is then used as a supertype of all models implementations for the 
+The abstract process type is then used as a supertype of all model implementations for the
 process, and is named "Abstract<ProcessName>Model", *e.g.* `AbstractGrowthModel` for
 a process called growth.
 
@@ -13,13 +14,12 @@ the second is any additional documentation that should be added
 to the `Abstract<ProcessName>Model` type, and the third determines whether 
 the short tutorial should be printed or not.
 
-Newcomers are encouraged to use this macro because it explains in detail what to do next with
-the process. But more experienced users may want to directly define their process without 
-printing the tutorial. To do so, you can just define a new abstract type and define it as a 
-subtype of `AbstractModel`:
+Newcomers are encouraged to use this macro because it explains what to do next.
+Defining the abstract type manually also requires an explicit process identity:
 
 ```julia
-abstract type MyNewProcess <: AbstractModel end
+abstract type AbstractMy_New_ProcessModel <: AbstractModel end
+PlantSimEngine.process_(::Type{AbstractMy_New_ProcessModel}) = :my_new_process
 ```
 
 # Examples
@@ -87,98 +87,96 @@ macro process(f, args...)
     end
 
     # Print help when creating a process:
-    dummy_type_name = string("My", titlecase(process_name), "Model")
     p = Term.RenderableText(
-        Markdown.parse("""\'{underline bold red}$(process_name){/underline bold red}\' process, generated:
-
-        * {#8abeff}run!(){/#8abeff} to compute the process in-place.      
-
-        * {#8abeff}$(process_abstract_type){/#8abeff}, an abstract struct used as a supertype for models implementations.
-
-        !!! tip "What's next?"
-            You can now define one or several models implementations for the {underline bold red}$(process_name){/underline bold red} process
-            by adding a method to {#8abeff}run!(){/#8abeff} with your own model type
-
-        Here's an example implementation where we define a new model type called {underline bold red}$(dummy_type_name){/underline bold red},
-        with a single parameter `a`:
-
-        ```julia
-            struct $(dummy_type_name) <: $(process_abstract_type)
-                a::Float64
-            end
-        ```
-
-        We also have to define the model inputs and outputs by adding methods to `inputs_`:
-
-        ```julia
-            PlantSimEngine.inputs_(::$(dummy_type_name)) = (X=-Inf,)
-        ```
-
-        And `outputs_` from PlantSimEngine:
-
-        ```julia
-            PlantSimEngine.outputs_(::$(dummy_type_name)) = (Y=-Inf,)
-        ```
-
-        Optionnaly, you can declare a hard-dependency on another process that is called
-        inside your process implementation:
-
-        ```julia
-            PlantSimEngine.dep(::$(dummy_type_name)) = (other_process_name=AbstractOtherProcessModel,)
-        ```
-
-        And finally, we can define the model implementation by adding a method to `run!`:
-
-        ```julia
-        function PlantSimEngine.run!(
-            ::$(dummy_type_name),
-            models,
-            status,
-            meteo,
-            constants,
-            extra
-        )
-            status.Y = model.$(process_name).a * meteo.CO2 + status.X
-            run!(model.other_process_name, models, status, meteo, constants, extra)
-        end
-        ```
-
-        Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used for dispatch), the ModelMapping, the status, the meteorology,
-        the constants and any extra values.
-
-        Then we can use variables from the status as inputs or outputs, model parameters from the ModelMapping (indexing by process, here 
-        using "$(process_name)" as the process name), and meteorology variables.
-
-        Note that our example model has an hard-dependency on another process called `other_process_name` that is called using the {#8abeff}run!(){/#8abeff} function with 
-        the process as the first argument: `run!(model.other_process_name, models, status, meteo, constants, extra)`.
-
-        If your model can be run in parallel, you can also add traits to your model type so `PlantSimEngine` knows
-        it can safely parallelize the computation:
-
-        - over space (*i.e.* over objects):
-
-        ```@example usepkg
-        PlantSimEngine.ObjectDependencyTrait(::Type{<:$(dummy_type_name)}) = PlantSimEngine.IsObjectIndependent()
-        ```
-
-        - over time (*i.e.* time-steps):
-
-        ```@example usepkg
-        PlantSimEngine.TimeStepDependencyTrait(::Type{<:$(dummy_type_name)}) = PlantSimEngine.IsTimeStepIndependent()
-        ```
-
-        !!! tip "Variables and parameters usage"
-            Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used
-            for dispatch), the ModelMapping, the status, the meteorology, the constants and
-            any extra values.
-            Then we can use variables from the status as inputs or outputs, model parameters
-            from the ModelMapping (indexing by process, here using "$(process_name)" as the
-            process name), and meteorology variables.
-        """
-        )
+        Markdown.parse(_process_model_tutorial(process_name, process_abstract_type))
     )
 
     isinteractive() && verbose && print(p)
 
     return expr
+end
+
+function _process_model_tutorial(process_name, process_abstract_type)
+    dummy_type_name = string("My", titlecase(process_name), "Model")
+    return """\'{underline bold red}$(process_name){/underline bold red}\' process, generated:
+
+        * {#8abeff}run!(){/#8abeff} to compute the process in-place.      
+
+        * {#8abeff}$(process_abstract_type){/#8abeff}, an abstract struct used as a supertype for model implementations.
+
+        !!! tip "What's next?"
+            You can now define one or several model implementations for the {underline bold red}$(process_name){/underline bold red} process
+            by adding a method to {#8abeff}run!(){/#8abeff} with your own model type
+
+        Here is a complete model implementation with one generic parameter,
+        one status input, one sampled environmental input, and one output:
+
+        ```julia
+            struct $(dummy_type_name){T} <: $(process_abstract_type)
+                a::T
+            end
+        ```
+
+        Declare the status and environment interface before implementing the
+        scientific calculation:
+
+        ```julia
+            PlantSimEngine.inputs_(::$(dummy_type_name)) = (X=Required(Real),)
+            PlantSimEngine.outputs_(model::$(dummy_type_name)) = (Y=zero(model.a),)
+            PlantSimEngine.environment_inputs_(model::$(dummy_type_name)) = (
+                forcing=zero(model.a),
+            )
+            PlantSimEngine.environment_outputs_(::$(dummy_type_name)) = NamedTuple()
+        ```
+
+        Attach scientific meaning to every value crossing the model boundary.
+        The contract below is a coherent dimensionless teaching example;
+        replace it with the exact meaning of your scientific variables:
+
+        ```julia
+            const TUTORIAL_CONTRACT = VariableContract(
+                unit=:dimensionless,
+                basis=:object,
+                temporal=:step,
+                aggregation=:instantaneous,
+                extent=:intensive,
+            )
+
+            PlantSimEngine.variable_contracts_(::$(dummy_type_name)) = (
+                X=TUTORIAL_CONTRACT,
+                forcing=TUTORIAL_CONTRACT,
+                Y=TUTORIAL_CONTRACT,
+            )
+        ```
+
+        Finally, keep the model's scientific calculation readable from top to
+        bottom in `run!`:
+
+        ```julia
+        function PlantSimEngine.run!(
+            model::$(dummy_type_name),
+            status,
+            environment,
+            constants,
+            context
+        )
+            status.Y = model.a * environment.forcing + status.X
+            return nothing
+        end
+        ```
+
+        Note that {#8abeff}run!(){/#8abeff} takes five arguments: the model type
+        (used for dispatch and parameter access), the status, the sampled
+        environment, constants, and runtime context.
+
+        Fixed parameters belong to `model`, timestep-varying state belongs to
+        `status`, and sampled forcing belongs to `environment`. Declare hard
+        dependencies separately with `dep(...)=Call(...)` only when the parent
+        model must control another model's execution.
+
+        !!! tip "Variables and parameters usage"
+            The model argument owns parameters, `status` owns bound state,
+            `environment` contains sampled forcing, and `context` exposes hard
+            calls and lifecycle operations.
+        """
 end

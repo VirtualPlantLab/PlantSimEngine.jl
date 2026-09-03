@@ -1,0 +1,20 @@
+name = "TwoProcessFixture"
+uuid = "b1a1374a-f799-4317-b33c-d60c080ad9af"
+version = "0.1.0"
+
+[deps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"
+
+[sources]
+PlantSimEngine = {path = "../../../../.."}
+
+[compat]
+PlantSimEngine = "0.15"
+julia = "1.10"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

@@ -1,154 +1,174 @@
-# Model traits
+# Model Traits
 
-This page centralizes the model-level traits that can be defined in `PlantSimEngine`.
-It complements:
+Model traits describe intrinsic model behavior. Scenario-specific coupling
+belongs in `ModelSpec` through `on`, `inputs`, `calls`, `every`,
+`Environment`, `output_routing`, and `Updates`.
 
-- [Model execution](model_execution.md) for runtime behavior,
-- [Parallelization](step_by_step/parallelization.md) for execution over objects/time-steps.
+## Variables
 
-## Trait inventory for models
-
-### `timespec(::Type{<:MyModel})`
-
-Defines the default execution clock of a model.
-
-Default:
+Implement `inputs_(model)` with an explicit declaration for every status input:
 
 ```julia
-PlantSimEngine.timespec(::Type{<:AbstractModel}) = ClockSpec(1.0, 0.0)
+PlantSimEngine.inputs_(::MyModel) = (
+    leaf_area=Required(Float64),
+    efficiency=Default(0.8),
+)
+PlantSimEngine.outputs_(::MyModel) = (assimilation=0.0,)
 ```
 
-Use it when your model has a natural native clock (for example daily by default).
+`Required(T)` means the value must be present on the target object's `Status`
+or bound from another application. `T` is an expected type, not a placeholder
+value. It may be abstract or parametric, so use the scientific type contract
+instead of forcing `Float64`.
 
-### `output_policy(::Type{<:MyModel})`
+`Default(value)` means the model can run without user initialization or a
+producer for that input. PlantSimEngine installs a private copy of `value` on
+each target object when the value is absent. Mutable defaults are therefore
+not shared between objects.
 
-Defines per-output default schedule policy for produced streams.
+Output literals remain initial output-state values. In the example,
+`assimilation` starts at `0.0` before the first accepted model call.
 
-Default:
+These declarations are used for status initialization, dependency inference,
+validation, and type construction. Plain input literals are rejected because
+they do not say whether the value is required or genuinely optional.
+
+Use `init_variables(model)` to inspect only values PlantSimEngine can
+initialize by itself: `Default` input values and output initial values.
+Required inputs are intentionally omitted.
+
+Before running a scenario, `Diagnostics.explain_initialization(model)` classifies inputs as
+`:required`, `:defaulted`, `:supplied`, or `:producer_bound`. A
+`:required` row must be resolved before compilation can succeed.
+
+## Scientific meaning and dimensions
+
+Names and Julia types are not enough to distinguish, for example, daily PAR
+per ground area from daily PAR per plant. Add a `VariableContract` when a
+variable participates in scientific coupling:
 
 ```julia
-PlantSimEngine.output_policy(::Type{<:AbstractModel}) = NamedTuple()
+const PLANT_DAILY_PAR = VariableContract(
+    unit=:mol_photon,
+    basis=:plant,
+    temporal=:day,
+    aggregation=:total,
+    extent=:extensive,
+)
+
+PlantSimEngine.variable_contracts_(::PlantLight) = (
+    absorbed_par=PLANT_DAILY_PAR,
+)
+PlantSimEngine.variable_contracts_(::PlantGrowth) = (
+    absorbed_par=PLANT_DAILY_PAR,
+)
 ```
 
-Behavior:
+The tokens are open symbols, but a connected producer and consumer must declare
+the same complete contract. Once either side declares one, a missing contract
+on the other side is also a compilation error. Renaming a variable with
+`var=...` does not convert its meaning; put unit, basis, or time conversion in
+an explicit model boundary.
 
-- unspecified outputs fall back to `HoldLast()`;
-- used by runtime when resolving cross-clock reads;
-- used as default policy for inferred `InputBindings(...)` when users do not provide explicit bindings;
-- hint-only and lazy: policy is applied only for outputs that are actually consumed/exported.
-  Declaring a policy for an unused output does not trigger integration work.
+`VariableContract` is metadata only. Status and environment payloads remain
+ordinary numbers, arrays, unit-bearing values, or automatic-differentiation
+values, so the contract adds no wrapper to a model's numerical hot loop.
 
-Example:
+Use `variable_contracts(model)` to inspect the validated declarations. Contract
+keys must occur in one of the model's declared status or environment traits, or
+in the compiled application's distributed `outputs_to` declaration.
+
+| Role | Declaration | Ownership |
+|---|---|---|
+| Status input | `inputs_` | object state or a compiled model producer |
+| Environment input | `environment_inputs_` | the active forcing backend |
+| Constant | the `constants` argument | simulation configuration, not mutable status |
+| Manual model call | `dep` plus `ModelSpec(...; calls=...)` | explicit callee execution; the callee keeps its own variable declarations |
+| Local status output | `outputs_` | the target object's runtime status |
+| Distributed output | `ModelSpec(...; outputs_to=...)` | explicitly selected destination objects |
+
+## Manual Dependencies
+
+Implement `dep(model)` only when the model directly calls another process from
+inside its own `run!` method:
+
+```julia
+PlantSimEngine.dep(::EnergyBalance) = (
+    photosynthesis=Call(One(process=:photosynthesis)),
+)
+```
+
+The scenario may override that default selector with
+`ModelSpec(...; calls=...)`. The parent executes all resolved targets with
+`run_call!(context, :photosynthesis)`, which always returns a vector-like
+collection. Use `call_targets` plus `run_call!(target)` when the parent needs
+selective trials and accepted publication.
+
+## Timing
+
+`timespec(model)` declares a model clock in simulation steps. The default is
+`ClockSpec(1.0, 0.0)`.
+
+```julia
+PlantSimEngine.timespec(::Type{<:DailyGrowth}) = ClockSpec(24.0, 1.0)
+```
+
+Use `ModelSpec(...; every=Dates.Day(1))` when the cadence should be expressed
+as a physical duration relative to the scenario environment. A
+`Dates.Period` is not a `ClockSpec` constructor argument.
+
+`output_policy(model)` declares the default temporal policy per output:
 
 ```julia
 PlantSimEngine.output_policy(::Type{<:MyModel}) = (
-    carbon_assimilation=Integrate(),
+    assimilation=Integrate(),
     leaf_temperature=Aggregate(MeanReducer()),
 )
 ```
 
-Users can always override or complement this trait at mapping level:
+Unspecified outputs use `HoldLast()`. A scenario can select another clock with
+`ModelSpec(...; every=...)` and another input policy in `ModelSpec(...; inputs=...)`.
+
+`timestep_hint(model)` can declare required or preferred timestep constraints.
+`environment_hint(model)` can provide default environment sampling configuration.
+
+## Environment Variables
+
+Use `environment_inputs_(model)` for variables sampled from the active environment
+backend:
 
 ```julia
-ModelSpec(MyConsumerModel()) |>
-InputBindings(
-    ;
-    carbon_assimilation=(process=:myproducer, var=:carbon_assimilation, policy=HoldLast()), # override trait default
-    carbon_assimilation_max=(process=:myproducer, var=:carbon_assimilation, policy=Aggregate(MaxReducer())), # complement with extra derived input
+PlantSimEngine.environment_inputs_(::LeafEnergyBalance) = (
+    T=0.0,
+    Rh=0.0,
+    Wind=0.0,
+    Ri_PAR_f=0.0,
+    CO2=400.0,
 )
 ```
 
-### `timestep_hint(::Type{<:MyModel})`
-
-Optional compatibility hint when `TimeStepModel(...)` is not provided.
-
-Default:
+Mutable microclimate updates should be committed explicitly by controller
+models:
 
 ```julia
-PlantSimEngine.timestep_hint(::Type{<:AbstractModel}) = nothing
+commit_environment!(context, accepted_environment)
 ```
 
-Supported forms include:
-
-- fixed period: `Dates.Hour(1)`;
-- range: `(Dates.Minute(30), Dates.Hour(2))`;
-- named tuple: `(; required=..., preferred=...)`.
-
-`required` is enforced when runtime uses meteo-derived timestep.  
-`preferred` is informational only.
-
-### `meteo_hint(::Type{<:MyModel})`
-
-Optional inference trait for weather sampling configuration.
-
-Default:
+For trial solves, pass a backend-specific state with `environment` so each
+hard-called model keeps its compiled provider or spatial handle:
 
 ```julia
-PlantSimEngine.meteo_hint(::Type{<:AbstractModel}) = nothing
+run_call!(context, :leaf_energy; environment=trial_environment, publish=false)
 ```
 
-Expected value:
+Diagnostic variables such as canopy temperature or vapor-pressure deficit can
+still be regular `outputs_`, but status fields are not the transport mechanism
+for mutable environment state.
 
-```julia
-(; bindings=..., window=...)
-```
+## Precedence
 
-Where:
+Scenario configuration has precedence over model defaults:
 
-- `bindings` is compatible with `MeteoBindings(...)`,
-- `window` is compatible with `MeteoWindow(...)`.
-
-### `TimeStepDependencyTrait(::Type{<:MyModel})`
-### `ObjectDependencyTrait(::Type{<:MyModel})`
-
-Parallelization traits (single-scale runtime):
-
-- `TimeStepDependencyTrait`: depends or not on other timesteps;
-- `ObjectDependencyTrait`: depends or not on other objects.
-
-Defaults are conservative (`dependent`) and can be overridden when safe.
-
-## Precedence rules
-
-Runtime precedence is intentionally explicit:
-
-1. Input policy:
-   explicit `InputBindings(..., policy=...)` > inferred from producer `output_policy` > `HoldLast()`.
-1. Timestep:
-   `TimeStepModel(...)` > `timespec(model)` when non-default > meteo base step.
-1. Meteo sampling:
-   explicit `MeteoBindings(...)`/`MeteoWindow(...)` > `meteo_hint(...)` > runtime defaults.
-
-## Is everything documented?
-
-For model-level traits, the documented set is now:
-
-- `timespec`,
-- `output_policy`,
-- `timestep_hint`,
-- `meteo_hint`,
-- `TimeStepDependencyTrait`,
-- `ObjectDependencyTrait`.
-
-Outside model traits, `PlantSimEngine` also exposes data-format traits such as `DataFormat` for input containers (see [Input types](working_with_data/inputs.md)).
-
-## Naming conventions and API consistency
-
-Current API uses two naming styles on purpose:
-
-- snake_case for trait/query functions (`timespec`, `output_policy`, `timestep_hint`, `meteo_hint`);
-- CamelCase for `ModelSpec` pipeline transforms (`TimeStepModel`, `InputBindings`, `MeteoBindings`, `MeteoWindow`, `OutputRouting`, `ScopeModel`).
-
-This distinction reflects role:
-
-- snake_case: "what the model declares";
-- CamelCase: "what the mapping config applies".
-
-For future unification, a non-breaking path would be:
-
-1. keep existing names as stable API,
-1. avoid plain snake_case aliases that would collide with existing getter names
-   (`input_bindings`, `meteo_bindings`, `output_routing`, `model_scope`),
-1. if needed, add explicit config-oriented aliases with distinct names
-   (for example `*_config` forms) and keep current constructors,
-1. evaluate deprecations only after one full release cycle and user feedback.
+1. `ModelSpec(...; inputs=...)` policy, then producer `output_policy`, then `HoldLast()`.
+2. `ModelSpec(...; every=...)`, then `timespec(model)`, then the environment base step.
+3. `Environment(...)`, then `environment_hint(model)`, then backend defaults.
