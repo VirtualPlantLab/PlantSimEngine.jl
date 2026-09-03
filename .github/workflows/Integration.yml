@@ -36,6 +36,8 @@ jobs:
       - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
+      - name: Cache Julia packages
+        uses: julia-actions/cache@v3
       - name: Test the integration source configuration
         shell: julia --color=yes {0}
         run: include(joinpath(pwd(), ".github", "scripts", "test_configure_local_sources.jl"))
