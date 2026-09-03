@@ -13,10 +13,10 @@ using HTTP
 using JSON
 using Documenter # for doctests
 
-# There are 3 kinds of tests : 
+# There are 3 kinds of tests:
 # PSE functionality/feature tests
-# Integration tests (launched in Github Actions, they run PBP and XPalm tests) 
-# Benchmarks both internal and downstream, located in the downstream folder, and run in another Github Action
+# Integration tests (launched in GitHub Actions for PlantBiophysics, XPalm, and PlantGeom)
+# Benchmarks both internal and downstream, located in the downstream folder, and run in another GitHub Action
 
 if length(ARGS) == 1 && endswith(only(ARGS), ".jl")
     focused_file = basename(only(ARGS))
