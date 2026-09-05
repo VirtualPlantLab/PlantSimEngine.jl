@@ -374,7 +374,7 @@ end
     checks_block = Expr(:block, checks...)
     if Row <: NamedTuple
         row_names = Row.parameters[1]
-        if :duration in row_names
+        if :duration in row_names && !(:duration in targets)
             output_targets = (targets..., :duration)
             output_values = Expr(
                 :tuple,
@@ -394,7 +394,7 @@ end
     return quote
         $checks_block
         sampled = NamedTuple{$(QuoteNode(targets))}($values_tuple)
-        if !isnothing(row) && hasproperty(row, :duration)
+        if $(!(:duration in targets)) && !isnothing(row) && hasproperty(row, :duration)
             return merge(
                 sampled,
                 (duration=getproperty(row, :duration),),

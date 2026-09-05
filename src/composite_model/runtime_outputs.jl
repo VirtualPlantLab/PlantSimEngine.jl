@@ -1182,7 +1182,7 @@ current_step(simulation::Simulation) = simulation.current_step
 outputs(sim::Simulation) = sim.temporal_streams
 
 @inline function _final_state_snapshot(simulation::Simulation, object_id)
-    return NamedTuple(_model_object_status(simulation.model, ObjectId(object_id)))
+    return deepcopy(NamedTuple(_model_object_status(simulation.model, ObjectId(object_id))))
 end
 
 """
@@ -1655,7 +1655,10 @@ end
     elseif !isempty(samples) && last(samples)[1] > sample_time
         _model_remove_sample_time!(samples, sample_time)
     end
-    push!(samples, (sample_time, value))
+    # A model may update an array or a nested mutable value in place on its next
+    # execution. Published history must remain independent of that live state.
+    # `deepcopy` leaves scalar/isbits values unchanged.
+    push!(samples, (sample_time, deepcopy(value)))
     return samples
 end
 
@@ -1980,10 +1983,11 @@ function _model_assign_private_temporal_value!(
             "`$(axes(current))` to ",
             "`$(axes(value))`; use a stable vector shape or a `Many(...)` binding.",
         )
-        copyto!(current, value)
+        private_value = isbitstype(eltype(value)) ? value : _private_temporal_value(value)
+        copyto!(current, private_value)
         return temporal_input
     end
-    temporal_input.reference[] = value
+    temporal_input.reference[] = _private_temporal_value(value)
     return temporal_input
 end
 
@@ -2034,7 +2038,7 @@ function _materialize_model_temporal_input!(
                 )
                 value = temporal_input.initial[index]
             end
-            storage[index] = value
+            storage[index] = _private_temporal_value(value)
         end
         return status
     end
@@ -2122,9 +2126,9 @@ end
     @inbounds for index in eachindex(source_streams)
         value = _previous_time_step_sample(source_streams[index], time)
         if isnothing(value)
-            storage[index] = initial[index]
+            storage[index] = _private_temporal_value(initial[index])
         else
-            storage[index] = value
+            storage[index] = _private_temporal_value(value)
         end
     end
     return temporal_input
@@ -2206,7 +2210,7 @@ function _materialize_model_temporal_input!(
                 )
                 value = temporal_input.initial[index]
             end
-            storage[index] = value
+            storage[index] = _private_temporal_value(value)
         end
         return status
     end

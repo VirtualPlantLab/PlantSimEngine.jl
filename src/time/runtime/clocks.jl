@@ -18,7 +18,8 @@ struct _ResolvedTimeStepHint
 end
 
 _seconds_from_period(period::Dates.FixedPeriod) =
-    float(Dates.value(Dates.Millisecond(period))) * 1.0e-3
+    float(Dates.value(period)) *
+    (Dates.value(Dates.Nanosecond(typeof(period)(1))) / 1.0e9)
 
 function _normalize_required_timestep_hint(scale::Symbol, process::Symbol, required)
     if required isa Dates.FixedPeriod
@@ -87,7 +88,7 @@ function _period_to_seconds(period::Dates.Period)
     period isa Dates.FixedPeriod || error(
         "Unsupported non-fixed period `$(typeof(period))`. Use Second, Minute, Hour, or Day."
     )
-    seconds = float(Dates.value(Dates.Second(period)))
+    seconds = _seconds_from_period(period)
     seconds > 0.0 || error("Expected a positive period, got `$(period)`.")
     return seconds
 end
@@ -104,6 +105,7 @@ function _duration_to_seconds(duration)
     elseif duration isa Real
         seconds = float(duration)
         seconds > 0.0 || error("Expected a positive duration, got `$(duration)`.")
+        isfinite(seconds) || error("Expected a finite duration, got `$(duration)`.")
         return seconds
     end
     return nothing
@@ -116,10 +118,15 @@ end
 
 function _timestep_to_step_count(period::Dates.Period, timeline::TimelineContext)
     steps = _period_to_seconds(period) / timeline.base_step_seconds
-    steps >= 1.0 || error(
+    rounded_steps = round(steps)
+    (steps >= 1.0 || isapprox(steps, 1.0; atol=0.0, rtol=1.0e-12)) || error(
         "Model timestep `$(period)` is shorter than the simulation base step."
     )
-    return steps
+    isfinite(steps) && isapprox(steps, rounded_steps; atol=1.0e-9, rtol=1.0e-12) || error(
+        "Model timestep `$(period)` must be an integer multiple of the simulation ",
+        "base step ($(timeline.base_step_seconds) seconds). Choose a finer base step."
+    )
+    return rounded_steps
 end
 
 function _first_table_row(table; context::String="environment")
@@ -158,7 +165,7 @@ function _validate_environment_duration(environment)
             )
             if isnothing(base_seconds)
                 base_seconds = seconds
-            elseif !isapprox(seconds, base_seconds; atol=1.0e-9, rtol=0.0)
+            elseif !isapprox(seconds, base_seconds; atol=0.0, rtol=1.0e-12)
                 error(
                     "Inconsistent `duration` in environment row $(i): ",
                     "$(seconds) seconds does not match the base step ",
@@ -222,11 +229,13 @@ function _resolve_environment_hint_clock(
     reason = nothing
     if !isnothing(hint.fixed)
         required = _seconds_from_period(hint.fixed)
-        isapprox(required, base_seconds; atol=1.0e-9, rtol=0.0) ||
+        isapprox(required, base_seconds; atol=0.0, rtol=1.0e-12) ||
             (reason = "Environment base step is outside `timestep_hint.required=$(hint.fixed)` for `$(scale)/$(process)`.")
     elseif !isnothing(hint.range)
         lower, upper = _seconds_from_period.(hint.range)
-        lower <= base_seconds <= upper ||
+        within_lower = base_seconds >= lower || isapprox(base_seconds, lower; atol=0.0, rtol=1.0e-12)
+        within_upper = base_seconds <= upper || isapprox(base_seconds, upper; atol=0.0, rtol=1.0e-12)
+        (within_lower && within_upper) ||
             (reason = "Environment base step is outside `timestep_hint.required=$(hint.range)` for `$(scale)/$(process)`.")
     end
     return ClockSpec(1.0, 0.0), reason

@@ -18,6 +18,111 @@ function boundary_output_publication_allocations(bindings, time)
     )
 end
 
+PlantSimEngine.@process "boundary_mutable_source" verbose = false
+PlantSimEngine.@process "boundary_mutable_previous" verbose = false
+PlantSimEngine.@process "boundary_mutating_previous" verbose = false
+struct BoundaryMutableSourceModel <: AbstractBoundary_Mutable_SourceModel end
+struct BoundaryMutablePreviousModel <: AbstractBoundary_Mutable_PreviousModel end
+struct BoundaryMutatingPreviousModel{T} <: AbstractBoundary_Mutating_PreviousModel end
+PlantSimEngine.inputs_(::BoundaryMutableSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::BoundaryMutableSourceModel) =
+    (values=[0.0], nested=(values=[0.0],))
+function PlantSimEngine.run!(::BoundaryMutableSourceModel, status, environment, constants, context)
+    status.values[1] += 1
+    status.nested.values[1] += 10
+    return nothing
+end
+PlantSimEngine.inputs_(::BoundaryMutablePreviousModel) =
+    (previous=Required(Vector{Float64}),)
+PlantSimEngine.outputs_(::BoundaryMutablePreviousModel) = (observed=0.0,)
+function PlantSimEngine.run!(::BoundaryMutablePreviousModel, status, environment, constants, context)
+    status.observed = only(status.previous)
+    return nothing
+end
+PlantSimEngine.inputs_(::BoundaryMutatingPreviousModel{T}) where {T} =
+    (previous=Required(T),)
+PlantSimEngine.outputs_(::BoundaryMutatingPreviousModel) = (observed=0.0,)
+function PlantSimEngine.run!(::BoundaryMutatingPreviousModel, status, environment, constants, context)
+    value = status.previous isa NamedTuple ? status.previous.values : only(status.previous)
+    status.observed = only(value)
+    value[1] = -99.0
+    return nothing
+end
+
+@testset "published mutable outputs preserve historical values" begin
+    for retention in (:all, :none)
+        model = CompositeModel(
+            Object(:cell; scale=:Cell, status=Status(previous=[0.0]));
+            applications=(
+                ModelSpec(BoundaryMutableSourceModel(); name=:source, on=One(scale=:Cell)),
+                ModelSpec(
+                    BoundaryMutablePreviousModel();
+                    name=:consumer,
+                    on=One(scale=:Cell),
+                    inputs=(PreviousTimeStep(:previous) => One(
+                        scale=:Cell, application=:source, var=:values,
+                    ),),
+                ),
+            ),
+        )
+        simulation = run!(model; steps=3, outputs=retention)
+        snapshot = final_state(simulation)
+        @test final_state(simulation).observed == 2.0
+        values = outputs(simulation)[(:source, ObjectId(:cell), :values)]
+        @test last(values) == (3.0, [3.0])
+        if retention === :all
+            @test values == [(1.0, [1.0]), (2.0, [2.0]), (3.0, [3.0])]
+            @test outputs(simulation)[(:consumer, ObjectId(:cell), :observed)] ==
+                  [(1.0, 0.0), (2.0, 1.0), (3.0, 2.0)]
+            nested = outputs(simulation)[(:source, ObjectId(:cell), :nested)]
+            @test nested == [
+                (1.0, (values=[10.0],)),
+                (2.0, (values=[20.0],)),
+                (3.0, (values=[30.0],)),
+            ]
+            only(model_objects(model)).status.nested.values[1] = 99.0
+            @test last(nested) == (3.0, (values=[30.0],))
+        else
+            @test values isa PlantSimEngine.TemporalDependencyBuffer
+        end
+        only(model_objects(model)).status.values[1] = 99.0
+        @test last(values) == (3.0, [3.0])
+        @test snapshot.values == [3.0]
+        @test snapshot.nested.values == [30.0]
+        snapshot.values[1] = -1.0
+        @test only(model_objects(model)).status.values == [99.0]
+    end
+end
+
+@testset "temporal consumers cannot mutate source snapshots through private inputs" begin
+    for variant in (:nested, :many)
+        initial = variant === :nested ? (values=[0.0],) : [[0.0]]
+        selector = variant === :nested ?
+                   One(scale=:Cell, application=:source, var=:nested) :
+                   Many(scale=:Cell, application=:source, var=:values)
+        model = CompositeModel(
+            Object(:cell; scale=:Cell, status=Status(previous=initial));
+            applications=(
+                ModelSpec(BoundaryMutableSourceModel(); name=:source, on=One(scale=:Cell)),
+                ModelSpec(
+                    BoundaryMutatingPreviousModel{typeof(initial)}();
+                    name=:consumer,
+                    on=One(scale=:Cell),
+                    inputs=(PreviousTimeStep(:previous) => selector,),
+                ),
+            ),
+        )
+        simulation = run!(model; steps=3, outputs=:all)
+        variable = variant === :nested ? :nested : :values
+        stream = outputs(simulation)[(:source, ObjectId(:cell), variable)]
+        expected = variant === :nested ?
+                   [(1.0, (values=[10.0],)), (2.0, (values=[20.0],)), (3.0, (values=[30.0],))] :
+                   [(1.0, [1.0]), (2.0, [2.0]), (3.0, [3.0])]
+        @test stream == expected
+        @test final_state(simulation).observed == (variant === :nested ? 20.0 : 2.0)
+    end
+end
+
 @testset "direct output bindings preserve stream type errors" begin
     stream = Tuple{Float64,Float64}[]
     reference = Ref{Any}(1.0)

@@ -47,6 +47,51 @@ struct BrokenEnvironmentDataFormat end
 PlantSimEngine.DataFormat(::Type{BrokenEnvironmentDataFormat}) =
     throw(EnvironmentDataFormatSentinel())
 
+PlantSimEngine.@process "environment_duration_probe" verbose = false
+struct EnvironmentDurationProbeModel <: AbstractEnvironment_Duration_ProbeModel end
+PlantSimEngine.inputs_(::EnvironmentDurationProbeModel) = NamedTuple()
+PlantSimEngine.outputs_(::EnvironmentDurationProbeModel) = (seen=0.0, seconds=0.0)
+PlantSimEngine.environment_inputs_(::EnvironmentDurationProbeModel) = (T=0.0, duration=Second(1))
+function PlantSimEngine.run!(::EnvironmentDurationProbeModel, status, environment, constants, context)
+    status.seen = environment.T
+    status.seconds = Dates.value(Second(environment.duration))
+    return nothing
+end
+
+@testset "declared environment duration survives source remapping" begin
+    for environment in (
+        (CO2=410.0, duration=Hour(1)),
+        Atmosphere(T=20.0, Wind=1.0, Rh=0.5, CO2=410.0, duration=Hour(1)),
+    )
+        spec = ModelSpec(
+            EnvironmentDurationProbeModel();
+            name=:probe,
+            on=One(scale=:Leaf),
+            environment=Environment(sources=(T=:CO2,)),
+        )
+        model = CompositeModel(Object(:leaf; scale=:Leaf); applications=(spec,), environment=environment)
+        @test final_state(run!(model)) == (seen=410.0, seconds=3600.0)
+        sampled = PlantSimEngine.EnvironmentAPI.sample_environment(
+            PlantSimEngine.EnvironmentAPI.GlobalConstant(environment), nothing, 1.0, spec,
+        )
+        @test sampled.duration == Hour(1)
+    end
+
+    spec = ModelSpec(
+        EnvironmentDurationProbeModel();
+        name=:probe,
+        on=One(scale=:Leaf),
+        environment=Environment(sources=(T=:CO2, duration=:sample_duration)),
+    )
+    environment = (CO2=410.0, duration=Hour(1), sample_duration=Hour(2))
+    model = CompositeModel(Object(:leaf; scale=:Leaf); applications=(spec,), environment=environment)
+    @test final_state(run!(model)).seconds == 7200.0
+    sampled = PlantSimEngine.EnvironmentAPI.sample_environment(
+        PlantSimEngine.EnvironmentAPI.GlobalConstant(environment), nothing, 1.0, spec,
+    )
+    @test sampled.duration == Hour(2)
+end
+
 @testset "environment format errors remain visible" begin
     @test_throws EnvironmentDataFormatSentinel PlantSimEngine._first_environment_row(
         BrokenEnvironmentDataFormat(),

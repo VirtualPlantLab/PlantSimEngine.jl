@@ -71,7 +71,7 @@ get_nsteps(backend::GlobalConstant) = isnothing(environment_source(backend)) ? 1
 
 function _validate_environment_duration(backend::AbstractEnvironmentBackend)
     sec = base_step_seconds(backend)
-    sec isa Real && sec > 0 || error(
+    sec isa Real && isfinite(sec) && sec > 0 || error(
         "Environment backend `$(typeof(backend))` returned invalid base step seconds `$(sec)`."
     )
     return nothing
@@ -401,7 +401,8 @@ function _sample_global_environment_row(row, model_spec::ModelSpec)
         )
         push!(pairs, target => getproperty(row, source))
     end
-    if !isnothing(row) && hasproperty(row, :duration)
+    if !(:duration in keys(environment_inputs_(model_spec))) &&
+       !isnothing(row) && hasproperty(row, :duration)
         push!(pairs, :duration => getproperty(row, :duration))
     end
     return (; pairs...)

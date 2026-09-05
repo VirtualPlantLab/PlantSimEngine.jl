@@ -6137,8 +6137,7 @@ function _prepare_model_input_statuses_batched!(
 end
 
 function _private_temporal_value(value)
-    value isa AbstractArray && return copy(value)
-    return value
+    return deepcopy(value)
 end
 
 function _temporal_input_initial(binding::CompiledModelInputBinding, status::Status)
