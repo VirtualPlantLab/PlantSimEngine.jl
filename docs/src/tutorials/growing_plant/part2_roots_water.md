@@ -10,7 +10,8 @@ model-wide `One` selector rather than relying on traversal order.
 
 Keep stocks at the scale that owns conservation. A root model may publish an
 absorption rate per root, while the plant model integrates all root rates and
-updates one plant water stock. A soil model owns soil water; plants read it
+updates one plant water stock. The example below assumes uptake per second
+and weights rates by their durations in seconds. A soil model owns soil water; plants read it
 through an explicit model-wide selector. This avoids copying one stock into
 every organ and makes duplicate writers visible.
 
@@ -20,7 +21,7 @@ ModelSpec(
     inputs=(
         :root_uptake => Many(
             scale=:Root, within=Subtree(), application=:root_absorption,
-            var=:uptake, policy=Integrate(), window=Day(1),
+            var=:uptake, policy=Integrate((values, durations_seconds) -> sum(values .* durations_seconds)), window=Day(1),
         ),
         :soil_water => One(
             scale=:Soil, within=SceneScope(), application=:soil_water,

@@ -2,6 +2,10 @@
 
 PlantSimEngine includes an optional Codex/OpenAI-style skill for users who want an AI agent to help write simulations or implement models.
 
+The skill uses the Julia tools available in the agent's environment. It does
+not require a particular editor or connector; repository and user execution
+requirements still apply.
+
 The skill file is stored in the repository at:
 
 ```text

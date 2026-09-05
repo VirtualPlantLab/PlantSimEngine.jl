@@ -233,6 +233,10 @@ The `after` value is the canonical application identifier shown by
 
 Use `ModelSpec(...; every=...)` with `Dates.Period` values for model application clocks:
 
+The duration must be a positive integer multiple of the simulation base step.
+Choose a finer common base step when needed; the scheduler does not insert
+intermediate execution times. See [Give Models Different Cadences](@ref).
+
 ```julia
 ModelSpec(HourlyLeafAssimilation(); name=:leaf_assim, on=Many(scale=:Leaf), every=Dates.Hour(1))
 
@@ -241,7 +245,7 @@ ModelSpec(DailyPlantAllocation(); name=:allocation, on=Many(scale=:Plant), input
             within=Subtree(),
             application=:leaf_assim,
             var=:A,
-            policy=Integrate(),
+            policy=Integrate((values, durations_seconds) -> sum(values .* durations_seconds)),
             window=Dates.Day(1),
         ),), every=Dates.Day(1))
 ```
@@ -266,11 +270,20 @@ Supported policies are:
 
 - `HoldLast()`: use the latest producer sample;
 - `Interpolate()`: interpolate or extrapolate from producer samples;
-- `Integrate()`: reduce values over a window, defaulting to `SumReducer()`;
+- `Integrate()`: sum values over a window with `SumReducer()`, without
+  duration weighting;
 - `Aggregate()`: reduce values over a window, defaulting to `MeanReducer()`.
+
+Policies resample numeric values but do not transform `VariableContract`
+metadata. A contracted rate-to-amount conversion needs an explicit adapter;
+see [Coupling models](@ref).
 
 `Integrate(...)` and `Aggregate(...)` accept reducer objects or callables that
 take either `(values)` or `(values, durations_seconds)`.
+For rates per second, use
+`Integrate((values, durations_seconds) -> sum(values .* durations_seconds))`.
+For real scalar rates, `Integrate(PlantMeteo.DurationSumReducer())` provides
+the same operation; load `PlantMeteo` to use its named reducer.
 For duration-aware reducers, each producer value is held until the next
 producer execution and weighted by the portion of that interval overlapping
 the consumer window. This includes the last value published before the window
@@ -346,7 +359,7 @@ request = OutputRequest(
     :A;
     name=:leaf_assimilation_daily,
     application=:leaf_assimilation,
-    policy=Integrate(),
+    policy=Integrate((values, durations_seconds) -> sum(values .* durations_seconds)),
     clock=Dates.Day(1),
 )
 

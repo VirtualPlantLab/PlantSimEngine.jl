@@ -12,9 +12,12 @@ wrappers unless the user explicitly requests compatibility work.
 
 ## Verify the loaded package first
 
-For any Julia work, load the `kaimon-julia` skill and use a Kaimon session for
-the exact target project. Before reading an API from memory, editing Julia, or
-running an example, evaluate:
+Use the Julia execution tools available in the host environment for the exact
+target project. Follow the user's and repository's execution requirements;
+when they require Kaimon, load `kaimon-julia` and use a Kaimon session. This
+package skill does not otherwise require a particular editor, connector, or
+additional skill. Before reading an API from memory, editing Julia, or running
+an example, evaluate:
 
 ```julia
 using PlantSimEngine, Pkg
@@ -82,7 +85,7 @@ new skeleton:
 - [assets/model-tests.jl](assets/model-tests.jl): executable tests for all
   examples.
 
-Run `scripts/check-examples.jl` through the verified Kaimon session after
+Run `scripts/check-examples.jl` through the verified Julia environment after
 changing the skill or its assets.
 
 Fresh-agent cases and their structured trace oracle live in
@@ -139,10 +142,10 @@ behavioral evidence.
     `Authoring.validate_scenario`, and public diagnostics for initialization,
     bindings, calls, writers, schedule, execution plan, and environment before
     a full simulation.
-12. Implement a second hypothesis of the same process and use
-    `Authoring.compare_models` to establish whether it is truly
-    interchangeable; test another numeric type and every introduced coupling
-    or lifecycle behavior.
+12. Test another numeric type and every introduced coupling or lifecycle
+    behavior. When adding or replacing an alternative of an existing process,
+    use `Authoring.compare_models` to establish whether it is interchangeable.
+    A second hypothesis is needed only when the task calls for one.
 13. Document the hypothesis, units, domain of validity, reference status,
     maturity, and scientific validation level. Use `model_metadata` and
     `parameter_metadata` for structured facts, and state explicitly when an

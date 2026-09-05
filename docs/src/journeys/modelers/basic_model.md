@@ -9,7 +9,21 @@ Before creating a type, follow [New process or new model?](@ref). The example
 below is one hypothesis for the `biomass_production` process. Its coefficients
 are pedagogical, not a calibrated crop model.
 
-## Load the canonical fixture
+## Read the complete model
+
+This is the complete, copyable source shipped with the package. The model
+declaration comes first; `direct_example` tests its kernel and
+`single_object_scenario` shows the smallest runtime composition.
+
+```@eval
+using Markdown, PlantSimEngine
+source = read(joinpath(
+    pkgdir(PlantSimEngine), "skills", "plantsimengine", "assets", "minimal-model.jl",
+), String)
+Markdown.MD([Markdown.Code("julia", source)])
+```
+
+## Load and inspect it
 
 The documentation and agent skill use the same executable source instead of
 maintaining two copies:

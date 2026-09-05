@@ -18,9 +18,6 @@ function validate_manifest(; skill_root=realpath(joinpath(@__DIR__, "..")))
 
     for case in EVALUATION_CASES
         isempty(strip(case.prompt)) && error("Evaluation prompt $(case.id) is empty.")
-        isempty(case.required_skills) && error(
-            "Evaluation case $(case.id) must declare at least its Julia execution skill.",
-        )
         isempty(intersect(case.required_skills, case.forbidden_skills)) || error(
             "Evaluation case $(case.id) both requires and forbids one skill.",
         )

@@ -111,6 +111,14 @@ parameter, equation, units, and bases are now visible and testable. Document
 the scientific domain and validity limits explicitly; the fixture does not
 invent them. Use the same pattern for temporal or carbon-basis conversions.
 
+Temporal policies currently leave contracts unchanged. In particular,
+`Integrate(reducer)` with a duration-aware reducer computes an integral but
+does not make a rate contract
+compatible with a total contract. For a contracted rate-to-amount conversion,
+perform the calculation in the adapter kernel and declare the different
+contracts on its input and output. Accumulate varying rates at their producer
+cadence or supply a correctly averaged rate before multiplying by duration.
+
 After compilation, inspect `Diagnostics.explain_bindings(compiled)` for source identity
 and carrier type, `Diagnostics.explain_calls(compiled)` for call-only targets, and
 `Diagnostics.explain_schedule(compiled)` for root execution order. These rows are the

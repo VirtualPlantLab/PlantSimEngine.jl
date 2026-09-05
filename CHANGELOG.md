@@ -201,6 +201,17 @@ assembly and coupling.
 
 ### Fixed
 
+- Retained outputs and temporal dependency streams snapshot mutable values, so
+  later in-place model updates do not overwrite historical samples.
+- Temporal inputs and `final_state` snapshots no longer alias nested mutable
+  producer values. Explicitly declared environment durations also survive
+  forcing-source remapping without duplicate fields or replacement.
+- Fixed-period cadences now support subsecond durations. A cadence that is not
+  an integer multiple of the simulation base step is rejected with an explicit
+  error instead of silently running less often than requested.
+- Model validation checks the five-argument kernel signature, including
+  variadic implementations. Model comparison treats reordered named output
+  policies consistently with runtime override compatibility.
 - Type-only model discovery no longer executes guessed placeholder constructors
   and reports field-level provenance when an exact instance is unavailable.
 - Removed ambiguities in distributed-output runtime dispatch when temporal

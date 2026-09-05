@@ -1,9 +1,9 @@
 # Hourly, Daily, And Weekly Models
 
-Use one hourly leaf application, a daily plant application with
-`Many(scale=:Leaf, within=Subtree(), policy=Integrate(), window=Day(1))`, and a
-weekly application consuming the daily stream. Each application remains a
-normal `ModelSpec`; only its `every` value and input policy differ.
+An hourly leaf application publishes rates. A daily plant application
+integrates them over a day, and a weekly application consumes the daily
+amounts. Each application remains a normal `ModelSpec`; only its `every`
+value and input policy differ.
 
 Runtime dependency streams are retained because consumers need them. Output
 resampling is independent: create named `OutputRequest`s for hourly, daily,
@@ -12,7 +12,9 @@ from `collect_outputs`.
 
 The following reduced example checks the important physical contract: two
 leaf rates are integrated independently for 24 hourly samples and then summed
-on their plant.
+on their plant. Rates are per second, so the expected amount is
+`(1 + 2) × 24 × 3600 = 259200`. The default `Integrate()` sums samples without
+duration weighting; the explicit reducer below supplies the physical integral.
 
 ```@example hourly-daily
 using Dates
@@ -44,7 +46,7 @@ model = CompositeModel(
             inputs=(
                 :fluxes => Many(
                 scale=:Leaf, within=Subtree(), application=:hourly, var=:flux,
-                policy=Integrate(), window=Day(1),
+                policy=Integrate((values, durations_seconds) -> sum(values .* durations_seconds)), window=Day(1),
                 ),
             ),
             every=Day(1),
@@ -54,10 +56,11 @@ model = CompositeModel(
 )
 simulation = run!(model; steps=25)
 @assert only(object.status.total for object in model_objects(model)
-             if object.id == ObjectId(:plant)) == 72.0
+             if object.id == ObjectId(:plant)) == 259200.0
 ```
 
 A weekly consumer uses the same pattern with `every=Week(1)` and a
-seven-day window over the daily application. Keep `Integrate` for rates;
-choose `Aggregate(reducer)` for states or observations whose physical meaning
+seven-day window over the daily application. Sum daily amounts with
+`Integrate()`; integrate rates per second with the duration-aware reducer
+shown above. Choose `Aggregate(reducer)` for states or observations whose physical meaning
 is a mean, minimum, maximum, or custom statistic.

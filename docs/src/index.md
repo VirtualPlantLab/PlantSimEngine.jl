@@ -42,7 +42,7 @@ ModelSpec(
 ### Models And Applications
 
 A model is a reusable implementation of a process. A model application is one
-configured use of that model in a model: it gives the use a name, selects its
+configured use of that model in a simulation: it gives the use a name, selects its
 target objects, and configures its inputs, calls, timestep, and environment.
 
 | Concept | Meaning |
@@ -58,7 +58,7 @@ During compilation, PlantSimEngine resolves each application into its concrete
 `(application, object)` executions.
 
 This means the same model can be reused on one object, many leaves, several
-plant species, a shared soil object, or a model-scale energy-balance solver
+plant species, a shared soil object, or a scene energy-balance solver
 without changing the model implementation.
 
 ## Why PlantSimEngine?
@@ -101,7 +101,7 @@ using PlantSimEngine
 
 ## Quickstart: One CompositeModel Object
 
-This example runs three existing toy models on one model object:
+This example runs three existing toy models on one object:
 
 1. `ToyDegreeDaysCumulModel` computes daily thermal time.
 2. `ToyLAIModel` consumes cumulative thermal time and computes LAI.
@@ -168,7 +168,7 @@ fig
 ## Multi-Object Inputs
 
 Use `ModelSpec(...; inputs=...)` when a model needs values from selected objects. Here the
-model-scale LAI model reads live references to all plant surfaces in the model:
+scene LAI model reads live references to all plant surfaces in the scene:
 
 ```@example readme
 plant_scene = CompositeModel(
@@ -193,7 +193,7 @@ scene_status
 
 The same `Many(...)` selector would be plant-local if the consumer ran on a
 plant and used `within=Subtree()`. This is the same mechanism used for plant
-allocation models that sum their own leaves, model models that aggregate all
+allocation models that sum their own leaves, scene models that aggregate all
 plants, and microclimate solvers that select objects inside one environment
 cell.
 
@@ -206,7 +206,7 @@ implement the same process or publish the same variable on different objects.
 ## Manual Calls For Iterative Solvers
 
 Use `ModelSpec(...; calls=...)` when a parent model must directly run another model, for
-example a model energy-balance solver that iterates leaf temperatures until
+example a scene energy-balance solver that iterates leaf temperatures until
 convergence:
 
 ```julia

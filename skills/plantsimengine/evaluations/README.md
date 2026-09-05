@@ -2,11 +2,13 @@
 
 Use each manifest case in a separate agent task with no prior PlantSimEngine
 conversation. Preserve the declared workspace fixture and record a structured
-trace with these fields:
+trace with these fields. Use the Julia execution tools required by the host
+and repository; the package evaluation does not require an external skill or
+connector:
 
 ```julia
 (
-    triggered_skills=(:kaimon_julia, :plantsimengine),
+    triggered_skills=(:plantsimengine,),
     read_references=("references/model-authoring.md",),
     actions=(:verify_loaded_package, :inspect_available_processes),
 )

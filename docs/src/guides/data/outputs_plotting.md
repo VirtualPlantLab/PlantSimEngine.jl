@@ -17,6 +17,11 @@ policy cannot produce a value for a scheduled output time.
 is reported by `Diagnostics.explain_schedule(simulation)`. Values retain their concrete
 types, so unit-bearing model outputs remain unit-bearing in collected rows.
 
+Each publication snapshots its value, including arrays and nested mutable
+values. Updating a model's live status later does not rewrite earlier samples.
+`final_state` also returns an independent snapshot; use `model_status` when
+you intend to access the live state.
+
 `OutputRequest` controls requested retention or resampling. Dependency streams
 may also be retained for runtime correctness. Use
 `Diagnostics.explain_output_retention(sim)` to see why each stream exists. Removed objects

@@ -128,6 +128,10 @@ See `../assets/adapter-model.jl` for a ground-area-to-plant example.
 
 Configure an application cadence with `every=Dates.Period`. `timespec(model)`
 may provide a model default; an explicit scenario cadence overrides it.
+Every duration-based application cadence must be a positive integer multiple
+of the simulation base step. For hourly and 90-minute applications, use a
+30-minute base step. Fixed subsecond periods are supported; calendar months
+and adaptive application timesteps are not.
 
 ```julia
 ModelSpec(
@@ -140,7 +144,7 @@ ModelSpec(
             within=Subtree(),
             application=:hourly_leaf_flux,
             var=:flux,
-            policy=Integrate(),
+            policy=Integrate((values, durations_seconds) -> sum(values .* durations_seconds)),
             window=Dates.Day(1),
         ),
     ),
@@ -152,7 +156,9 @@ Use:
 
 - `HoldLast()` for the last available state;
 - `Interpolate()` for a value defined between samples;
-- `Integrate()` for a rate accumulated over a window;
+- `Integrate()` to sum interval amounts over a window;
+- `Integrate((values, durations_seconds) -> sum(values .* durations_seconds))`
+  to integrate rates per second; the default reducer does not weight by time;
 - `Aggregate(...)` for an explicit aggregation policy;
 - `PreviousTimeStep(:x)` only for an intentional lag/cycle break with an
   explicit initial value and temporal meaning.
@@ -171,6 +177,19 @@ inputs=(
 
 Do not use a temporal policy until it is clear whether a variable is a state,
 rate, interval total, or instantaneous value.
+
+For real scalar rates per second, the named reducer
+`Integrate(PlantMeteo.DurationSumReducer())` is equivalent to the duration-aware
+callable above (`using PlantMeteo`).
+
+Temporal policies do not transform `VariableContract` metadata. The
+`Integrate(reducer)` example above assumes uncontracted ports; a rate contract cannot
+be bound directly to a total contract, even with `Integrate()`. For contracted
+models, put the rate-to-amount calculation in a named adapter whose incoming
+binding uses the producer's rate contract and whose output declares the
+consumer's amount contract. Accumulate varying rates at the producer cadence
+or use a correctly averaged rate. Do not remove contracts or label an amount
+as a rate to make the connection compile.
 
 ## Environment coupling
 

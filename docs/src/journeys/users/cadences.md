@@ -6,6 +6,12 @@ Running a whole composite over many timesteps was introduced on the first
 journey. This page changes one thing: applications no longer all run at the
 environment base step.
 
+Choose a base step that divides every application cadence: hourly and
+90-minute applications can share a 30-minute base step. A duration such as
+`every=Minute(90)` on an hourly base step is rejected. Fixed durations include
+subsecond periods; calendar months and adaptive timesteps are not application
+cadences.
+
 ## Hold a daily state for an hourly model
 
 Reuse the thermal-time, LAI, and light chain. The environment advances hourly;
@@ -100,7 +106,9 @@ latest value remains meaningful.
 
 ## Integrate a rate into an amount
 
-`Integrate` has a different physical meaning. If a leaf publishes a constant
+`Integrate(reducer)` can integrate rates using sample durations. The default
+`Integrate()` only sums values; it does not multiply by elapsed time. The
+explicit reducer below uses durations in seconds. If a leaf publishes a constant
 rate in units per second, integrating 24 hourly samples produces a daily
 amount. The consumer below sums the independently integrated amounts from two
 leaves.
@@ -167,7 +175,7 @@ flux_model = CompositeModel(
                     within=Subtree(),
                     application=:hourly_flux,
                     var=:flux,
-                    policy=Integrate(),
+                    policy=Integrate((values, durations_seconds) -> sum(values .* durations_seconds)),
                     window=Day(1),
                 ),
             ),
@@ -178,12 +186,30 @@ flux_model = CompositeModel(
 )
 
 flux_simulation = run!(flux_model; steps=25)
-final_state(flux_simulation, One(scale=:Plant)).amount
+amount = final_state(flux_simulation, One(scale=:Plant)).amount
+@assert amount == 259200.0
+amount
 ```
 
 The result is `(1 + 2) × 24 × 3600 = 259200` rate-seconds. Use
 `Aggregate(reducer)` instead when the desired quantity is a mean, minimum,
 maximum, or another reduction of observations rather than a time integral.
+
+!!! note "Temporal policies and scientific contracts"
+
+    This numerical example leaves variable contracts undeclared. In this
+    release, temporal policies do not transform `VariableContract` metadata:
+    connected ports must still declare identical contracts. A rate contract
+    and a total contract therefore cannot be connected directly through
+    `Integrate()`.
+
+    For contracted models, put the rate-to-amount calculation in a named
+    adapter. Its incoming binding uses the producer's rate contract and its
+    output declares the amount contract consumed downstream. For a varying
+    rate, accumulate at the producer cadence or use a correctly averaged
+    rate; multiplying one held sample by a long duration is valid only when
+    the rate is constant over that interval. Keep contracts on both sides;
+    see [Coupling models](@ref).
 
 There is no same-step feedback cycle in either example, so
 `PreviousTimeStep` is not needed. It should be introduced only when a real
