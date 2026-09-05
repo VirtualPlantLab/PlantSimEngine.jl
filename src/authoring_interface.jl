@@ -26,22 +26,23 @@ struct ModelInterface
     environment_hint::Any
 end
 
+_model_named_declaration_semantics(declaration::NamedTuple) = Tuple(
+    name => declaration[name]
+    for name in sort!(collect(Symbol.(keys(declaration))); by=string)
+)
+
 function _model_interface_semantics(interface::ModelInterface)
-    named_semantics(declaration) = Tuple(
-        name => declaration[name]
-        for name in sort!(collect(Symbol.(keys(declaration))); by=string)
-    )
     return (
         interface.schema_version,
         interface.process,
-        named_semantics(interface.inputs),
-        named_semantics(interface.outputs),
-        named_semantics(interface.environment_inputs),
-        named_semantics(interface.environment_outputs),
-        named_semantics(interface.variable_contracts),
-        named_semantics(interface.dependencies),
+        _model_named_declaration_semantics(interface.inputs),
+        _model_named_declaration_semantics(interface.outputs),
+        _model_named_declaration_semantics(interface.environment_inputs),
+        _model_named_declaration_semantics(interface.environment_outputs),
+        _model_named_declaration_semantics(interface.variable_contracts),
+        _model_named_declaration_semantics(interface.dependencies),
         interface.timespec,
-        named_semantics(interface.output_policy),
+        _model_named_declaration_semantics(interface.output_policy),
         interface.timestep_hint,
         interface.environment_hint,
     )

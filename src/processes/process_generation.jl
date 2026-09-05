@@ -171,7 +171,7 @@ function _process_model_tutorial(process_name, process_abstract_type)
 
         Fixed parameters belong to `model`, timestep-varying state belongs to
         `status`, and sampled forcing belongs to `environment`. Declare hard
-        dependencies separately with `dep(...)=Call(...)` only when the parent
+        dependencies separately with `dep(model)=(dependency=Call(...),)` when the parent
         model must control another model's execution.
 
         !!! tip "Variables and parameters usage"

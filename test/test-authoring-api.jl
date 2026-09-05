@@ -54,6 +54,21 @@ struct AuthoringInvalidParameterMetadataModel <: AbstractAuthoringLinearModel
     gain::Float64
 end
 struct AuthoringInvalidInputModel <: AbstractAuthoringInvalidModel end
+struct AuthoringShortKernelModel <: AbstractAuthoringInvalidModel end
+struct AuthoringLongKernelModel <: AbstractAuthoringInvalidModel end
+struct AuthoringVariadicKernelModel <: AbstractAuthoringLinearModel end
+struct AuthoringFixedVariadicKernelModel <: AbstractAuthoringLinearModel end
+struct AuthoringPolicyOrderModel{P} <: AbstractAuthoringLinearModel
+    policies::P
+end
+
+PlantSimEngine.run!(::AuthoringShortKernelModel, status, environment, constants) = nothing
+PlantSimEngine.run!(::AuthoringLongKernelModel, status, environment, constants, context, extra) = nothing
+PlantSimEngine.run!(::AuthoringVariadicKernelModel, status, arguments...) = nothing
+PlantSimEngine.run!(::AuthoringFixedVariadicKernelModel, arguments::Vararg{Any,4}) = nothing
+PlantSimEngine.outputs_(::AuthoringPolicyOrderModel) = (x=0.0, y=0.0)
+PlantSimEngine.output_policy(model::AuthoringPolicyOrderModel) = model.policies
+PlantSimEngine.run!(::AuthoringPolicyOrderModel, status, environment, constants, context) = nothing
 
 const AUTHORING_CONSTRUCTOR_CALLS = Ref(0)
 
@@ -351,6 +366,15 @@ end
     @test direct.compatibility == :direct_override
     @test isempty(direct.differences)
 
+    reordered_policy = compare_models(
+        AuthoringPolicyOrderModel((x=HoldLast(), y=Integrate())),
+        AuthoringPolicyOrderModel((y=Integrate(), x=HoldLast())),
+    )
+    @test reordered_policy.override_compatible
+    @test !reordered_policy.requires_binding_changes
+    @test !reordered_policy.requires_reconfiguration
+    @test isempty(reordered_policy.differences)
+
     cadence = compare_models(base, different_cadence)
     @test cadence.same_process
     @test !cadence.override_compatible
@@ -506,6 +530,19 @@ end
     @test any(diagnostic -> diagnostic.code == :invalid_inputs, invalid.diagnostics)
     @test any(diagnostic -> diagnostic.code == :missing_run_method, invalid.diagnostics)
 
+    for invalid_kernel in (AuthoringShortKernelModel(), AuthoringLongKernelModel())
+        invalid_kernel_report = validate_model(invalid_kernel)
+        @test !invalid_kernel_report.valid
+        @test any(
+            diagnostic -> diagnostic.code == :missing_run_method,
+            invalid_kernel_report.diagnostics,
+        )
+    end
+    for valid_kernel in (AuthoringVariadicKernelModel(), AuthoringFixedVariadicKernelModel())
+        @test validate_model(valid_kernel).valid
+        @test applicable(run!, valid_kernel, Status(), nothing, nothing, nothing)
+    end
+
     invalid_parameters = validate_model(AuthoringInvalidParameterMetadataModel(1.0))
     @test !invalid_parameters.valid
     @test any(
@@ -598,7 +635,7 @@ end
     @test any(
         diagnostic -> diagnostic.code == :invalid_model_metadata &&
                       diagnostic.context["modelType"] ==
-                      "AuthoringInvalidMetadataModel",
+                      string(AuthoringInvalidMetadataModel),
         overridden_report.diagnostics,
     )
 end

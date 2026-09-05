@@ -196,21 +196,10 @@ parameter_metadata(::AbstractModel) = NamedTuple()
 
 function _model_run_methods(::Type{T}) where {T<:AbstractModel}
     found = Method[]
+    kernel_signature = Tuple{typeof(run!),T,Any,Any,Any,Any}
     for method in methods(run!)
-        signature = Base.unwrap_unionall(method.sig)
-        parameters = signature.parameters
-        length(parameters) >= 6 || continue
-        model_argument = parameters[2]
-        while model_argument isa TypeVar
-            model_argument = model_argument.ub
-        end
-        model_argument isa Type || continue
-        intersects = try
-            typeintersect(T, model_argument) !== Union{}
-        catch
-            false
-        end
-        intersects && push!(found, method)
+        typeintersect(kernel_signature, method.sig) === Union{} && continue
+        push!(found, method)
     end
     sort!(found; by=method -> begin
         signature = Base.unwrap_unionall(method.sig)
@@ -657,11 +646,19 @@ function compare_models(left::AbstractModel, right::AbstractModel)
         :timestep_hint => false,
         :environment_hint => true,
     )
+        left_value = getfield(left_interface, field)
+        right_value = getfield(right_interface, field)
+        if field == :output_policy
+            isequal(
+                _model_named_declaration_semantics(left_value),
+                _model_named_declaration_semantics(right_value),
+            ) && continue
+        end
         _push_interface_value_difference!(
             differences,
             string("traits.", field),
-            getfield(left_interface, field),
-            getfield(right_interface, field),
+            left_value,
+            right_value,
             affects_bindings=affects_bindings,
         )
     end
