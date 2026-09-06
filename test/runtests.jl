@@ -186,6 +186,10 @@ else
         include("test-maespa-model-example.jl")
     end
 
+    @testset "Two-plant allocation comparison" begin
+        include("test-two-plant-allocation.jl")
+    end
+
     @testset "Status" begin
         include("test-Status.jl")
     end

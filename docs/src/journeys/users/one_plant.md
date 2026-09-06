@@ -201,7 +201,7 @@ leaf_states = final_state(computed_simulation, Many(scale=:Leaf))
 
 The resulting plant surface should be 3 m² and the light contributions should
 still be 40 and 80 μmol m⁻² of reference ground s⁻¹. You can now
-[reuse this configuration on several plants](several_plants.md).
+[use different models on two plants in the same simulation](several_plants.md).
 
 The optional table below lets you check the connections. For
 `:leaf_surfaces`, the plant should read from both leaves. Its `RefVector`

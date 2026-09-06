@@ -39,8 +39,8 @@ nothing
 ```
 
 The model contains one object for the whole scene, one soil object, and two
-plants built from the same template. The plants have different species
-parameters and numbers of leaves:
+plants with the same model connections. Each plant has its own template,
+species parameters, and number of leaves:
 
 ```@example journey_maespa_synthesis
 (
@@ -99,6 +99,9 @@ select(
 
 Each plant's allocation model reads carbon values from its own leaves. The
 scene model reads areas from all leaves and water potential from the soil.
+Here `AllocA` and `AllocB` use the same fixed-fraction allocation equation
+with different parameters. For two different allocation rules running on
+two plants together, see [Instantiate Several Plants](several_plants.md).
 Inspect `source_ids` below to check where each input comes from. The values
 are shared by reference, meaning the reader sees the current source values
 without copying them:
