@@ -10,15 +10,25 @@ The call to the function should take the model type as the first argument (T::Ty
 the data as the second argument (as a `Table.jl` compatible type, such as `DataFrame`), and the 
 parameters initializations as keyword arguments (with default values when necessary).
 
-For example the method for fitting the `Beer` model from the example script (see `src/examples/Beer.jl`) looks like 
-this:
+For example, the method for fitting the `Beer` model from the example script
+(see `examples/Beer.jl`) uses this mathematical identity after validating each
+observation:
 
 ```julia
-function PlantSimEngine.fit(::Type{Beer}, df; J_to_umol=PlantMeteo.Constants().J_to_umol)
-    k = Statistics.mean(log.(df.Ri_PAR_f ./ (df.aPPFD ./ J_to_umol)) ./ df.LAI)
-    return (k=k,)
-end
+J_to_umol = PlantMeteo.Constants().J_to_umol
+incident_ppfd = J_to_umol .* df.Ri_PAR_f
+f_abs = df.aPPFD ./ incident_ppfd
+k = Statistics.mean(-log1p.(-f_abs) ./ df.LAI)
 ```
+
+This is only the inversion, not a complete implementation to copy. The shipped
+`Beer` method also rejects empty data and invalid `LAI`, incident flux, and
+absorbed fractions with row-specific errors.
+
+Here, `Ri_PAR_f` is incident PAR in W m[ground]⁻², `aPPFD` is the PAR
+absorbed by the canopy in μmol[PAR] m[ground]⁻² s⁻¹, and `LAI` is in
+m[leaf]² m[ground]⁻². A mean leaf-area-basis PPFD is a different quantity and
+must not be passed to this fit.
 
 The function should return the optimized parameters as a `NamedTuple` of the form `(parameter_name=parameter_value,)`.
 
@@ -28,16 +38,34 @@ and `Ri_PAR_f`.
 ```julia
 # Including example processes and models:
 using PlantSimEngine.Examples;
+using PlantSimEngine.Evaluation;
 
-m = ModelList(Beer(0.6), status=(LAI=2.0,))
-meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
-run!(m, meteo)
-df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
-fit(Beer, df)
+meteo = Atmosphere(
+    T=20.0,
+    Wind=1.0,
+    P=101.3,
+    Rh=0.65,
+    Ri_PAR_f=300.0,
+    duration=Hour(1),
+)
+model = CompositeModel(
+    Beer(0.6);
+    status=(LAI=2.0,),
+    id=:plant,
+    scale=:Plant,
+    environment=meteo,
+)
+simulation = run!(model)
+plant = final_state(simulation, One(scale=:Plant))
+data = DataFrame(
+    aPPFD=[plant.aPPFD],
+    LAI=[plant.LAI],
+    Ri_PAR_f=[meteo.Ri_PAR_f[1]],
+)
+Evaluation.fit(Beer, data)
 ```
 
-Note that this is a dummy example to show that the fitting method works, as we simulate the aPPFD 
-using the Beer-Lambert law with a value of `k=0.6`, and then use the simulated aPPFD to fit the `k`
-parameter again, which gives the same value as the one used on the simulation.
+This is a synthetic round trip: it simulates canopy-absorbed `aPPFD` with
+`k=0.6`, then recovers the same value from the ground-area-basis fluxes.
 """
 function fit end

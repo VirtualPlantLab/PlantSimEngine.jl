@@ -15,15 +15,13 @@ It is not meant as a full-fledged from-scratch Julia tutorial. If you are comple
 ## Installing packages and setting up and environment
 
 For PlantSimEngine, you can check our documentation page on the topic: 
-[Installing and running PlantSimEngine](@ref)
+[Installing PlantSimEngine](installing_plantsimengine.md).
 
 ## Cheatsheets
 
 You can also find a few cheatsheets [here](https://palmstudio.github.io/Biophysics_database_palm/cheatsheets/) as well as a [short introductory notebook](https://palmstudio.github.io/Biophysics_database_palm/basic_syntax/) along with its [install instructions](https://palmstudio.github.io/Biophysics_database_palm/installation/).
 
 ## Troubleshooting
-
-There is a documentation page showcasing some of the common errors than can occur when using PlantSimEngine, which may be worth checking if you are encountering issues: [Troubleshooting error messages](@ref).
 
 For more Julia learning-related difficulties, you will find quick responses on the Discourse forum: [https://discourse.julialang.org](https://discourse.julialang.org).
 

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +9,16 @@ const serverScript = path.join(repoRoot, "test", "fixtures", "graph_editor_e2e_s
 export type GraphEditorServer = {
   url: string;
   stop: () => Promise<void>;
+};
+
+export type StoppableProcess = {
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | null;
+  kill: (signal?: NodeJS.Signals | number) => boolean;
+  once: (
+    event: "exit",
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ) => unknown;
 };
 
 export async function startGraphEditorServer(): Promise<GraphEditorServer> {
@@ -67,12 +77,12 @@ export async function startGraphEditorServer(): Promise<GraphEditorServer> {
   };
 }
 
-function stopProcess(proc: ChildProcessWithoutNullStreams): Promise<void> {
-  if (proc.killed || proc.exitCode !== null) return Promise.resolve();
+export function stopProcess(proc: StoppableProcess, gracePeriodMs = 3_000): Promise<void> {
+  if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve();
   return new Promise((resolve) => {
     const killTimer = setTimeout(() => {
-      if (!proc.killed && proc.exitCode === null) proc.kill("SIGKILL");
-    }, 3_000);
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
+    }, gracePeriodMs);
     proc.once("exit", () => {
       clearTimeout(killTimer);
       resolve();

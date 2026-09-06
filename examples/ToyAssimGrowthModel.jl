@@ -41,31 +41,37 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyAssimGrowthModel)
-    (aPPFD=-Inf,)
+    (aPPFD=Required(Real),)
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyAssimGrowthModel)
-    (carbon_assimilation=-Inf, Rm=-Inf, Rg=-Inf, biomass_increment=-Inf, biomass=0.0)
+function PlantSimEngine.outputs_(model::ToyAssimGrowthModel)
+    initial = oftype(model.LUE, -Inf)
+    return (
+        carbon_assimilation=initial,
+        Rm=initial,
+        Rg=initial,
+        biomass_increment=initial,
+        biomass=zero(model.LUE),
+    )
 end
 
 # Tells Julia what is the type of elements:
 Base.eltype(x::ToyAssimGrowthModel{T}) where {T} = T
 
 # Implement the growth model:
-function PlantSimEngine.run!(::ToyAssimGrowthModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(model::ToyAssimGrowthModel, status, environment, constants, context)
 
     # The assimilation is simply the absorbed photosynthetic photon flux density (aPPFD) times the light use efficiency (LUE):
-    status.carbon_assimilation = status.aPPFD * models.growth.LUE
+    status.carbon_assimilation = status.aPPFD * model.LUE
     # The maintenance respiration is simply a factor of the assimilation:
-    status.Rm = status.carbon_assimilation * models.growth.Rm_factor
-    # Note that we use models.growth.Rm_factor to access the parameter of the model
+    status.Rm = status.carbon_assimilation * model.Rm_factor
 
     # Net primary productivity of the plant (NPP) is the assimilation minus the maintenance respiration:
     NPP = status.carbon_assimilation - status.Rm
 
     # The NPP is used with a cost (growth respiration Rg):
-    status.Rg = 1 - (NPP / models.growth.Rg_cost)
+    status.Rg = 1 - (NPP / model.Rg_cost)
 
     # The biomass increment is the NPP minus the growth respiration:
     status.biomass_increment = NPP - status.Rg
@@ -73,6 +79,3 @@ function PlantSimEngine.run!(::ToyAssimGrowthModel, models, status, meteo, const
     # The biomass is the biomass from the previous time-step plus the biomass increment:
     status.biomass += status.biomass_increment
 end
-
-# And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyAssimGrowthModel}) = PlantSimEngine.IsObjectIndependent()

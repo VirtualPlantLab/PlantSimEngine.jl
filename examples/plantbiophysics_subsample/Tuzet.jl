@@ -1,0 +1,107 @@
+#! Careful: this file is more or less a copy/paste from the original model implementation in PlantBiophysics.jl (v0.16.2). It is only used for testing.
+#! If you want to use this model, use the one from PlantBiophysics.jl instead, which is more up to date and maintained.
+
+# Generate all methods for the stomatal conductance process: several environment time-steps, components,
+#  over an MTG, and the mutating /non-mutating versions
+@process "stomatal_conductance" verbose = false
+
+# Default policy for stomatal conductance when consumed at coarser clocks.
+# Conductance is typically summarized over a window rather than accumulated.
+PlantSimEngine.output_policy(::Type{<:AbstractStomatal_ConductanceModel}) = (Gₛ=PlantSimEngine.Aggregate(PlantMeteo.DurationSumReducer()),)
+
+# Gs accepts either an ordinary sampled environment or a closure value passed
+# explicitly by the parent photosynthesis call.
+function PlantSimEngine.run!(Gs::Gsm, status, environment, constants, context) where {Gsm<:AbstractStomatal_ConductanceModel}
+    closure = environment isa Number ?
+              environment :
+              gs_closure(Gs, status, environment, constants, context)
+    status.Gₛ = max(
+        Gs.gs_min,
+        Gs.g0 + closure * status.A,
+    )
+end
+
+"""
+Tuzet et al. (2003) stomatal conductance model for CO₂.
+
+# Arguments
+
+- `g0`: intercept (μmol m⁻² s⁻¹).
+- `g1`: slope.
+- `Ψᵥ`: leaf water potential at which stomatal conductance is halved (MPa).
+- `sf`: sensitivity factor for stomatal closure.
+- `Γ`: CO₂ compensation point (mol mol⁻¹).
+- `gs_min`: residual conductance (μmol m⁻² s⁻¹).
+
+# Variables 
+
+- `Ψₗ`: leaf water potential (MPa).
+- `Cₛ`: CO₂ concentration at the leaf surface (μmol mol⁻¹).
+- `A`: CO₂ assimilation rate (μmol m⁻² s⁻¹).
+- `Gₛ`: stomatal conductance (μmol m⁻² s⁻¹).
+
+# Note
+
+The CO₂ compensation point represents the concentration of CO₂ at which photosynthesis and respiration are balanced, 
+and it is typically a small positive value around 30–50 μmol mol⁻¹ under normal atmospheric conditions.
+
+This implementation uses Cₛ instead of Cᵢ. 
+
+# References
+
+Tuzet, A., Perrier, A., & Leuning, R. (2003). A coupled model of stomatal conductance, photosynthesis and transpiration. Plant, Cell & Environment, 26(7), 1097-1116.
+"""
+struct Tuzet{T} <: AbstractStomatal_ConductanceModel
+    g0::T
+    g1::T
+    Ψᵥ::T
+    sf::T
+    Γ::T
+    gs_min::T
+end
+
+Tuzet(g0, g1, Ψᵥ, sf, Γ, gs_min=oftype(g0, 0.001)) = Tuzet(promote(g0, g1, Ψᵥ, sf, Γ, gs_min))
+Tuzet(; g0, g1, Ψᵥ, sf, Γ, gs_min=0.001) = Tuzet(g0, g1, Ψᵥ, sf, Γ, gs_min)
+
+function PlantSimEngine.inputs_(::Tuzet)
+    (Ψₗ=Required(Float64), Cₛ=Required(Float64))
+end
+
+function PlantSimEngine.outputs_(::Tuzet)
+    (Gₛ=-Inf,)
+end
+
+Base.eltype(::Tuzet{T}) where T = T
+
+"""
+    gs_closure(::Tuzet, status, environment, constants=nothing, context=nothing)
+
+Stomatal closure for CO₂ according to Tuzet et al. (2003).
+
+# Arguments
+
+- `::Tuzet`: an instance of the `Tuzet` model type.
+- `status`: A status struct holding the variables for the models.
+- `environment`: sampled environment. It is not used in this model.
+- `constants`: A constants struct holding the constants for the models. Is not used in this model.
+- `context`: The runtime context. It is not used in this model.
+
+# Details
+
+The stomatal conductance is calculated as:
+
+    FPSIF = (1 + exp(sf * psiv)) / (1 + exp(sf * (psiv - Ψₗ)))
+    GSDIVA = g0 + (g1 / (Cₛ - Γ)) * FPSIF
+
+where `Γ` is the CO₂ compensation point.
+"""
+function gs_closure(m::Tuzet, status, environment, constants=nothing, context=nothing)
+    fpsif = (1 + exp(m.sf * m.Ψᵥ)) /
+            (1 + exp(m.sf * (m.Ψᵥ - status.Ψₗ)))
+    (m.g1 / (status.Cₛ - m.Γ)) * fpsif
+end
+
+PlantSimEngine.timestep_hint(::Type{<:Tuzet}) = (
+    required=(Dates.Minute(1), Dates.Hour(6)),
+    preferred=Dates.Hour(1)
+)

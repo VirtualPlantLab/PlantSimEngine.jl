@@ -1,137 +1,80 @@
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { Edge, Node } from "@xyflow/react";
-import type { GraphEdgeData, GraphPort, RuntimeGraphNodeData } from "./types";
+import type { RuntimeApplicationNode, RuntimeEntityNode, ModelGraphEdge } from "./types";
 import { nodeWidth } from "./nodeSizing";
 
 const elk = new ELK();
-export type LayoutMode = "data_flow" | "compact" | "scale_grouped" | "call_stack" | "overview";
+export type LayoutMode = "data_flow" | "compact" | "overview" | "topology";
+type RuntimeNode = RuntimeApplicationNode | RuntimeEntityNode;
 
-export async function layoutGraph(nodes: Node<RuntimeGraphNodeData>[], edges: Edge<GraphEdgeData>[], mode: LayoutMode = "data_flow") {
-  const layoutEdges = mode === "call_stack" ? edges.filter((edge) => isCallEdge(edge.data)) : edges;
+export async function layoutGraph(nodes: Node<RuntimeNode>[], edges: Edge<ModelGraphEdge>[], mode: LayoutMode) {
   const graph = {
     id: "root",
-    layoutOptions: layoutOptions(mode),
+    layoutOptions: options(mode),
     children: nodes.map((node) => ({
       id: node.id,
-      width: nodeWidth(node.data),
-      height: nodeHeight(node.data),
-      ports: [
-        elkCallPort(node.id, "target"),
-        ...node.data.inputs.map((port, index) => elkPort(port, index)),
-        ...node.data.outputs.map((port, index) => elkPort(port, index)),
-        elkCallPort(node.id, "source"),
+      width: width(node.data),
+      height: height(node.data),
+      ports: node.data.nodeKind === "application" ? [
+        ...applicationInputPorts(node.data).map((port, index) => portDescriptor(port.id, "WEST", index)),
+        ...applicationOutputPorts(node.data).map((port, index) => portDescriptor(port.id, "EAST", index)),
+      ] : [
+        ...(node.data.inputPortIds ?? []).map((id, index) => portDescriptor(id, "WEST", index)),
+        ...(node.data.outputPortIds ?? []).map((id, index) => portDescriptor(id, "EAST", index)),
       ],
-      layoutOptions: {
-        "org.eclipse.elk.portConstraints": "FIXED_ORDER",
-      },
+      layoutOptions: { "org.eclipse.elk.portConstraints": "FIXED_ORDER" },
     })),
-    edges: layoutEdges.map((edge) => ({
+    edges: edges.map((edge) => ({
       id: edge.id,
       sources: [edge.sourceHandle ?? edge.source],
       targets: [edge.targetHandle ?? edge.target],
     })),
   };
-
   const result = await elk.layout(graph);
   const positions = new Map((result.children ?? []).map((child) => [child.id, { x: child.x ?? 0, y: child.y ?? 0 }]));
-  const scaleOffsets =
-    mode === "scale_grouped" ? scaleBandOffsets(nodes, 260) :
-      mode === "overview" ? scaleBandOffsets(nodes, 130) :
-        new Map<string, number>();
-
-  return nodes.map((node) => {
-    const position = positions.get(node.id) ?? node.position;
-    return {
-      ...node,
-      position: {
-        x: position.x,
-        y: position.y + (scaleOffsets.get(node.data.scale) ?? 0),
-      },
-    };
-  });
+  return nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position }));
 }
 
-function layoutOptions(mode: LayoutMode): Record<string, string> {
-  if (mode === "compact") {
-    return {
-      "elk.algorithm": "layered",
-      "elk.direction": "RIGHT",
-      "elk.spacing.nodeNode": "28",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "52",
-      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
-      "elk.layered.crossingMinimization.semiInteractive": "true",
-      "elk.edgeRouting": "ORTHOGONAL",
-    };
-  }
-
-  if (mode === "overview") {
-    return {
-      "elk.algorithm": "layered",
-      "elk.direction": "RIGHT",
-      "elk.spacing.nodeNode": "24",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "46",
-      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
-      "elk.layered.crossingMinimization.semiInteractive": "true",
-      "elk.edgeRouting": "ORTHOGONAL",
-    };
-  }
-
-  if (mode === "call_stack") {
-    return {
-      "elk.algorithm": "layered",
-      "elk.direction": "DOWN",
-      "elk.spacing.nodeNode": "46",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "76",
-      "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
-      "elk.edgeRouting": "ORTHOGONAL",
-    };
-  }
-
+function options(mode: LayoutMode): Record<string, string> {
   return {
-    "elk.algorithm": "layered",
-    "elk.direction": "RIGHT",
-    "elk.spacing.nodeNode": mode === "scale_grouped" ? "72" : "58",
-    "elk.layered.spacing.nodeNodeBetweenLayers": mode === "scale_grouped" ? "130" : "110",
+    "elk.algorithm": mode === "topology" ? "mrtree" : "layered",
+    "elk.direction": mode === "topology" ? "DOWN" : "RIGHT",
+    "elk.spacing.nodeNode": mode === "overview" ? "24" : mode === "compact" ? "32" : "56",
+    "elk.layered.spacing.nodeNodeBetweenLayers": mode === "overview" ? "48" : mode === "compact" ? "60" : "110",
     "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
     "elk.layered.crossingMinimization.semiInteractive": "true",
     "elk.edgeRouting": "ORTHOGONAL",
   };
 }
 
-function scaleBandOffsets(nodes: Node<RuntimeGraphNodeData>[], spacing: number) {
-  const scales = [...new Set(nodes.map((node) => node.data.scale))].sort();
-  return new Map(scales.map((scale, index) => [scale, index * spacing]));
-}
-
-function isCallEdge(edge?: GraphEdgeData) {
-  return edge?.kind === "hard_dependency" && !edge.sourcePort && !edge.targetPort;
-}
-
-function nodeHeight(node: RuntimeGraphNodeData) {
-  if (node.viewMode === "overview") return 108;
-  return Math.max(160, 112 + Math.max(node.inputs.length, node.outputs.length) * 28);
-}
-
-function elkPort(port: GraphPort, index: number) {
+function portDescriptor(id: string, side: "WEST" | "EAST", index: number) {
   return {
-    id: port.id,
+    id,
     width: 9,
     height: 9,
     layoutOptions: {
-      "org.eclipse.elk.port.side": port.role === "input" ? "WEST" : "EAST",
+      "org.eclipse.elk.port.side": side,
       "org.eclipse.elk.port.index": String(index),
     },
   };
 }
 
-function elkCallPort(nodeId: string, role: "source" | "target") {
-  return {
-    id: `${nodeId}:call-${role}`,
-    width: 12,
-    height: 36,
-    layoutOptions: {
-      "org.eclipse.elk.port.side": role === "target" ? "WEST" : "EAST",
-      "org.eclipse.elk.port.index": role === "target" ? "-1" : "9999",
-    },
-  };
+function width(data: RuntimeNode) {
+  return data.nodeKind === "application" ? nodeWidth(data) : 240;
+}
+
+function height(data: RuntimeNode) {
+  if (data.nodeKind !== "application") return 112;
+  if (data.detailMode === "overview") return 108;
+  const modelPortRows = Math.max(data.inputs.length, data.outputs.length);
+  const environmentPortRows = Math.max(data.environmentInputs.length, data.environmentOutputs.length);
+  return Math.max(178, 142 + modelPortRows * 27 + (environmentPortRows > 0 ? 32 + environmentPortRows * 27 : 0));
+}
+
+export function applicationInputPorts(data: RuntimeApplicationNode) {
+  return [...data.inputs, ...data.environmentInputs];
+}
+
+export function applicationOutputPorts(data: RuntimeApplicationNode) {
+  return [...data.outputs, ...data.environmentOutputs];
 }

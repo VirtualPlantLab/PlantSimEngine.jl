@@ -11,7 +11,7 @@ Computes the light partitioning based on relative surface.
 
 # Inputs
 
-- `aPPFD`: the absorbed photosynthetic photon flux density at the larger scale (*e.g.* scene), in mol[PAR] m⁻² time-step⁻¹ 
+- `aPPFD`: the absorbed photosynthetic photon flux density at the larger scale (*e.g.* model), in mol[PAR] m⁻² time-step⁻¹
 
 # Outputs
 
@@ -24,13 +24,15 @@ Computes the light partitioning based on relative surface.
 struct ToyLightPartitioningModel <: AbstractLight_PartitioningModel end
 
 # Define inputs:
-PlantSimEngine.inputs_(::ToyLightPartitioningModel) = (aPPFD_larger_scale=-Inf, total_surface=-Inf, surface=-Inf,)
+PlantSimEngine.inputs_(::ToyLightPartitioningModel) = (
+    aPPFD_larger_scale=Required(Real),
+    total_surface=Required(Real),
+    surface=Required(Real),
+)
 
 # Define outputs:
 PlantSimEngine.outputs_(::ToyLightPartitioningModel) = (aPPFD=-Inf,)
 
-function PlantSimEngine.run!(::ToyLightPartitioningModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(::ToyLightPartitioningModel, status, environment, constants, context)
     status.aPPFD = status.aPPFD_larger_scale * status.surface / status.total_surface
 end
-
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLightPartitioningModel}) = PlantSimEngine.IsTimeStepIndependent()

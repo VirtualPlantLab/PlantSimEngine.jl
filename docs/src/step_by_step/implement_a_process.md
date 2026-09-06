@@ -1,59 +1,107 @@
-# Implementing a new process
+# New process or new model?
 
-```@setup usepkg
+A process names a biological or physical question. A concrete model is one
+hypothesis, formulation, or scale at which that process is computed. Make this
+choice before writing the model type: it determines whether users can discover
+your implementation beside existing alternatives.
+
+## Prefer an existing process
+
+Start by loading the packages that may own the process and inspect what they
+declare:
+
+```@example choose_process
 using PlantSimEngine
-using PlantMeteo
-PlantSimEngine.@process growth
+
+Authoring.available_processes()
 ```
 
-## Introduction
+`Authoring.available_processes()` can only see loaded Julia modules. Search the source of
+the target package as well before deciding that a process is missing. The
+[Loaded model catalog](@ref) shows the same discovery result grouped into a
+generated table with provenance and completeness.
 
-A process in this package defines a biological or physical phenomena. Think of any process happening in a system, such as light interception, photosynthesis, water, carbon and energy fluxes, growth, yield or even electricity produced by solar panels.
+Reuse an existing abstract process type when the new implementation answers
+the same scientific question. Examples include two photosynthesis
+formulations, a simple and a water-stress-aware radiation-use-efficiency model,
+or the same process represented at different scales. Give each hypothesis its
+own concrete model instead of adding a `method=:a_or_b` switch to one large
+kernel.
 
-`PlantSimEngine.jl` was designed to make the implementation of new processes and models easy and fast. The next section showcases how to implement a new process with a simple example: implementing a growth model.
+Models in the same process form a scientific family, but they are not
+necessarily interchangeable. They may require different inputs, produce
+different outputs, use different clocks, or declare different
+`VariableContract`s. See [Model compatibility and replacement](@ref) before
+using one as an `Override` or replacing it without revisiting scenario
+bindings.
 
-## Implement a process
+## Declare a process only for a new meaning
 
-A process is "declared", meaning we define a process, and then implement models for its simulation. Declaring a process generates some boilerplate code for its simulation: 
+Create a process when no existing process has the same biological or physical
+meaning:
 
-- an abstract type for the process
-- a method for the `process` function, that is used internally
+```@example choose_process
+PlantSimEngine.@process "docs_root_exudation" verbose=false
 
-The abstract process type is then used as a supertype of all models implementations for the process, and is named `Abstract<process_name>Process`, *e.g.* `AbstractLight_InterceptionModel`.
-
-Fortunately, PlantSimEngine provides a macro to generate all that at once: [`@process`](@ref). This macro takes only one argument: the name of the process.
-
-For example, the photosynthesis process in [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) is declared using just this tiny line of code:
-
-```julia
-@process "photosynthesis"
+abstract = AbstractDocs_Root_ExudationModel
+abstract <: AbstractModel
 ```
 
-If we want to simulate the growth of a plant, we could add a new process called `growth`:
+The generated abstract type is formed by prefixing `Abstract`, preserving word
+boundaries from the process name, and appending `Model`. For example:
 
-```julia
-@process "growth"
+| Declaration | Generated abstract type |
+|---|---|
+| `@process "growth"` | `AbstractGrowthModel` |
+| `@process "light_interception"` | `AbstractLight_InterceptionModel` |
+
+Concrete implementations subtype the generated abstract type:
+
+```@example choose_process
+struct DocsLinearExudation{T} <: AbstractDocs_Root_ExudationModel
+    fraction::T
+end
+
+process(DocsLinearExudation(0.1))
 ```
 
-And that's it! Note that the function guides you in the steps you can make after creating a process.
+The macro generates process identity and the abstract type; it does not choose
+ports, units, parameters, defaults, equations, or scientific validation for
+you. Continue with [Implement a basic model](@ref), which is the canonical
+model-authoring path.
 
-## Implement a new model for the process
+## A practical decision test
 
-Once process implementation is done, you can write a corresponding model implementation. A tutorial page showcasing a light interception model implementation can be found [here](@ref model_implementation_page)
+Ask these questions in order:
 
-A full model implementation for this process is available in the example script [ToyAssimGrowthModel.jl](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyAssimGrowthModel.jl).
+1. Is the quantity being simulated and its scientific meaning already
+   represented by a loaded process?
+2. Would users reasonably compare this implementation with the existing
+   implementations as alternative hypotheses?
+3. Is the difference only an equation, assumption, parameterization, scale, or
+   resolution of that same question?
 
-## [Under the hood](@id under_the_hood)
+If the answers point to the same question, add a model to the existing
+process. Create a new process only when the meaning itself changes. If the new
+model changes units or basis while connecting two existing meanings, implement
+an explicit adapter model instead; see [Coupling models](@ref).
 
-The `@process` macro is just a shorthand reducing boilerplate.
+## Without the macro
 
-You can in its stead directly define a process by hand by defining an abstract type that is a subtype of `AbstractModel`:
-```julia
-abstract type AbstractGrowthModel <: PlantSimEngine.AbstractModel end
+`@process` is a small convenience. The equivalent manual declaration is:
+
+```@example choose_process
+abstract type AbstractDocsManualRootExudationModel <:
+              PlantSimEngine.AbstractModel end
+PlantSimEngine.process_(
+    ::Type{AbstractDocsManualRootExudationModel},
+) = :docs_manual_root_exudation
+
+struct DocsManualRootExudation <: AbstractDocsManualRootExudationModel end
+
+manual_process = process(DocsManualRootExudation())
+@assert manual_process == :docs_manual_root_exudation
+manual_process
 ```
-And by adding a method for the `process_` function that returns the name of the process:
-```julia
-PlantSimEngine.process_(::Type{AbstractGrowthModel}) = :growth
-```
 
-So in the earlier example, a new process was created called `growth`. This defined a new abstract structure called `AbstractGrowthModel`, which is used as a supertype of the models. This abstract type is always named using the process name in title case (using `titlecase()`), prefixed with `Abstract` and suffixed with `Model`.
+Prefer the macro for ordinary package code so process naming stays consistent.

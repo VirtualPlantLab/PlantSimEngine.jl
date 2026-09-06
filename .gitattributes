@@ -1,0 +1,2 @@
+# Generated bundles may preserve whitespace inside dependency template literals.
+frontend/dist/assets/*.js -whitespace

@@ -104,6 +104,7 @@ Base.size(rv::RefVector) = size(rv.v)
 Base.length(rv::RefVector) = length(rv.v)
 Base.eltype(::Type{RefVector{T}}) where {T} = T
 Base.parent(v::RefVector) = v.v
+Base.dataids(v::RefVector) = Base.dataids(parent(v))
 
 Base.resize!(v::RefVector, nl::Integer) = (resize!(parent(v), nl); v)
 Base.push!(v::RefVector, x...) = (push!(parent(v), x...); v)

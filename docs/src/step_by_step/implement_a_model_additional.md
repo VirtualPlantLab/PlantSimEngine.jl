@@ -28,11 +28,19 @@ end
 
 Doing so would lose some flexibility in the way users can make use of your models. For example a user could use the `Particles` type from [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for automatic uncertainty propagation, and this is only possible if the model type is parameterizable. Forcing a `Float64` type would render the model incompatible with `Particles`.
 
-## Type promotion
+## Promoting model constructor arguments
 
 When implementing a new model, you can do a little optional extra work to help future users.
 
-You can add a method for type promotion. It wouldn't make any sense for the previous `Beer` example because we have only one parameter. But we can make another example with a new model that would be called `Beer2` that would take two parameters:
+You can add a constructor that uses Julia's `promote` function. This is
+promotion of model parameters while constructing the model; it is distinct
+from the `CompositeModel(...; type_promotion=...)` policy that converts status
+values for a scenario. See [Numerical Reliability](@ref) for that status
+policy.
+
+Constructor promotion would not make any difference for the previous `Beer`
+example because it has only one parameter. Consider instead a `Beer2` model
+with two parameters:
 
 ```julia
 struct Beer2{T} <: AbstractLight_InterceptionModel
@@ -50,7 +58,9 @@ end
 ```
 
 !!! note
-    `promote` returns a NamedTuple, which needs to be splatted for the constructor, see the [Julia docs](https://docs.julialang.org/en/v1/manual/conversion-and-promotion/#Promotion) for a more in-depth explanation, or our [Getting started with Julia](@ref) page for some links to other references discussing Julia concepts used in PlantSimEngine.
+    `promote` returns a tuple, which is splatted into the constructor above.
+    See the [Julia documentation](https://docs.julialang.org/en/v1/manual/conversion-and-promotion/#Promotion)
+    for a more in-depth explanation.
 
 This would allow users to instantiate the model parameters using different types of inputs. For example users may write the following:
 
@@ -60,7 +70,9 @@ Beer2(0.6,2)
 
 `Beer2` is a parametric type, with all fields sharing the same type `T`. This is the `T` in `Beer2{T}` and then in `k::T` and `x::T`. And this forces the user to give all parameters with the same type.
 
-And in the example above, providin `0.6` for `k`, which is a `Float64`, and `2` for `x`, which is an `Int`. If you don't have type promotion, Julia will return an error because both should be either `Float64` or `Int`. That's were type promotion comes in handy, as it will convert all your inputs to a common type (when possible). In our case it will convert `2` to `2.0`.
+In the example above, `0.6` for `k` is a `Float64`, while `2` for `x` is an
+`Int`. Constructor promotion converts both arguments to a common type when
+possible. In this case it converts `2` to `2.0`.
 
 ## Other helper functions and constructors
 

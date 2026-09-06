@@ -31,29 +31,28 @@ end
 
 # Instantiate the `struct` with keyword arguments and default values:
 function ToyCDemandModel(; optimal_biomass, development_duration)
-    ToyCDemandModel(optimal_biomass, development_duration)
+    parameters = promote(float(optimal_biomass), float(development_duration))
+    return ToyCDemandModel(parameters...)
 end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyCDemandModel)
-    (TT=-Inf,)
+    (TT=Required(Real),)
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyCDemandModel)
-    (carbon_demand=-Inf,)
+function PlantSimEngine.outputs_(model::ToyCDemandModel)
+    (carbon_demand=oftype(model.optimal_biomass, -Inf),)
 end
 
 # Tells Julia what is the type of elements:
 Base.eltype(::ToyCDemandModel{T}) where {T} = T
 
 # Implement the growth model:
-function PlantSimEngine.run!(::ToyCDemandModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(model::ToyCDemandModel, status, environment, constants, context)
     # The carbon demand is simply the biomass under optimal conditions divided by the duration of the development:
-    status.carbon_demand = status.TT * models.carbon_demand.optimal_biomass / models.carbon_demand.development_duration
+    status.carbon_demand =
+        status.TT *
+        model.optimal_biomass /
+        model.development_duration
 end
-
-# And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyCDemandModel}) = PlantSimEngine.IsObjectIndependent()
-# And also over time (time-steps):
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyCDemandModel}) = PlantSimEngine.IsTimeStepIndependent()

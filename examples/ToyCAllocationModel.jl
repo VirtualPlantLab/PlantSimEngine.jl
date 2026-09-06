@@ -31,7 +31,11 @@ struct ToyCAllocationModel <: AbstractCarbon_AllocationModel end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyCAllocationModel)
-    (carbon_assimilation=[-Inf], Rm=-Inf, carbon_demand=[-Inf],)
+    (
+        carbon_assimilation=Required(AbstractVector{<:Real}),
+        Rm=Required(Real),
+        carbon_demand=Required(AbstractVector{<:Real}),
+    )
 end
 
 # Define outputs:
@@ -39,7 +43,7 @@ function PlantSimEngine.outputs_(::ToyCAllocationModel)
     (carbon_offer=-Inf, carbon_allocation=[-Inf],)
 end
 
-function PlantSimEngine.run!(::ToyCAllocationModel, models, status, meteo, constants, extra_args)
+function PlantSimEngine.run!(::ToyCAllocationModel, status, environment, constants, context)
 
     carbon_demand_tot = sum(status.carbon_demand)
     #Note: this model is multiscale, so status.carbon_demand, status.carbon_allocation, and status.carbon_assimilation are vectors.
@@ -68,5 +72,5 @@ function PlantSimEngine.run!(::ToyCAllocationModel, models, status, meteo, const
     end
 end
 
-# Can be parallelized over time-steps, but not objects (we have vectors of values coming from other objects as input):
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyCAllocationModel}) = PlantSimEngine.IsTimeStepIndependent()
+# This model reads values from several objects, so object-level independence
+# must not be assumed by a future executor.

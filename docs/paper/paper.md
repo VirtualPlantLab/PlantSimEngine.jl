@@ -31,7 +31,8 @@ bibliography: paper.bib
 - Switch between models without changing any code, with a simple syntax to define the model to use for a given process
 - Reduce the degrees of freedom by fixing variables, passing measurements, or using a simpler model for a given process
 - Fast computation, with 100th of nanoseconds for one model, two coupled models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)), or the full energy balance of a leaf using [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) [@vezy_vezyplantbiophysicsjl_2023], a package that uses PlantSimEngine
-- Out of the box sequential, parallel (multi-threaded) or distributed (multi-process) computations over objects, time-steps and independent processes (thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/))
+- Sequential scene execution through concrete application/object batches. A
+  public parallel or distributed executor is not currently part of the API.
 - Easily scalable, with methods for computing over objects, time-steps and even [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl) [@vezy_multiscaletreegraphjl_2023]
 - Composable, allowing the use of any types as inputs such as [Unitful](https://github.com/PainterQubits/Unitful.jl) to propagate units, or [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) [@carlson_montecarlomeasurementsjl_2020] to propagate measurement error
 

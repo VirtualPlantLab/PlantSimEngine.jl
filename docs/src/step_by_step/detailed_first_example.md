@@ -1,17 +1,21 @@
-# [Detailed walkthrough of a simple simulation](@id detailed-walkthrough-of-a-simple-simulation)
+# [Detailed Walkthrough Of A Simple Simulation](@id detailed-walkthrough-of-a-simple-simulation)
 
-This page walks you through the ins and outs of a basic simulation, mostly aimed at people who have less experience programming, to showcase the various concepts presented earlier and requirements for a simulation in context.
+This page walks through a small composite-model/object simulation. It is written for
+readers who are still getting comfortable with Julia and PlantSimEngine.
 
-A working trimmed-down script can be found further down in the [Example simulation](@ref), and other subsections in this page will detail setup and helper functions, and querying outputs.
+If you only want examples to copy and modify, see [Quick examples](quick_and_dirty_examples.md). For
+multi-object and multi-plant simulations, the same API scales up: add objects,
+select them with `ModelSpec(...; on=...)`, connect values with `ModelSpec(...; inputs=...)`, and use
+`ModelSpec(...; calls=...)` when a parent model must manually run child models.
 
-If you simply wish to copy-paste examples and tinker with them, you can find a few examples on the [Quick examples](@ref) page.
-
-```@setup usepkg
-using PlantSimEngine, PlantMeteo, Dates
+```@setup detailed_scene
+using PlantSimEngine, PlantMeteo, Dates, DataFrames
 using PlantSimEngine.Examples
-meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
-leaf = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
-out_sim = run!(leaf, meteo)
+
+meteo_day = read_weather(
+    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
+    duration=Dates.Day,
+)
 ```
 
 ```@contents
@@ -19,226 +23,203 @@ Pages = ["detailed_first_example.md"]
 Depth = 3
 ```
 
-## Setting up your environment
+## Setting Up Your Environment
 
-For every script in this documentation, you will always need a working Julia environment with PlantSimengine added to it, and usually several other companion packages. Details for getting to that point are provided on the [Installing and running PlantSimEngine](@ref) page.
+Every script needs a Julia environment with PlantSimEngine installed. Most
+examples also use companion packages such as PlantMeteo for weather data and
+DataFrames for tabular outputs. Installation details are in
+[Installing PlantSimEngine](../prerequisites/installing_plantsimengine.md).
 
-## Definitions
+## The Simulation Pieces
 
-### Processes
+### Processes And Models
 
-A process in this package defines a biological or physical phenomena. Think of any process happening in a system, such as light interception, photosynthesis, water, carbon and energy fluxes, growth, yield or even electricity produced by solar panels.
+A process is something you want to simulate, such as light interception,
+photosynthesis, water flux, growth, yield, or energy balance.
 
-A process is "declared", meaning we define a process, and then implement models for its simulation. In this example, we will make use of a process that was already defined, and for which there already is a model implementation.
+A model is one implementation of a process. In this page we use the example
+`Beer` model, which implements a Beer-Lambert light-interception equation.
+Its only parameter is the extinction coefficient `k`.
 
-### Models (ModelMapping)
-
-A process is simulated using a particular implementation, or **a model**. Each model is implemented using a structure that lists the parameters of the model. For example, PlantBiophysics provides the [`Beer`](https://vezy.github.io/PlantBiophysics.jl/stable/functions/#PlantBiophysics.Beer) structure for the implementation of the Beer-Lambert law of light extinction. The process of `light_interception` and the `Beer` model are provided as an example 
-script in this package too at [`examples/Beer.jl`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/Beer.jl).
-
-Models can use several types of entries:
-
-- Parameters
-- Meteorological information
-- Variables
-- Constants
-- Extras
-
-**Parameters** are constant values that are used by the model to compute its outputs, and are exclusive to that model.
-
-**Meteorological information** contains values that are provided by the user and are used as inputs to the model. It is defined for one time-step, and `PlantSimEngine.jl` takes care of applying the model to each time-steps given by the user.
-
-**Variables** are either used or computed by the model and can optionally be initialized before the simulation. They can be part of multiple models, computed by one and then used as an input by another. They can also be a global simulation output, or be provided at the start of a simulation by the user.
-
-**Constants** are constant values, usually common between models, *e.g.* the universal gas constant.
-
-And **extras** are just extra values that can be used by a model, or serves as a placeholder for internal data.
-
-Users declare a set of models used for simulation, as well as the necessary parameters for each model, and whatever variables need to be initialized. This is done using a [`ModelMapping`](@ref) structure.
-
-For example let's instantiate a [`ModelMapping`](@ref) with a single model : the Beer-Lambert model of light extinction, used to simulate the light interception process. The model is implemented with the [`Beer`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/Beer.jl) structure and only has one parameter: the extinction coefficient (`k`).
-
-Importing the package:
-
-```@example usepkg
-using PlantSimEngine
-```
-
-Import the examples defined in the [`Examples`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples) sub-module (`light_interception` and `Beer`):
-
-```julia
-using PlantSimEngine.Examples
-```
-
-And then declare a [`ModelMapping`](@ref) with the `Beer` model:
-
-```@example usepkg
-m = ModelMapping(Beer(0.5))
-```
-
-What happened here? We provided an instance of the `Beer` model to a [`ModelMapping`](@ref) to simulate the light interception process.
-
-## Parameters
-
-A parameter is a value constant for a simulation that is internal to a model and used for its computations. For example, the Beer-Lambert model uses the extinction coefficient (`k`) to compute the light extinction. The `Beer` structure in the Beer-Lambert model implementation,  only has one field: `k`. We can see that using `fieldnames` on the model structure:
-
-```@example usepkg
+```@example detailed_scene
 fieldnames(Beer)
 ```
 
-## Variables (inputs, outputs)
+The model implementation declares the status variables it reads and writes:
 
-Variables are either inputs or outputs (*i.e.* computed) of models. Variables and their values are stored in the [`ModelMapping`](@ref) structure, and are initialized automatically or manually.
-
-For example, the `Beer` model needs the leaf area index (`LAI`, m² m⁻²) to run.
-
-We can see which variables are passed in as inputs using [`inputs`](@ref):
-
-```@example usepkg
+```@example detailed_scene
 inputs(Beer(0.5))
 ```
 
-and which are computed outputs of the model using [`outputs`](@ref):
-
-```@example usepkg
+```@example detailed_scene
 outputs(Beer(0.5))
 ```
 
-The [`ModelMapping`](@ref) structure will keep track of every variable's current state when running the simulation, storing them in a field called `status`. We can inspect that field with the [`status`](@ref) function and see that in our example it has two variables: `LAI` and `PPFD`. The first is an input, the second an output (*i.e.* it is computed by the model).
+These declarations are the modeler's contract. The composite-model/object layer decides
+where the model runs and where those values come from.
 
-```@example usepkg
-m = ModelMapping(Beer(0.5))
-keys(status(m))
+### CompositeModel Objects
+
+A `CompositeModel` contains simulated `Object`s. An object can represent a model, plant,
+axis, leaf, soil layer, sensor, voxel, or any other simulated entity.
+
+For a first example, we use one object representing the whole model. The `Beer`
+model reads `LAI`, so we initialize that variable on the object status.
+
+```@example detailed_scene
+model = CompositeModel(
+    Beer(0.5);
+    status=(LAI=2.0,),
+    environment=meteo_day,
+    timestep=Day(1),
+);
+nothing
 ```
 
-To know which variables should be initialized, we can use [`to_initialize`](@ref):
+The concise constructor creates one ordinary model object and one application
+for each supplied model. `status` initializes that object, `timestep` applies a
+common daily cadence, and `environment` supplies weather values such as
+radiation. Use explicit `ModelSpec` and selectors when applications need
+different policies or targets.
 
-```@example usepkg
-m = ModelMapping(Beer(0.5))
-to_initialize(m)
+## Inspecting The Compiled CompositeModel
+
+Before runtime, PlantSimEngine resolves selectors and builds a compiled model.
+This avoids resolving object selections inside the timestep loop.
+
+```@example detailed_scene
+select(
+    DataFrame(Diagnostics.explain_applications(model)),
+    :application_id,
+    :process,
+    :target_ids,
+)
 ```
 
-Their values are uninitialized though (hence the warnings):
+`Beer` has no model-to-model value input in this first model because `LAI` was
+initialized directly on the object status:
 
-```@example usepkg
-(m[:LAI], m[:aPPFD])
+```@example detailed_scene
+Diagnostics.explain_bindings(model)
 ```
 
-Uninitialized variables are initialized to the value given in the [`inputs`](@ref) or [`outputs`](@ref) methods in the model's implementation code, which is usually equal to `typemin()`, *e.g.* `-Inf` for `Float64`.
+The schedule tells us when each application runs:
 
-!!! tip
-    Prefer using [`to_initialize`](@ref) rather than [`inputs`](@ref) to check which variables should be initialized. [`inputs`](@ref) returns every variable that is needed by the model to run, but in multi-model simulations, some of them may already be computed by other models and not require initialization. [`to_initialize`](@ref) returns **only** the variables that are needed by the model to run and that are not initialized in the [`ModelMapping`](@ref).
-
-We can initialize the required variables by providing their starting values to the status when declaring the `ModelMapping`:
-
-```@example usepkg
-m = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
+```@example detailed_scene
+select(
+    DataFrame(Diagnostics.explain_schedule(model)),
+    :application_id,
+    :dt_seconds,
+    :root_scheduled,
+    :manual_call_only,
+)
 ```
 
-Or after instantiation using [`init_status!`](@ref):
+## Running The Simulation
 
-```@example usepkg
-m = ModelMapping(Beer(0.5))
+Run the model with [`run!`](@ref):
 
-init_status!(m, LAI = 2.0)
+```@example detailed_scene
+sim = run!(model; steps=3, outputs=:all)
+nothing
 ```
 
-We can check if a component is correctly initialized using [`is_initialized`](@ref):
+Final state is available independently of retained output history:
 
-```@example usepkg
-is_initialized(m)
+```@example detailed_scene
+scene_status = final_state(sim)
+(LAI=scene_status.LAI, aPPFD=scene_status.aPPFD)
 ```
 
-Some variables are inputs of models, but outputs of other models. When we couple models, [`to_initialize`](@ref) only requests the variables that are not computed by other models.
+The returned `Simulation` stores retained output streams:
 
-## Climate forcing
-
-To make a simulation, we usually need the climatic/meteorological conditions measured close to the object or component.
-
-Users are strongly encouraged to use [`PlantMeteo.jl`](https://github.com/PalmStudio/PlantMeteo.jl), the companion package that helps manage such data, with default pre-computations and structures for efficient computations. The most basic data structure from this package is a type called [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere), which defines steady-state atmospheric conditions, *i.e.* the conditions are considered at equilibrium. Another structure is available to define different consecutive time-steps: [`TimeStepTable`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.TimeStepTable).
-
-The mandatory variables to provide for an [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere) are: `T` (air temperature in °C), `Rh` (relative humidity, 0-1) and `Wind` (the wind speed, m s⁻¹). In our example, we also need the incoming photosynthetically active radiation flux (`Ri_PAR_f`, W m⁻²). We can declare such conditions like so:
-
-```@example usepkg
-using PlantMeteo
-meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
+```@example detailed_scene
+first(collect_outputs(sim; sink=nothing), 3)
 ```
 
-This `meteo` variable will therefore provide a single weather timeframe that can be used in a simulation.
+For a table, use the default `DataFrame` sink:
 
-More details are available from the [package documentation](https://vezy.github.io/PlantMeteo.jl/stable).
-
-## Simulation
-
-### Simulation of processes
-
-To run a simulation, you can call the [`run!`](@ref) method on the [`ModelMapping`](@ref). If some meteorological data is required for models to be simulated over several timesteps, that can be passed in as an optional argument as well.
-
-Your call to the function would then look like this:
-
-```julia
-run!(model_list, meteo)
+```@example detailed_scene
+first(collect_outputs(sim), 3)
 ```
 
-The first argument is the model mapping (see [`ModelMapping`](@ref)), and the second defines the micro-climatic conditions.
+## Adding A Model Coupling
 
-The [`ModelMapping`](@ref) should already be initialized for the given process before calling the function. Refer to the earlier subsection [Variables (inputs, outputs)](@ref) for more details.
+Now let a daily LAI model compute `LAI` before the light-interception model
+runs. `ToyLAIModel` reads cumulative thermal time `TT_cu` and writes `LAI`.
+Because `Beer` reads `LAI`, the compiler can infer the same-object binding.
 
-### Example simulation
+```@example detailed_scene
+coupled_scene = CompositeModel(
+    ToyDegreeDaysCumulModel(),
+    ToyLAIModel(),
+    Beer(0.5);
+    status=(TT_cu=0.0,),
+    environment=meteo_day,
+    timestep=Day(1),
+)
 
-For example we can simulate the `light_interception` of a leaf like so:
-
-```@example usepkg
-using PlantSimEngine, PlantMeteo, Dates
-
-# Import the examples defined in the `Examples` sub-module
-using PlantSimEngine.Examples
-
-meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
-
-leaf = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
-
-outputs_example = run!(leaf, meteo)
-
-outputs_example[:aPPFD]
+select(
+    DataFrame(Diagnostics.explain_bindings(coupled_scene)),
+    :application_id,
+    :input,
+    :source_application_ids,
+    :carrier_kind,
+    :copy_semantics,
+)
 ```
 
-### Outputs
+The `LAI` binding uses a live reference carrier, so the light-interception
+model sees the value written by the LAI model without copying it.
 
-The [`status`](@ref) field of a [`ModelMapping`](@ref) is used to initialize the variables before simulation and then to keep track of their values during and after the simulation. We can extract outputs of the very last timestep of a simulation using the [`status`](@ref) function.
+Run the coupled model:
 
-The actual full output data is returned by the [`run!`](@ref) function. Data is usually stored in a [`TimeStepTable`](@ref) structure from `PlantMeteo.jl`, which is a fast DataFrame-like structure with each time step being a [`Status`](@ref). It can be also be any `Tables.jl` structure, such as a regular `DataFrame`. The weather is also usually stored in a [`TimeStepTable`](@ref) but with each time step being an `Atmosphere`.
-
-In our example, the simulation was only provided one weather timestep, so the outputs returned by [`run!`](@ref) and the ModelMapping's [`status`](@ref) field are identical.
-Let's look at the outputs structure of our previous simulated leaf:
-
-```@setup usepkg
-outputs_example
+```@example detailed_scene
+coupled_sim = run!(coupled_scene; steps=5, outputs=:all)
+first(collect_outputs(coupled_sim), 8)
 ```
 
-We can extract the value of one variable by indexing into it, *e.g.* for the intercepted light:
+The final object status contains the latest values from the coupled models:
 
-```@example usepkg
-outputs_example[:aPPFD]
+```@example detailed_scene
+coupled_status = final_state(coupled_sim)
+(TT_cu=coupled_status.TT_cu, LAI=coupled_status.LAI, aPPFD=coupled_status.aPPFD)
 ```
 
-Or similarly using the dot syntax:
+## What Needs Initialization?
 
-```@example usepkg
-outputs_example.aPPFD
+Model `inputs_(...)` explicitly distinguishes `Required(T)` from
+`Default(value)`. A required input needs user state or a producer binding; a
+defaulted input needs neither. In a coupled model, an upstream application can
+satisfy a required input.
+
+Use the compiler explanations to distinguish the two cases:
+
+- `:supplied` means the object `Status` already provides the value;
+- `:producer_bound` means another application supplies it;
+- `:defaulted` means `Default(value)` initialized it;
+- `:required` means it still has no source and compilation will fail.
+
+For example, if we remove `TT_cu` from the model status, compilation fails
+because no model in this model computes it before `ToyLAIModel` reads it:
+
+```@example detailed_scene
+bad_scene = CompositeModel(
+    ToyLAIModel();
+    environment=meteo_day,
+)
+
+try
+    Diagnostics.explain_bindings(bad_scene)
+catch err
+    first(sprint(showerror, err), 300)
+end
 ```
 
-You can then print the outputs, convert them to another format, or visualize them, using other Julia packages. You can read more on how to do that in the [Visualizing outputs and data](@ref) page.
+## Next Steps
 
-Another convenient way to get the results is to transform the outputs into a `DataFrame`. Which is very easy because the [`TimeStepTable`](@ref) implements the Tables.jl interface:
-
-```@example usepkg
-using DataFrames
-convert_outputs(outputs_example, DataFrame)
-```
-
-## Model coupling
-
-A model can work either independently or in conjunction with other models. For example a stomatal conductance model is often associated with a photosynthesis model, *i.e.* it is called from the photosynthesis model.
-
-`PlantSimEngine.jl` is designed to make model coupling painless for modelers and users. Please see [Standard model coupling](@ref) and [Coupling more complex models](@ref) for more details, or [Handling dependencies in a multiscale context](@ref) for multi-scale specific coupling considerations.
+- [Standard model coupling](@ref) shows more coupling patterns.
+- [CompositeModel/Object Quickstart](../composite_model/quickstart.md) is the shortest
+  copy-pasteable path for the new API.
+- [Model execution](../model_execution.md) explains scheduling, temporal inputs, hard calls,
+  output retention, and lifecycle refreshes.

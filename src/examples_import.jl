@@ -33,16 +33,18 @@ include(joinpath(@__DIR__, "../examples/ToyRUEGrowthModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyCAllocationModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyMaintenanceRespirationModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToySoilModel.jl"))
-include(joinpath(@__DIR__, "../examples/ToyInternodeEmergence.jl"))
 include(joinpath(@__DIR__, "../examples/ToyCBiomassModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyLeafSurfaceModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyLightPartitioningModel.jl"))
+include(joinpath(@__DIR__, "../examples/ToySpatialEnvironment.jl"))
+include(joinpath(@__DIR__, "../examples/ToyAdvancedControl.jl"))
+include(joinpath(@__DIR__, "../examples/ToyModelDeveloper.jl"))
 
 
 """
     import_mtg_example()
 
-Returns an example multiscale tree graph (MTG) with a scene, a soil, and a plant with two internodes and two leaves.
+Returns an example multiscale tree graph (MTG) with a model, a soil, and a plant with two internodes and two leaves.
 
 # Examples
 
@@ -82,16 +84,18 @@ export AbstractLai_DynamicModel, AbstractLeaf_SurfaceModel
 export AbstractDegreedaysModel
 export AbstractCarbon_AssimilationModel, AbstractCarbon_AllocationModel, AbstractCarbon_DemandModel, AbstractCarbon_BiomassModel
 export AbstractSoil_WaterModel, AbstractGrowthModel
-export AbstractOrgan_EmergenceModel
 export AbstractMaintenance_RespirationModel
 
 # Models:
 export Beer, ToyLightPartitioningModel, ToyLAIModel, ToyLAIfromLeafAreaModel, ToyLeafSurfaceModel, ToyPlantLeafSurfaceModel, ToyDegreeDaysCumulModel
 export ToyAssimModel, ToyCAllocationModel, ToyCDemandModel, ToySoilWaterModel
 export ToyAssimGrowthModel, ToyRUEGrowthModel, ToyMaintenanceRespirationModel, ToyPlantRmModel, ToyCBiomassModel
+export ToySpatialEnvironment, ToyEnvironmentHandle
+export ToyEnvironmentReaderModel, ToyEnvironmentControllerModel
+export ToySelectiveCallControllerModel, ToyStockWriterModel
+export ToyDevelopmentModel, ToyDailyDevelopmentModel
 export Process1Model, Process2Model, Process3Model, Process4Model, Process5Model
 export Process6Model, Process7Model
 
-export ToyInternodeEmergence
 export import_mtg_example
 end

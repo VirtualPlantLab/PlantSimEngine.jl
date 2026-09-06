@@ -30,13 +30,41 @@ struct ToyMaintenanceRespirationModel{T} <: AbstractMaintenance_RespirationModel
     nitrogen_content::T
 end
 
-PlantSimEngine.inputs_(::ToyMaintenanceRespirationModel) = (carbon_biomass=0.0,)
-PlantSimEngine.outputs_(::ToyMaintenanceRespirationModel) = (Rm=-Inf,)
+function ToyMaintenanceRespirationModel(Q10, Rm_base, T_ref, P_alive, nitrogen_content)
+    parameters = promote(
+        float(Q10),
+        float(Rm_base),
+        float(T_ref),
+        float(P_alive),
+        float(nitrogen_content),
+    )
+    return ToyMaintenanceRespirationModel{typeof(first(parameters))}(parameters...)
+end
 
-function PlantSimEngine.run!(m::ToyMaintenanceRespirationModel, models, status, meteo, constants, extra=nothing)
+PlantSimEngine.inputs_(::ToyMaintenanceRespirationModel) = (
+    carbon_biomass=Required(Real),
+)
+PlantSimEngine.outputs_(model::ToyMaintenanceRespirationModel) = (
+    Rm=oftype(model.Rm_base, -Inf),
+)
+PlantSimEngine.environment_inputs_(
+    model::ToyMaintenanceRespirationModel,
+) = (T=zero(model.T_ref),)
+
+function PlantSimEngine.run!(
+    model::ToyMaintenanceRespirationModel,
+    status,
+    environment,
+    constants,
+    context,
+)
     status.Rm =
-        status.carbon_biomass * m.P_alive * m.nitrogen_content * m.Rm_base *
-        m.Q10^((meteo.T - m.T_ref) / 10.0)
+        status.carbon_biomass *
+        model.P_alive *
+        model.nitrogen_content *
+        model.Rm_base *
+        model.Q10^((environment.T - model.T_ref) / 10)
+    return nothing
 end
 
 """
@@ -44,7 +72,7 @@ end
 
 Total plant maintenance respiration based on the sum of `Rm_organs`, the maintenance respiration of the organs.
 
-# Intputs
+# Inputs
 
 - `Rm_organs`: a vector of maintenance respiration from all organs in the plant in gC time-step⁻¹
 
@@ -54,9 +82,18 @@ Total plant maintenance respiration based on the sum of `Rm_organs`, the mainten
 """
 struct ToyPlantRmModel <: AbstractMaintenance_RespirationModel end
 
-PlantSimEngine.inputs_(::ToyPlantRmModel) = (Rm_organs=[-Inf],)
+PlantSimEngine.inputs_(::ToyPlantRmModel) = (
+    Rm_organs=Required(AbstractVector{<:Real}),
+)
 PlantSimEngine.outputs_(::ToyPlantRmModel) = (Rm=-Inf,)
 
-function PlantSimEngine.run!(::ToyPlantRmModel, models, status, meteo, constants, extra=nothing)
+function PlantSimEngine.run!(
+    ::ToyPlantRmModel,
+    status,
+    environment,
+    constants,
+    context,
+)
     status.Rm = sum(status.Rm_organs)
+    return nothing
 end

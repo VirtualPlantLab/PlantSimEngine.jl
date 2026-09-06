@@ -1,102 +1,188 @@
-# Model switching
+# Model compatibility and replacement
 
-```@setup usepkg
-using PlantSimEngine, PlantMeteo, Dates
-# Import the examples defined in the `Examples` sub-module
+```@setup scene_model_switching
+using PlantSimEngine, PlantMeteo, Dates, DataFrames
 using PlantSimEngine.Examples
 
-meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
- 
-models = ModelMapping(
-    ToyLAIModel(),
-    Beer(0.5),
-    ToyRUEGrowthModel(0.2),
-    status=(TT_cu=cumsum(meteo_day.TT),),
+meteo_day = read_weather(
+    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
+    duration=Dates.Day,
 )
-run!(models, meteo_day)
-models2 = ModelMapping(
-    ToyLAIModel(),
-    Beer(0.5),
-    ToyAssimGrowthModel(),
-    status=(TT_cu=cumsum(meteo_day.TT),),
+```
+
+One main objective of PlantSimEngine is to compare and switch model
+implementations for a process without changing the engine or unrelated model
+kernels. Process identity and substitutability are nevertheless different
+claims:
+
+1. **Same process:** two models answer the same scientific question.
+2. **Scenario-compatible replacement:** the new model supplies every value
+   required by the current consumers and its own inputs can be bound.
+3. **Drop-in replacement:** process, status and environment ports, scientific
+   contracts, dependencies, and relevant traits are compatible without
+   changing scenario wiring.
+
+Only the third level is suitable for an `Override`, whose applications share
+one logical interface. Models may belong to the same process while using
+different inputs or producing additional outputs; this is useful scientific
+variation, not an error.
+
+At the model-application layer, replace the model inside a `ModelSpec`, keep
+the same `ModelSpec(...; on=...)` selector, then revalidate every binding and
+consumer affected by the changed interface.
+
+## A first simulation
+
+This model computes degree-days, LAI, absorbed PAR, and growth on one model
+object:
+
+```@example scene_model_switching
+function plant_model_with_growth(growth_model; growth_name=:growth)
+    CompositeModel(
+        Object(:scene; scale=:Scene, kind=:scene);
+        applications=(
+            ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days, on=One(scale=:Scene), every=Day(1)),
+
+            ModelSpec(ToyLAIModel(); name=:lai, on=One(scale=:Scene), every=Day(1)),
+
+            ModelSpec(Beer(0.5); name=:light_interception, on=One(scale=:Scene), every=Day(1)),
+
+            ModelSpec(growth_model; name=growth_name, on=One(scale=:Scene), every=Day(1)),
+        ),
+        environment=meteo_day,
+    )
+end
+
+rue_scene = plant_model_with_growth(ToyRUEGrowthModel(0.2))
+rue_sim = run!(rue_scene; steps=10)
+rue_status = final_state(rue_sim)
+(growth_model=:ToyRUEGrowthModel, biomass=rue_status.biomass)
+```
+
+The compiler infers the same-object bindings from the model declarations. The
+growth model reads `aPPFD`, which is produced by the light interception model:
+
+```@example scene_model_switching
+select(
+    DataFrame(Diagnostics.explain_bindings(rue_scene)),
+    :application_id,
+    :input,
+    :source_application_ids,
+    :origin,
+    :carrier_kind,
 )
-run!(models2, meteo_day)
 ```
 
-One of the main objective of PlantSimEngine is allowing users to switch between model implementations for a given process **without making any change to the PlantSimEngine codebase**.
+## Switching the growth model
 
-The package was designed around this idea to make easy changes easy and efficient. Switch models in the [`ModelMapping`](@ref), and call the [`run!`](@ref) function again. No other changes are required if no new variables are introduced.
+`ToyAssimGrowthModel` implements the same `:growth` process and reads the same
+`aPPFD` input, but computes additional outputs such as carbon assimilation and
+respiration. It is compatible with this small scenario because no downstream
+model requires an output that disappeared. Its larger output interface means
+that same process alone did not prove a strict drop-in replacement:
 
-## A first simulation as a starting point
-
-With a working environment, let's create a [`ModelMapping`](@ref) with several models from the example scripts in the [`examples`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/) folder:
-
-Importing the models from the scripts:
-
-```julia
-using PlantSimEngine
-# Import the examples defined in the `Examples` sub-module:
-using PlantSimEngine.Examples
-```
-
-Coupling the models in a [`ModelMapping`](@ref):
-
-```@example usepkg
-models = ModelMapping(
-    ToyLAIModel(),
-    Beer(0.5),
-    ToyRUEGrowthModel(0.2),
-    status=(TT_cu=cumsum(meteo_day.TT),),
+```@example scene_model_switching
+assim_scene = plant_model_with_growth(ToyAssimGrowthModel())
+assim_sim = run!(assim_scene; steps=10)
+assim_status = final_state(assim_sim)
+(
+    growth_model=:ToyAssimGrowthModel,
+    carbon_assimilation=assim_status.carbon_assimilation,
+    Rm=assim_status.Rm,
+    biomass=assim_status.biomass,
 )
-
-nothing # hide
 ```
 
-We can the simulation by calling the [`run!`](@ref) function with meteorology data. Here we use an example data set:
+The dependency graph and execution plan are rebuilt from the new application
+set:
 
-```@example usepkg
-meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
-nothing # hide
-```
-
-We can now run the simulation:
-
-```@example usepkg
-output_initial = run!(models, meteo_day)
-output_initial[1:3,:] # show the first 3 rows of the output
-```
-
-## Switching one model in the simulation
-
-Now what if we want to switch the model that computes growth ? We can do this by simply replacing the model in the [`ModelMapping`](@ref), and PlantSimEngine will automatically update the dependency graph, and adapt the simulation to the new model.
-
-Let's switch ToyRUEGrowthModel with ToyAssimGrowthModel:
-
-```@example usepkg
-models2 = ModelMapping(
-    ToyLAIModel(),
-    Beer(0.5),
-    ToyAssimGrowthModel(), # This was `ToyRUEGrowthModel(0.2)` before
-    status=(TT_cu=cumsum(meteo_day.TT),),
+```@example scene_model_switching
+select(
+    DataFrame(Diagnostics.explain_execution_plan(assim_sim)),
+    :application_id,
+    :object_ids,
+    :batch_size,
+    :inner_loop_dispatch,
 )
-
-nothing # hide
 ```
 
-ToyAssimGrowthModel is a little bit more complex than `ToyRUEGrowthModel`](@ref), as it also computes the maintenance and growth respiration of the plant, so it has more parameters (we use the default values here). 
+## Check before replacing
 
-We can run a new simulation and see that the simulation's results are different from the previous simulation:
+Use the public authoring report on the concrete instances:
 
-```@example usepkg
-output_updated = run!(models2, meteo_day)
-output_updated[1:3,:] # show the first 3 rows of the output
+```@example scene_model_switching
+alternative_asset = joinpath(
+    pkgdir(PlantSimEngine),
+    "skills",
+    "plantsimengine",
+    "assets",
+    "alternative-model.jl",
+)
+include(alternative_asset)
+using .AlternativeModelExample
+
+drop_in = Authoring.compare_models(
+    LinearCarbonGain(0.2),
+    SaturatingCarbonGain(10.0, 5.0),
+)
+needs_binding = Authoring.compare_models(
+    LinearCarbonGain(0.2),
+    WaterLimitedCarbonGain(0.2),
+)
+(
+    drop_in=(
+        same_process=drop_in.same_process,
+        override_compatible=drop_in.override_compatible,
+        requires_reconfiguration=drop_in.requires_reconfiguration,
+        compatibility=drop_in.compatibility,
+    ),
+    water_limited=(
+        same_process=needs_binding.same_process,
+        override_compatible=needs_binding.override_compatible,
+        requires_binding_changes=needs_binding.requires_binding_changes,
+        requires_reconfiguration=needs_binding.requires_reconfiguration,
+        compatibility=needs_binding.compatibility,
+    ),
+)
 ```
 
-And that's it! We can switch between models without changing the code, and without having to recompute the dependency graph manually. This is a very powerful feature of PlantSimEngine!💪
+`requires_binding_changes` is specific to ports, contracts, dependencies,
+output policies, or model-level environment hints. `requires_reconfiguration`
+is broader: it is true for any interface difference that prevents a direct
+override, including a schedule-only trait change.
 
-!!! note
-    This was a very standard but straightforward example. Sometimes other models will require to add other models to the [`ModelMapping`](@ref). For example ToyAssimGrowthModel could have required a maintenance respiration model. In this case `PlantSimEngine` will indicate what kind of model is required for the simulation.
+The report compares:
 
-!!! note
-    In our example we replaced what we call a [soft-dependency coupling](@ref hard_dependency_def), but the same principle applies to [hard-dependencies](@ref hard_dependency_def). Hard and Soft dependencies are concepts related to model coupling, and are discussed in more detail in [Standard model coupling](@ref) and [Coupling more complex models](@ref).
+- `process(model)`;
+- required and defaulted status inputs, including declared types;
+- local `outputs_` schemas, including initial values;
+- environment inputs and outputs;
+- complete `VariableContract`s;
+- model-authored `Input`, `Call`, and `Initializer` dependencies;
+- cadence and temporal output policies.
 
+A variable with the same name but a different unit, basis, temporal meaning,
+aggregation, or extent is incompatible. Add an explicit adapter rather than
+weakening or omitting the contract.
+
+After replacement, compile the candidate scenario and inspect:
+
+```@example scene_model_switching
+candidate_validation = Authoring.validate_scenario(assim_scene)
+(
+    scenario_valid=candidate_validation.valid,
+    initialization=Diagnostics.explain_initialization(assim_scene),
+    bindings=Diagnostics.explain_bindings(assim_scene),
+    schedule=Diagnostics.explain_schedule(assim_scene),
+)
+```
+
+The compiler diagnostics prove that this concrete scenario can initialize and
+route the replacement. They do not prove that two equations are scientifically
+equivalent or valid over the same domain; that remains model documentation and
+validation evidence. Distributed `outputs_to` destinations belong to the
+`ModelSpec`, not `ModelInterface`, so revalidate them at this scenario level.
+
+Use `ObjectInstance(...; overrides=...)` only for a model that satisfies the
+logical application's exact replacement contract. Otherwise create or replace
+a complete `ModelSpec` and update the affected bindings explicitly.

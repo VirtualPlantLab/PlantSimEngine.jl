@@ -30,24 +30,21 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyRUEGrowthModel)
-    (aPPFD=-Inf,)
+    (aPPFD=Required(Real),)
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyRUEGrowthModel)
-    (biomass=0.0, biomass_increment=-Inf)
+function PlantSimEngine.outputs_(model::ToyRUEGrowthModel)
+    (biomass=zero(model.efficiency), biomass_increment=oftype(float(model.efficiency), -Inf))
 end
 
 # Tells Julia what is the type of elements:
 Base.eltype(x::ToyRUEGrowthModel{T}) where {T} = T
 
 # Implement the growth model:
-function PlantSimEngine.run!(::ToyRUEGrowthModel, models, status, meteo, constants, extra)
-    status.biomass_increment = status.aPPFD * models.growth.efficiency
+function PlantSimEngine.run!(model::ToyRUEGrowthModel, status, environment, constants, context)
+    status.biomass_increment = status.aPPFD * model.efficiency
     status.biomass += status.biomass_increment
 end
 
-# And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyRUEGrowthModel}) = PlantSimEngine.IsObjectIndependent()
-
-# Note that this model cannot be parallelized over time because we use the biomass from the previous time-step.
+# The model uses biomass from the previous timestep, so time steps are stateful.

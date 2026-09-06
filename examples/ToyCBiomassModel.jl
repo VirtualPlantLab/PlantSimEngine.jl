@@ -28,19 +28,21 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyCBiomassModel)
-    (carbon_allocation=-Inf,)
+    (carbon_allocation=Required(Real),)
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyCBiomassModel)
-    (carbon_biomass_increment=-Inf, carbon_biomass=0.0, growth_respiration=-Inf,)
+function PlantSimEngine.outputs_(model::ToyCBiomassModel)
+    initial = oftype(float(model.construction_cost), -Inf)
+    return (
+        carbon_biomass_increment=initial,
+        carbon_biomass=zero(float(model.construction_cost)),
+        growth_respiration=initial,
+    )
 end
 
-function PlantSimEngine.run!(m::ToyCBiomassModel, models, status, meteo, constants, extra_args)
+function PlantSimEngine.run!(m::ToyCBiomassModel, status, environment, constants, context)
     status.carbon_biomass_increment = status.carbon_allocation / m.construction_cost
     status.carbon_biomass += status.carbon_biomass_increment
     status.growth_respiration = status.carbon_allocation - status.carbon_biomass_increment
 end
-
-# Can be parallelized over organs (but not time-steps, as it is incrementally updating the biomass in the status):
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyCBiomassModel}) = PlantSimEngine.IsObjectIndependent()

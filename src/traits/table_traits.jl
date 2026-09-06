@@ -1,7 +1,6 @@
 abstract type DataFormat end
 struct TableAlike <: DataFormat end
 struct SingletonAlike <: DataFormat end
-struct TreeAlike <: DataFormat end
 
 """
     DataFormat(T::Type)
@@ -13,11 +12,9 @@ how to iterate over the data. The following data formats are supported:
   `TimeStepTable`. The data is iterated over by rows using the `Tables.jl` interface.
 - `SingletonAlike`: The data is a singleton-like object, e.g. a `NamedTuple`
     or a `TimeStepRow`. The data is iterated over by columns.
-- `TreeAlike`: The data is a tree-like object, e.g. a `Node`.
-
 The default implementation returns `TableAlike` for `AbstractDataFrame`,
-`TimeStepTable`, `AbstractVector` and `Dict`, `TreeAlike` for `GraphSimulation`, 
-`SingletonAlike` for `Status`, `ModelList`, `NamedTuple` and `TimeStepRow`.
+`TimeStepTable`, `AbstractVector`, and `Dict`; and `SingletonAlike` for
+`Status`, `NamedTuple`, and `TimeStepRow`.
 
 The default implementation for `Any` throws an error. Users that want to use another input
 should define this trait for the new data format, e.g.:
@@ -51,19 +48,20 @@ DataFormat(::Type{<:DataFrames.AbstractDataFrame}) = TableAlike()
 DataFormat(::Type{<:PlantMeteo.TimeStepTable}) = TableAlike()
 DataFormat(::Type{<:PlantMeteo.TimeStepRows}) = TableAlike()
 
-# Giving a ModelList as a vector or a dict of objects:
 DataFormat(::Type{<:AbstractVector}) = TableAlike()
 DataFormat(::Type{<:Dict}) = TableAlike()
 
 DataFormat(::Type{<:NamedTuple}) = SingletonAlike()
 DataFormat(::Type{<:Status}) = SingletonAlike()
-DataFormat(::Type{<:ModelList{Mo,S} where {Mo,S}}) = SingletonAlike()
-DataFormat(::Type{<:ModelMapping{SingleScale}}) = SingletonAlike()
-DataFormat(::Type{<:GraphSimulation}) = TreeAlike()
 
 DataFormat(::Type{<:PlantMeteo.AbstractAtmosphere}) = SingletonAlike()
 DataFormat(::Type{<:PlantMeteo.TimeStepRow}) = SingletonAlike()
-DataFormat(::Type{<:Nothing}) = SingletonAlike() # For meteo == Nothing
+DataFormat(::Type{<:Nothing}) = SingletonAlike() # For environment == Nothing
 DataFormat(T::Type{<:Any}) = error("Unknown data format: $T.\nPlease define a `DataFormat` method, e.g.: DataFormat(::Type{$T}) method.")
 DataFormat(x::T) where {T} = DataFormat(T)
 DataFormat(::Type{<:DataFrames.DataFrameRow}) = SingletonAlike()
+
+get_nsteps(value) = get_nsteps(DataFormat(value), value)
+get_nsteps(::SingletonAlike, value) = 1
+get_nsteps(::TableAlike, value) = length(Tables.rows(value))
+get_nsteps(::TableAlike, value::PlantMeteo.TimeStepRows) = length(value)

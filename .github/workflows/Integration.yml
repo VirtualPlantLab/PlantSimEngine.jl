@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}
+    name: ${{ matrix.package.name }} - Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     permissions:
@@ -28,37 +28,105 @@ jobs:
         os:
           - ubuntu-latest
         package:
-          - { user: PalmStudio, repo: XPalm.jl, branch: main, default: main }
-          - { user: VEZY, repo: PlantBioPhysics.jl, branch: master, default: master }
+          - { name: XPalm, user: PalmStudio, repo: XPalm.jl, branch: main, default: main }
+          - { name: PlantBiophysics, user: VEZY, repo: PlantBiophysics.jl, branch: master, default: master }
+          - { name: PlantGeom, user: VEZY, repo: PlantGeom.jl, branch: main, default: main }
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
+      - name: Cache Julia packages
+        uses: julia-actions/cache@v3
+      - name: Test the integration source configuration
+        shell: julia --color=yes {0}
+        run: include(joinpath(pwd(), ".github", "scripts", "test_configure_local_sources.jl"))
       - uses: julia-actions/julia-buildpkg@v1
       - name: Clone Downstream
         uses: actions/checkout@v7
         with:
           repository: ${{ matrix.package.user }}/${{ matrix.package.repo }}
-          ref: ${{matrix.package.branch}}
+          ref: ${{ matrix.package.branch }}
           path: downstream
-      - name: Load this and run the downstream tests
+      - name: Clone PlantGeom for XPalm
+        if: ${{ matrix.package.name == 'XPalm' }}
+        uses: actions/checkout@v7
+        with:
+          repository: VEZY/PlantGeom.jl
+          ref: main
+          path: sources/PlantGeom
+      - name: Configure local integration sources
+        env:
+          DOWNSTREAM_PACKAGE: ${{ matrix.package.name }}
+        shell: julia --color=yes {0}
+        run: |
+          include(joinpath(pwd(), ".github", "scripts", "configure_local_sources.jl"))
+
+          project_files = (
+              joinpath(pwd(), "downstream", "Project.toml"),
+              joinpath(pwd(), "downstream", "test", "Project.toml"),
+          )
+          source_roots = String[pwd()]
+          if ENV["DOWNSTREAM_PACKAGE"] == "XPalm"
+              push!(source_roots, joinpath(pwd(), "sources", "PlantGeom"))
+          end
+
+          summaries = IntegrationSourceConfig.configure_local_sources!(project_files, source_roots)
+          @info "Configured local integration sources" package=ENV["DOWNSTREAM_PACKAGE"] summaries
+      - name: Verify the PlantGeom test source
+        if: ${{ matrix.package.name == 'PlantGeom' }}
+        shell: julia --color=yes --project=downstream/test {0}
+        run: |
+          using Pkg
+
+          Pkg.resolve()
+          pse = get(
+              Pkg.dependencies(),
+              Base.UUID("9a576370-710b-4269-adf9-4f603a9c6423"),
+              nothing,
+          )
+          pse === nothing && error("PlantSimEngine was not resolved in the PlantGeom test environment")
+          pse.is_tracking_path || error("PlantSimEngine is not tracking a local path")
+          realpath(pse.source) == realpath(pwd()) || error(
+              "PlantSimEngine resolved to $(pse.source), expected $(realpath(pwd()))",
+          )
+          @info "Verified local PlantSimEngine test source" path=pse.source
+      - name: Run the downstream tests
+        env:
+          DOWNSTREAM_PACKAGE: ${{ matrix.package.name }}
         shell: julia --threads 4 --color=yes --project=downstream --depwarn=yes {0}
         run: |
           using Pkg
-          try
-            # force it to use this PR's version of the package
-            Pkg.develop(PackageSpec(path="."))  # resolver may fail with main deps
-            Pkg.update()
-            Pkg.test()  # resolver may fail with test time deps
-          catch err
-            err isa Pkg.Resolve.ResolverError || rethrow()
-            # If we can't resolve that means this is incompatible by SemVer and this is fine
-            # It means we marked this as a breaking change, so we don't need to worry about
-            # Mistakenly introducing a breaking change, as we have intentionally made one
-            @info "Testing with an incompatible downstream release as a breaking change was introduced. Expected failure." exception=err
-            exit(0)  # Exit immediately, as a success
+
+          Pkg.resolve()
+
+          function assert_path_dependency(name, uuid, expected_path)
+              package = get(Pkg.dependencies(), Base.UUID(uuid), nothing)
+              package === nothing && error("$(name) was not resolved")
+              package.is_tracking_path || error("$(name) is not tracking a local path")
+              realpath(package.source) == realpath(expected_path) || error(
+                  "$(name) resolved to $(package.source), expected $(realpath(expected_path))",
+              )
+              @info "Verified local integration source" name path=package.source
           end
+
+          if ENV["DOWNSTREAM_PACKAGE"] != "PlantGeom"
+              assert_path_dependency(
+                  "PlantSimEngine",
+                  "9a576370-710b-4269-adf9-4f603a9c6423",
+                  pwd(),
+              )
+          end
+          if ENV["DOWNSTREAM_PACKAGE"] == "XPalm"
+              assert_path_dependency(
+                  "PlantGeom",
+                  "5edaa67e-25db-4eb9-bf81-05d793b2238d",
+                  joinpath(pwd(), "sources", "PlantGeom"),
+              )
+          end
+
+          Pkg.status()
+          Pkg.test()
       - name: Only succeed if the checks pass on the dependencies' main/master branches
         if: ${{ matrix.package.branch != matrix.package.default }}
         run: |
