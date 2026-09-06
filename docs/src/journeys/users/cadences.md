@@ -1,23 +1,25 @@
 # Give Models Different Cadences
 
-## New concept: application clocks and temporal input policies
+## Run models at different intervals
 
-Let canopy development update daily while light interception responds every
-hour. Then convert hourly water-uptake rates to daily amounts. These teaching
-examples show how to choose what a slower or faster model receives from its
-source.
+Canopy development might need an update once a day, while light interception
+needs one every hour. A model's **cadence** is how often it runs. This page
+shows how an hourly light model uses a daily LAI value, then how to calculate
+daily water uptake from hourly rates.
 
-Choose a base step that divides every application cadence: hourly and
-90-minute applications can share a 30-minute base step. A duration such as
-`every=Minute(90)` on an hourly base step is rejected. Fixed durations include
-subsecond periods; calendar months and adaptive timesteps are not application
-cadences.
+The simulation's **base step** is its smallest time interval. Each model's
+cadence must be a whole number of base steps: hourly and 90-minute models can
+share a 30-minute base step. PlantSimEngine rejects `every=Minute(90)` with
+an hourly base step. You can use fixed durations, including fractions of a
+second. Calendar months and timesteps that change during a run are not
+supported as model cadences.
 
 ## Hold a daily state for an hourly model
 
-Reuse the thermal-time, LAI, and light chain. The environment advances hourly;
-thermal time and LAI run daily; light interception runs hourly. `HoldLast`
-makes each hourly light execution read the latest published daily LAI.
+Reuse the models that calculate thermal time, LAI, and absorbed light. The
+weather advances hourly. Thermal time and LAI update daily, while light is
+calculated every hour. `HoldLast` tells the light model to keep using the most
+recent LAI value until a new one is calculated.
 
 ```@example journey_cadences
 using PlantSimEngine, Dates, DataFrames
@@ -77,12 +79,14 @@ light_samples = rows[(rows.variable .== :aPPFD) .& in.(rows.timestep, Ref((1, 2,
 light_samples
 ```
 
-The daily models execute at steps 1 and 25, rather than waiting until the end
-of the first day. The first LAI value is held for hourly light calculations
-until the next daily update. A model that needs a complete preceding day
-must handle its initial history explicitly.
+The daily models run at steps 1 and 25. They start at the beginning of the
+simulation, so the first update does not wait for a whole day of weather.
+The hourly light model uses the first LAI value until the next daily update.
+If your equation needs a full preceding day, decide what it should do at the
+start, before that history is available.
 
-The schedule reports physical cadence in seconds and in base steps:
+Check how often each model runs, in seconds (`dt_seconds`) and in base steps
+(`dt_steps`):
 
 ```@example journey_cadences
 select(
@@ -93,8 +97,9 @@ select(
 )
 ```
 
-The temporal binding is explicit even though the producer and consumer share
-an object:
+You can also check which rule each input uses to read earlier values. The LAI
+input uses `HoldLast` because we chose it in `inputs` above. Sharing a canopy
+object does not choose that rule for us:
 
 ```@example journey_cadences
 select(
@@ -107,8 +112,8 @@ select(
 )
 ```
 
-The daily applications publish at steps 1 and 25; the hourly application
-publishes on all 25 steps:
+There are two results for each daily model, at steps 1 and 25. The hourly
+model has a result at every step. The `nsamples` column counts them:
 
 ```@example journey_cadences
 select(
@@ -119,17 +124,20 @@ select(
 )
 ```
 
-`HoldLast` is appropriate because LAI is a state: between daily updates, its
-latest value remains meaningful.
+`HoldLast` fits this example because LAI describes the canopy at a given time.
+The daily development model assumes that LAI stays unchanged between updates.
 
 ## Integrate a rate into an amount
 
-`Integrate(reducer)` can integrate rates using sample durations. The default
-`Integrate()` only sums values; it does not multiply by elapsed time. The
-explicit reducer below uses durations in seconds. If a leaf publishes a constant
-water-uptake rate in mg per second, integrating 24 hourly samples produces a
-daily amount in mg. The plant adds the amounts from two leaves. The constant
-rates are teaching values, not predictions of water demand.
+To turn a water-uptake rate into an amount, multiply each rate by the time it
+represents, then add the amounts. `Integrate(reducer)` lets you supply that
+calculation as a function, called a **reducer**. Be careful: `Integrate()`
+without this function only adds the values; it does not multiply by time.
+
+The function below uses durations in seconds. For a rate in mg per second,
+24 hourly values give a daily amount in mg. The plant then adds the amounts
+from its two leaves. The constant rates are teaching values, not predictions
+of water demand.
 
 Load the [teaching models](../../guides/time/teaching_models.jl). One copies a
 leaf's supplied water-uptake rate; the other sums amounts from leaves. Their
@@ -199,41 +207,28 @@ daily_rows = water_rows[water_rows.application_id .== :daily_amount, [:timestep,
 daily_rows
 ```
 
-These windows use fixed durations, not calendar-aligned civil days. The
+Each window looks back over a fixed duration; it does not automatically start
+at midnight. The
 [weekly example](../../guides/time/hourly_daily_weekly.md) extends this same
-calculation to seven days and checks its initial history. Use
-`Aggregate(reducer)` instead when the desired quantity is a mean, minimum,
-maximum, or another reduction of observations rather than a time integral.
+calculation to seven days and checks the first result separately. Use
+`Aggregate(reducer)` to calculate a mean, minimum, maximum, or another
+statistic from the values in a window.
 
-!!! note "Temporal policies and scientific contracts"
+!!! note "When models declare units and physical meaning"
 
-    This numerical example leaves variable contracts undeclared. In this
-    release, temporal policies do not transform `VariableContract` metadata:
-    connected ports must still declare identical contracts. A rate contract
-    and a total contract therefore cannot be connected directly through
-    `Integrate()`.
+    A `VariableContract` describes a variable's units and physical meaning.
+    The teaching models above do not declare these contracts. If your models
+    do declare them, the two sides of a connection must match. `Integrate()`
+    changes the values but does not change their declared contract, so it
+    cannot directly connect a rate contract to an amount contract.
 
-    For contracted models, put the rate-to-amount calculation in a named
-    adapter. Its incoming binding uses the producer's rate contract and its
-    output declares the amount contract consumed downstream. For a varying
-    rate, accumulate at the producer cadence or use a correctly averaged
-    rate; multiplying one held sample by a long duration is valid only when
-    the rate is constant over that interval. Keep contracts on both sides;
-    see [Coupling models](@ref).
+    Instead, write a small conversion model. Its input declares the rate
+    contract, and its output declares the amount contract expected by the
+    next model. If the rate changes, calculate each amount when the rate
+    updates, or use a rate correctly averaged over the interval. Multiplying
+    one held value by a long duration is only correct when the rate stays
+    constant over that interval. See [Coupling models](@ref).
 
-There is no same-step feedback cycle in either example, so
-`PreviousTimeStep` is not needed. It should be introduced only when a real
-scientific dependency intentionally reads the preceding step to break such a
-cycle.
-
-## Page recap
-
-- **You added:** daily and hourly application clocks, `HoldLast` for a state,
-  and then `Integrate` for a rate.
-- **PlantSimEngine inferred:** the base-step ratios, publication schedule, and
-  bounded temporal storage needed by the consumers.
-- **You keep explicit:** each application cadence, the physical meaning of its
-  temporal policy, and the integration window.
-- **New API names:** `every`, `HoldLast`, `Integrate`, `Aggregate`,
-  `window`, `Diagnostics.explain_schedule`, and
-  `Diagnostics.explain_outputs`.
+Neither example needs `PreviousTimeStep`: no two models wait for each other's
+result in the same step. Use that option only when an equation should read
+the preceding step. See [Diagnosing Dependency Cycles](@ref) for an example.

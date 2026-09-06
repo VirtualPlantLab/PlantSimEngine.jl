@@ -1,9 +1,9 @@
 # Inspect A Simulation
 
 When a result is unexpected, first check what ran, where it ran, and which
-values it read. The public `Diagnostics` functions return structured rows that
-can be displayed as a table. They explain the configured computation; they
-do not establish that the scientific equations or parameter values are valid.
+values it read. The `Diagnostics` functions return information you can display
+as a table. Use them to check how the simulation is configured. Check the
+scientific equations and parameter values separately.
 
 | Question | Diagnostic |
 |:--|:--|
@@ -14,7 +14,7 @@ do not establish that the scientific equations or parameter values are valid.
 | When does each application run? | `Diagnostics.explain_schedule(model)` |
 | Which weather or spatial source is sampled? | `Diagnostics.explain_environment_bindings(model)` |
 | Which models are called by a controller? | `Diagnostics.explain_calls(model)` |
-| Why was an output stream kept? | `Diagnostics.explain_output_retention(simulation)` |
+| Why were earlier values of an output kept? | `Diagnostics.explain_output_retention(simulation)` |
 
 ## Inspect a small working example
 
@@ -45,13 +45,16 @@ never constructed.
 
 ## After growth or movement
 
-Structural changes refresh application targets and their connections **after
-the application that changed the structure**. New objects may run applications
-still remaining in that time step. They do not retroactively run earlier ones.
-Changes made between simulation steps are processed before the next step.
+After adding or removing organs, PlantSimEngine updates which objects each
+model runs on and where its inputs come from. This happens **after the
+application that changed the structure finishes**. New organs may run models
+scheduled later in the same time step. Models that already ran are not
+repeated. If you change the structure between steps, these connections are
+updated before the next step.
 
-Movement or a geometry update invalidates the affected spatial environment
-bindings. Use the public lifecycle functions so the runtime knows that a
-refresh is needed. Removing an organ stops its future execution but preserves
-its already retained output history. See [Modify plant structure](../journeys/users/structure_changes.md)
-for an example that checks both target changes and conservation.
+If you move an organ or change its geometry, PlantSimEngine needs to find its
+new location in the spatial environment. Use functions such as `move_object!`
+and `update_geometry!` so it knows to update this connection. Removing an
+organ stops its future calculations and keeps results that were already
+saved. See [Modify plant structure](../journeys/users/structure_changes.md)
+for an example that checks the affected objects and their carbon balance.

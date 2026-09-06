@@ -10,7 +10,8 @@
 
 Install Julia from the
 [official download page](https://julialang.org/downloads/), create a project
-environment, and install the packages used in the tutorials:
+environment (a folder that records the packages used for this simulation),
+and install the tutorial packages:
 
 ```julia
 using Pkg
@@ -20,7 +21,8 @@ Pkg.add(url="https://github.com/VirtualPlantLab/PlantSimEngine.jl", rev="main")
 ```
 
 PlantMeteo supplies weather data, DataFrames organizes the results, and
-CairoMakie draws the tutorial figures. Run these commands in the Julia REPL;
+CairoMakie draws the tutorial figures. Run these commands at Julia's
+interactive prompt, also called the **REPL**;
 `my_simulation` is the project directory created relative to your current
 working directory. In a later session, run `Pkg.activate("my_simulation")`
 from the same location before using the project again.
@@ -60,10 +62,11 @@ simulation = run!(model)
 (absorbed_PAR_umol_m2_ground_s=final_state(simulation).aPPFD,)
 ```
 
-Example models are provided by the `PlantSimEngine.Examples` submodule. They
-are useful for learning and tests but are not part of the core modeling API.
+`using PlantSimEngine.Examples` loads the example models, including `Beer`.
+These models are included for learning and testing.
 
-The result is absorbed photon flux in μmol m⁻² of ground s⁻¹. The inputs are
+The result is the amount of light absorbed by the canopy, expressed in μmol
+of photons per m² of ground per second. The inputs are
 illustrative, not a calibrated crop scenario. Next,
 [couple three models over time](../journeys/users/one_object.md), then
 [collect and plot their outputs](../guides/data/outputs_plotting.md).

@@ -3,7 +3,7 @@
 A MultiScaleTreeGraph (MTG) stores a plant's organs and their relationships.
 Use it when you already have a measured or generated architecture. The models
 and value connections are the same as in [One multiscale plant](../../journeys/users/one_plant.md);
-the MTG supplies the objects and their parent links.
+the MTG supplies the objects and records which organ each one belongs to.
 
 Install `MultiScaleTreeGraph` in your project to run this example. We create a
 small MTG here so no external data file is needed:
@@ -27,9 +27,11 @@ this reduced architecture omits stems and petioles. For an existing MTG file, re
 
 ## Choose which attributes become simulation state
 
-Node IDs and parent links are imported automatically. By default, `scale`
-comes from the MTG symbol. Numerical attributes are **not** automatically
-copied into model status: supply the values your models need explicitly.
+PlantSimEngine imports each node's ID and parent automatically. By default,
+it uses the MTG symbol, such as `:Leaf`, as the object's `scale` label.
+It does **not** automatically copy numerical attributes into `Status`,
+where models read and store their values. The function below chooses the
+initial values to import: each leaf's carbon biomass in this example.
 
 ```@example import_mtg
 initial_status(node) = MultiScaleTreeGraph.symbol(node) == :Leaf ?
@@ -65,12 +67,14 @@ plant_area
 
 ## Keep the link to the MTG when the plant grows
 
-`CompositeModel(root; ...)` retains the MTG adapter. It can resolve a source
-node to an object with `object_id(model, leaf_1)`, and `add_organ!` reuses the
-chosen status import rule when new organs appear. Required attributes must be
-available when that rule runs, or the rule must deliberately initialize them.
+`CompositeModel(root; ...)` keeps the relationship between MTG nodes and
+simulation objects. Use `object_id(model, leaf_1)` to find the object for a
+node. When you create an organ with `add_organ!`, PlantSimEngine reuses your
+`initial_status` function to set its initial values. The new node must have
+the attributes this function reads, or the function must supply suitable
+initial values itself.
 See [Growth within a time step](../../tutorials/growing_plant/part1_growth.md).
 
 Use `objects_from_mtg(root; status=initial_status)` when you only want a
-one-time list of `Object`s to assemble yourself. This projection does not keep
-the MTG identity index needed for later node lookup or organ creation.
+list of `Object`s to assemble yourself. It does not keep the node-to-object
+lookup needed to find nodes or create new organs through the MTG later.

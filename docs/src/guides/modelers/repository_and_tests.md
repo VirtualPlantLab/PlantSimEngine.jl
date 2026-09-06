@@ -29,13 +29,15 @@ docs/src/models/
 └── growth.md
 ```
 
-Use `process.jl` only when this package owns the process declaration.
-Otherwise import the abstract process type from its owner. Keep one readable
-file per hypothesis and make includes and exports explicit in `MyModels.jl`.
+Use `process.jl` only when this package declares a new process. If another
+package already declares it, import that package's abstract process type.
+Keep one readable file per hypothesis. List the files to include and the
+names users can import in `MyModels.jl`.
 
 A process page should compare the alternatives: equations, assumptions,
-required data, units, parameters, validity domain, references, and validation
-status. Label teaching models and unfinished experiments clearly.
+required data, units, parameters, references, and the conditions under which
+each model has been tested. Label teaching models and unfinished experiments
+clearly.
 
 ## Test from the equation outward
 
@@ -45,10 +47,10 @@ Each level answers a different question:
 |---|---|
 | Direct equation test | Does the implementation reproduce a known calculation? |
 | Declaration check | Are required inputs, outputs, and physical meanings explicit? |
-| Small composition | Can the model obtain its inputs and run on the intended object? |
+| Small simulation | Can the model obtain its inputs and run on the intended object? |
 | Coupled scenario | Does it interact correctly with the other models used in this study? |
 
-Start with the canonical biomass example from
+Start with the biomass example from
 [Implement a basic model](@ref):
 
 ```@example repository-tests
@@ -72,18 +74,19 @@ scenario = CompositeModel(
 @test final_state(run!(scenario)).biomass_increment == 15.0f0
 ```
 
-These small checks isolate the equation from input routing and scheduling.
+These small checks test the equation first, then test how the simulation
+supplies its inputs and runs it.
 For a scientific model, add edge cases and a trusted reference calculation
 or dataset. Agreement with the reference needs a numerical tolerance
 appropriate to the calculation.
 
 ## Add checks for the features you use
 
-A model with cross-object inputs needs tests that the intended objects supply
-them. A model with several cadences needs checks at their update boundaries.
-A growing scenario needs checks before and after organs are added or removed.
-An iterative controller needs tests of both rejected trials and accepted
-publication.
+If a model reads values from other objects, check that it uses the intended
+objects. If coupled models run at different frequencies, check what happens
+when each one updates. For a growing plant, check results before and after
+organs are added or removed. For a model that tries several solutions, test
+both rejected trials and the results it finally accepts.
 
 Use `Diagnostics` to inspect the relevant connections and schedules, then
 assert the scientific relationship you intend to preserve. For example,
@@ -100,13 +103,14 @@ from equation checks. See [Numerical Reliability](@ref) and the
 Before sharing a model, check that:
 
 - it belongs to the intended process;
-- its inputs, outputs, units, bases, and timing are documented;
+- its inputs, outputs, units, and timing are documented, including whether
+  each value is per organ, per plant, or per unit area;
 - its equation and fixed parameters are easy to find;
 - each object's changing state stays separate;
 - direct tests and the relevant coupled tests pass;
 - scientific validation and remaining uncertainty are stated.
 
-When a scenario becomes long, group its application definitions into named
-functions by domain, such as leaf, plant, and soil processes. Keep those
-functions as ordinary collections of `ModelSpec` values so the scenario
-remains inspectable.
+When a simulation setup becomes long, group the `ModelSpec` definitions into
+functions for leaf, plant, and soil processes, for example. Have those
+functions return the `ModelSpec` values so readers can still see which
+models are used and how they are connected.

@@ -116,8 +116,8 @@ MAESPA.
 What happens if carbon gain stops increasing in proportion to absorbed light?
 Here, the same small simulation is run with a linear response and then a
 saturating response. Only the carbon-gain model changes. Both models declare
-the same inputs, outputs and units, so PlantSimEngine can check that their
-interfaces are compatible.
+the same inputs, outputs and units, so PlantSimEngine can check whether
+one can replace the other.
 
 ![Two teaching models predict different carbon gains from the same absorbed light: a linear response and a saturating response.](home-model-comparison.svg)
 
@@ -220,10 +220,11 @@ results = collect_outputs(simulation; sink=DataFrame)
 nothing # hide
 ```
 
-PlantSimEngine connects these models because each required variable has one
-matching source. The result table contains their outputs over time. The
-[step-by-step tutorial](journeys/users/one_object.md) shows how to inspect the
-connections and continue a simulation; the
+The thermal-time model supplies the LAI model, which supplies the light
+model. PlantSimEngine connects them using their matching input and output
+names. The result table contains their outputs over time. The
+[step-by-step tutorial](journeys/users/one_object.md) explains these connections
+and shows how to continue a simulation; the
 [plotting guide](guides/data/outputs_plotting.md) explains how to display results.
 
 ## Scientific models and further reading

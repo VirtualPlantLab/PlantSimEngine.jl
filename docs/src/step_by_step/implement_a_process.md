@@ -9,7 +9,7 @@ users find your implementation beside the alternatives they may want to compare.
 
 ## Find the existing family
 
-Load the package that owns the models. This example uses the teaching models
+Load the package that provides the models. This example uses the teaching models
 distributed with PlantSimEngine:
 
 ```@example choose_process
@@ -22,10 +22,10 @@ growth_models
 
 For a scientific application, load its model package first and inspect its
 documentation. `Authoring.available_processes()` lists the process types
-visible in the loaded modules. `Authoring.available_models(process_type)`
-then lists that family's concrete model types.
+available in the packages you have loaded. `Authoring.available_models(process_type)`
+then lists the model types that implement that process.
 
-Choose a candidate and inspect an actual parameterized instance:
+Choose a model, give it a parameter value, and inspect its inputs and outputs:
 
 ```@example choose_process
 candidate = ToyRUEGrowthModel(0.2)
@@ -37,19 +37,21 @@ candidate = ToyRUEGrowthModel(0.2)
 ```
 
 [Loaded model catalog](@ref) explains discovery and inspection in more detail.
-Discovery only sees packages loaded into Julia; also check the target
-package's source and documentation before concluding that a process is absent.
+These functions only find packages loaded into Julia. Also check the package
+you plan to use before concluding that a process is missing.
 
 ## Decide what your new equation changes
 
 | Your change | What to create |
 |---|---|
-| Another equation, parameterization, assumption, or resolution for the same question | A concrete model under the existing process |
+| Another equation, assumption, or level of detail for the same question | A model under the existing process |
 | A distinct biological or physical question | A new process and its model |
-| A conversion of units, basis, or aggregation between models | An explicit adapter model |
+| A conversion such as radiation per square metre to radiation per plant | A small conversion model, called an adapter |
 
-Give alternative hypotheses separate model types so users can select and test
-them. Models in one process may have different inputs, outputs, or cadences.
+Give alternative equations separate model types so users can select and test
+them. To compare parameter values in the same equation, create instances of
+that model with different parameters. Models in one process may need
+different inputs, produce different outputs, or run at different frequencies.
 Use [Model compatibility and replacement](@ref) before substituting one.
 
 ## Declare a genuinely new process
@@ -74,8 +76,10 @@ process(DocsLinearExudation(0.1))
 | `@process "light_interception"` | `AbstractLight_InterceptionModel` |
 
 When another package already declares the process, import its abstract type
-and subtype it. Avoid declaring a second identity with the same meaning.
+and use it after `<:` in your model definition. This puts your model in the
+same family as the existing alternatives.
 
 The type above is only the beginning. It still needs input and output
-declarations, scientific contracts, an equation, and tests. Continue with
+declarations, descriptions of the variables' units and meaning, an equation,
+and tests. Continue with
 [Implement a basic model](@ref) to complete those steps.

@@ -1,94 +1,104 @@
 # Environment Backend Extensions
 
-This page is for package authors who connect a meteorology, canopy-layer,
-voxel, grid, or other spatial provider to PlantSimEngine. Simulation users
-normally configure an existing backend with `Environment(...)` and do not need
-this protocol.
+An **environment backend** connects a source of weather or spatial data to
+PlantSimEngine. It may provide weather records, canopy layers, a grid, or
+voxels (three-dimensional cells). This page explains how to write one. To use
+an existing backend in a simulation, start with
+[Understand Environments](../../journeys/users/environments.md).
 
-## The boundary
+## Define a backend
 
-An extension backend subtypes
-`PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend` and extends
-functions in `PlantSimEngine.EnvironmentAPI`. Keep the concrete backend and
-handle types in the extension package. They do not belong in PlantSimEngine's
-root namespace.
+Define your backend as a subtype of
+`PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend` and extend
+functions in `PlantSimEngine.EnvironmentAPI`. Define its types in your
+extension package, including the **handle** type. A handle stores the location
+or data needed to read the environment for one model on one object. For
+example, it might contain the canopy layer used by a leaf. PlantSimEngine
+keeps this handle so it does not need to find that layer on every step.
 
 The required methods are:
 
 - `base_step_seconds(backend)`: duration of one base step;
 - `get_nsteps(backend)`: available number of steps;
-- `bind_environment(backend, object, context, config)`: compile one opaque
-  handle for an application/object pair;
-- `sample(backend, handle, variable, time)`: read committed state.
+- `bind_environment(backend, object, context, config)`: create the handle for
+  one model application on one object;
+- `sample(backend, handle, variable, time)`: read a value from the stored,
+  accepted environment state.
 
-Implement `environment_variables(backend)` when the variable names can be
-enumerated cheaply. PlantSimEngine then validates model environment inputs
-while compiling.
+Implement `environment_variables(backend)` if you can list the available
+variable names without an expensive calculation. PlantSimEngine can then
+check that the required names exist when it prepares the simulation.
 
-Mutable or structurally indexed backends add only the capabilities they need:
+Add these methods if your backend needs to support trials, saved changes,
+or changes to the plant structure:
 
-- `sample(backend, handle, trial_state, variable, time)` for transient trial
-  states supplied to `run_call!`;
-- `commit_environment!(backend, handle, accepted_state, time)` for accepted
-  state;
-- `update_index!(backend, changed_entities, removed_object_ids)` when topology
-  or geometry changes require a spatial-index refresh. Initial compilation
-  supplies all entities; later refreshes supply only the structural delta.
+- `sample(backend, handle, trial_state, variable, time)`: read from a trial
+  environment supplied to `run_call!`, without changing the stored environment;
+- `commit_environment!(backend, handle, accepted_state, time)`: save accepted
+  environment values;
+- `update_index!(backend, changed_entities, removed_object_ids)`: update how
+  objects are found in space after a structure or geometry change. The first
+  call supplies all objects; later calls supply only the changes.
 
 [`ToySpatialEnvironment`](@ref) is the small, tested implementation used by
 the user journeys.
 
-## Compile routing into the handle
+## Find each object's data once
 
-`bind_environment` receives the target `Object`, an
-`EnvironmentAPI.EnvironmentContext`, and the payload configured with
-`Environment(...)`. Resolve geometry, layer, voxel, provider, and commit sink
-there. Return a concrete handle containing everything later sampling and
-committing need.
+`bind_environment` receives the `Object` that will use the environment, an
+`EnvironmentAPI.EnvironmentContext`, and the settings from `Environment(...)`.
+Use them to find where this object reads its values and, if needed, where it
+saves changes. For example, find the leaf's voxel or canopy layer here. Return
+a concrete handle containing everything needed for later reads and writes.
 
-PlantSimEngine caches that handle. The hot `sample` methods receive it directly,
-so they should not search the object registry or repeat spatial routing.
+PlantSimEngine stores that handle and passes it directly to `sample` each time.
+To keep repeated reads fast, avoid searching all objects or recalculating
+their locations in `sample`.
 `EnvironmentContext` contains application id, object id, scale, and process;
-runtime status is deliberately absent.
+it does not include the object's current status values.
 
-A controller that reads one provider and writes another can encode both routes
-in its handle. For example, the scenario may configure
+A controller that reads one data source and writes to another can store both
+locations in its handle. For example, the scenario may configure
 `Environment(provider=:forcing, sink=:canopy)`, while the backend decides what
 those names mean.
 
-## Trial and commit semantics
+## Try values, then save accepted changes
 
-Transient sampling and committing are separate backend operations:
+Trying a value and saving it are separate operations:
 
-1. a controller passes its typed trial state to
+1. A controller passes a trial environment to
    `run_call!(context, name; environment=trial_state, publish=false)`;
-2. PlantSimEngine invokes the transient `sample` overload through each target's
-   already-compiled handle;
-3. the controller accepts a state and calls
+2. PlantSimEngine calls the trial version of `sample` using each target's
+   stored handle, so each target reads the trial at its own location.
+3. The controller accepts a solution and calls
    `commit_environment!(context, accepted_state)`;
-4. PlantSimEngine validates the caller's `environment_outputs_` declaration,
-   then invokes the backend commit through the caller's handle;
-5. the controller publishes accepted called-model outputs explicitly with
-   `publish=true`.
+4. PlantSimEngine checks that `environment_outputs_` allows the controller to
+   change those variables, then calls the backend's commit method using the
+   controller's handle.
+5. The controller runs the called models with `publish=true` to record their
+   accepted outputs.
 
-The model-facing `commit_environment!(context, state)` is root API. The
-backend-facing method belongs to `PlantSimEngine.EnvironmentAPI`; extension
-packages should qualify it when adding methods.
+Model code calls `PlantSimEngine.commit_environment!(context, state)`. Your
+backend extends the separate function
+`PlantSimEngine.EnvironmentAPI.commit_environment!`; use that full name when
+defining its method in an extension package.
 
-## Refresh and diagnostics
+## Update locations and check the results
 
-PlantSimEngine calls `update_index!` once per distinct spatial backend before
-binding or rebinding affected targets. Geometry changes invalidate the affected
-handles; structural changes can also change the set of bound targets.
+Before creating or updating affected handles, PlantSimEngine calls
+`update_index!` once for each spatial backend. Moving an object or changing
+its geometry requires an updated handle. Adding, removing, or reparenting
+objects can also change which objects a model runs on.
 
-Use these public checks instead of reading compiler fields:
+Use these functions to inspect your backend:
 
-- `validate_environment_inputs(model)` checks declared variables;
+- `validate_environment_inputs(model)` checks that required variables exist;
 - `Diagnostics.explain_environment_bindings(model)` reports each
   application/object handle and geometry source;
 - `Diagnostics.explain_environment(simulation)` reports the active backend,
   variables, step count, and base-step duration.
 
-Backend tests should cover at least two objects with distinct handles,
-committed and transient sampling, rejected undeclared commits, and handle
-refresh after movement or geometry changes.
+Test at least two objects that need different local values. Check that your
+backend reads both stored and trial values correctly, rejects writes to
+undeclared variables, and updates handles when objects move or their geometry
+changes.

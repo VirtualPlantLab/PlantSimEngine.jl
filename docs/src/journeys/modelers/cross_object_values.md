@@ -55,8 +55,8 @@ growth = final_state(simulation, :leaf).growth
 growth
 ```
 
-`from_status=true` reads the explicitly supplied soil state. When a soil model
-produces that value, select its application as described in
+`from_status=true` reads the value we stored in the soil object's `Status`.
+When a soil model calculates that value instead, select that model as described in
 [Coupling models](@ref). The development equation itself stays unchanged.
 
 ## Read several values and combine them
@@ -116,15 +116,16 @@ plant_result = final_state(run!(plant), :plant).Rm
 plant_result
 ```
 
-`Many` provides the selected values in a vector-like input. `Subtree()`
-restricts the search to this plant's descendants. This avoids accidentally
-adding another plant's leaves.
+`Many` gathers the selected values so the model can read them like a vector.
+`Subtree()` searches this plant and its descendants. With `scale=:Leaf`,
+only its leaves contribute, so another plant's leaves are not included.
 
-For a real process chain, the producer and consumer must use compatible
-units, physical bases, and time intervals. An average per unit leaf area
-cannot become a plant total by an unweighted sum; supply the necessary areas
-and write that conversion explicitly.
+Before adding real leaf values, check that they use the same units and time
+interval. Also check whether they describe a whole leaf or one square metre
+of leaf area. For values per square metre, multiply each value by its leaf's
+area before adding them to obtain a plant total.
 
-Use `Diagnostics.explain_bindings(plant)` to inspect the selected sources.
-The implementation uses live references, so the aggregation equation can
-remain independent of object identity and count.
+Use `Diagnostics.explain_bindings(plant)` to check which leaves supply the
+values. PlantSimEngine keeps the inputs connected to those leaves' current
+results. The equation only needs to add the values; it does not need to look
+up individual leaves or count them.

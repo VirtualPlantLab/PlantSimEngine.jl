@@ -1,14 +1,15 @@
 # Choose Compatible Time Steps
 
-Use this page when a simulation rejects an application cadence, or when
-several models need different time steps. For choosing how values pass between
-those models, start with [Different model cadences](../../journeys/users/cadences.md).
+Use this page when a simulation rejects how often you want a model to run,
+or when several models need different time steps. To choose how those models
+share values between updates, start with
+[Different model cadences](../../journeys/users/cadences.md).
 
 ## Find a common base step
 
-The simulation advances on a fixed base step, supplied by the environment's
-`duration`. Each `every` must be a positive integer multiple of that duration.
-PlantSimEngine does not insert intermediate steps automatically.
+The simulation advances by a fixed interval, called the **base step**. Set it
+with the environment's `duration`. A model's `every` value must be a positive
+whole number of base steps. PlantSimEngine does not add smaller steps for you.
 
 | Model cadences | A suitable base step |
 |:--|:--|
@@ -17,15 +18,16 @@ PlantSimEngine does not insert intermediate steps automatically.
 | Every 250 ms and every second | 250 ms |
 
 A smaller step may also work, but increases the number of simulation steps.
-Choose one supported by the equations and by the available forcing data.
-Resampling measurements requires an explicit interpolation or aggregation
-choice; changing `duration` alone does not create the missing observations.
+Choose one that suits the equations and your weather data. If you need values
+between measurements, choose how to estimate them. If you need less frequent
+values, choose how to combine the measurements, for example by averaging.
+Changing `duration` alone does not calculate these values.
 
 ## Example: hourly and 90-minute sampling
 
-Two temperature readers illustrate the schedule without introducing a new
-scientific model. Both start at the first time point, then run at their own
-cadence:
+Two simple models read temperature at different intervals. Both run at the
+start of the simulation, then one runs every hour and the other every
+90 minutes:
 
 ```@example compatible_steps
 using PlantSimEngine, Dates, DataFrames
@@ -47,9 +49,9 @@ rows = collect_outputs(simulation; sink=DataFrame)
 combine(groupby(rows, :application_id), nrow => :samples)
 ```
 
-The seven base time points cover 0 to 3 hours: the hourly reader publishes
-four samples, and the other publishes three. The first sample is at the
-origin, not after a completed hour.
+The seven time points cover 0 to 3 hours. The hourly reader records four
+results, and the other records three. Both record their first result at
+time zero.
 
 ```@example compatible_steps
 @assert count(==(:hourly), rows.application_id) == 4 # hide
@@ -57,16 +59,23 @@ origin, not after a completed hour.
 nothing # hide
 ```
 
-## Check the resolved configuration
+## Check when models run and where inputs come from
 
-Use `Diagnostics.explain_schedule(model)` to inspect cadence and clock origin.
-Use `Diagnostics.explain_bindings(model)` for the selected producer, temporal
-policy, and window, and `Diagnostics.explain_environment_bindings(model)` for
-environment sources and reducers.
+Use these tables to check the configuration:
 
-`every` overrides a model's default `timespec`. When cadence comes from the
-environment base step, a `timestep_hint` can check compatibility; an explicit
-`every` is the scenario author's choice and must suit the equations. Fixed
-periods such as `Day(1)` are supported. Calendar months have varying lengths,
-so `Month(1)` is rejected. Windows are rolling durations, not automatically
-aligned civil days or previous complete calendar periods.
+- `Diagnostics.explain_schedule(model)` shows when each model starts and how
+  often it runs.
+- `Diagnostics.explain_bindings(model)` shows which model supplies each input
+  and how earlier values are used, including the rule and time window.
+- `Diagnostics.explain_environment_bindings(model)` shows the weather or
+  spatial data each model reads and how values are combined over time.
+
+Setting `every` replaces the model's default cadence from `timespec`. If you
+leave the cadence to the environment's base step, the model can check it with
+`timestep_hint`. If you set `every` yourself, you must check that the equations
+support that interval.
+
+Fixed periods such as `Day(1)` are supported. Calendar months vary in length,
+so `Month(1)` is rejected. A time window looks back over its specified
+duration. For example, `Day(1)` does not automatically mean the preceding
+midnight-to-midnight day.

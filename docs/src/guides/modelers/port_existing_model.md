@@ -1,9 +1,9 @@
 # Port an existing model
 
 Start from a calculation you already understand and test it before moving it.
-Separate fixed parameters, changing object state, environmental inputs, and
-the values it produces. The goal is to preserve the equation while making
-those roles explicit.
+Identify its fixed parameters, the values that change during a simulation,
+the environmental data it needs, and the results it calculates. Keep the
+equation unchanged while giving each quantity a clear place.
 
 ## Begin with an existing calculation
 
@@ -20,16 +20,17 @@ expected = old_lai_step(1.0f0, 10.0f0, 0.02f0)
 expected
 ```
 
-Before porting a real model, record the units, interval, assumptions, and
-expected results from its original implementation. If it returns a rate,
-identify where time integration occurs.
+Before porting a real model, record its units, time interval, assumptions,
+and expected results. If it calculates a rate, check how that rate becomes
+an amount: for example, where a daily growth rate is multiplied by the
+number of days.
 
 ## Map each quantity to its role
 
 | Quantity | Role in this example | Place in PlantSimEngine |
 |---|---|---|
 | Response coefficient | Fixed parameter for one update | Model field |
-| Current LAI | Changing input state, leaf area per ground area | `status.lai` |
+| Current LAI | Current leaf area per ground area | `status.lai` |
 | Air temperature | Environmental input, degrees Celsius | `environment.T` |
 | New LAI | Result of this update | `status.lai_next` |
 
@@ -58,8 +59,9 @@ should reuse its package's existing process where appropriate; see
 
 ## Preserve the physical meanings
 
-The input and output LAI use the same area basis. Temperature has its own
-contract:
+Both LAI values describe leaf area per unit ground area. Temperature is in
+degrees Celsius. We record these meanings with `VariableContract`, which
+also describes whether each variable is a current value, a rate, or a total:
 
 ```@example port-existing-model
 const DOCS_LAI_CONTRACT = VariableContract(
@@ -77,8 +79,14 @@ PlantSimEngine.variable_contracts_(::DocsLAIGrowth) = (
 )
 ```
 
-Contracts describe meaning at connections. They do not silently convert a
-quantity or establish its scientific validity.
+Here `temporal=:instantaneous` and `aggregation=:state` describe current
+values. `extent=:intensive` means that adding values from two objects does
+not give their combined value: two air temperatures, for example, cannot
+be added to obtain the temperature of both objects together.
+
+These descriptions help check that connected models interpret a variable in
+the same way. They do not convert values or prove that the equation is
+scientifically valid.
 
 ## Keep the calculation readable
 
@@ -128,11 +136,13 @@ explicitly how that value becomes the next input; see
 
 ## Extend only what your model needs
 
-Keep time-varying memory in each object's status and fixed parameters in the
-model. Preserve compatible numerical types rather than converting everything
-to `Float64`. Assign instantaneous outputs on every execution path,
-including early returns.
+Keep values that change over time in each object's status and fixed
+parameters in the model. Preserve the numerical types your model supports
+rather than converting every value to `Float64`. If an output describes the
+current step, assign it every time the model runs, including when a condition
+ends the calculation early. Otherwise, an old result may be mistaken for
+today's result.
 
-If users need to replace or schedule a subprocess independently, expose it
-as a separate model. Use [Coupling models](@ref) for its connections and
+If users need to replace one part of the calculation or run it at a different
+frequency, make that part a separate model. Use [Coupling models](@ref) for its connections and
 [Model repository layout and tests](@ref) for broader validation.

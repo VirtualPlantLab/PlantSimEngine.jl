@@ -7,7 +7,8 @@ is an energy flux in W m⁻² ground.
 
 ## One fixed observation
 
-Supply a constant LAI in status and use only the light model:
+Supply a constant LAI in `status`, where the canopy stores its values, and
+use only the light model:
 
 ```@example observed_lai
 using PlantSimEngine, Dates, DataFrames
@@ -22,14 +23,13 @@ fixed_simulation = run!(fixed_model; outputs=:all)
 final_state(fixed_simulation).aPPFD
 ```
 
-Do not add a second model that also writes LAI: its output would replace the
-supplied value. A status value is an initial or fixed input, not a rule that
-overrides a running producer.
+If you add a model that calculates LAI, it will replace this supplied value
+when it runs. To keep the observed LAI fixed, use it without an LAI model.
 
 ## A sequence of observations
 
-For time-varying observations, use a model that reads each observation and
-publishes LAI. The small `ObservedLAI` definition below only copies the value;
+For observations that change over time, use a model that reads each
+observation and supplies it as LAI. The small `ObservedLAI` model below only copies the value;
 it performs no fitting, interpolation, or unit conversion. Include it from the
 downloadable source to run the example:
 
@@ -56,7 +56,8 @@ filter(row -> row.variable == :LAI || row.variable == :aPPFD, rows)
 nothing # hide
 ```
 
-`Beer` receives the published LAI through the usual same-object connection.
+PlantSimEngine passes LAI from `ObservedLAI` to `Beer` automatically: one model
+supplies it and the other needs it on the same canopy.
 To predict LAI instead, replace `ObservedLAI()` with `ToyLAIModel()` and supply
 the thermal time that model requires. A change of model can change the inputs
 you must provide; [compare alternatives](../../step_by_step/model_switching.md)
@@ -70,12 +71,14 @@ The complete [source file](observed_lai.jl) is short:
 Main.DocsSources.section("docs/src/guides/data/observed_lai.jl", "struct ObservedLAI")
 ```
 
-Before using real measurements, check their units, area basis, time stamps,
-and missing values. The example has one observation per regular daily row.
-For sparse measurements, choose and document an interpolation or holding rule
-before supplying the forcing. This workflow prescribes a measured variable;
-it is not a data-assimilation method that estimates uncertainty or updates
-other state variables.
+Before using real measurements, check their units, whether they refer to
+leaf or ground area, their time stamps, and any missing values. This example
+has one observation per day. If your measurements are less frequent, decide
+how to fill the gaps: for example, interpolate between measurements or keep
+the last measured value until the next one. Document that choice before
+using the data. This approach supplies a measured input directly. It does
+not perform data assimilation, which would use observations to estimate or
+correct the model state and could account for measurement uncertainty.
 
 See [Collect and plot results](outputs_plotting.md) for displaying predictions
 alongside observations and [Parameter fitting](../../working_with_data/fitting.md)

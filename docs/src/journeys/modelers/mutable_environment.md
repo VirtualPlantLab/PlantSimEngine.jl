@@ -1,8 +1,9 @@
 # Implement A Mutable Environment Controller
 
-Some coupled calculations also update their environment. A canopy controller,
-for example, may evaluate a trial temperature before accepting the
-environmental state that other processes should use.
+Some models also change their environment. A canopy energy-balance model,
+for example, may try several temperatures before deciding which temperature
+other models should use. A model that manages these trials is called a
+**controller**.
 
 This teaching example uses prescribed temperatures to explain that sequence.
 It does not implement a physical canopy solver. Start with
@@ -12,7 +13,7 @@ It does not implement a physical canopy solver. Start with
 ## Declare the accepted values you can write
 
 A controller declares both the model it calls and the environmental variables
-it may commit. Here `environment_outputs_` names temperature `T`. These are
+it may update. Here `environment_outputs_` names temperature `T`. These are
 the actual declarations in `examples/ToySpatialEnvironment.jl`:
 
 ```@eval
@@ -23,9 +24,9 @@ Main.DocsSources.section(
 )
 ```
 
-Object outputs record what the controller observed.
-`environment_outputs_` separately declares what it may write to the
-environment provider.
+The variables in `outputs_` record the temperatures seen during the
+calculation. The variable in `environment_outputs_` is the temperature the
+controller may change in the shared environment.
 
 ## Evaluate a trial, then commit an accepted state
 
@@ -38,19 +39,21 @@ Main.DocsSources.section(
 )
 ```
 
-The first call evaluates the reader against a trial environment without
-publishing an accepted sample. `commit_environment!` writes the accepted
-environmental values; the final reader call publishes the accepted result.
+The first call gives the reader a trial temperature. Its result is not saved
+as an accepted output sample. `commit_environment!` then stores the accepted
+temperature in the shared environment. The final reader call saves the
+result calculated at that temperature.
 
-In a scientific controller, the trial calculation and acceptance criterion
-belong to your algorithm. Also account for state changed during a rejected
-trial: suppressing publication is not a general rollback operation.
+For a scientific controller, you must choose how to calculate trials and
+when to accept a solution. You must also handle any values changed by a
+rejected trial: `publish=false` does not restore them automatically.
 
 ## Connect the controller to a provider
 
-The example provider stores temperature in a named canopy cell. The reader
-can sample it; the controller additionally receives `sink=:cells`, which
-permits the supported write operation for this provider.
+An **environment provider** supplies data such as temperature to the models.
+This example stores temperature in a named canopy cell. The reader can read
+that temperature. The controller also gets `sink=:cells`, which allows it to
+write accepted temperatures into the provider's cells.
 
 ```@example modeler_mutable_environment
 using Test, PlantSimEngine
@@ -88,16 +91,17 @@ state = final_state(simulation)
 )
 ```
 
-The provider starts at 20, the trial reads 30, and the accepted value is 22.
-Use `Diagnostics.explain_environment_bindings(model)` to inspect the provider
-and sink, and `Diagnostics.explain_outputs(simulation)` to inspect retained
-samples.
+The temperature starts at 20, the trial uses 30, and the accepted value is 22.
+Use `Diagnostics.explain_environment_bindings(model)` to check where models
+read and write environmental data. `Diagnostics.explain_outputs(simulation)`
+shows the saved results.
 
-The accepted state must provide every declared environmental output. If the
-controller is itself inside an unpublished outer trial, its descendant
-publications and environment writes are suppressed too.
+When accepting a solution, supply a value for every variable declared in
+`environment_outputs_`. If another controller calls this one as a trial with
+`publish=false`, none of its nested calls can save accepted output samples
+or change the shared environment.
 
-A package providing a different spatial environment implements the separate
-[Environment Backend Extensions](@ref) interface. A process-model author
-normally uses that provider through `Environment` and the public call and
-commit operations shown here.
+To add a new kind of spatial environment provider, see
+[Environment Backend Extensions](@ref). When writing a process model, you
+can normally use an existing provider through `Environment` and the call
+and commit functions shown here.

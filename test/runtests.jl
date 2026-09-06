@@ -38,6 +38,10 @@ else
         include("test-model-object-id.jl")
     end
 
+    @testset "CompositeModel display" begin
+        include("test-model-display.jl")
+    end
+
     @testset "Composite Model/Object API stabilization" begin
         include("test-model-api-stabilization.jl")
     end

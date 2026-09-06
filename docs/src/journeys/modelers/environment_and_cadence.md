@@ -1,8 +1,9 @@
 # Implement Environment And Cadence Traits
 
-A process may read air temperature from its environment and may have a
-preferred time step. Declare those requirements beside the model; the scenario
-chooses the data provider and can configure its execution cadence.
+A model may need air temperature or may be intended to run once a day.
+Describe these requirements alongside the model's equation. The simulation
+setup then chooses where the temperature comes from and how often the model
+runs. This update frequency is also called its **cadence**.
 
 Start with [Understand Environments](@ref) and
 [Give Models Different Cadences](@ref) for the scenario-user perspective.
@@ -10,7 +11,7 @@ Start with [Understand Environments](@ref) and
 ## Declare an environmental input
 
 This teaching model simply copies the environmental temperature to an output.
-It isolates the interface before introducing a biological equation.
+It shows how to read environmental data before adding a biological equation.
 These are its actual definitions in `examples/ToySpatialEnvironment.jl`:
 
 ```@eval
@@ -22,7 +23,8 @@ Main.DocsSources.section(
 ```
 
 `environment_inputs_` declares `T`, and `run!` reads it from
-`environment.T`. The model does not choose a weather file or spatial provider.
+`environment.T`. The model does not need to know whether the temperature
+comes from a weather file or varies with position in the canopy.
 
 Test that read directly:
 
@@ -56,9 +58,9 @@ temperature with object state.
 
 ## Give a model a default cadence
 
-The next teaching model adds a fixed increment whenever it runs. Its source
-declares a default of 24 simulation steps and allows consumers to hold its
-last output between updates:
+The next teaching model adds a fixed increment whenever it runs. By default,
+it runs every 24 simulation steps. Other models can keep reading its latest
+result until it runs again:
 
 ```@eval
 Main.DocsSources.section(
@@ -67,9 +69,9 @@ Main.DocsSources.section(
 )
 ```
 
-`timespec` gives a model default. `output_policy` gives a default interpretation
-for consumers reading between publications. The equation still updates only
-when the application runs.
+`timespec` sets the default update frequency. `output_policy` describes how
+other models read the result between updates. Here `HoldLast` tells them to
+use the latest available value; it does not run this equation again.
 
 `ClockSpec(24.0, 1.0)` means every 24 base steps, starting at step 1. It
 corresponds to a day only when the base step is an hour. In a scenario,
@@ -94,10 +96,11 @@ growth = final_state(daily_simulation).daily_growth
 growth
 ```
 
-The model runs at steps 1 and 25, adding 2 each time. A consumer can override
-`HoldLast` when averaging or accumulating values has the appropriate physical
-meaning. See [Give Models Different Cadences](@ref) before choosing that policy.
+The model runs at steps 1 and 25, adding 2 each time. When connecting another
+model, you can choose to average or add results over an interval instead of
+keeping the last value. The choice depends on what the variable represents;
+see [Give Models Different Cadences](@ref).
 
-Keep a model default only when it belongs to the scientific implementation.
-Data providers, scenario-specific timing, and the choice of output history
-remain part of the simulation configuration.
+Give a model a default update frequency only when its equations require one.
+Choose weather data, timing for a particular study, and results to save in
+the simulation setup.

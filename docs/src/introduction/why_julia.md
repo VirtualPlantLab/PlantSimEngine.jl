@@ -28,9 +28,10 @@ profiling, and type-inspection tools to find where optimization is useful.
 Keeping the model in Julia makes it possible to maintain the same tests while
 improving its implementation.
 
-Performance still depends on the algorithm, data representation, allocations,
-and work requested by the simulation. Package loading and first execution can
-include compilation time, so measure them separately from repeated runs.
+Performance depends on the algorithm, how data are stored, how much memory
+must be created, and how much work the simulation requests. The first run can
+also take longer while Julia prepares the code for execution. Measure that
+first run separately from repeated runs.
 Julia's [performance guide](https://docs.julialang.org/en/v1/manual/performance-tips/)
 explains these distinctions. PlantSimEngine's
 [benchmarking guidance](../developers.md) adds the costs of scenario
@@ -39,8 +40,8 @@ initialization, structural updates, and output collection.
 ## Share the software environment with the experiment
 
 Julia's package manager supports a separate environment for each project.
-Its `Project.toml` records dependencies and its `Manifest.toml` records resolved
-package versions. Sharing these files, the Julia version, model code, and
+Its `Project.toml` lists the packages the project needs, and its `Manifest.toml`
+records the exact versions used. Sharing these files, the Julia version, model code, and
 input data helps others recreate an experiment. See the official
 [environment guide](https://pkgdocs.julialang.org/v1/environments/) and
 [PlantSimEngine installation](../prerequisites/installing_plantsimengine.md).

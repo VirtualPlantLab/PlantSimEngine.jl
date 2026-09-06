@@ -8,7 +8,8 @@ dependencies, and object parent links for plant structure.
 ## Draw the parent links
 
 This small example needs `DataFrames` and `CairoMakie` in your project. It
-draws one plant with two leaves from the public object diagnostics:
+draws one plant with two leaves. `Diagnostics.explain_objects` lists the
+objects and their parents so we can draw the connections:
 
 ```@example structure_plot
 using PlantSimEngine, DataFrames, CairoMakie
@@ -53,10 +54,11 @@ nothing # hide
 For a larger structure, choose a tree-layout algorithm or positions from your
 geometry data. Keep object IDs as the link between results, geometry, and
 labels. After growth or pruning, call `Diagnostics.explain_objects(model)`
-again to draw the current topology; retained simulation outputs still include
+again to draw the current structure. Saved simulation results still include
 the history of removed organs.
 
-For plant instances, `Diagnostics.explain_instances(model)` identifies their
-roots. `Diagnostics.explain_scopes(model)` helps check the groups used by
-selectors. Rendering stays outside the process equations, so the same model
-can be used with or without a visualization.
+When using plant templates, `Diagnostics.explain_instances(model)` identifies
+the object at the top of each plant's structure. Use
+`Diagnostics.explain_scopes(model)` to check the search areas used to select
+objects. The drawing code is separate from the process models, so you can
+run the same simulation with or without a visualization.

@@ -1,11 +1,9 @@
 # Instantiate Several Plants
 
-## New concept: templates, instances, and overrides
-
 Apply the configuration from [one multiscale plant](one_plant.md) to two plants,
 then change the specific leaf area of a third. A `CompositeModelTemplate`
-stores the reusable model configuration; each `ObjectInstance` supplies the
-actual plant and its leaves.
+stores the models and their connections so you can reuse them. Each
+`ObjectInstance` supplies a plant, its leaves, and their initial values.
 
 As in that teaching example, light values are contributions per m² of a
 plant's reference ground area per second, in μmol of absorbed PAR. A plant's
@@ -55,11 +53,12 @@ plant_template = CompositeModelTemplate((
         ),
     ),
 ))
+nothing # hide
 ```
 
-An `ObjectInstance` supplies the concrete root and organs. These two instances
-reuse the same template while keeping different initial plant radiation and
-leaf biomasses:
+Create two plants from the template. Here `root` is the object representing
+the whole plant, at the top of its structure; it does not mean a botanical
+root. The plants have different absorbed light and initial leaf biomasses:
 
 ```@example journey_several_plants
 plant_a = ObjectInstance(
@@ -122,10 +121,11 @@ plant_states = final_state(simulation, Many(scale=:Plant))
 Dict(id => (surface=state.surface, aPPFD=state.aPPFD) for (id, state) in plant_states)
 ```
 
-Plant A aggregates surfaces `1 + 2 = 3 m²`; plant B aggregates `1 + 1 = 2 m²`.
-Those totals prove that `Subtree()` did not mix leaves between instances.
-Likewise, each pair of leaf light contributions sums to its own plant's
-supplied flux on that plant's common ground-area basis:
+Plant A has `1 + 2 = 3 m²` of leaves; plant B has `1 + 1 = 2 m²`.
+Each plant uses only its own leaves when calculating the total, because the
+selector uses `Subtree()`. Likewise, each pair of leaf light contributions
+adds up to the light supplied to its own plant, expressed per m² of that
+plant's reference ground area:
 
 ```@example journey_several_plants
 leaf_states = final_state(simulation, Many(scale=:Leaf))
@@ -141,9 +141,9 @@ leaf_states = final_state(simulation, Many(scale=:Leaf))
 )
 ```
 
-The instance diagnostic shows the mounted object and application ids. Template
-application names are prefixed automatically, so the two mounted graphs remain
-unambiguous:
+The table below lists the objects and model applications for each plant.
+PlantSimEngine adds the plant instance name to each application name, which
+lets you distinguish the two plants' calculations:
 
 ```@example journey_several_plants
 select(
@@ -157,9 +157,9 @@ select(
 
 ## Override one instance
 
-Only after the two unchanged instances work, override one application for a
-new instance. This plant uses a larger specific leaf area while retaining the
-same logical `:leaf_surface` application and all other template wiring:
+Now create a third plant with a larger specific leaf area. Set `overrides`
+to replace the model used for `:leaf_surface` on this plant. The other models
+and their connections stay as defined in the template:
 
 ```@example journey_several_plants
 plant_c = ObjectInstance(
@@ -199,17 +199,6 @@ The third plant has 6 m² of leaves: twice the area at the original specific
 leaf area, for the same supplied carbon biomass. This is a parameter comparison
 within the teaching model, not a calibrated species comparison.
 
-There is no `SceneScope()` in this example because nothing is deliberately
-shared between plants. Introduce scene-wide scope only when adding a real
-shared source, such as a soil object or scene-level forcing controller.
-
-## Page recap
-
-- **You added:** one reusable `CompositeModelTemplate`, two independent
-  `ObjectInstance`s, and then one application override.
-- **PlantSimEngine inferred:** instance-local selector scopes, prefixed mounted
-  application ids, and the same compiled coupling graph for each plant.
-- **You keep explicit:** each instance's objects and initial values, plus the
-  exact application replaced by an override.
-- **New API names:** `CompositeModelTemplate`, `ObjectInstance`, `overrides`,
-  and `Diagnostics.explain_instances`.
+The plants do not share any inputs in this example. If they need to read a
+shared soil object, for example, use `within=SceneScope()` in that input's
+selector. This allows it to look beyond the current plant.

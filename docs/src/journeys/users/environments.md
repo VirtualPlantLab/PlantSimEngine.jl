@@ -1,17 +1,18 @@
 # Understand Environments
 
-## New concept: declared sampling from global and spatial sources
+## Give models weather and light
 
-Use weather whose column names differ from those expected by the models,
-then give two canopies different radiation supplies. An **environment**
-provides external values such as air temperature and incident light.
-This page uses teaching models and illustrative forcing.
+An **environment** supplies values such as air temperature and incident light.
+Here you will first use weather data whose column names differ from the names
+your models expect. Then you will give a sunny canopy more light than a shaded
+one. The models and weather values are chosen to explain these operations.
 
-## Global sampling and source names
+## Match weather names to model inputs
 
-The source does not need to use the model-facing names. Here a global provider
-has `air_temperature` and `incident_par`; `Environment(...; sources=...)`
-remaps them for the two model applications.
+Suppose your weather data use the names `air_temperature` and `incident_par`,
+but your models expect `T` and `Ri_PAR_f`. Use `sources` in `Environment(...)`
+to say which weather variable supplies each model input. `provider=:global`
+means that the weather values do not depend on the object's position.
 
 ```@example journey_environments
 using PlantSimEngine, Dates, DataFrames
@@ -81,11 +82,11 @@ using PlantSimEngine.Examples
 ```
 
 `ToyDegreeDaysCumulModel` reads `environment.T`; `Beer` reads
-`environment.Ri_PAR_f`. These are not status inputs and are not outputs owned
-by the target object.
+`environment.Ri_PAR_f`. These values come from the weather data. They are
+separate from values stored on the canopy, such as its LAI.
 
-The environment diagnostic distinguishes the variables seen by each model from
-the actual source names:
+The table below shows the names each model expects (`required_inputs`) and the
+names it reads from the weather data (`source_inputs`):
 
 ```@example journey_environments
 select(
@@ -98,18 +99,19 @@ select(
 )
 ```
 
-Global sampling has no spatial handle. The forcing above is intentionally
-strict: apart from timeline `duration`, it exposes only the two remapped source
-variables. Removing either source makes `validate_environment_inputs` fail
-before simulation.
+The `handle` column is empty because neither model needs a spatial location
+to read this weather. The example supplies only `duration` and the two weather
+variables. If either weather variable is missing,
+`validate_environment_inputs` reports it before you run the simulation.
 
-## Spatial sampling
+## Give each canopy its own light
 
-Spatial backends keep the same model-facing declaration. They additionally
-associate each object with its source location. The small
-`ToySpatialEnvironment` example maps a cell label to either a sunny or shaded
-canopy. This label-based fixture demonstrates sampling; it does not compute
-light transport from a geometric scene:
+When weather or light varies across space, an **environment backend** supplies
+the values at each object's location. The models still read the same input
+names. The small `ToySpatialEnvironment` example below stores a light value in
+each of two cells, named `:sun` and `:shade`. Each canopy's `geometry` says
+which cell to use. These light values are supplied directly; this example does
+not calculate how light travels through a canopy.
 
 ```@example journey_environments
 spatial_environment = ToySpatialEnvironment(
@@ -154,8 +156,9 @@ Both canopies have LAI = 2 m² m⁻². The sunny canopy receives four times the
 incident PAR of the shaded canopy, so its absorbed PAR is also four times
 as large. Both results use ground area, not individual leaf area.
 
-The optional diagnostic below shows two different cached source locations
-(called handles), one for each canopy:
+The table below lets you check that each canopy reads from its intended cell.
+PlantSimEngine stores this location in a value called a **handle**, so it does
+not need to find the cell again at every step:
 
 ```@example journey_environments
 select(
@@ -167,19 +170,6 @@ select(
 )
 ```
 
-The scientific `Beer` kernel is unchanged. It sees only
-`environment.Ri_PAR_f`; the backend owns the meaning of each handle. Backend
-authors can inspect the implementation of `ToySpatialEnvironment` in the
-environment extension reference.
-
-## Page recap
-
-- **You added:** explicit environment declarations, global source remapping,
-  and then a spatial backend with object geometry.
-- **PlantSimEngine inferred:** global sampling, validation of required source
-  names, and one cached spatial handle per application/object target.
-- **You keep explicit:** model-facing environment names, scenario source
-  remaps, provider/backend choice, and geometry used by a spatial backend.
-- **New API names:** `environment_inputs_`, `Environment`,
-  `validate_environment_inputs`, `ToySpatialEnvironment`, and
-  `Diagnostics.explain_environment_bindings`.
+The `Beer` equation is unchanged. It reads `environment.Ri_PAR_f` in both
+examples; the environment supplies the correct value. To provide your own
+spatial data, see [Environment Backend Extensions](@ref).

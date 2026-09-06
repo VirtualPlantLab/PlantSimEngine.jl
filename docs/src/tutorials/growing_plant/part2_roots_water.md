@@ -1,10 +1,11 @@
 # Adding Roots And Water
 
-This example gathers two roots' **already accepted** uptake rates into one
-plant water stock. It teaches the time and ownership boundary; the constant
-rates are illustrative, not a root-uptake equation. It assumes an external
-water supply has granted those rates and does not simulate soil competition,
-transpiration, or a complete plant water balance.
+This example adds the water taken up by two roots to one plant water stock.
+It shows how to count each amount once when roots update hourly and the plant
+updates daily. The uptake rates are constant teaching values, not predictions
+from a root-uptake equation. We assume that the water supply can provide
+these **already accepted** rates. The example does not calculate soil
+competition, transpiration, or a complete plant water balance.
 
 ## Integrate each accepted interval once
 
@@ -62,25 +63,27 @@ water_history = [
 water_history
 ```
 
-The first daily call has only one hourly sample available: its partial window
-adds `1.08` g. Each following daily call adds 24 new hourly intervals, or
+The first daily calculation has only one hourly value available, so it adds
+`1.08` g. Each following daily calculation adds 24 new hourly amounts, or
 `25.92` g. The stock is therefore `1.08`, `27.0`, and `52.92` g at base steps
-1, 25, and 49. All 49 supplied hourly amounts are counted once. A daily cadence
-does not by itself suppress this partial startup window.
+1, 25, and 49. All 49 supplied hourly amounts are counted once. A model set
+to run daily still runs at the start, before a full day of values is available.
 
 These totals describe uptake added to storage, not tissue hydration or growth.
 
-## Extend the boundary to a shared soil
+## Share a limited soil water supply
 
-When several plants share finite soil water, give the soil stock one owner.
-A collective soil/root controller must gather all demands, limit their sum to
-the available water, subtract the accepted withdrawals once, and return the
-accepted rates or amounts to each plant. Several roots independently reading
-one soil stock do not provide that arbitration. `Updates` can order writers,
-but it does not implement a resource-allocation rule.
+When several plants share a limited soil water supply, use one model to
+manage that stock. This model must collect all root demands, decide how much
+water each receives, subtract the total withdrawal once, and return the
+accepted rates or amounts to the plants. Simply letting each root read the
+same soil stock does not prevent them from taking too much water together.
+`Updates` can specify the order in which models change a value, but your
+equations must decide how to share the water.
 
-Keep rainfall as environmental forcing and state its units before converting
-it to a soil-water amount. Add losses and exchanges explicitly when extending
-the plant balance. When growth adds a root, initialize its state and register
-it through the lifecycle API; the plant-local `Many` binding then refreshes
-after the creating application. See [Growing A Plant CompositeModel](@ref).
+Supply rainfall through the environment and state its units before converting
+it to an amount of soil water. Add each loss and exchange when extending
+the plant balance. When growth adds a root, provide its initial values and
+add it with `register_object!` or, for an MTG, `add_organ!`. The plant's `Many`
+selection then includes that root after the creating application finishes.
+See [Growing A Plant CompositeModel](@ref).

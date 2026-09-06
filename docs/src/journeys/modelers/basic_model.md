@@ -6,7 +6,7 @@ This teaching example describes daily biomass production as:
 
 For an efficiency of 1.5 g dry matter per mol of photons and 10 mol of
 intercepted photons per plant, the result is 15 g dry matter per plant.
-These values illustrate the interface; they are not a calibrated crop model.
+These values show how to write a model; they are not a calibrated crop model.
 
 We will give that equation a name, declare its variables and units, test it,
 and run it on two plants. Before adding your own model, use
@@ -54,8 +54,11 @@ Main.DocsSources.section(
 )
 ```
 
-A `VariableContract` states the physical meaning of a value at a connection
-between models. Here both quantities are daily totals for one plant:
+A `VariableContract` describes a variable's units and meaning. It records,
+for example, whether a value is per plant or per square metre, and whether it
+is a rate or a daily total. This helps check that two connected models
+interpret a value in the same way. Here both quantities are daily totals
+for one plant:
 
 ```@eval
 Main.DocsSources.section(
@@ -63,6 +66,11 @@ Main.DocsSources.section(
     "const INTERCEPTED_PAR_CONTRACT", "\"\"\"",
 )
 ```
+
+Read these settings as follows: `unit` names the measurement unit,
+`basis=:plant` says it refers to one plant, and `temporal=:day` with
+`aggregation=:total` says it is a daily total. `extent=:extensive` means the
+amounts from several plants can be added to obtain their combined amount.
 
 Attach those descriptions to the corresponding variables:
 
@@ -74,8 +82,9 @@ Main.DocsSources.section(
 )
 ```
 
-Matching contracts help check connections. Converting between physical bases
-or units requires an explicit [adapter model](../../guides/coupling.md).
+These descriptions help check connections, but do not convert values. If one
+model supplies radiation per square metre and another needs radiation per
+plant, write the conversion in an [adapter model](../../guides/coupling.md).
 
 ## Write the equation
 
@@ -89,9 +98,10 @@ Main.DocsSources.section(
 )
 ```
 
-The remaining arguments carry environmental forcing, constants, and execution
-context. This simple equation does not need them. Object selection and
-simulation timing belong in the scenario.
+The other arguments provide environmental data, constants, and tools for
+calling other models or changing the simulated objects. This equation does
+not need them. Choose which plants use the model and when it runs in the
+simulation setup below.
 
 ## Test one calculation
 
@@ -123,7 +133,8 @@ validation = Authoring.validate_model(model; strict=true)
 validation.valid
 ```
 
-That check validates the interface. Scientific validation needs appropriate
+That check finds missing or inconsistent model declarations. To check whether
+the equation describes real plants, compare its results with appropriate
 observations or reference results.
 
 ## Run the model on two plants
@@ -147,8 +158,9 @@ result_2 = final_state(simulation, :plant_2).biomass_increment
 (plant_1=result_1, plant_2=result_2)
 ```
 
-PlantSimEngine calls the equation for each selected plant. Its state remains
-separate, and the model contains no loop over plants.
+PlantSimEngine calls the equation once for each selected plant. Each plant
+keeps its own input and result, so you do not need to write a loop over plants
+inside the model.
 
 ## Continue with your own model
 

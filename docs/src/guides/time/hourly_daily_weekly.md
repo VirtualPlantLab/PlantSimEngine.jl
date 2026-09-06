@@ -2,18 +2,19 @@
 
 Compare daily and weekly water uptake from the same hourly leaf rates. The
 rates below are deliberately constant teaching values: 1 and 2 mg of water
-per leaf per second. They demonstrate timing and aggregation, not a model of
-plant water demand.
+per leaf per second. They show how to calculate totals over different time
+intervals; they do not predict plant water demand.
 
-Each total integrates the hourly rates over its own rolling window, then adds
-the two leaf amounts. The daily and weekly applications both read the hourly
-source, so the weekly result does not add overlapping daily windows.
+To calculate each total, multiply the hourly rates by the duration they
+represent, then add the two leaves' amounts over a day or a week. Both totals
+use the hourly values directly. This avoids counting the same water twice
+by adding daily totals whose periods might overlap.
 
 ## Load the two equations
 
-The reusable [teaching models](teaching_models.jl) publish a supplied rate and
-sum supplied amounts. Their definitions are included at the end of this page;
-you only need to load them to configure this simulation.
+The reusable [teaching models](teaching_models.jl) return a supplied rate and
+add supplied amounts. Their definitions are included at the end of this page;
+load them now to configure this simulation.
 
 ```@example hourly-daily
 using Dates, DataFrames, PlantSimEngine
@@ -21,12 +22,13 @@ include(joinpath(pkgdir(PlantSimEngine), "docs", "src", "guides", "time", "teach
 using .TeachingTimeModels
 ```
 
-## Choose the clocks and windows
+## Choose update intervals and time windows
 
-`every` says when a model runs; `window` says how much source history its
-input uses. Hourly, daily and weekly durations all fit an hourly base step.
-The reducer multiplies each rate by its represented duration in seconds,
-converting mg s⁻¹ into mg before the plant adds the leaf amounts.
+`every` says how often a model runs; `window` says how far back it looks for
+input values. Hourly, daily and weekly durations all fit an hourly base step.
+The function passed to `Integrate` multiplies each rate by the duration it
+represents, in seconds. This converts mg s⁻¹ into mg before the plant adds
+the leaf amounts.
 
 ```@example hourly-daily
 integrate_rate = Integrate((values, durations_seconds) -> sum(values .* durations_seconds))
@@ -64,10 +66,10 @@ totals = rows[in.(rows.application_id, Ref((:daily, :weekly))),
 totals
 ```
 
-The first execution is at step 1. Both totals initially contain only one
-hour of available history: `(1 + 2) × 3600 = 10800 mg`. That is a startup
-value, not a complete day or week. The daily application runs again at steps
-25, 49, and so on; the weekly application runs again at step 169.
+Both totals are calculated at step 1, when only one hour of values is
+available: `(1 + 2) × 3600 = 10800 mg`. This first result does not represent
+a complete day or week. The daily total is calculated again at steps 25, 49,
+and so on; the weekly total is calculated again at step 169.
 
 ```@example hourly-daily
 first_daily = only(totals[(totals.application_id .== :daily) .& (totals.timestep .== 1), :value])
@@ -79,34 +81,37 @@ full_week = only(totals[(totals.application_id .== :weekly) .& (totals.timestep 
 (startup_mg=first_daily, daily_mg=full_day, weekly_mg=full_week)
 ```
 
-These are fixed-duration rolling windows, not calendar-aligned civil days or
-weeks. All application durations must be integer multiples of the base step;
-choose a finer common step if necessary. Calendar months and adaptive steps
-are not supported by this scheduler.
+Each window looks back over its specified duration. It does not automatically
+start at midnight or at the beginning of a calendar week. Each model's cadence
+must be a whole number of base steps; choose a smaller common step if needed.
+Calendar months and timesteps that change during a run are not supported.
 
-`Integrate()` without a reducer only sums samples. Use it for values that are
-already the amounts you intend to add, after checking the selected window and
-sample boundaries. Rates require duration weighting as above. Use
-`Aggregate(reducer)` when the intended result is a mean or another statistic.
+`Integrate()` without a function only adds values. Use it when the values
+already represent amounts, and check that the selected window includes each
+intended amount once. For rates, multiply by duration as above. Use
+`Aggregate(reducer)` to calculate a mean or another statistic, supplying your
+calculation as the `reducer` function.
 
 ## Scientific contracts and outputs
 
-The teaching models leave variable contracts undeclared so this page can
-isolate the numeric time policies. These policies do not change contract
-metadata. A production model with declared rate and amount contracts needs
-an explicit conversion model between those contracts; see
+These teaching models do not declare `VariableContract`s, which describe a
+variable's units and physical meaning. The rules for combining values over
+time do not change these declarations. If your models declare a rate contract
+on one side and an amount contract on the other, connect them through a small
+model that performs the conversion and declares both meanings. See
 [Coupling models](../coupling.md).
 
-Input windows retain the history needed by the simulation. Your analysis
-outputs are a separate choice: see [Collecting And Plotting Outputs](../data/outputs_plotting.md)
-for retaining selected results. Inspect the schedule when checking how many
-daily or weekly publications to expect, including startup.
+PlantSimEngine keeps the earlier values needed for each input window. Choose
+separately which results to save for your own analysis: see
+[Collecting And Plotting Outputs](../data/outputs_plotting.md). Check the
+schedule to find how many daily or weekly results to expect, including the
+first partial result.
 
 ## Teaching model source
 
 These simple equations are shared with the [cadence tutorial](../../journeys/users/cadences.md).
-They copy each leaf's supplied rate and sum the converted leaf amounts. The
-weekly model uses a separate output name so both totals coexist on the plant.
+They copy each leaf's supplied rate and add the converted leaf amounts. The
+weekly model uses a different output name so the plant can store both totals.
 
 ```@eval
 using Markdown, PlantSimEngine

@@ -10,11 +10,12 @@ When a model only needs another model's result, use an ordinary input instead.
 
 ## Declare the model you need to call
 
-The teaching controller below selects one leaf, tries two prescribed
-temperatures, and finally accepts a third. It demonstrates the call mechanism;
-it does not solve an energy-balance equation.
+The teaching model below acts as a **controller**: it chooses when to run
+another model. It selects one leaf, tries two prescribed temperatures, and
+finally accepts a third. This shows how to run trials; it does not solve an
+energy-balance equation.
 
-Its declaration selects leaf readers by process within the current plant.
+Its declaration asks for temperature-reading models on the current plant's leaves.
 These definitions are extracted from `examples/ToyAdvancedControl.jl`:
 
 ```@eval
@@ -25,9 +26,10 @@ Main.DocsSources.section(
 )
 ```
 
-`Call` declares the requirement. The controller will execute it explicitly.
-Process and relative scope allow reuse without knowing a future scenario's
-application names.
+`Call` declares which models the controller needs. The controller chooses
+when to run them. Asking for a process on the current plant's leaves lets
+you reuse it without knowing the names a future simulation will give those
+model applications.
 
 ## Run trials and accept one result
 
@@ -41,13 +43,15 @@ Main.DocsSources.section(
 )
 ```
 
-`call_targets` finds the declared targets; the object filter chooses the leaf
-for this example. Each trial uses `publish=false`, so it does not create an
-accepted output sample. The final call uses `publish=true`.
+`call_targets` lists the models and objects that match the `Call` declaration.
+Each match is called a **target**. Here the controller chooses the target for
+one leaf. Each trial uses `publish=false`, so its result is not saved as an
+accepted output sample. The final call uses `publish=true` to save the
+accepted result for output history and time-based connections.
 
-An actual iterative model must define its own trial calculation, convergence
-criterion, and treatment of state. Publication suppression does not undo
-arbitrary changes made by a trial.
+For a real solver, you must decide how to calculate each trial and when a
+solution is close enough. You must also handle any values changed by a
+rejected trial: `publish=false` does not restore them automatically.
 
 ## Compose a small scenario
 
@@ -85,22 +89,23 @@ accepted = final_state(simulation, :plant)
 )
 ```
 
-The controller's default `dep` declaration supplies the call. A scenario can
-override its selection with `ModelSpec(...; calls=...)`. Inspect
-`Diagnostics.explain_calls(model)` to check the resolved targets.
+The controller's `dep` declaration describes the models it calls by default.
+To choose different models or objects in a simulation, set
+`ModelSpec(...; calls=...)`. Use `Diagnostics.explain_calls(model)` to check
+which models and objects were selected.
 
 ## Choose the simplest call operation
 
 | Your algorithm needs… | Use |
 |---|---|
-| To execute every declared target | `run_call!(context, :readers)` |
-| To inspect one resolved model's parameters or type | `call_model(context, :reader)` |
-| To select objects, inspect target state, or use distinct trial values | `call_targets(context, :readers)`, then call the selected target |
+| To run all selected models and objects | `run_call!(context, :readers)` |
+| To read one called model's parameters or type | `call_model(context, :reader)` |
+| To choose objects, read their current values, or give them different trial values | `call_targets(context, :readers)`, then call the selected target |
 
-`call_model` requires exactly one resolved target. The bulk `run_call!`
-path can take `sampled_environment=value` when every target uses the same
-already-sampled environment.
+`call_model` requires exactly one match. If you have already prepared the
+environmental values that all selected objects should use, pass them as
+`sampled_environment=value` to `run_call!`.
 
-Supported structural changes refresh the selected objects. Keep ordinary
-calls through these public operations so your controller continues to use
-the current targets.
+When objects are added, removed, or moved to a different parent through the
+PlantSimEngine functions, the selection is updated. Use the call functions
+above so your controller uses that updated selection.

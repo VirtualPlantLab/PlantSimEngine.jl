@@ -92,12 +92,11 @@ simulation = run!(model; steps=48, outputs=:none, performance=true)
 Diagnostics.explain_runtime_performance(simulation)
 ```
 
-The returned rows distinguish immutable-plan compilation, object-target
-instantiation, lifecycle-buffer updates, steady-state execution, output
-collection, and whole-initialization totals. Use these counters to establish
-where work occurred, not as a microbenchmark. Timing instrumentation calls
-`time_ns()` at runtime boundaries, so benchmark ordinary execution separately
-with `performance=false` after warming the simulation.
+The report separates time spent preparing the simulation, selecting objects,
+updating after structural changes, running the models, and collecting outputs.
+Use it to find which stage takes time. Measuring those stages also adds some
+work, so measure normal execution separately with `performance=false` after
+a first run has allowed Julia to compile the code.
 
 ## CI workflows
 
@@ -210,7 +209,6 @@ were editing.
 
 ### Coverage gaps to keep in mind
 
-Not every combination of weather structure, status shape, mapping layout, and
-downstream usage is covered directly in PlantSimEngine. When changing the public
-API or runtime semantics, treat downstream integration results as part of the
-validation surface, not as optional extra signal.
+PlantSimEngine's own tests cannot cover every weather format, object
+configuration, and use in other packages. When changing public functions or
+how simulations run, also run the tests of packages that depend on them.

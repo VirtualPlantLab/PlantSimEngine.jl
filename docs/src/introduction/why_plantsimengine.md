@@ -15,7 +15,7 @@ of processes or assumptions:
 - **Canopy ecophysiology:** connect weather, local conditions and organ processes,
   including calculations that must iterate together. The
   [MAESPA-style synthesis](../journeys/users/maespa_synthesis.md) demonstrates
-  these coupling mechanisms with pedagogical models.
+  how these calculations can work together, using teaching models.
 - **Functional–structural plant modelling:** apply processes to organs,
   connect their results to the plant, and update the structure during growth.
   Start with [one multiscale plant](../journeys/users/one_plant.md).
@@ -41,14 +41,14 @@ and whether it is a rate or an accumulated amount. The same variable name
 alone is insufficient. Moving from a quantity per unit ground area to a total
 per plant, for example, needs an explicit conversion.
 
-Replacing a model for selected plants within one application requires a
-compatible complete interface. Broader changes may require reconnecting
-affected inputs. See
+To replace a model only for selected plants, its inputs, outputs, and other
+requirements must match the original model. A replacement that needs an extra
+input, such as soil water content, requires changes to the simulation setup. See
 [model compatibility and replacement](../step_by_step/model_switching.md).
 
-For model authors, this separation keeps a process implementation readable
-from inputs to outputs. For researchers assembling models, it makes the
-choice of hypotheses visible in the scenario. Both can test a component
+Model authors can read each equation together with its inputs and outputs.
+Researchers assembling models can see which equations and assumptions were
+chosen in the simulation setup. Both can test a component
 before investigating its behaviour in the full system.
 
 ## Choose the representation that answers your question
@@ -60,8 +60,8 @@ Different models can be applied to different selections of these objects.
 
 The same process equation can be reused over compatible objects while the
 scenario handles their selection and connections. A plant-level model can,
-for example, read values from its own leaves. The modeller supplies the
-aggregation equation and any required area, mass, or temporal conversion.
+for example, read values from its own leaves. The modeller decides how to combine these values, for example by summing leaf
+areas, and supplies any required area, mass, or time conversion.
 Changing resolution also requires checking the assumptions and validity of
 the chosen models. See [value coupling across objects](../guides/multiscale/value_coupling.md).
 
@@ -91,10 +91,10 @@ missing inputs, the sources of values, execution order, local environmental
 conditions, and which results are saved. You can inspect why a particular leaf
 receives a value, which model supplies it, and when it is updated. The
 [graph viewer](../guides/graph_visualizer_editor.md) provides another view of
-the same composition.
+how the models are connected.
 
 These reports help separate a coupling problem from a problem in an equation
-or its assumptions. Declared contracts expose mismatches at model boundaries;
+or its assumptions. Declared units and physical meanings help reveal incompatible connections;
 scientific validation still needs suitable observations, reference results,
 and tests. See the [model authoring API](../API/API_public.md) and
 [model testing guide](../guides/modelers/repository_and_tests.md).
@@ -112,7 +112,7 @@ reports a median of 5.3 microseconds for one leaf and one time step of its
 coupled energy-balance, photosynthesis, and stomatal-conductance benchmark.
 That result concerns the implementations, versions, inputs, and hardware used
 in the study. For your scenario, measure initialization, repeated execution,
-structural changes, and retained outputs separately using the
+structural changes, and saving results separately using the
 [benchmarking guidance](../developers.md). A public parallel or distributed
 executor remains [planned work](../planned_features.md).
 
@@ -126,7 +126,7 @@ interfaces, assemble a scenario, inspect its connections, and run tests with
 the tools available in your development environment.
 
 PlantSimEngine provides a versioned [AI agent skill](../agent_skill.md), a
-[loaded model catalog](../API/model_catalog.md), and the same authoring tools
+[catalog of available models](../API/model_catalog.md), and the same authoring tools
 used by people. You supply the coding agent and its execution environment.
 Model assumptions, physical conversions, supporting references, and scientific
 validation remain the responsibility of the researcher. Begin with

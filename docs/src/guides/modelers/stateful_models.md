@@ -20,8 +20,9 @@ daily observations:
 
 **mean = (today + previous observation + older observation) / 3**
 
-All three observations are dimensionless fractions. This is a teaching
-example of memory ownership, not a model of plant water stress.
+All three observations are dimensionless fractions. This example shows how
+each soil object keeps its own past observations. It does not model plant
+water stress.
 
 ```@example object_memory
 using Dates, Test, PlantSimEngine
@@ -43,7 +44,9 @@ PlantSimEngine.environment_outputs_(::DocsThreeDayMean) = NamedTuple()
 
 The two memory fields are outputs because this model updates them. Their
 initial values must represent observations before the first simulated day.
-Each object can supply different initial values.
+Each object can supply different initial values. The `VariableContract`
+descriptions below record that the observations are soil-water fractions,
+while the result is a mean of three daily samples.
 
 ```@example object_memory
 const FRACTION_SAMPLE = VariableContract(
@@ -92,8 +95,8 @@ sample.mean_fraction
 
 ## Keep two objects' histories independent
 
-Here the observations stay constant during the example. A real scenario
-would supply the daily values from forcing data or another model.
+Here the observations stay constant during the example. A real simulation
+would read each day's value from a dataset or another model.
 
 ```@example object_memory
 dry = Object(
@@ -131,20 +134,22 @@ day_two = (
 
 Both objects use the same model. Their separate status fields keep the dry
 soil's earlier observations from affecting the wet soil's mean. If an
-algorithm needs a mutable history array, each object must own its own array
-as well; do not put one shared buffer in the model.
+algorithm stores earlier values in an array, give each object its own array
+as well. An array stored in the shared model would mix the objects' histories.
 
 ## Delays, repeated calls, and output history
 
-Use `PreviousTimeStep` when an input should read a producer's previous
-accepted timestep. The [model execution reference](../../model_execution.md)
-shows that declaration. [Control Advanced Execution](@ref) explains intentional
-multiple writers with `Updates`.
+Use `PreviousTimeStep` when an input should read another model's accepted
+result from the previous time step. The
+[model execution reference](../../model_execution.md) shows how to declare
+this input. If several models deliberately update the same variable, use
+`Updates` to set their order; see [Control Advanced Execution](@ref).
 
-A call with `publish=false` suppresses publication; it does not automatically
-restore every state field the scientific algorithm mutates. An iterative
-controller must manage trial state and acceptance deliberately. Advance a
-history like the one above once per accepted observation.
+A trial call with `publish=false` does not save its result as an accepted
+output sample. It can still change values in `status`, and those changes
+are not automatically undone. A model that tries several solutions must
+decide which changes to keep. Update a history like the one above once per
+accepted observation, so rejected trials do not enter the mean.
 
 Use [Collecting And Plotting Outputs](@ref) to retain and analyse a result
 series. Keeping outputs and maintaining a model's own short memory serve

@@ -30,11 +30,14 @@ light = rows[rows.variable .== :aPPFD, :]
 first(light, 3)
 ```
 
-Each row identifies the model application, object, variable, time and value.
+`sink=DataFrame` asks for a DataFrame; this is already the default if you
+leave out `sink`. Each row records one variable for one object at one time,
+and identifies which model application produced it.
 `aPPFD` is absorbed PAR in μmol m⁻² of ground s⁻¹. The `time` column uses
-model base-step coordinates, with the first record at 1. In this fixed hourly
-example, `6 + (time - 1)` gives the hour of day. Use the actual forcing dates
-and durations when your data use another time grid.
+simulation steps rather than clock hours, with the first record at 1. In
+this example each step lasts one hour and the first record is at 06:00, so
+`6 + (time - 1)` gives the hour of day. Use your weather data's actual dates
+and durations when they follow a different timetable.
 
 ```@example collect-output
 light.hour_of_day = 6 .+ (light.time .- 1)
@@ -52,9 +55,10 @@ figure_one
 ```
 
 With fixed leaf area, absorption follows the supplied radiation. This curve
-shows a mean flux for each hourly record, not a cumulative
-amount. To obtain an amount over time, include the represented duration in
-the calculation; see [different model cadences](../../journeys/users/cadences.md).
+shows a mean flux for each hourly record. To calculate the total absorbed
+over an interval, multiply each flux by its duration in seconds and add the
+amounts. See [different model cadences](../../journeys/users/cadences.md) for
+models that run at different intervals.
 
 ## Keep two canopies separate
 
@@ -98,7 +102,7 @@ join different objects.
 ## Retain only the outputs you need
 
 `outputs=:all` is convenient for these small examples. Larger simulations
-can retain selected variables with `OutputRequest`. Here, the new run keeps
+can save selected variables with `OutputRequest`. Here, the new run keeps
 only the light result requested from the two canopies:
 
 ```@example collect-output
@@ -120,20 +124,21 @@ to extend an existing simulation instead. Runs default to `outputs=:none`;
 `final_state(simulation)` remains available when you only need the latest
 values.
 
-Requested output history and internal dependency history have different
-purposes. PlantSimEngine may retain an internal stream because another model
-needs it, even if you did not request it for analysis. Inspect
-`Diagnostics.explain_output_retention(simulation)` when memory use matters.
+PlantSimEngine may also keep past values because another model needs them,
+even if you did not request those values for analysis. When memory use
+matters, `Diagnostics.explain_output_retention(simulation)` explains why
+each time series is being stored.
 
 ## Reading the result tables
 
-Raw rows have the columns `timestep`, `time`, `application_id`, `object_id`,
-`variable` and `value`. Requested or resampled rows also identify `scale` and
-`process`. A temporal request can return `missing` when the available history
-cannot supply the requested value. Check the model schedule and the start of
-the run before interpreting these as gaps in observations.
+The basic result table has the columns `timestep`, `time`, `application_id`,
+`object_id`, `variable` and `value`. Tables produced by an `OutputRequest`
+also identify `scale` and `process`. Requests that combine values over time
+or sample them at new times can return `missing` if there is not enough
+saved history. Check when the model ran and when the simulation started
+before interpreting a missing result as a gap in the weather observations.
 
-Published values, including arrays, are snapshots: subsequent state changes
-do not rewrite earlier rows. Removed organs retain their historical outputs.
-Values also retain compatible numerical types, including unit-bearing values
-when the model produces them.
+Saved values, including arrays, record the result at that time. Later changes
+do not rewrite earlier rows, and removing an organ does not delete its past
+results. Compatible numerical types are preserved, including values with
+attached physical units when your model uses them.
