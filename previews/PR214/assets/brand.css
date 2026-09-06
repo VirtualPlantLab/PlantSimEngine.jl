@@ -29,3 +29,56 @@ html.dark {
     max-width: 200px;
   }
 }
+
+/* Keep the introduction readable on wide screens. */
+.VPHome .VPDoc .vp-doc {
+  max-width: 1040px;
+  margin-inline: auto;
+}
+
+/* Scientific examples stay side by side when there is room for both. */
+.pse-home-examples {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 24px;
+  margin: 24px 0;
+}
+
+.pse-home-examples figure {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+}
+
+.pse-home-examples img {
+  width: 100%;
+  height: 310px;
+  object-fit: contain;
+  background: white;
+  border-radius: 6px;
+}
+
+.pse-home-examples figcaption {
+  margin-top: 16px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.pse-home-examples figcaption a {
+  display: block;
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .pse-home-examples {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pse-home-examples img {
+    height: auto;
+    max-height: 340px;
+  }
+}
