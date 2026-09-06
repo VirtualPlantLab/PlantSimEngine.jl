@@ -1,19 +1,20 @@
 # Implement a basic model
 
-**New concept:** the complete one-step model boundary: process identity,
-parameters, ports, scientific contracts, and a readable five-argument kernel.
-This page uses the tested canonical fixture shipped with the PlantSimEngine
-skill, first directly and then through the ordinary runtime.
+This teaching example turns a simple biomass-growth equation into a reusable
+model. A **process** is a scientific calculation; a model implements one choice
+of equations for that process. You will declare the equation's inputs, outputs,
+and units, test it on its own, then run it in a simulation.
 
-Before creating a type, follow [New process or new model?](@ref). The example
-below is one hypothesis for the `biomass_production` process. Its coefficients
-are pedagogical, not a calibrated crop model.
+The example is one hypothesis for the `biomass_production` process. Its
+coefficients are pedagogical, not a calibrated crop model. Before adding your
+own model, follow [New process or new model?](@ref) to decide whether it answers
+an existing scientific question or introduces a new process.
 
 ## Read the complete model
 
 This is the complete, copyable source shipped with the package. The model
-declaration comes first; `direct_example` tests its kernel and
-`single_object_scenario` shows the smallest runtime composition.
+declaration comes first; `direct_example` tests the equation on its own and
+`single_object_scenario` runs it on one simulated entity, called an **object**.
 
 ```@eval
 using Markdown, PlantSimEngine

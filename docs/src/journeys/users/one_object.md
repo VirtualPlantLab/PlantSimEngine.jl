@@ -2,21 +2,29 @@
 
 ## New concept: automatic same-object coupling over time
 
-This first executable simulation couples three existing models on one object:
+This teaching example couples three existing models on one simulated entity,
+called an **object**. Here, that object represents a canopy without describing
+individual organs. A **process** is a scientific calculation, such as thermal
+time or light interception; a model implements its equations. The toy models
+below demonstrate coupling and are not a calibrated crop model:
 
 1. `ToyDegreeDaysCumulModel` reads temperature and accumulates thermal time.
 2. `ToyLAIModel` reads cumulative thermal time and computes LAI.
 3. `Beer` reads LAI and radiation and computes absorbed PAR.
 
 The weather file is supplied forcing data for now. Environments get their own
-journey later.
+journey later. Its radiation columns contain daily totals in MJ m⁻² d⁻¹;
+we convert them to mean fluxes in W m⁻², as required by `Beer`.
 
 ```@example journey_one_object
 using PlantSimEngine, PlantMeteo, Dates, DataFrames
 using PlantSimEngine.Examples
 
 weather = read_weather(
-    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
+    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
+    :Ri_SW_f => (x -> x .* 1e6 ./ 86_400) => :Ri_SW_f,
+    :Ri_PAR_f => (x -> x .* 1e6 ./ 86_400) => :Ri_PAR_f,
+    :Ri_NIR_f => (x -> x .* 1e6 ./ 86_400) => :Ri_NIR_f;
     duration=Day,
 )
 

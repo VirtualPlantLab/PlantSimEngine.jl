@@ -30,29 +30,29 @@ DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, Plant
 
 home = (
     name="PlantSimEngine.jl",
-    text="Build plant simulations from connected models",
-    tagline="Write reusable process models, couple them across organs and plants, " *
-            "and run soil–plant–atmosphere simulations in Julia.",
+    text="Build plant simulations from connected process models",
+    tagline="Combine models of growth and plant–environment interactions in Julia, " *
+            "from crop canopies to individual plants and organs.",
     image="assets/logo.png",
     actions=[
-        (text="Run a simulation", link="journeys/users/one_object.html", theme="brand"),
-        (text="Write a model", link="journeys/modelers/basic_model.html", theme="alt"),
+        (text="Couple existing models", link="journeys/users/one_object.html", theme="brand"),
+        (text="Write a process model", link="journeys/modelers/basic_model.html", theme="alt"),
     ],
     features=[
         (
-            title="Reusable process models",
-            details="Describe each process once, then couple models and compare scientific hypotheses.",
-            link="journeys/modelers/basic_model.html",
+            title="Crop and canopy models",
+            details="Connect phenology, canopy development and resource capture without representing every organ.",
+            link="journeys/users/one_object.html",
         ),
         (
-            title="One leaf to many plants",
-            details="Use the same workflow for one object, a growing plant, or a scene of several plants.",
-            link="journeys/users/several_plants.html",
+            title="Functional–structural models",
+            details="Apply processes to individual organs and connect their exchanges as plants grow.",
+            link="journeys/users/one_plant.html",
         ),
         (
-            title="Processes on their own clocks",
-            details="Connect processes that run at different rates and share their environmental inputs.",
-            link="journeys/users/cadences.html",
+            title="Plant–environment interactions",
+            details="Combine leaf, canopy and soil processes, with different time steps and shared resources.",
+            link="journeys/users/maespa_synthesis.html",
         ),
     ],
 )
@@ -69,11 +69,11 @@ makedocs(;
         version=get(ENV, "GITHUB_REF_TYPE", "") == "tag" ? get(ENV, "GITHUB_REF_NAME", "dev") : "dev",
         logo="assets/logo.png",
         home,
-        description="Compose reusable process models into multiscale plant simulations in Julia.",
+        description="Connect process models for crop canopies, plant architectures and plant–environment interactions in Julia, with tools for AI-assisted model development.",
     ), pages=[
         "Home" => "index.md",
         "Start here" => [
-            "Why PlantSimEngine ?" => "introduction/why_plantsimengine.md",
+            "Why PlantSimEngine?" => "introduction/why_plantsimengine.md",
             "Mental model" => "journeys/users/mental_model.md",
             "One object over time" => "journeys/users/one_object.md",
             "Several same-scale objects" => "journeys/users/several_objects.md",

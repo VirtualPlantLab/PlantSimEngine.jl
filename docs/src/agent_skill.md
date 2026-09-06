@@ -1,6 +1,17 @@
 # AI agent skill
 
-PlantSimEngine includes an optional Codex/OpenAI-style skill for users who want an AI agent to help write simulations or implement models.
+An **AI coding agent** is software that can read and edit code and run tests
+with the tools you make available. PlantSimEngine provides an optional skill
+to guide agents that help you implement process models or assemble simulations.
+
+Models declare the values they need and produce, and their equations can be
+tested independently. Structured diagnostics explain model connections,
+execution order, and missing inputs. Together, these give an agent concrete
+information to inspect when proposing and checking changes.
+
+The skill adds workflows and executable examples matched to your package
+version. You guide the scientific assumptions and validate the equations,
+parameters, and results against the evidence for your study.
 
 The skill uses the Julia tools available in the agent's environment. It does
 not require a particular editor or connector; repository and user execution
