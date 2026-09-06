@@ -2,7 +2,7 @@
 CurrentModule = PlantSimEngine
 ```
 
-# PlantSimEngine
+# From process models to plant simulations
 
 [![Build Status](https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/VirtualPlantLab/PlantSimEngine.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/VirtualPlantLab/PlantSimEngine.jl)
@@ -11,17 +11,20 @@ CurrentModule = PlantSimEngine
 [![DOI](https://zenodo.org/badge/571659510.svg)](https://zenodo.org/badge/latestdoi/571659510)
 [![JOSS](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09/status.svg)](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09)
 
-```@contents
-Pages = ["index.md"]
-Depth = 4
-```
-
 ## Overview
 
 `PlantSimEngine` is a Julia framework for building soil-plant-atmosphere
 simulations from small process models. A modeler writes reusable kernels with
 `inputs_`, `outputs_`, optional dependency traits, and `run!`. A simulation
 author then assembles those kernels on objects in a `CompositeModel`.
+
+Choose a starting point for your work:
+
+| I want to… | Start here |
+|:--|:--|
+| Couple existing models and run a simulation | [Run models on one object](journeys/users/one_object.md), then [run them on several objects](journeys/users/several_objects.md) |
+| Write or adapt a process model | [Implement a basic model](journeys/modelers/basic_model.md), then [couple it to other models](journeys/modelers/cross_object_values.md) |
+| Understand how the pieces fit together | [Read the mental model](journeys/users/mental_model.md) |
 
 The public scenario API has one application-construction form:
 

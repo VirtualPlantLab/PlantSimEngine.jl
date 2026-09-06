@@ -2,7 +2,7 @@
 
 This page records the supported default namespace and the five focused public
 submodules. Compiler representations and cache controls are intentionally
-listed separately under [`PlantSimEngine.Advanced`](#advanced-namespace).
+listed separately under [`PlantSimEngine.Advanced`](@ref "Advanced namespace").
 
 `using PlantSimEngine` imports the ordinary model-author and simulation-user
 workflow plus the `Authoring`, `Diagnostics`, `GraphEditor`, `EnvironmentAPI`,

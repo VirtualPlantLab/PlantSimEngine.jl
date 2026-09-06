@@ -42,15 +42,40 @@ work and requires dedicated correctness tests before it becomes public.
 
 ### Documentation
 
-Build the documentation from the repository root with:
+The website uses Documenter and Bonito's static documentation writer. The docs
+environment requires Julia 1.11 or newer; this does not change the Julia versions
+supported by PlantSimEngine itself.
+
+Start Julia from `docs/` with that directory as the active project (agents use
+Kaimon), then install
+the docs dependencies and build without deploying:
 
 ```julia
-julia --project=docs docs/make.jl
+using Pkg
+Pkg.instantiate()
+ENV["PLANTSIMENGINE_DOCS_BUILD_ONLY"] = "true"
+include("make.jl")
 ```
 
-The docs environment includes the extra packages needed for examples and API
-documentation, such as `Documenter`, `CairoMakie`, `PlantMeteo`, and
-`MultiScaleTreeGraph`.
+The docs environment resolves PlantSimEngine from the parent checkout and includes
+the packages needed for the runnable examples and API reference. Build output is
+written to `docs/build/`. The build also checks that exported pages, assets, and
+Bonito session data resolve locally. `docs/check_static_export.jl` adjusts Bonito
+5.2's site-relative links for this manual's nested pages and for version links in
+pull-request previews; its assertions flag upstream changes that need review.
+
+Serve the build directory over HTTP to inspect the theme,
+search, and static examples:
+
+```julia
+using LiveServer
+LiveServer.serve(dir="build", launch_browser=true)
+```
+
+The existing documentation job builds and deploys the static files through
+Documenter, including pull-request previews. The website needs no running Julia
+server. Browser interactions can inspect exported data; rerunning a Julia model
+requires an execution backend.
 
 ### Benchmarks
 

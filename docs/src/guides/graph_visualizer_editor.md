@@ -39,14 +39,11 @@ embeds it below.
 ```@raw html
 <iframe
   id="pse-model-graph-example"
+  src="../assets/model_graph_example.html"
   title="Interactive PlantSimEngine CompositeModel graph example"
   style="width: 100%; height: 720px; border: 1px solid #d8cdbc; border-radius: 6px;"
   loading="lazy">
 </iframe>
-<script>
-  document.getElementById("pse-model-graph-example").src =
-    `${documenterBaseURL}/assets/model_graph_example.html`;
-</script>
 ```
 
 The default **Applications** projection groups all concrete executions of one
