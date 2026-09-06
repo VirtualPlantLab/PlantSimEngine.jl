@@ -184,12 +184,8 @@ thermal time, thermal time drives LAI, and LAI and radiation determine absorbed
 photosynthetically active radiation (PAR). The phenology and LAI models are
 teaching examples, not a calibrated crop model.
 
-First install PlantSimEngine and the packages used to read weather and results:
-
-```julia
-using Pkg
-Pkg.add(["PlantSimEngine", "PlantMeteo", "DataFrames"])
-```
+First follow the [installation instructions](prerequisites/installing_plantsimengine.md)
+to get the package version used by this manual and the tutorial dependencies.
 
 Read the weather supplied with PlantSimEngine. This file stores daily radiation
 totals in MJ m⁻² d⁻¹; the three conversions below give the mean fluxes in

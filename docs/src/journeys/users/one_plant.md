@@ -2,8 +2,10 @@
 
 ## New concept: topology and cross-object values
 
-The previous journey used independent objects at one scale. A multiscale plant
-adds parent/child topology: one plant object owns two leaf objects.
+Share an absorbed-light supply between two leaves, then compute how their
+surfaces contribute to the plant total. This teaching example adds a
+parent/child structure: one plant object owns two leaf objects. The leaf
+surfaces and radiation values are illustrative.
 
 The scope picture for this page is:
 
@@ -19,6 +21,13 @@ the plant application.
 
 Start with leaf surfaces and total plant surface supplied as status. The only
 new value connection sends the plant-level absorbed light to each leaf.
+
+We use one **common reference ground area** for the whole plant. Its supplied
+`aPPFD` is 120 μmol m⁻² of reference ground s⁻¹. Each leaf receives a share in
+proportion to its area: `120 × 1/3 = 40` and `120 × 2/3 = 80`, on that same
+ground-area basis. These contributions can be added to recover 120. They are
+not photon flux densities per unit leaf area. This deliberately simple share
+does not calculate shading or 3D light interception.
 
 ```@example journey_one_plant
 using PlantSimEngine, DataFrames
@@ -75,6 +84,11 @@ scalar_states = final_state(scalar_simulation, Many(scale=:Leaf))
 Dict(id => state.aPPFD for (id, state) in scalar_states)
 ```
 
+The surfaces are in m² of leaves. To obtain a mean leaf-area photon flux from
+one contribution, multiply it by the plant's reference ground area and divide
+by that leaf's area. Such a change of basis belongs in an explicit model when
+coupling to a leaf photosynthesis model; see [Coupling models](../../guides/coupling.md).
+
 The leaf model reads its own `surface` directly from each leaf status.
 `SelfPlant()` makes the other two scalar sources plant-local:
 
@@ -94,6 +108,10 @@ Now replace the supplied surfaces with two existing models:
 
 - `ToyLeafSurfaceModel` computes each leaf surface from its carbon biomass;
 - `ToyPlantLeafSurfaceModel` sums those leaf surfaces on the plant.
+
+Here the leaf carbon biomasses are 50 and 100 g C, and the specific leaf area
+is 0.02 m² g C⁻¹. Their calculated areas are therefore 1 and 2 m², preserving
+the light shares from the first pass.
 
 This is the first vector-like cross-object input. It comes after the scalar
 connection above, and differs only in the new `:leaf_surfaces` binding.
@@ -174,7 +192,12 @@ leaf_states = final_state(computed_simulation, Many(scale=:Leaf))
 )
 ```
 
-The plant aggregation uses a live `RefVector`; the scalar connections remain
+The resulting plant surface should be 3 m² and the light contributions should
+still be 40 and 80 μmol m⁻² of reference ground s⁻¹. You can now
+[reuse this configuration on several plants](several_plants.md).
+
+The following optional diagnostic shows that the plant reads its own leaves.
+Its `RefVector` is a collection of live values; individual scalar inputs use
 single references:
 
 ```@example journey_one_plant

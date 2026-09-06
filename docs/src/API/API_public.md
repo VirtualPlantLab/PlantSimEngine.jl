@@ -167,8 +167,10 @@ targets.
 - `register_object!`, `remove_object!`, and `reparent_object!` change
   topology.
 - `move_object!` and `update_geometry!` change spatial state.
-- Supported lifecycle operations automatically invalidate and refresh the
-  affected structural or spatial bindings before the next timestep.
+- Supported lifecycle operations invalidate affected bindings. Structural
+  connections refresh after the application that changed topology, so new
+  objects can run applications still remaining in the same time step.
+  Changes made between steps are processed before the next step.
 - A creator that must run an application which already completed on existing
   objects declares an `Initializer` call. The compiler orders the scheduled
   target before the creator and the creator before direct non-temporal

@@ -42,17 +42,23 @@ model-scale simulations.
 
 ## Installation
 
-In Julia package mode:
+The examples on this development branch use `CompositeModel`. Registered
+releases through 0.14.1 use the previous mapping API; use their matching
+[stable documentation](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable).
+To run the examples below, install the development version in a project:
 
 ```julia
-add PlantSimEngine
-```
-
-Then:
-
-```julia
+using Pkg
+Pkg.activate("my_simulation")
+Pkg.add(["PlantMeteo", "DataFrames"])
+Pkg.add(url="https://github.com/VirtualPlantLab/PlantSimEngine.jl", rev="main")
 using PlantSimEngine
 ```
+
+When following a pull-request preview, use its branch or commit instead of
+`"main"`. Keep `Project.toml` and `Manifest.toml` with your experiment to record
+the package revisions. The [installation guide](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/prerequisites/installing_plantsimengine.html)
+also installs the plotting tools used by the tutorials.
 
 ## Quickstart
 
@@ -215,11 +221,11 @@ Diagnostics.explain_execution_plan(model)
 
 - [Stable documentation](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable)
 - [Development documentation](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev)
-- [CompositeModel/object quickstart](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/composite_model/quickstart/)
-- [Implement a model](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/journeys/modelers/basic_model/)
-- [AI agent skill](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/agent_skill/)
-- [CompositeModel/object migration guide](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/migration_composite_model/)
-- [Public API reference](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/API/API_public/)
+- [Run and couple models](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/journeys/users/one_object.html)
+- [Implement a model](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/journeys/modelers/basic_model.html)
+- [AI agent skill](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/agent_skill.html)
+- [CompositeModel/object migration guide](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/migration_composite_model.html)
+- [Public API reference](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/API/API_public.html)
 
 ## Projects That Use PlantSimEngine
 

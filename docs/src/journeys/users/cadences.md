@@ -2,9 +2,10 @@
 
 ## New concept: application clocks and temporal input policies
 
-Running a whole composite over many timesteps was introduced on the first
-journey. This page changes one thing: applications no longer all run at the
-environment base step.
+Let canopy development update daily while light interception responds every
+hour. Then convert hourly water-uptake rates to daily amounts. These teaching
+examples show how to choose what a slower or faster model receives from its
+source.
 
 Choose a base step that divides every application cadence: hourly and
 90-minute applications can share a 30-minute base step. A duration such as
@@ -28,24 +29,24 @@ hourly_forcing = [
 ]
 
 model = CompositeModel(
-    Object(:plant; scale=:Plant, kind=:plant);
+    Object(:canopy; scale=:Canopy, kind=:canopy, status=Status(TT_cu=600.0));
     applications=(
         ModelSpec(
             ToyDegreeDaysCumulModel();
             name=:degree_days,
-            on=One(scale=:Plant),
+            on=One(scale=:Canopy),
             every=Day(1),
         ),
         ModelSpec(
             ToyLAIModel();
             name=:lai,
-            on=One(scale=:Plant),
+            on=One(scale=:Canopy),
             every=Day(1),
         ),
         ModelSpec(
             Beer(0.6);
             name=:light,
-            on=One(scale=:Plant),
+            on=One(scale=:Canopy),
             inputs=(
                 :LAI => One(
                     within=Self(),
@@ -63,6 +64,23 @@ model = CompositeModel(
 
 simulation = run!(model; steps=25, outputs=:all)
 ```
+
+First inspect the outputs at the beginning of the run and around the daily
+update. LAI is in m² of leaves per m² of ground; absorbed PAR is in μmol m⁻²
+of ground s⁻¹. The initial 600 °C d is an illustrative development stage,
+chosen so the LAI changes are visible.
+
+```@example journey_cadences
+rows = collect_outputs(simulation; sink=DataFrame)
+light_samples = rows[(rows.variable .== :aPPFD) .& in.(rows.timestep, Ref((1, 2, 24, 25))),
+                     [:timestep, :value]]
+light_samples
+```
+
+The daily models execute at steps 1 and 25, rather than waiting until the end
+of the first day. The first LAI value is held for hourly light calculations
+until the next daily update. A model that needs a complete preceding day
+must handle its initial history explicitly.
 
 The schedule reports physical cadence in seconds and in base steps:
 
@@ -109,38 +127,17 @@ latest value remains meaningful.
 `Integrate(reducer)` can integrate rates using sample durations. The default
 `Integrate()` only sums values; it does not multiply by elapsed time. The
 explicit reducer below uses durations in seconds. If a leaf publishes a constant
-rate in units per second, integrating 24 hourly samples produces a daily
-amount. The consumer below sums the independently integrated amounts from two
-leaves.
+water-uptake rate in mg per second, integrating 24 hourly samples produces a
+daily amount in mg. The plant adds the amounts from two leaves. The constant
+rates are teaching values, not predictions of water demand.
+
+Load the [teaching models](../../guides/time/teaching_models.jl). One copies a
+leaf's supplied water-uptake rate; the other sums amounts from leaves. Their
+source is shown in [Hourly, Daily, And Weekly Models](../../guides/time/hourly_daily_weekly.md).
 
 ```@example journey_cadences
-PlantSimEngine.@process "cadence_hourly_flux" verbose = false
-PlantSimEngine.@process "cadence_daily_amount" verbose = false
-
-struct CadenceHourlyFlux <: AbstractCadence_Hourly_FluxModel end
-struct CadenceDailyAmount <: AbstractCadence_Daily_AmountModel end
-
-PlantSimEngine.inputs_(::CadenceHourlyFlux) = (rate=Required(Real),)
-PlantSimEngine.outputs_(::CadenceHourlyFlux) = (flux=0.0,)
-PlantSimEngine.run!(
-    ::CadenceHourlyFlux,
-    status,
-    environment,
-    constants,
-    context,
-) = (status.flux = status.rate)
-
-PlantSimEngine.inputs_(::CadenceDailyAmount) = (
-    leaf_amounts=Required(AbstractVector{<:Real}),
-)
-PlantSimEngine.outputs_(::CadenceDailyAmount) = (amount=0.0,)
-PlantSimEngine.run!(
-    ::CadenceDailyAmount,
-    status,
-    environment,
-    constants,
-    context,
-) = (status.amount = sum(status.leaf_amounts))
+include(joinpath(pkgdir(PlantSimEngine), "docs", "src", "guides", "time", "teaching_models.jl"))
+using .TeachingTimeModels
 ```
 
 ```@example journey_cadences
@@ -150,31 +147,31 @@ flux_model = CompositeModel(
         :leaf_1;
         scale=:Leaf,
         parent=:plant,
-        status=Status(rate=1.0),
+        status=Status(rate_mg_s=1.0),
     ),
     Object(
         :leaf_2;
         scale=:Leaf,
         parent=:plant,
-        status=Status(rate=2.0),
+        status=Status(rate_mg_s=2.0),
     );
     applications=(
         ModelSpec(
-            CadenceHourlyFlux();
+            HourlyWaterRate();
             name=:hourly_flux,
             on=Many(scale=:Leaf),
             every=Hour(1),
         ),
         ModelSpec(
-            CadenceDailyAmount();
+            SumWaterAmounts();
             name=:daily_amount,
             on=One(scale=:Plant),
             inputs=(
-                :leaf_amounts => Many(
+                :amounts_mg => Many(
                     scale=:Leaf,
                     within=Subtree(),
                     application=:hourly_flux,
-                    var=:flux,
+                    var=:water_rate_mg_s,
                     policy=Integrate((values, durations_seconds) -> sum(values .* durations_seconds)),
                     window=Day(1),
                 ),
@@ -185,13 +182,26 @@ flux_model = CompositeModel(
     environment=[(duration=Hour(1),) for _ in 1:25],
 )
 
-flux_simulation = run!(flux_model; steps=25)
-amount = final_state(flux_simulation, One(scale=:Plant)).amount
+flux_simulation = run!(flux_model; steps=25, outputs=:all)
+amount = final_state(flux_simulation, One(scale=:Plant)).water_amount_mg
 @assert amount == 259200.0
 amount
 ```
 
-The result is `(1 + 2) × 24 × 3600 = 259200` rate-seconds. Use
+The complete-day result is `(1 + 2) × 24 × 3600 = 259200 mg` of water.
+The first execution has only one hour of available history, so it produces
+10800 mg; step 25 has a complete 24-hour rolling window:
+
+```@example journey_cadences
+water_rows = collect_outputs(flux_simulation; sink=DataFrame)
+daily_rows = water_rows[water_rows.application_id .== :daily_amount, [:timestep, :value]]
+@assert daily_rows.value == [10800.0, 259200.0]
+daily_rows
+```
+
+These windows use fixed durations, not calendar-aligned civil days. The
+[weekly example](../../guides/time/hourly_daily_weekly.md) extends this same
+calculation to seven days and checks its initial history. Use
 `Aggregate(reducer)` instead when the desired quantity is a mean, minimum,
 maximum, or another reduction of observations rather than a time integral.
 

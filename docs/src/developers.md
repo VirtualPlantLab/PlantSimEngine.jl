@@ -63,6 +63,8 @@ written to `docs/build/`. The build also checks that exported pages, assets, and
 Bonito session data resolve locally. `docs/check_static_export.jl` adjusts Bonito
 5.2's site-relative links for this manual's nested pages and for version links in
 pull-request previews; its assertions flag upstream changes that need review.
+`docs/bonito_rendering.jl` preserves code blocks and tables returned by `@eval`;
+it defers to Bonito if a later version supplies the missing document-root renderer.
 
 Serve the build directory over HTTP to inspect the theme,
 search, and static examples:
@@ -110,6 +112,11 @@ The repository currently relies on these GitHub Actions workflows:
 If a change affects public APIs or execution behavior, check both `CI` and
 `Integration` before merging. Benchmark results are useful for regressions, but
 should be interpreted alongside the test results.
+
+Downstream tests run the test suites of packages that use PlantSimEngine, such
+as PlantBiophysics, against the proposed changes. If you maintain a package that
+depends on PlantSimEngine, you can propose adding it to the integration workflow
+through a pull request.
 
 ## Graph Viewer Frontend
 
@@ -164,6 +171,20 @@ tests, Playwright scenarios, and the committed production bundle in the same
 change.
 
 ## Documentation impact
+
+The manual has two practical paths: **Couple models** for simulation users and
+**Write models** for model authors. Add an example to the appropriate path and
+link to deeper reference material only when the reader needs it. Prefer one
+tested example that develops gradually over several parallel quickstarts.
+
+Describe current behavior in the user guides and API reference. Completed work
+plans and handoff notes do not belong in the manual; keep lasting explanations
+with the feature they describe.
+
+Documentation fixes are welcome through
+[GitHub issues](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues) or a
+pull request. A short report of a confusing example is useful even without a
+proposed fix.
 
 Changes in PlantSimEngine often require documentation updates beyond the page you
 were editing.

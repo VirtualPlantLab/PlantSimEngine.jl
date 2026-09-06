@@ -1,42 +1,20 @@
-using Test
+using Test, Markdown
 
-@testset "Progressive journey structure" begin
-    journey_root = joinpath(@__DIR__, "..", "src", "journeys")
-    user_pages = sort([
-        joinpath(journey_root, "users", file)
-        for file in readdir(joinpath(journey_root, "users"))
-        if endswith(file, ".md")
-    ])
-    modeler_pages = sort([
-        joinpath(journey_root, "modelers", file)
-        for file in readdir(joinpath(journey_root, "modelers"))
-        if endswith(file, ".md")
-    ])
-
-    for page in user_pages
-        source = read(page, String)
-        @test occursin("New concept", source)
-        @test occursin("## Page recap", source)
-        @test occursin("**You added:**", source)
-        @test occursin("**PlantSimEngine infer", source)
-        @test occursin("**You keep explicit:**", source)
-        @test occursin("**New API names:**", source)
-        @test !occursin("```julia", source)
-    end
-
-    for page in modeler_pages
-        source = read(page, String)
-        @test occursin("**New concept:**", source)
-        @test occursin("## Model-author recap", source)
-        @test occursin("**You implemented:**", source)
-        @test occursin("**PlantSimEngine inferred:**", source)
-        @test occursin("**The scenario author keeps explicit:**", source)
-        @test occursin("**New API names:**", source)
-        @test occursin("tested", lowercase(source))
-    end
-end
-
+# Documenter executes the @example blocks, their numerical assertions, and
+# doctests. Avoid tests that prescribe headings or repeated editorial labels.
 @testset "PlantSimEngine documentation" begin
     ENV["PLANTSIMENGINE_DOCS_BUILD_ONLY"] = "true"
     @test include(joinpath(@__DIR__, "..", "make.jl")) === nothing
+end
+
+@testset "Generated Markdown keeps code and table structure" begin
+    writer = Base.get_extension(Bonito, :BonitoDocumenterExt)
+    markdown = Markdown.parse("```julia\nx = 1\ny = 2\n```\n\n| Variable | Value |\n| --- | --- |\n| LAI | 2 |")
+    root = convert(writer.MA.Node, markdown)
+    context = writer.DCtx(nothing, nothing, nothing, joinpath(@__DIR__, "..", "build"))
+    rendered = writer.domify(context, root)
+    html = repr(MIME"text/html"(), Bonito.DOM.div(rendered...))
+    @test occursin("<pre><code", html)
+    @test occursin("1\ny", html)
+    @test occursin("<table", html)
 end

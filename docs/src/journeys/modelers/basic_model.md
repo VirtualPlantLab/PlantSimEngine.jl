@@ -1,166 +1,159 @@
 # Implement a basic model
 
-This teaching example turns a simple biomass-growth equation into a reusable
-model. A **process** is a scientific calculation; a model implements one choice
-of equations for that process. You will declare the equation's inputs, outputs,
-and units, test it on its own, then run it in a simulation.
+This teaching example describes daily biomass production as:
 
-The example is one hypothesis for the `biomass_production` process. Its
-coefficients are pedagogical, not a calibrated crop model. Before adding your
-own model, follow [New process or new model?](@ref) to decide whether it answers
-an existing scientific question or introduces a new process.
+**biomass increment = radiation-use efficiency × intercepted radiation**
 
-## Read the complete model
+For an efficiency of 1.5 g dry matter per mol of photons and 10 mol of
+intercepted photons per plant, the result is 15 g dry matter per plant.
+These values illustrate the interface; they are not a calibrated crop model.
 
-This is the complete, copyable source shipped with the package. The model
-declaration comes first; `direct_example` tests the equation on its own and
-`single_object_scenario` runs it on one simulated entity, called an **object**.
+We will give that equation a name, declare its variables and units, test it,
+and run it on two plants. Before adding your own model, use
+[New process or new model?](@ref) to choose its process.
+
+## Name the process and its model
+
+A **process** identifies the scientific calculation. A **model** implements
+one hypothesis for it. This example declares a biomass-production process:
 
 ```@eval
-using Markdown, PlantSimEngine
-source = read(joinpath(
-    pkgdir(PlantSimEngine), "skills", "plantsimengine", "assets", "minimal-model.jl",
-), String)
-Markdown.MD([Markdown.Code("julia", source)])
+Main.DocsSources.section(
+    "skills/plantsimengine/assets/minimal-model.jl",
+    "PlantSimEngine.@process", "const INTERCEPTED_PAR_CONTRACT",
+)
 ```
 
-## Load and inspect it
+The model stores one fixed parameter, `rue`. The `{T}` allows its numerical
+type to follow the supplied parameter.
 
-The documentation and agent skill use the same executable source instead of
-maintaining two copies:
+```@eval
+Main.DocsSources.section(
+    "skills/plantsimengine/assets/minimal-model.jl",
+    "struct RadiationUseEfficiency", "PlantSimEngine.inputs_",
+)
+```
+
+## Declare the values the equation uses
+
+| Value | Role | Meaning |
+|---|---|---|
+| `rue` | Fixed parameter | g dry matter per mol intercepted photons |
+| `intercepted_par` | Input | Daily intercepted photons, mol per plant |
+| `biomass_increment` | Output | Daily biomass production, g dry matter per plant |
+
+`Required(Real)` says the simulation must supply a real-valued input.
+`zero(model.rue)` initializes the output with the parameter's numerical type.
+This model reads no environmental variables directly.
+
+```@eval
+Main.DocsSources.section(
+    "skills/plantsimengine/assets/minimal-model.jl",
+    "PlantSimEngine.inputs_(::RadiationUseEfficiency)",
+    "PlantSimEngine.variable_contracts_",
+)
+```
+
+A `VariableContract` states the physical meaning of a value at a connection
+between models. Here both quantities are daily totals for one plant:
+
+```@eval
+Main.DocsSources.section(
+    "skills/plantsimengine/assets/minimal-model.jl",
+    "const INTERCEPTED_PAR_CONTRACT", "\"\"\"",
+)
+```
+
+Attach those descriptions to the corresponding variables:
+
+```@eval
+Main.DocsSources.section(
+    "skills/plantsimengine/assets/minimal-model.jl",
+    "PlantSimEngine.variable_contracts_(::RadiationUseEfficiency)",
+    "PlantSimEngine.Authoring.model_metadata",
+)
+```
+
+Matching contracts help check connections. Converting between physical bases
+or units requires an explicit [adapter model](../../guides/coupling.md).
+
+## Write the equation
+
+The `run!` function reads the parameter from `model`, reads the input from
+`status`, and writes its result back to `status`:
+
+```@eval
+Main.DocsSources.section(
+    "skills/plantsimengine/assets/minimal-model.jl",
+    "function PlantSimEngine.run!(", "\"\"\"Run the kernel directly",
+)
+```
+
+The remaining arguments carry environmental forcing, constants, and execution
+context. This simple equation does not need them. Object selection and
+simulation timing belong in the scenario.
+
+## Test one calculation
+
+These displayed definitions come from the package's executable
+`skills/plantsimengine/assets/minimal-model.jl` example. To load the complete
+example in your session:
 
 ```@example modeler_basic
-using Dates, PlantSimEngine
-
-asset = joinpath(
-    pkgdir(PlantSimEngine),
-    "skills",
-    "plantsimengine",
-    "assets",
-    "minimal-model.jl",
-)
+using Dates, Test, PlantSimEngine
+asset = joinpath(pkgdir(PlantSimEngine), "skills", "plantsimengine", "assets", "minimal-model.jl")
 include(asset)
 using .MinimalModelExample
 
-boundary = RadiationUseEfficiency(1.5f0)
-description = Authoring.describe_model(boundary)
-validation = Authoring.validate_model(boundary; strict=true)
-(
-    runtime_process=process(boundary),
-    described_process=description.process,
-    inputs=inputs(boundary),
-    outputs=outputs(boundary),
-    contracts=variable_contracts(boundary),
-    description_provenance=description.provenance,
-    field_provenance=description.field_provenance,
-    structurally_valid=validation.valid,
-)
+model = RadiationUseEfficiency(1.5f0)
+status = Status(intercepted_par=10.0f0, biomass_increment=0.0f0)
+PlantSimEngine.run!(model, status, NamedTuple(), nothing, nothing)
+
+@test status.biomass_increment == 15.0f0
+@test status.biomass_increment isa Float32
+status.biomass_increment
 ```
 
-The loaded declaration is deliberately short. `RadiationUseEfficiency{T}`
-stores `rue`; its schemas declare `intercepted_par` and
-`biomass_increment`, plus explicitly empty environment inputs and outputs. The
-two ports receive complete contracts, and the complete kernel equation is
-`status.biomass_increment = model.rue * status.intercepted_par` followed by
-`return nothing`. This description is derived from the asset included above,
-so the tutorial does not maintain a second untested copy of its source.
-
-The model struct stores only the fixed radiation-use-efficiency parameter.
-`Required(Real)` is a type requirement, not an initial value. The output
-initial value follows the parameter's numeric type. The complete
-`VariableContract` declarations state that intercepted radiation and biomass
-increment are daily, plant-scale totals with explicit units.
-
-The kernel reads as the scientific calculation from input to output. It does
-not select objects, find producers, choose a cadence, or retain output rows;
-those are scenario responsibilities.
-
-## Test the kernel directly
-
-Use a minimal `Status` before involving the compiler:
+The `f0` notation chooses `Float32`. The tests check the equation and that
+the implementation preserves this numerical type. Also check the declarations:
 
 ```@example modeler_basic
-direct = direct_example(Float32)
-(
-    biomass_increment=direct.biomass_increment,
-    value_type=typeof(direct.biomass_increment),
-)
+validation = Authoring.validate_model(model; strict=true)
+@test validation.valid
+validation.valid
 ```
 
-This test isolates the equation and proves that the fixture preserves
-`Float32`. Model packages should also test edge cases and supported enriched
-number types.
+That check validates the interface. Scientific validation needs appropriate
+observations or reference results.
 
-## Compose it on one object
+## Run the model on two plants
 
-The asset provides the smallest full scenario with the required input supplied
-as initial status:
+Each plant has its own intercepted radiation. The same model applies to both:
 
 ```@example modeler_basic
-one_object = single_object_scenario(Float32)
-(
-    initialization=Diagnostics.explain_initialization(one_object),
-    final=final_state(run!(one_object)),
-)
-```
-
-`Diagnostics.explain_initialization` distinguishes supplied inputs, model
-defaults, produced outputs, environment bindings, and unresolved requirements.
-Inspect this report before running a larger scenario.
-
-## Reuse the same kernel over several objects
-
-Object selection remains outside the model. Change only the application
-multiplicity and provide each object with initial radiation:
-
-```@example modeler_basic
-development = RadiationUseEfficiency(1.5f0)
-several_objects = CompositeModel(
-    Object(
-        :plant_1;
-        scale=:Plant,
-        status=Status(intercepted_par=10.0f0),
-    ),
-    Object(
-        :plant_2;
-        scale=:Plant,
-        status=Status(intercepted_par=6.0f0),
-    );
+plants = CompositeModel(
+    Object(:plant_1; scale=:Plant, status=Status(intercepted_par=10.0f0)),
+    Object(:plant_2; scale=:Plant, status=Status(intercepted_par=6.0f0));
     applications=(
-        ModelSpec(
-            development;
-            name=:biomass_production,
-            on=Many(scale=:Plant),
-        ),
+        ModelSpec(model; name=:biomass_production, on=Many(scale=:Plant)),
     ),
+    environment=(duration=Day(1),),
 )
 
-final_state(run!(several_objects), Many(scale=:Plant))
+simulation = run!(plants)
+result_1 = final_state(simulation, :plant_1).biomass_increment
+result_2 = final_state(simulation, :plant_2).biomass_increment
+@test (result_1, result_2) == (15.0f0, 9.0f0)
+(plant_1=result_1, plant_2=result_2)
 ```
 
-Do not loop over objects inside `RadiationUseEfficiency.run!`.
-PlantSimEngine compiles homogeneous targets and invokes the one-target kernel
-for each selected object.
+PlantSimEngine calls the equation for each selected plant. Its state remains
+separate, and the model contains no loop over plants.
 
-## Continue the authoring path
+## Continue with your own model
 
-- [Port an existing model](@ref) explains the readable-kernel convention.
-- [Model repository layout and tests](@ref) shows where to place alternatives,
-  documentation, and each test level.
-- [Implement Cross-Object Values](@ref) adds `One`, `Many`, and `Subtree()`
-  bindings.
-- [Coupling models](@ref) explains when `OptionalOne` is valid and
-  distinguishes value coupling, hard calls, and explicit physical adapters.
-- [Model compatibility and replacement](@ref) checks whether another
-  hypothesis is genuinely substitutable.
-
-## Model-author recap
-
-- **You implemented:** one immutable parameter type, declared ports, complete
-  scientific contracts, and a continuous one-target kernel.
-- **PlantSimEngine inferred:** initialization, target execution, and generic
-  status construction.
-- **The scenario author keeps explicit:** object identities, target
-  multiplicity, initial radiation, cadence, and output retention.
-- **New API names:** `AbstractModel`, `inputs_`, `outputs_`,
-  `variable_contracts_`, `VariableContract`, `Required`, `Status`, and `run!`.
+- [Port an existing model](@ref): separate a calculation from its original script.
+- [Model repository layout and tests](@ref): organize a package and its checks.
+- [Implement Cross-Object Values](@ref): read another object's result or sum several.
+- [Model compatibility and replacement](@ref): compare another hypothesis.
+- [Loaded model catalog](@ref): discover and inspect models already loaded.

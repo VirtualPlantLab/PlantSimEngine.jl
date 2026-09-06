@@ -1,147 +1,138 @@
 # Port an existing model
 
-Start from the scientific calculation and separate four concerns: immutable
-parameters, object state, environment forcing, and produced values. The
-`run!` method should remain a readable account of one target and one
-timestep, while PlantSimEngine owns object selection, scheduling, and value
-transport.
+Start from a calculation you already understand and test it before moving it.
+Separate fixed parameters, changing object state, environmental inputs, and
+the values it produces. The goal is to preserve the equation while making
+those roles explicit.
 
-## A complete small kernel
+## Begin with an existing calculation
 
-This pedagogical model grows leaf area index from temperature. Its numerical
-values illustrate the interface only; they are not a calibrated plant model.
+This small teaching function computes a new leaf area index from its current
+value and a linear temperature response. The coefficients are arbitrary;
+this is not a calibrated growth model. It represents one update over a fixed
+interval.
 
 ```@example port-existing-model
-using Dates
-using PlantSimEngine
+using Dates, Test, PlantSimEngine
 
-PlantSimEngine.@process "docs_lai_growth" verbose=false
+old_lai_step(lai, temperature, response) = lai + response * temperature
+expected = old_lai_step(1.0f0, 10.0f0, 0.02f0)
+expected
+```
 
+Before porting a real model, record the units, interval, assumptions, and
+expected results from its original implementation. If it returns a rate,
+identify where time integration occurs.
+
+## Map each quantity to its role
+
+| Quantity | Role in this example | Place in PlantSimEngine |
+|---|---|---|
+| Response coefficient | Fixed parameter for one update | Model field |
+| Current LAI | Changing input state, leaf area per ground area | `status.lai` |
+| Air temperature | Environmental input, degrees Celsius | `environment.T` |
+| New LAI | Result of this update | `status.lai_next` |
+
+The complete declarations are:
+
+```@example port-existing-model
+@process "docs_lai_growth" verbose=false
 struct DocsLAIGrowth{T} <: AbstractDocs_Lai_GrowthModel
-    rate::T
+    response::T
 end
 
 PlantSimEngine.inputs_(::DocsLAIGrowth) = (lai=Required(Real),)
 PlantSimEngine.outputs_(model::DocsLAIGrowth) = (
-    lai_next=zero(model.rate),
+    lai_next=zero(model.response),
 )
 PlantSimEngine.environment_inputs_(model::DocsLAIGrowth) = (
-    T=zero(model.rate),
+    T=zero(model.response),
 )
 PlantSimEngine.environment_outputs_(::DocsLAIGrowth) = NamedTuple()
+```
 
+`Required` means the simulation must supply the current LAI. The output and
+environment declarations use the parameter's numerical type. A real model
+should reuse its package's existing process where appropriate; see
+[New process or new model?](@ref).
+
+## Preserve the physical meanings
+
+The input and output LAI use the same area basis. Temperature has its own
+contract:
+
+```@example port-existing-model
 const DOCS_LAI_CONTRACT = VariableContract(
-    unit=:m2_leaf_per_m2_ground,
-    basis=:ground,
-    temporal=:instantaneous,
-    aggregation=:state,
-    extent=:intensive,
+    unit=:m2_leaf_per_m2_ground, basis=:ground, temporal=:instantaneous,
+    aggregation=:state, extent=:intensive,
 )
 const DOCS_TEMPERATURE_CONTRACT = VariableContract(
-    unit=:degree_celsius,
-    basis=:air,
-    temporal=:instantaneous,
-    aggregation=:state,
-    extent=:intensive,
+    unit=:degree_celsius, basis=:air, temporal=:instantaneous,
+    aggregation=:state, extent=:intensive,
 )
-
 PlantSimEngine.variable_contracts_(::DocsLAIGrowth) = (
     lai=DOCS_LAI_CONTRACT,
     lai_next=DOCS_LAI_CONTRACT,
     T=DOCS_TEMPERATURE_CONTRACT,
 )
+```
 
+Contracts describe meaning at connections. They do not silently convert a
+quantity or establish its scientific validity.
+
+## Keep the calculation readable
+
+The function now reads from the declared locations and assigns the result:
+
+```@example port-existing-model
 function PlantSimEngine.run!(
-    model::DocsLAIGrowth,
-    status,
-    environment,
-    constants,
-    context,
+    model::DocsLAIGrowth, status, environment, constants, context,
 )
-    status.lai_next = status.lai + model.rate * environment.T
+    status.lai_next = status.lai + model.response * environment.T
     return nothing
 end
 ```
 
-The struct contains only fixed parameters. Status fields contain values that
-can change between timesteps. The environment contains sampled forcing.
-`VariableContract` records scientific meaning at coupling boundaries without
-wrapping the numerical values.
+Use helpers for substantial equations, reused calculations, or numerical
+algorithms. Keep a short equation visible rather than splitting every
+arithmetic step into a separate function.
 
-Keep parameter and status types generic. `Required(Real)`,
-`zero(model.rate)`, and a parametric model field allow compatible values such
-as `Float32`, measurements with uncertainty, or automatic-differentiation
-numbers. Do not convert inputs to `Float64` inside the kernel.
-
-## Test before composing
-
-Call the kernel directly first:
+## Compare with the original before composing
 
 ```@example port-existing-model
 growth = DocsLAIGrowth(0.02f0)
 status = Status(lai=1.0f0, lai_next=0.0f0)
-PlantSimEngine.run!(
-    growth,
-    status,
-    (T=10.0f0,),
-    nothing,
-    nothing,
-)
-(lai_next=status.lai_next, value_type=typeof(status.lai_next))
+PlantSimEngine.run!(growth, status, (T=10.0f0,), nothing, nothing)
+@test status.lai_next == expected
+@test status.lai_next isa Float32
+@test Authoring.validate_model(growth; strict=true).valid
+status.lai_next
 ```
 
-Then exercise initialization, environment binding, and scheduling through the
-ordinary runtime:
+Then check the ordinary simulation path with the same inputs:
 
 ```@example port-existing-model
-model = CompositeModel(
+scenario = CompositeModel(
     growth;
     status=(lai=1.0f0,),
     environment=(T=10.0f0, duration=Day(1)),
 )
-
-validation = Authoring.validate_model(growth; strict=true)
-@assert validation.valid
-initialization = Diagnostics.explain_initialization(model)
-simulation = run!(model)
-@assert final_state(simulation).lai_next == 1.2f0
-final_state(simulation)
+result = final_state(run!(scenario)).lai_next
+@test result == expected
+result
 ```
 
-These levels separate a scientific-equation error from a model-contract error
-and a scenario-binding error. Continue with
-[Model repository layout and tests](@ref) for the full test pyramid.
+This example computes a single new value. For repeated updates, decide
+explicitly how that value becomes the next input; see
+[State, History, And Repeated Updates](@ref).
 
-## Keep the scientific narrative visible
+## Extend only what your model needs
 
-Prefer one continuous kernel that can be read from inputs to outputs. Extract a
-helper only when it is:
+Keep time-varying memory in each object's status and fixed parameters in the
+model. Preserve compatible numerical types rather than converting everything
+to `Float64`. Assign instantaneous outputs on every execution path,
+including early returns.
 
-- a named scientific equation worth testing or citing separately;
-- reused by several model implementations;
-- an iterative or numerical algorithm that would obscure the process
-  equation; or
-- a measured optimization whose details should be isolated.
-
-Do not split every arithmetic line into a helper. Conversely, if users need to
-replace a subprocess independently, implement that subprocess as its own
-PlantSimEngine model instead of hiding it in a helper or a large
-`variant` branch.
-
-Reset instantaneous outputs before an early return, keep timestep-varying state
-out of the model struct, and finish `run!` with `return nothing`. Model code
-should not search the object graph or infer its own timestep; declare those
-requirements through ports, selectors, hard calls, and traits.
-
-## Porting checklist
-
-1. Identify fixed parameters, status inputs, environment inputs, outputs, and
-   mutable state.
-2. Decide whether independently replaceable subprocesses need separate models.
-3. Replace implicit defaults and sentinels with `Required(T)` or a
-   scientifically meaningful `Default(value)`.
-4. Declare units, basis, temporal meaning, aggregation, and extent with
-   `VariableContract` where values are coupled.
-5. Convert hidden calls into a declared `Call` only when the parent must own
-   child execution.
-6. Test the kernel, then a minimal composition, before a full scenario.
+If users need to replace or schedule a subprocess independently, expose it
+as a separate model. Use [Coupling models](@ref) for its connections and
+[Model repository layout and tests](@ref) for broader validation.

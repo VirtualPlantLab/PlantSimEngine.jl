@@ -8,14 +8,21 @@ MAESPA-style stand: two species, five leaves, hourly canopy and soil exchange,
 daily allocation and LAI, iterative leaf calls, and accepted mutable canopy
 air.
 
+This is a non-calibrated teaching example inspired by MAESPA's process
+structure. It is not a validated MAESPA implementation. Leaf illumination is
+uniform with complete absorption, the canopy has one air layer, and the soil
+water model uses prescribed withdrawals and bounds rather than a complete
+soil hydraulic balance. The example tests coupling and carbon accounting;
+its trajectories should not be used as empirical predictions.
+
 If any individual mechanism is unfamiliar, follow its focused link in
 [How the pieces compose](@ref) before reading the implementation.
 
 ## Run the reference case
 
 The complete, tested source lives in
-`examples/maespa_model_example.jl`. Run 25 hours so both hourly and daily
-applications cross a day boundary:
+`examples/maespa_model_example.jl`. Supply 25 hourly forcing rows so the daily
+scheduler runs at its initial boundary and again 24 base steps later:
 
 ```@example journey_maespa_synthesis
 using PlantSimEngine, DataFrames
@@ -151,7 +158,23 @@ changing the model-facing environment contract; the two-cell proof is in
 
 ## Check the scientific handoffs
 
-The final snapshots expose canonical state independently of retained history:
+The example keeps the conversions visible:
+
+| Quantity | Meaning and units |
+|---|---|
+| `Ri_SW_f`, `Ri_PAR_f` | Incoming radiation in W m⁻²; PAR is `PlantMeteo.Constants().PAR_fraction` of shortwave energy. |
+| Leaf `aPPFD` | Absorbed photon flux in µmol photons m[leaf]⁻² s⁻¹: `Ri_PAR_f * constants.J_to_umol`, assuming uniform illumination and complete absorption. |
+| Leaf `A` | Net CO₂ assimilation in µmol CO₂ m[leaf]⁻² s⁻¹. |
+| Leaf `leaf_carbon` | Cumulative net assimilation in g elemental C: sum of `A * leaf_area * duration_seconds * 12e-6`. |
+| Plant `daily_growth` | Net C since this plant's previous allocation, in g C per allocation interval; the initial scheduler call is a startup interval. |
+| Plant carbon pools | Allocated g elemental C, not g dry matter; the unassigned allocation fraction remains in `reserve_pool`. |
+| `scene_transpiration` | Accepted water loss in mm over the current hourly forcing interval. |
+
+Every leaf receives the same above-canopy irradiance here. There is no
+shading, scattering, or leaf-angle calculation; a radiation model would need
+to replace that assumption for a realistic stand.
+
+The final snapshots expose state independently of retained history:
 
 ```@example journey_maespa_synthesis
 scene = final_state(simulation, :model)
@@ -160,15 +183,40 @@ plants = final_state(simulation, Many(scale=:Plant))
 
 (
     lai=scene.lai,
-    canopy_temperature=scene.canopy_tair,
-    transpiration=scene.scene_transpiration,
-    soil_water_potential=soil.psi_soil,
-    daily_growth=Dict(
+    canopy_temperature_C=scene.canopy_tair,
+    hourly_transpiration_mm=scene.scene_transpiration,
+    soil_water_potential_MPa=soil.psi_soil,
+    allocation_interval_g_C=Dict(
         id => state.daily_growth
         for (id, state) in plants
     ),
 )
 ```
+
+Allocation reads cumulative leaf C without resetting it. Each plant stores
+the cumulative amount it has already accounted for and allocates only the
+difference at the next daily call. This prevents the same carbon being
+allocated again on later days. Between allocation calls, a new signed carbon
+increment can remain pending:
+
+```@example journey_maespa_synthesis
+DataFrame([
+    (
+        plant=id,
+        cumulative_net_C_g=sum(state.leaf_carbon),
+        accounted_C_g=state.accounted_carbon,
+        pools_C_g=state.leaf_pool + state.wood_pool + state.reserve_pool,
+        pending_C_g=sum(state.leaf_carbon) - state.accounted_carbon,
+    )
+    for (id, state) in plants
+])
+```
+
+At each allocation, the three pools sum to `accounted_carbon`. Adding pending
+C recovers cumulative net assimilation. These are signed carbon accounts:
+negative net assimilation reduces them. The example does not model initial
+biomass, construction respiration, dry-matter conversion, or limits on
+withdrawing reserves, so the pools are not predictions of organ mass.
 
 Retained output counts confirm the cadence boundary: hourly scene and leaf
 variables have 25 samples, while daily LAI and allocation variables have two:
@@ -227,7 +275,11 @@ floating-point trajectories:
 - hourly and daily output counts match their cadences;
 - accepted canopy air is committed separately from above-canopy forcing;
 - leaf fluxes are finite and aggregate consistently at scene scale;
-- both species grow, while their parameterized allocations remain distinct.
+- PAR energy is bounded by shortwave energy and converted to photon units;
+- 73 accepted hourly samples span three daily intervals and an initial
+  scheduler call, with no carbon added by rejected leaf iterations;
+- each plant allocates every C increment once, preserves cumulative leaf C,
+  and conserves the sum of its leaf, wood, reserve, and pending C accounts.
 
 ## Page recap
 

@@ -2,9 +2,16 @@
 
 ## New concept: templates, instances, and overrides
 
-The previous journey configured one plant explicitly. Its three applications
-can become a `CompositeModelTemplate`, then be mounted on several independent
-object topologies without duplicating that model configuration.
+Apply the configuration from [one multiscale plant](one_plant.md) to two plants,
+then change the specific leaf area of a third. A `CompositeModelTemplate`
+stores the reusable model configuration; each `ObjectInstance` supplies the
+actual plant and its leaves.
+
+As in that teaching example, light values are contributions per m² of a
+plant's reference ground area per second, in μmol of absorbed PAR. A plant's
+leaf contributions share that basis and can be added within the plant.
+They are not fluxes per unit leaf area. Combining plants with different
+reference areas would require an explicit area conversion first.
 
 ```@example journey_several_plants
 using PlantSimEngine, DataFrames
@@ -115,10 +122,10 @@ plant_states = final_state(simulation, Many(scale=:Plant))
 Dict(id => (surface=state.surface, aPPFD=state.aPPFD) for (id, state) in plant_states)
 ```
 
-Plant A aggregates surfaces `1 + 2 = 3`; plant B aggregates `1 + 1 = 2`.
+Plant A aggregates surfaces `1 + 2 = 3 m²`; plant B aggregates `1 + 1 = 2 m²`.
 Those totals prove that `Subtree()` did not mix leaves between instances.
-Likewise, each pair of leaf-level light outputs sums to its own plant's
-supplied light:
+Likewise, each pair of leaf light contributions sums to its own plant's
+supplied flux on that plant's common ground-area basis:
 
 ```@example journey_several_plants
 leaf_states = final_state(simulation, Many(scale=:Leaf))
@@ -187,6 +194,10 @@ override_simulation = run!(CompositeModel(plant_c))
 override_state = final_state(override_simulation, One(scale=:Plant))
 override_state.surface
 ```
+
+The third plant has 6 m² of leaves: twice the area at the original specific
+leaf area, for the same supplied carbon biomass. This is a parameter comparison
+within the teaching model, not a calibrated species comparison.
 
 There is no `SceneScope()` in this example because nothing is deliberately
 shared between plants. Introduce scene-wide scope only when adding a real
