@@ -1,4 +1,4 @@
-/* PlantSimEngine's botanical palette; the Bonito layout stays unchanged. */
+/* PlantSimEngine's botanical palette and documentation layout adjustments. */
 :root {
   --vp-c-brand-1: #156f64;
   --vp-c-brand-2: #197b6f;
@@ -11,6 +11,19 @@ html.dark {
   --vp-c-brand-2: #197b6f;
   --vp-c-brand-3: #156f64;
   --vp-c-brand-soft: rgba(131, 207, 167, 0.14);
+}
+
+/* Long API names must wrap in prose without widening the page. */
+.vp-doc :not(pre) > code {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Keep search, version, theme and the navigation menu reachable on phones. */
+@media (max-width: 480px) {
+  .VPNav .title > span {
+    display: none;
+  }
 }
 
 .VPHero .name {
