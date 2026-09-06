@@ -122,9 +122,10 @@ end
 
 _compiled_bound_many_inputs(::Tuple{}, ::Status) = NamedTuple()
 
-function _compiled_bound_many_inputs(bindings::Tuple, status::Status)
-    any(binding -> binding.multiplicity == :many, bindings) ||
-        return NamedTuple()
+Base.@nospecializeinfer function _compiled_bound_many_inputs(bindings::Tuple, status::Status)
+    # Compile the cold binding assembly once, not once per tuple × status schema.
+    # Each returned BoundMany and the final NamedTuple remain concretely typed.
+    @nospecialize bindings status
     names = Symbol[]
     values = Any[]
     for binding in bindings

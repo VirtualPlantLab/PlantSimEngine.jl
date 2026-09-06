@@ -146,12 +146,14 @@ function _contract_mismatches(
     )
 end
 
-function _validate_model_variable_contract!(
+Base.@nospecializeinfer function _validate_model_variable_contract!(
     consumer_application,
     input::Symbol,
     producer_application,
     source_variable::Symbol,
 )
+    # Contract checking needs values, not one compiled method per model pair.
+    @nospecialize consumer_application producer_application
     consumer_model = consumer_application.spec
     producer_model = producer_application.spec
     consumer_contract = _variable_contract(consumer_model, input)

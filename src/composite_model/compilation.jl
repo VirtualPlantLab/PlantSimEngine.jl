@@ -1819,8 +1819,9 @@ function _compile_scene(
     )
     many_input_binding_cache =
         _share_many_input_bindings!(model, input_bindings)
-    _prepare_model_input_defaults!(model, applications)
-    _wire_model_input_carriers!(model, input_bindings)
+    # Materialize each final status once, rather than compiling a progressively
+    # wider NamedTuple for every default and resolved input reference.
+    _prepare_model_input_statuses_batched!(model, applications, input_bindings)
     validate_required_inputs &&
         _validate_model_required_inputs!(model, applications, input_bindings)
     _runtime_performance_finish!(
@@ -2060,7 +2061,7 @@ function _insert_sorted_object_ids!(ids, added_ids)
     return ids
 end
 
-function _compile_added_consumer_bindings!(
+Base.@nospecializeinfer function _compile_added_consumer_bindings!(
     bindings,
     model,
     application,
@@ -2073,6 +2074,8 @@ function _compile_added_consumer_bindings!(
     many_binding_cache=nothing,
     performance=nothing,
 )
+    # Cold assembly must not specialize on each application × input-plan tuple.
+    @nospecialize application input_plans
     for plan in input_plans
         plan.origin == :inferred_same_object && continue
         if !isnothing(many_binding_cache)
@@ -5568,7 +5571,7 @@ function _compile_model_distributed_outputs(
     _validate_model_writer_groups!(
         _model_writer_groups(applications, manual_application_ids),
     )
-    _prepare_model_output_statuses!(model, applications)
+    _prepare_model_output_statuses_batched!(model, applications)
     return NoCompiledDistributedOutputs()
 end
 
@@ -5597,7 +5600,7 @@ function _compile_model_distributed_outputs(
     # destination state behind.
     _validate_model_output_destination_statuses!(model, resolved)
     _validate_required_model_output_destinations!(model, resolved)
-    _prepare_model_output_statuses!(model, applications)
+    _prepare_model_output_statuses_batched!(model, applications)
     _prepare_model_output_destination_statuses!(model, resolved)
     bindings, by_execution_target =
         _compile_model_output_destination_bindings(model, resolved)
@@ -6277,7 +6280,7 @@ function _validate_temporal_input_output_overlap!(
     return nothing
 end
 
-function _compile_model_status_view(
+Base.@nospecializeinfer function _compile_model_status_view(
     model::CompositeModel,
     application::CompiledModelApplication,
     object_id::ObjectId,
@@ -6286,18 +6289,22 @@ function _compile_model_status_view(
     application_positions,
     distributed_outputs=NoCompiledDistributedOutputs(),
 )
+    # This is cold assembly, not a kernel: avoid inferring the whole view
+    # constructor for every application and heterogeneous binding tuple.
+    # The assembled Status and CompiledModelStatusView still have concrete types.
+    @nospecialize application input_bindings
     canonical_status = _ensure_model_object_status!(model, object_id)
-    temporal_bindings = Tuple(
-        binding for binding in input_bindings
-        if binding.carrier_hint == :temporal_stream
-    )
+    temporal_bindings = CompiledModelInputBinding[]
+    for binding in input_bindings
+        binding.carrier_hint == :temporal_stream && push!(temporal_bindings, binding)
+    end
     _validate_temporal_input_output_overlap!(application, temporal_bindings)
     output_defaults = outputs_(application.spec)
-    private_output_names = Tuple(
-        Symbol(variable) for variable in keys(output_defaults)
-        if _publish_mode_for_output(application.spec, variable) ==
-           :stream_only
-    )
+    private_output_names = Symbol[]
+    for variable in keys(output_defaults)
+        _publish_mode_for_output(application.spec, variable) == :stream_only &&
+            push!(private_output_names, Symbol(variable))
+    end
     if isempty(temporal_bindings) && isempty(private_output_names)
         return CompiledModelStatusView(
             canonical_status,
@@ -6307,29 +6314,29 @@ function _compile_model_status_view(
             _compiled_bound_many_inputs(input_bindings, canonical_status),
         )
     end
-    temporal_inputs = Tuple(begin
+    # Use storage-neutral scratch vectors during assembly. Generators capturing
+    # heterogeneous binding tuples specialize again even across the cold boundary.
+    temporal_inputs = CompiledTemporalInput[]
+    for binding in temporal_bindings
         initial = _temporal_input_initial(binding, canonical_status)
-        CompiledTemporalInput(
-            binding,
-            Union{Nothing,Symbol}[
-                _temporal_source_application(
-                    binding,
-                    source_id,
-                    applications_by_id,
-                    application_positions,
-                    distributed_outputs,
-                )
-                for source_id in binding.source_ids
-            ],
-            initial,
+        source_applications = Union{Nothing,Symbol}[]
+        for source_id in binding.source_ids
+            push!(source_applications, _temporal_source_application(
+                binding, source_id, applications_by_id, application_positions,
+                distributed_outputs,
+            ))
+        end
+        push!(temporal_inputs, CompiledTemporalInput(
+            binding, source_applications, initial,
             Ref(_private_temporal_storage(binding, initial)),
-        )
-    end for binding in temporal_bindings)
+        ))
+    end
     temporal_by_name = Dict(
         temporal_input.binding.input => temporal_input
         for temporal_input in temporal_inputs
     )
-    private_outputs = NamedTuple{private_output_names}(Tuple(begin
+    private_references = Ref[]
+    for name in private_output_names
         initial, _, _ = _materialize_status_value(
             model,
             name,
@@ -6340,33 +6347,34 @@ function _compile_model_status_view(
             private_copy=true,
             reuse=true,
         )
-        Ref(initial)
-    end for name in private_output_names))
-    canonical_names = propertynames(canonical_status)
-    private_names = Tuple(
-        name for name in private_output_names
-        if !(name in canonical_names)
-    )
-    temporal_names = Tuple(
-        input.binding.input
-        for input in temporal_inputs
-        if !(input.binding.input in canonical_names) &&
-           !(input.binding.input in private_output_names)
-    )
-    names = (canonical_names..., private_names..., temporal_names...)
-    references = ntuple(length(names)) do index
-        name = names[index]
-        temporal_input = get(temporal_by_name, name, nothing)
-        isnothing(temporal_input) || return temporal_input.reference
-        hasproperty(private_outputs, name) &&
-            return getproperty(private_outputs, name)
-        return refvalue(canonical_status, name)
+        push!(private_references, Ref(initial))
     end
-    status = Status(NamedTuple{names}(references))
+    private_outputs = NamedTuple{Tuple(private_output_names)}(Tuple(private_references))
+    names = collect(Symbol, propertynames(canonical_status))
+    for name in private_output_names
+        name in names || push!(names, name)
+    end
+    for input in temporal_inputs
+        name = input.binding.input
+        name in names || push!(names, name)
+    end
+    references = Ref[]
+    for name in names
+        temporal_input = get(temporal_by_name, name, nothing)
+        reference = if !isnothing(temporal_input)
+            temporal_input.reference
+        elseif hasproperty(private_outputs, name)
+            getproperty(private_outputs, name)
+        else
+            refvalue(canonical_status, name)
+        end
+        push!(references, reference)
+    end
+    status = Status(NamedTuple{Tuple(names)}(Tuple(references)))
     return CompiledModelStatusView(
         status,
         canonical_status,
-        temporal_inputs,
+        Tuple(temporal_inputs),
         private_outputs,
         _compiled_bound_many_inputs(input_bindings, status),
     )
@@ -6653,12 +6661,13 @@ function _application_declares_distributed_output(
     )
 end
 
-function _potential_call_application_ids(
+Base.@nospecializeinfer function _potential_call_application_ids(
     applications,
     selector,
     process_filter,
     application_filter,
 )
+    @nospecialize selector
     return Tuple(
         application.id for application in applications
         if (isnothing(process_filter) || application.process == process_filter) &&
@@ -6667,7 +6676,7 @@ function _potential_call_application_ids(
     )
 end
 
-function _compiled_model_input_plan(
+Base.@nospecializeinfer function _compiled_model_input_plan(
     plans,
     model,
     applications,
@@ -6678,6 +6687,8 @@ function _compiled_model_input_plan(
     applications_by_id,
     distributed_output_plans,
 )
+    # Selector and application values still determine the concrete final plan.
+    @nospecialize application selector
     source_var = _selector_var(selector, input)
     process_filter = _criteria_get(criteria(selector), :process, nothing)
     application_filter = _selector_application(selector)
@@ -7001,7 +7012,7 @@ function _compile_model_input_bindings(
     return bindings
 end
 
-function _push_model_input_binding!(
+Base.@nospecializeinfer function _push_model_input_binding!(
     bindings,
     model::CompositeModel,
     application::CompiledModelApplication,
@@ -7012,6 +7023,7 @@ function _push_model_input_binding!(
     source_ids_override=nothing,
     distributed_outputs=NoCompiledDistributedOutputs(),
 )
+    @nospecialize application plan
     input_sym = plan.input
     selector = plan.selector
     source_var = plan.source_var
@@ -7242,7 +7254,7 @@ function _filter_many_input_sources_by_writer!(
             (source_id, source_var),
             (),
         )
-        any(owners) do owner
+        owned = any(owners) do owner
             source_application = get(
                 applications_by_id,
                 owner.application_id,
@@ -7254,6 +7266,17 @@ function _filter_many_input_sources_by_writer!(
             isnothing(application_filter) ||
                 source_application.id == application_filter || return false
             return true
+        end
+        owned && return true
+        # Manual callees (and stream-only local outputs) are not scheduled
+        # canonical owners. They remain valid explicitly selected producers;
+        # unrelated distributed outputs must not hide their local targets.
+        return any(values(applications_by_id)) do application
+            isnothing(process_filter) || application.process == process_filter || return false
+            isnothing(application_filter) || application.id == application_filter || return false
+            return _application_writes_object_variable(
+                NoCompiledDistributedOutputs(), application, source_id, source_var,
+            )
         end
     end
     return source_ids

@@ -74,6 +74,14 @@ else
         include("test-model-status-initialization.jl")
     end
 
+    @testset "Initial status preparation" begin
+        include("test-initial-status-preparation.jl")
+    end
+
+    @testset "Manual producers in Many inputs" begin
+        include("test-manual-many-input-filter.jl")
+    end
+
     @testset "Composite model status type conversion" begin
         include("test-model-status-type-conversion.jl")
     end
