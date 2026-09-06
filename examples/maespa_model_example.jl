@@ -313,16 +313,19 @@ function _aggregate_model_leaf_fluxes(status, ground_area, local_meteo)
     return fluxes
 end
 
-function _prepare_model_leaf_inputs!(status, environment, psi_soil)
-    # Prepare the leaf status for each leaf target, and run the energy balance for each leaf:
+function _prepare_model_leaf_inputs!(status, environment, psi_soil, constants)
+    # Illustrative uniform illumination: every leaf receives the above-canopy
+    # irradiance and absorbs it completely. There is no shading or scattering.
+    # Ri_PAR_f and Ri_SW_f are energy fluxes (W m^-2); aPPFD is a photon flux
+    # (μmol photons m^-2 s^-1), on the leaf-area basis assumed here.
     status.leaf_Ra_SW_f .= environment.Ri_SW_f
-    status.leaf_aPPFD .= environment.Ri_PAR_f
+    status.leaf_aPPFD .= environment.Ri_PAR_f * constants.J_to_umol
     status.Ψₗ .= psi_soil
     return nothing
 end
 
-function _run_model_leaf_targets!(context, status, local_meteo, meteo_above, psi_soil, ground_area; publish=false)
-    _prepare_model_leaf_inputs!(status, meteo_above, psi_soil)
+function _run_model_leaf_targets!(context, status, local_meteo, meteo_above, psi_soil, ground_area, constants; publish=false)
+    _prepare_model_leaf_inputs!(status, meteo_above, psi_soil, constants)
     run_call!(
         context,
         :energy_balance;
@@ -333,8 +336,8 @@ function _run_model_leaf_targets!(context, status, local_meteo, meteo_above, psi
     return fluxes
 end
 
-function _run_model_leaf_targets_from_environment!(context, status, local_meteo, meteo_above, psi_soil, ground_area; publish=false)
-    _prepare_model_leaf_inputs!(status, meteo_above, psi_soil)
+function _run_model_leaf_targets_from_environment!(context, status, local_meteo, meteo_above, psi_soil, ground_area, constants; publish=false)
+    _prepare_model_leaf_inputs!(status, meteo_above, psi_soil, constants)
     run_call!(context, :energy_balance; publish=publish)
     fluxes = _aggregate_model_leaf_fluxes(status, ground_area, local_meteo)
     return fluxes
@@ -416,7 +419,7 @@ function _solve_model_energy_balance!(
     for iter in 1:m.maxiter
         # Run the energy balance of each leaf, and aggregate the fluxes at the canopy scale:
         trial_meteo = _model_leaf_meteo(environment, tair_canopy, vpd_canopy)
-        fluxes = _run_model_leaf_targets!(context, status, trial_meteo, environment, psi_soil, m.ground_area)
+        fluxes = _run_model_leaf_targets!(context, status, trial_meteo, environment, psi_soil, m.ground_area, constants)
         # Update the canopy-scale environment based on the leaf fluxes, and check for convergence:
         final_meteo = fluxes.environment
         update = canopy_air_update(m, fluxes, environment, trial_meteo, constants)
@@ -452,7 +455,7 @@ function _solve_model_energy_balance!(
     )
 end
 
-function _publish_model_leaf_solution!(context, status, solution::SceneEBSolverResult, environment, ground_area)
+function _publish_model_leaf_solution!(context, status, solution::SceneEBSolverResult, environment, ground_area, constants)
     commit_environment!(context, solution.final_meteo)
     fluxes = _run_model_leaf_targets_from_environment!(
         context,
@@ -460,10 +463,15 @@ function _publish_model_leaf_solution!(context, status, solution::SceneEBSolverR
         solution.final_meteo,
         environment,
         solution.psi_soil,
-        ground_area;
+        ground_area,
+        constants;
         publish=true,
     )
     n = _check_leaf_vector_lengths(status, (:leaf_carbon, :leaf_a))
+    # A is net CO₂ assimilation in μmol m[leaf]^-2 s^-1. Integrating over
+    # leaf area and duration, then multiplying by 12e-6, gives g elemental C.
+    # Keep this cumulative source quantity intact; allocation owns its own
+    # per-plant accounting rather than resetting another model's output.
     for i in 1:n
         status.leaf_carbon[i] += status.leaf_a[i] * status.leaf_areas[i] * duration_seconds(environment) * 12.0e-6
     end
@@ -472,7 +480,7 @@ end
 
 function PlantSimEngine.run!(m::SceneEB, status, environment, constants, context)
     solution = _solve_model_energy_balance!(m, context, status, environment, constants)
-    fluxes = _publish_model_leaf_solution!(context, status, solution, environment, m.ground_area)
+    fluxes = _publish_model_leaf_solution!(context, status, solution, environment, m.ground_area, constants)
     transpiration_mm = λE_to_E(fluxes.lambda_e, solution.final_meteo.λ) * duration_seconds(environment) * 18.0e-6
 
     status.canopy_tair = solution.tair
@@ -489,13 +497,22 @@ function PlantSimEngine.run!(m::SceneEB, status, environment, constants, context
 end
 
 alloc_inputs() = (leaf_carbon=Required(Vector{Float64}),)
-alloc_outputs() = (daily_growth=0.0, leaf_pool=0.0, wood_pool=0.0)
+alloc_outputs() = (
+    daily_growth=0.0,
+    accounted_carbon=0.0,
+    leaf_pool=0.0,
+    wood_pool=0.0,
+    reserve_pool=0.0,
+)
 
 function allocate!(status, leaf_fraction, wood_fraction)
-    carbon = sum(status.leaf_carbon)
-    status.daily_growth = carbon
-    status.leaf_pool += leaf_fraction * carbon
-    status.wood_pool += wood_fraction * carbon
+    cumulative_carbon = sum(status.leaf_carbon)
+    interval_carbon = cumulative_carbon - status.accounted_carbon
+    status.daily_growth = interval_carbon
+    status.leaf_pool += leaf_fraction * interval_carbon
+    status.wood_pool += wood_fraction * interval_carbon
+    status.reserve_pool += (1 - leaf_fraction - wood_fraction) * interval_carbon
+    status.accounted_carbon = cumulative_carbon
     return nothing
 end
 
@@ -544,7 +561,7 @@ function _maespa_leaf_status(; leaf_area, sky_fraction, d)
     )
 end
 
-_maespa_plant_status() = Status(leaf_carbon=[0.0], daily_growth=0.0, leaf_pool=0.0, wood_pool=0.0)
+_maespa_plant_status() = Status(; leaf_carbon=[0.0], alloc_outputs()...)
 
 function _maespa_model_status()
     return Status(
@@ -744,12 +761,13 @@ function build_maespa_model(; scene_model=SceneEB(25, 0.03, 0.005), environment=
 end
 
 function maespa_meteo(; nhours=24)
+    constants = PlantMeteo.Constants()
     return Weather([
         Atmosphere(
             T=22.0 + 5.0 * sinpi((hour - 7) / 12),
             Rh=clamp(0.72 - 0.22 * sinpi((hour - 7) / 12), 0.35, 0.90),
             Wind=1.2 + 0.3 * sinpi(hour / 12),
-            Ri_PAR_f=max(0.0, 900.0 * sinpi((hour - 6) / 12)),
+            Ri_PAR_f=max(0.0, 450.0 * sinpi((hour - 6) / 12)) * constants.PAR_fraction,
             Ri_SW_f=max(0.0, 450.0 * sinpi((hour - 6) / 12)),
             duration=Dates.Hour(1),
         )

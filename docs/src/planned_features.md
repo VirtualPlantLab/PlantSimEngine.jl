@@ -1,20 +1,21 @@
 # Roadmap
 
-PlantSimEngine now has one composite-model/object runtime for single-object, multiscale,
-multi-plant, soil, microclimate, and multirate simulations.
+PlantSimEngine uses the same simulation engine for a single object or many
+plants and organs, including models that run at different time steps. This
+page lists work planned to extend and check these capabilities.
 
 Current priorities are:
 
 - migrate downstream model packages to `CompositeModel`, `CompositeModelTemplate`,
   `ObjectInstance`, and `ModelSpec`;
 - strengthen type-stability and allocation tests for million-object workloads;
-- add broader lifecycle tests for object creation, removal, movement, and
-  environment-index refresh;
-- improve diagnostics for ambiguous selectors, writer conflicts, and temporal
-  policies;
+- test more combinations of adding, removing, and moving objects, including
+  updates to their local growing conditions;
+- make error reports clearer when object selections match too many objects,
+  models try to set the same output, or time-step connections need attention;
 - validate mutable voxel, layer, and octree microclimate backends;
-- expand downstream release gates and performance benchmarks;
-- evaluate parallel execution for independent compiled application batches.
+- test more dependent packages and simulation performance before releases;
+- investigate running independent groups of model calculations in parallel.
 
 ## Environment and microclimate work
 
@@ -43,11 +44,10 @@ commit_environment!(context, accepted_environment)
 run_call!(context, :leaf_energy; publish=true)
 ```
 
-The transient state is interpreted by each target backend through its opaque
-compiled handle, so one call can sample different cells for different leaves.
-`commit_environment!` commits only the accepted state to a mutable backend.
-Future work is to validate full voxel, layer, and octree implementations on
-this same model-side API.
+Each leaf still receives conditions for its own location, so one call can
+supply different trial values to different leaves. `commit_environment!`
+saves only the accepted growing conditions. Future work will test this
+approach with environments represented by cells, layers, and octrees.
 
 The full issue list is available on
 [GitHub](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues).

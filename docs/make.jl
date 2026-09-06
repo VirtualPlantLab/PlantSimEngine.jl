@@ -1,11 +1,13 @@
-#using Pkg
-#Pkg.develop("PlantSimEngine")
 using PlantSimEngine
 using PlantMeteo
 using DataFrames, CSV
 using Documenter
+using Bonito
 using CairoMakie
 using PlantSimEngine.Examples
+
+include(joinpath(@__DIR__, "model_source.jl"))
+include(joinpath(@__DIR__, "bonito_rendering.jl"))
 
 function build_model_graph_example()
     output_dir = joinpath(@__DIR__, "src", "assets")
@@ -29,103 +31,128 @@ build_model_graph_example()
 
 DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, PlantMeteo, DataFrames, CSV, CairoMakie); recursive=true)
 
+home = (
+    name="PlantSimEngine.jl",
+    text="Build plant simulations from connected process models",
+    tagline="Combine models of growth and plant–environment interactions in Julia, " *
+            "from crop canopies to individual plants and organs.",
+    image="assets/logo.png",
+    actions=[
+        (text="Couple existing models", link="journeys/users/one_object.html", theme="brand"),
+        (text="Write a process model", link="journeys/modelers/basic_model.html", theme="alt"),
+    ],
+    features=[
+        (
+            title="Crop and canopy models",
+            details="Connect phenology, canopy development and resource capture without representing every organ.",
+            link="journeys/users/one_object.html",
+        ),
+        (
+            title="Functional–structural models",
+            details="Apply processes to individual organs and connect their exchanges as plants grow.",
+            link="journeys/users/one_plant.html",
+        ),
+        (
+            title="Plant–environment interactions",
+            details="Combine leaf, canopy and soil processes, with different time steps and shared resources.",
+            link="journeys/users/maespa_synthesis.html",
+        ),
+    ],
+)
+
 makedocs(;
     modules=[PlantSimEngine],
     authors="Rémi Vezy <VEZY@users.noreply.github.com> and contributors",
     repo=Documenter.Remotes.GitHub("VirtualPlantLab", "PlantSimEngine.jl"),
     sitename="PlantSimEngine.jl",
-    format=Documenter.HTML(;
-        prettyurls=get(ENV, "CI", "false") == "true",
-        canonical="https://VirtualPlantLab.github.io/PlantSimEngine.jl",
-        edit_link="main",
-        assets=String[],
-        size_threshold=700000
+    format=Bonito.DocumenterBonito(;
+        repo="github.com/VirtualPlantLab/PlantSimEngine.jl",
+        devbranch="main",
+        devurl="dev",
+        version=get(ENV, "GITHUB_REF_TYPE", "") == "tag" ? get(ENV, "GITHUB_REF_NAME", "dev") : "dev",
+        logo="assets/logo.png",
+        home,
+        description="Connect process models for crop canopies, plant architectures and plant–environment interactions in Julia, with tools for AI-assisted model development.",
     ), pages=[
         "Home" => "index.md",
         "Start here" => [
-            "Why PlantSimEngine ?" => "./introduction/why_plantsimengine.md",
-            "Mental model" => "./journeys/users/mental_model.md",
-            "One object over time" => "./journeys/users/one_object.md",
-            "Several same-scale objects" => "./journeys/users/several_objects.md",
+            "Why PlantSimEngine?" => "introduction/why_plantsimengine.md",
+            "Installation" => "prerequisites/installing_plantsimengine.md",
+            "Your first simulation" => "journeys/users/one_object.md",
+            "How the pieces fit" => "journeys/users/mental_model.md",
+            "Help from an AI coding agent" => "agent_skill.md",
         ],
-        "Structure and composition" => [
-            "One multiscale plant" => "./journeys/users/one_plant.md",
-            "Several plants" => "./journeys/users/several_plants.md",
-            "Value coupling" => "./guides/multiscale/value_coupling.md",
-            "Importing an MTG" => "./guides/multiscale/import_mtg.md",
-            "How composite models execute" => "./guides/multiscale/concepts.md",
-            "Visualizing structure" => "./guides/multiscale/visualizing_structure.md",
+        "Couple models" => [
+            "Several independent objects" => "journeys/users/several_objects.md",
+            "One multiscale plant" => "journeys/users/one_plant.md",
+            "Several plants" => "journeys/users/several_plants.md",
+            "Connect values between objects" => "guides/multiscale/value_coupling.md",
+            "Collect and plot results" => "guides/data/outputs_plotting.md",
+            "Use observed values" => "guides/data/forcing_observations.md",
+            "Importing an MTG" => "guides/multiscale/import_mtg.md",
+            "Visualizing structure" => "guides/multiscale/visualizing_structure.md",
+        ],
+        "Write models" => [
+            "New process or new hypothesis?" => "step_by_step/implement_a_process.md",
+            "Write and test a first model" => "journeys/modelers/basic_model.md",
+            "Keep equations readable" => "guides/modelers/port_existing_model.md",
+            "Organize and test your models" => "guides/modelers/repository_and_tests.md",
+            "Cross-object values" => "journeys/modelers/cross_object_values.md",
+            "Choose a coupling mechanism" => "guides/coupling.md",
+            "Model compatibility and replacement" => "step_by_step/model_switching.md",
+            "Read weather and set time steps" => "journeys/modelers/environment_and_cadence.md",
+            "Call another model" => "journeys/modelers/hard_dependencies.md",
+            "Update growing conditions" => "journeys/modelers/mutable_environment.md",
+            "Models that remember values" => "guides/modelers/stateful_models.md",
         ],
         "Environment and time" => [
-            "Read an environment" => "./journeys/users/environments.md",
-            "Different model cadences" => "./journeys/users/cadences.md",
-            "Hourly, daily, and weekly" => "./guides/time/hourly_daily_weekly.md",
-            "Advanced configuration" => "./guides/time/advanced_time_environment.md",
+            "Read an environment" => "journeys/users/environments.md",
+            "Different model time steps" => "journeys/users/cadences.md",
+            "Hourly, daily, and weekly" => "guides/time/hourly_daily_weekly.md",
+            "Choose compatible time steps" => "guides/time/advanced_time_environment.md",
         ],
-        "Dynamic and advanced simulations" => [
-            "Modify plant structure" => "./journeys/users/structure_changes.md",
-            "Modify the environment" => "./journeys/users/mutable_environments.md",
-            "Control advanced execution" => "./journeys/users/advanced_execution.md",
-            "MAESPA-style synthesis" => "./journeys/users/maespa_synthesis.md",
-            "Part 2: roots and water" => "./tutorials/growing_plant/part2_roots_water.md",
-            "Part 3: debugging" => "./tutorials/growing_plant/part3_debugging.md",
-            "Manual calls" => "./guides/multiscale/manual_calls.md",
-            "Advanced coupling and hard dependencies" => "./step_by_step/advanced_coupling.md",
+        "Growth and advanced simulations" => [
+            "Modify plant structure" => "journeys/users/structure_changes.md",
+            "Growth within a time step" => "tutorials/growing_plant/part1_growth.md",
+            "Roots and water" => "tutorials/growing_plant/part2_roots_water.md",
+            "Check a growing simulation" => "tutorials/growing_plant/part3_debugging.md",
+            "Modify the environment" => "journeys/users/mutable_environments.md",
+            "Control advanced execution" => "journeys/users/advanced_execution.md",
+            "MAESPA-style synthesis" => "journeys/users/maespa_synthesis.md",
+            "Control when other models run" => "guides/multiscale/manual_calls.md",
+            "More about calls between models" => "step_by_step/advanced_coupling.md",
         ],
-        "Implement models" => [
-            "New process or new hypothesis?" => "./step_by_step/implement_a_process.md",
-            "Basic contract and reuse" => "./journeys/modelers/basic_model.md",
-            "Keep scientific kernels readable" => "./guides/modelers/port_existing_model.md",
-            "Repository layout and test pyramid" => "./guides/modelers/repository_and_tests.md",
-            "Cross-object values" => "./journeys/modelers/cross_object_values.md",
-            "Choose a coupling mechanism" => "./guides/coupling.md",
-            "Model compatibility and replacement" => "./step_by_step/model_switching.md",
-            "Environment and cadence traits" => "./journeys/modelers/environment_and_cadence.md",
-            "Hard dependencies" => "./journeys/modelers/hard_dependencies.md",
-            "Mutable environment controllers" => "./journeys/modelers/mutable_environment.md",
-            "Stateful models" => "./guides/modelers/stateful_models.md",
+        "Check and troubleshoot" => [
+            "Common errors" => "troubleshooting/common_errors.md",
+            "Inspect a simulation" => "troubleshooting/runtime_contracts.md",
+            "Dependency cycles" => "troubleshooting/dependency_cycles.md",
+            "Numerical reliability" => "guides/data/numerical_reliability.md",
+            "Parameter fitting" => "working_with_data/fitting.md",
         ],
-        "Reference" => [
-            "Installing PlantSimEngine" => "./prerequisites/installing_plantsimengine.md",
-            "Julia language basics" => "./prerequisites/julia_basics.md",
-            "Why Julia ?" => "./introduction/why_julia.md",
+        "Reference and tools" => [
+            "Julia language basics" => "prerequisites/julia_basics.md",
+            "Why Julia?" => "introduction/why_julia.md",
+            "How multiscale models execute" => "guides/multiscale/concepts.md",
             "Model execution" => "model_execution.md",
             "Model traits" => "model_traits.md",
-            "Collecting and plotting outputs" => "./guides/data/outputs_plotting.md",
-            "Forcing observations" => "./guides/data/forcing_observations.md",
-            "Numerical reliability" => "./guides/data/numerical_reliability.md",
-            "Parameter fitting" => "./working_with_data/fitting.md",
-            "Graph editor" => "./guides/graph_visualizer_editor.md",
-            "Common errors" => "./troubleshooting/common_errors.md",
-            "Runtime contracts" => "./troubleshooting/runtime_contracts.md",
-            "Dependency cycles" => "./troubleshooting/dependency_cycles.md",
-            "Downstream testing" => "./troubleshooting_and_testing/downstream_tests.md",
-            "Environment backend extensions" => "./guides/extensions/environment_backends.md",
-            "AI agent skill" => "agent_skill.md",
-            "Loaded model catalog" => "./API/model_catalog.md",
-            "Public API" => "./API/API_public.md",
-            "Public symbol inventory" => "./API/public_symbols.md",
-            "Example models" => "./API/API_examples.md",
+            "Graph editor" => "guides/graph_visualizer_editor.md",
+            "Environment backend extensions" => "guides/extensions/environment_backends.md",
+            "Find available models" => "API/model_catalog.md",
+            "Public API" => "API/API_public.md",
+            "Public symbol inventory" => "API/public_symbols.md",
+            "Example models" => "API/API_examples.md",
         ],
-        "Migration" => [
-            "From the mapping runtime" => "migration_composite_model.md",
-        ],
-        "Maintainers" => [
+        "Contribute and migrate" => [
             "Developer guidelines" => "developers.md",
-            "Internal API" => "./API/API_private.md",
-            "Public API refinement decisions" => "./dev/public_api_refinement_decisions.md",
-            "Public API refinement completion audit" => "./dev/public_api_refinement_completion_audit.md",
-            "Composite model/object design" => "./dev/composite_model_design.md",
-            "Distributed output ownership" => "./dev/distributed_output_ownership.md",
-            "Composite model/object implementation plan" => "./dev/composite_model_implementation_plan.md",
-            "Composite model/object completion audit" => "./dev/composite_model_completion_audit.md",
-            "MAESPA-style composite-model example handoff" => "./dev/maespa_model_handoff.md",
-            "Code cleanup audit" => "./dev/code_cleanup_audit.md",
-            "Release notes handoff" => "./dev/release_notes_handoff.md",
+            "Internal API" => "API/API_private.md",
+            "From the mapping runtime" => "migration_composite_model.md",
             "Roadmap" => "planned_features.md",
         ],
     ]
 )
+
+include(joinpath(@__DIR__, "check_static_export.jl"))
+finish_static_export()
 
 if get(ENV, "PLANTSIMENGINE_DOCS_BUILD_ONLY", "false") != "true"
     deploydocs(;

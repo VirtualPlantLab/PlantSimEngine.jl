@@ -42,15 +42,42 @@ work and requires dedicated correctness tests before it becomes public.
 
 ### Documentation
 
-Build the documentation from the repository root with:
+The website uses Documenter and Bonito's static documentation writer. The docs
+environment requires Julia 1.11 or newer; this does not change the Julia versions
+supported by PlantSimEngine itself.
+
+Start Julia from `docs/` with that directory as the active project (agents use
+Kaimon), then install
+the docs dependencies and build without deploying:
 
 ```julia
-julia --project=docs docs/make.jl
+using Pkg
+Pkg.instantiate()
+ENV["PLANTSIMENGINE_DOCS_BUILD_ONLY"] = "true"
+include("make.jl")
 ```
 
-The docs environment includes the extra packages needed for examples and API
-documentation, such as `Documenter`, `CairoMakie`, `PlantMeteo`, and
-`MultiScaleTreeGraph`.
+The docs environment resolves PlantSimEngine from the parent checkout and includes
+the packages needed for the runnable examples and API reference. Build output is
+written to `docs/build/`. The build also checks that exported pages, assets, and
+Bonito session data resolve locally. `docs/check_static_export.jl` adjusts Bonito
+5.2's site-relative links for this manual's nested pages and for version links in
+pull-request previews; its assertions flag upstream changes that need review.
+`docs/bonito_rendering.jl` preserves code blocks and tables returned by `@eval`;
+it defers to Bonito if a later version supplies the missing document-root renderer.
+
+Serve the build directory over HTTP to inspect the theme,
+search, and static examples:
+
+```julia
+using LiveServer
+LiveServer.serve(dir="build", launch_browser=true)
+```
+
+The existing documentation job builds and deploys the static files through
+Documenter, including pull-request previews. The website needs no running Julia
+server. Browser interactions can inspect exported data; rerunning a Julia model
+requires an execution backend.
 
 ### Benchmarks
 
@@ -65,12 +92,11 @@ simulation = run!(model; steps=48, outputs=:none, performance=true)
 Diagnostics.explain_runtime_performance(simulation)
 ```
 
-The returned rows distinguish immutable-plan compilation, object-target
-instantiation, lifecycle-buffer updates, steady-state execution, output
-collection, and whole-initialization totals. Use these counters to establish
-where work occurred, not as a microbenchmark. Timing instrumentation calls
-`time_ns()` at runtime boundaries, so benchmark ordinary execution separately
-with `performance=false` after warming the simulation.
+The report separates time spent preparing the simulation, selecting objects,
+updating after structural changes, running the models, and collecting outputs.
+Use it to find which stage takes time. Measuring those stages also adds some
+work, so measure normal execution separately with `performance=false` after
+a first run has allowed Julia to compile the code.
 
 ## CI workflows
 
@@ -85,6 +111,11 @@ The repository currently relies on these GitHub Actions workflows:
 If a change affects public APIs or execution behavior, check both `CI` and
 `Integration` before merging. Benchmark results are useful for regressions, but
 should be interpreted alongside the test results.
+
+Downstream tests run the test suites of packages that use PlantSimEngine, such
+as PlantBiophysics, against the proposed changes. If you maintain a package that
+depends on PlantSimEngine, you can propose adding it to the integration workflow
+through a pull request.
 
 ## Graph Viewer Frontend
 
@@ -140,6 +171,20 @@ change.
 
 ## Documentation impact
 
+The manual has two practical paths: **Couple models** for simulation users and
+**Write models** for model authors. Add an example to the appropriate path and
+link to deeper reference material only when the reader needs it. Prefer one
+tested example that develops gradually over several parallel quickstarts.
+
+Describe current behavior in the user guides and API reference. Completed work
+plans and handoff notes do not belong in the manual; keep lasting explanations
+with the feature they describe.
+
+Documentation fixes are welcome through
+[GitHub issues](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues) or a
+pull request. A short report of a confusing example is useful even without a
+proposed fix.
+
 Changes in PlantSimEngine often require documentation updates beyond the page you
 were editing.
 
@@ -164,7 +209,6 @@ were editing.
 
 ### Coverage gaps to keep in mind
 
-Not every combination of weather structure, status shape, mapping layout, and
-downstream usage is covered directly in PlantSimEngine. When changing the public
-API or runtime semantics, treat downstream integration results as part of the
-validation surface, not as optional extra signal.
+PlantSimEngine's own tests cannot cover every weather format, object
+configuration, and use in other packages. When changing public functions or
+how simulations run, also run the tests of packages that depend on them.

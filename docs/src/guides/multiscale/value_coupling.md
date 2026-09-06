@@ -1,19 +1,31 @@
 # Coupling Values Across Objects
 
-- `One(...)` requires exactly one source.
-- `OptionalOne(...)` accepts zero or one.
-- `Many(...)` supplies a stable object-ID ordered carrier.
+To read values from other objects, describe which objects supply the input:
 
-Use `var=` to rename a source and `application=` to distinguish repeated
-processes. Homogeneous many-source values use a `RefVector`; heterogeneous
-values use an object-aware reference carrier. Inspect both through
-`Diagnostics.input_carrier`, `Diagnostics.input_value`, and `Diagnostics.explain_bindings`, not internal fields.
+- `One(...)` requires exactly one source object, such as the plant to which
+  a leaf belongs.
+- `OptionalOne(...)` allows zero or one source object.
+- `Many(...)` supplies a collection, such as the areas of all leaves on a
+  plant, ordered by object ID.
+
+Set `var=` when the source variable has a different name from the input.
+Set `application=` when you need to specify which model application supplies
+the value, for example when using the same process more than once.
+
+PlantSimEngine shares these values by reference: the receiving model reads
+the current source values without copying them. A collection with the same
+value type throughout uses `RefVector`; one with different types uses
+`ObjectRefVector`. These collections are called **input carriers** in the
+diagnostics. Use `Diagnostics.input_value` to read the values,
+`Diagnostics.input_carrier` to inspect their container, and
+`Diagnostics.explain_bindings` to see where they come from.
 
 ## Keep identities aligned with values
 
-A model that only reduces or broadcasts over a `Many` input can keep using the
-ordinary status field. When a model must associate a value with the object that
-owns it, request the identity-aware view from the current `RunContext`:
+If a model only needs to sum or multiply the values in a `Many` input, use
+the input's `status` field as usual. If it also needs to know which leaf or
+other object each value belongs to, call `bound_input` using `context`, the
+information PlantSimEngine passes to each `run!` call:
 
 ```julia
 function PlantSimEngine.run!(model, status, environment, constants, context)
@@ -28,24 +40,23 @@ function PlantSimEngine.run!(model, status, environment, constants, context)
 end
 ```
 
-`BoundMany` wraps the same live `RefVector` or heterogeneous carrier already
-installed in `status.irradiance`; it does not copy values or identities.
-Positions follow compiled `ObjectId` order and have no botanical meaning.
-Identity lookup is unambiguous when written as
-`irradiance[ObjectId(:leaf_12)]`; integer indexing remains positional.
+The returned `BoundMany` gives access to both values and their object IDs,
+without copying either. Its values are the same ones available through
+`status.irradiance`. Their order follows `ObjectId`, not the position of an
+organ on the plant. Use `irradiance[ObjectId(:leaf_12)]` to read a named leaf's
+value, or an integer index to read a position in the collection.
 
-Obtain the view during each model invocation. Lifecycle refresh keeps the
-current view aligned when possible and may replace it after insertion,
-removal, or reparenting, so model code must not cache a `BoundMany` across a
-lifecycle barrier.
+Call `bound_input` each time the model runs. PlantSimEngine may replace the
+collection after an object is added, removed, or moved to a different parent,
+so do not store it in your model for later calls.
 
 ## Publish one computation to many objects
 
-Some models execute once on a scene or plant but compute one value per organ.
-A light model is the typical example: the scene application owns the
-calculation and cadence, while each leaf owns its local irradiance values.
-Declare that relationship with `outputs_to`, then publish the solver result by
-object identity:
+Some models run once for a scene or plant but compute one value per organ.
+For example, a light model may calculate illumination for the whole scene
+and then store each leaf's irradiance on that leaf. Declare these
+destinations with `outputs_to`, and use object IDs to assign each result to
+the right leaf:
 
 ```julia
 PlantSimEngine.@process "scene light" verbose = false
@@ -75,10 +86,11 @@ function PlantSimEngine.run!(
 end
 ```
 
-Here `solve` is an adapter around the scene solver. It returns any
-Tables.jl-compatible value with an `object_id` column and the declared result
-columns, for example `incident_par` and `absorbed_par`. Rows may arrive in any
-order because `assign_outputs!` maps them to destinations by `ObjectId`.
+Here `solve` calls your scene light calculation and returns its results as a
+table supported by Tables.jl, such as a `DataFrame`. The table needs an
+`object_id` column and one column for each declared output, for example
+`incident_par` and `absorbed_par`. Rows may be in any order:
+`assign_outputs!` uses `ObjectId` to put each result on the right leaf.
 
 Declare the destinations on the scene application:
 
@@ -99,12 +111,12 @@ light_application = ModelSpec(
 )
 ```
 
-Inside the kernel, `targets.columns.incident_par` and
-`targets.columns.absorbed_par` are the live destination carriers.
-`object_ids(targets)` is the aligned, read-only identity view. Direct
-positional writes are appropriate only when the producing algorithm is already
-using that exact identity order; identified external results should go through
-`assign_outputs!`.
+Inside `run!`, `targets.columns.incident_par` and
+`targets.columns.absorbed_par` give direct access to the selected leaves'
+values. `object_ids(targets)` lists their IDs in the same order; this list
+cannot be modified. Write directly by position only if your calculation
+already uses that exact order. For a separate result table with its own IDs,
+use `assign_outputs!` to match the rows to leaves.
 
 ## Consume those values normally
 
@@ -142,13 +154,13 @@ applications = (
 )
 ```
 
-The compiler knows that `:scene_light` owns `:absorbed_par` on each selected
-leaf. It binds the leaf input and schedules the scene writer before the leaf
-consumer even though the consumer appears first in the tuple. No per-leaf copy
-model, `from_status=true`, or manual `after=:scene_light` declaration is
-needed.
+PlantSimEngine knows that `:scene_light` supplies `:absorbed_par` for each
+selected leaf and that `:leaf_assimilation` needs it. It connects the two and
+runs the light calculation first, even though the assimilation model appears
+first in the tuple. You do not need an extra model to copy the light values
+or an `after=:scene_light` instruction to set their order.
 
-## Assignment contract
+## Rules for assigning results
 
 `assign_outputs!` supports two public forms:
 
@@ -157,39 +169,43 @@ assign_outputs!(targets, result_table; id=:object_id)
 assign_outputs!(targets, result_ids, result_columns)
 ```
 
-The first accepts any Tables.jl-compatible column or row table. The second
-accepts an `AbstractVector` of IDs and a `NamedTuple` of columns, avoiding the
-table adapter on a stable columnar path. Both forms use the same rules:
+The first accepts any row or column table supported by Tables.jl. The second
+takes an `AbstractVector` of IDs and a `NamedTuple` of value columns, which
+is useful when your solver already returns separate arrays. Both forms use
+the same rules:
 
 | Result content | Behavior |
 |---|---|
 | One row for every current destination | Required |
-| Unknown, duplicate, extra, or missing IDs | Rejected before mutation |
+| Unknown, duplicate, extra, or missing IDs | Rejected before any destination value changes |
 | Every variable declared by `OutputTo` | Required |
 | Additional columns such as solver metadata | Ignored |
-| Source columns overlapping destination storage | Rejected, except exact-order self-assignment of the same column |
+| Result columns sharing memory with destination columns | Rejected, except assigning a column to itself in exactly the same order |
 
-Only `coverage=:exact` is supported. A filtered, abscised, or non-geometrized
-organ must therefore be handled deliberately by the scene adapter or excluded
-by the destination selector; PlantSimEngine never silently retains an old
-value or substitutes zero for a missing result.
+Only `coverage=:exact` is supported: you must supply one result for every
+selected object. If the light solver skips an organ because it has no
+geometry or has been removed from its scene, decide how to handle it. Either
+return an appropriate value or exclude that organ from the destination
+selector. PlantSimEngine will report a missing result instead of keeping an
+old value or substituting zero.
 
 ## Reuse stable columns efficiently
 
-PlantSimEngine caches the result-row permutation by the identity of the ID
-column. Reusing the same ID vector promises that its IDs and order remain
-unchanged; mutate only the result value columns in place. Replace the ID vector
-when membership or ordering changes. A lifecycle refresh invalidates this
-cache automatically, and the next invocation rebuilds it against the refreshed
-destinations.
+PlantSimEngine remembers how the result rows match the destination objects.
+You can reuse the same ID vector to avoid repeating this work, but its IDs
+and their order must remain unchanged. Update only the value columns. If
+the objects or their order change, provide a new ID vector. After an object
+is added, removed, or reparented, PlantSimEngine automatically rebuilds the
+match on the next call.
 
-Homogeneous destination values use typed `RefVector` columns and the stable
-exact-order path can run without allocations after compilation. If selected
-statuses hold different concrete value types, PlantSimEngine falls back to an
-`ObjectRefVector` and converts against each destination reference. The public
-API is identical, but the homogeneous representation is the performance path
-to prefer for large per-organ assignments.
+When all destination values have the same concrete Julia type, PlantSimEngine
+uses `RefVector` columns. With a stable ID order that already matches the
+destinations, assignments can run without new memory allocations after
+compilation. If the destinations hold different types, PlantSimEngine uses
+`ObjectRefVector` and converts each value to its destination type. Both use
+the same API; keeping types consistent is preferable when assigning results
+to many organs.
 
-Like `BoundMany`, an `OutputTargets` view belongs to the current invocation and
-lifecycle generation. Obtain it from `RunContext` each time rather than storing
-it in the model.
+Call `output_targets` each time your model runs, just as with `bound_input`.
+Do not store the returned `OutputTargets` in the model: the selected objects
+may change as the plant grows.

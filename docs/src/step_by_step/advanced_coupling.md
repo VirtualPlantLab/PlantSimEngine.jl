@@ -10,44 +10,49 @@ meteo_day = read_weather(
 )
 ```
 
-Most model coupling is a value dependency: one model writes an output, another
-model reads it as an input. Some models need tighter control. For example, an
-energy-balance model may call photosynthesis and stomatal-conductance models
-several times while it iterates leaf temperature.
+Usually, coupling means that one model calculates a value and another reads
+it. Sometimes a model must also decide when the other calculation runs. For
+example, an energy-balance model may run photosynthesis and
+stomatal-conductance models several times while trying to find the leaf
+temperature that balances heat gains and losses.
 
-That second case is a manual call dependency. In the composite-model/object API it is
-declared with `ModelSpec(...; calls=...)`.
+That second case is called a **manual call** or **hard dependency**. Declare
+it with `ModelSpec(...; calls=...)`.
 
 ## Soft inputs and manual calls
 
-Use `ModelSpec(...; inputs=...)` or inferred same-object bindings when a model only needs a
-value. Use `ModelSpec(...; calls=...)` when the parent model must directly run another model
-inside its own `run!` method.
+An ordinary input connection is also called a **soft dependency**. Set it
+with `ModelSpec(...; inputs=...)`. PlantSimEngine connects inputs automatically
+on the same object when exactly one model supplies the required variable.
+Use `ModelSpec(...; calls=...)` when one model must run another from inside
+its own `run!` function.
 
 The example process models in `examples/dummy.jl` contain both patterns:
 
 - `Process4Model` computes `var1` and `var2`;
-- `Process1Model` consumes `var1` and `var2` and computes `var3`;
+- `Process1Model` reads `var1` and `var2` and computes `var3`;
 - `Process2Model` manually calls process 1, then computes `var4` and `var5`;
 - `Process3Model` manually calls process 2, then computes `var6`;
-- `Process5Model`, `Process6Model`, and `Process7Model` use regular soft
-  value dependencies.
+- `Process5Model`, `Process6Model`, and `Process7Model` read other models'
+  results through ordinary inputs.
 
 ## Declaring manual calls in the scenario
 
-`ModelSpec(...; calls=...)` is scenario-level wiring. The model kernel remains generic; the
-scenario decides which concrete application is called.
+The simulation setup chooses which models are called. The model's `run!`
+function can then keep the same equations when those choices change.
 
-Use `application=...` in scenario-level `ModelSpec(...; calls=...)` and `ModelSpec(...; inputs=...)` when you
-know which mounted model application should provide the value or be called. Use
-process identities in model-level contracts such as `dep(model)`, where the
-model author only declares that a compatible process is required and cannot know
-the names chosen by future scenarios.
+A **model application** is a model configured with a name, selected objects,
+and any input or timing settings. In the setup below, use `application=...`
+to choose that name in a call or input connection.
 
-This split avoids ambiguity when several applications implement the same
-process. For example, two soil-water applications can share the same process but
-represent different layers, parameter sets, objects, or time steps. A scenario
-selector should name the application that has the intended role.
+This matters when you use the same process in several places. For example,
+two soil-water models may represent different layers. Naming the application
+lets you choose the intended layer.
+
+When writing a reusable model, you will not know the names that future
+simulations choose. Its `dep(model)` declaration can instead ask for the
+scientific process it needs. The simulation then connects that request to
+an application.
 
 ```@example scene_advanced_coupling
 complex_scene = CompositeModel(
@@ -80,15 +85,15 @@ select(
 )
 ```
 
-Applications selected by `ModelSpec(...; calls=...)` are not scheduled as independent root
-applications under their caller. They run only when the parent calls them.
-This gives the parent full call-stack control.
+The table shows which model each named call will run. Models used only
+through these calls run when their caller asks them to; they do not also
+run independently at each time step.
 
 ## Running the coupled model
 
-The regular soft dependencies are still inferred from `inputs_` and
-`outputs_`. The scheduler combines those soft edges with the call ownership
-rules:
+PlantSimEngine still connects ordinary inputs from the models' `inputs_`
+and `outputs_` declarations. It uses those connections and the manual calls
+to determine which calculations run first. Inspect that order:
 
 ```@example scene_advanced_coupling
 select(
@@ -115,16 +120,16 @@ complex_status = final_state(complex_sim)
 
 ## Writing new hard-coupled models
 
-For new composite-model/object models, execute all targets directly when they
-share meteorology and publication policy:
+Inside a model, run all models and objects selected by a named call with:
 
 ```julia
 targets = run_call!(context, :leaf_energy; publish=true)
 ```
 
-The result is always vector-like. Retrieve targets without executing them when
-an algorithm needs selective execution or an already sampled environment for
-each target:
+The result is a collection of **targets**, each representing a called model
+on one object. To choose individual targets before running them, use
+`call_targets`. This also lets you pass different environmental values to
+each one:
 
 ```julia
 targets = call_targets(context, :leaf_energy)
@@ -137,8 +142,10 @@ for (target, leaf_environment) in zip(targets, environments_by_leaf)
 end
 ```
 
-For a provider-aware trial state shared by the call, keep the execute-all form.
-Each target still samples through its own compiled handle:
+If an environment provider supplies values for different positions, you can
+give it a trial state for the whole call. PlantSimEngine then reads the
+appropriate values for each target's location. The following outline shows
+the order; your model must define how to calculate and accept a trial:
 
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, status, environment,
@@ -154,14 +161,16 @@ function PlantSimEngine.run!(model::SceneEnergyBalance, status, environment,
 end
 ```
 
-`run_call!` defaults to `publish=false`, which is useful for trial iterations.
-Pass non-committing trial state with the `environment` keyword. Use
-`commit_environment!` and `publish=true` for the accepted state so temporal
-streams and mutable environment state are published once.
+`run_call!` defaults to `publish=false`: trial results are not saved as
+accepted samples for output history or time-based connections. Pass a trial
+environment with the `environment` keyword. Once you accept a solution,
+`commit_environment!` writes its environmental values, and a call with
+`publish=true` saves the accepted result. Trial calculations can still change
+the objects' current values, so your algorithm must handle any changes it
+needs to discard.
 
-The MAESPA-style example uses the same mechanism: a model energy-balance model
-calls all selected leaf energy-balance models and the shared soil model while
-it solves canopy microclimate.
-
-Scenario wiring uses `ModelSpec(...; calls=...)`. Model authors should keep kernels generic
-and only require manual calls when the model really needs call-stack control.
+The MAESPA-style example uses the same approach: a canopy energy-balance
+model calls the leaf energy-balance models and the shared soil model while
+it solves canopy microclimate. Use manual calls for calculations that need
+this control. An ordinary input is enough when a model simply reads
+another model's result.

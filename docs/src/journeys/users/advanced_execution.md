@@ -1,17 +1,20 @@
 # Control Advanced Execution
 
-## New concept: parent-controlled execution and explicit publication
+## Let one model control another's calculations
 
-Most coupling should remain a value dependency through `inputs`. Use a hard
-call only when a parent algorithm must decide whether, when, or how often
-another model runs—for example, while iterating toward an accepted leaf
-temperature.
+Use `inputs` when a model simply needs a value calculated by another model.
+Sometimes a model also needs to control when the other model runs, or repeat
+its calculation several times. For example, a heat-balance solver might try
+several leaf temperatures before accepting a result. PlantSimEngine calls
+this a **hard call**. You declare it with `calls` and run it with `run_call!`.
 
-## Declare parent-controlled targets
+## Choose which models the controller can call
 
-Start with one plant and two leaves. The reader application is selected by the
-controller's `calls` declaration, so it is call-only rather than independently
-scheduled:
+Start with one plant and two leaves. A controller on the plant can call a
+temperature reader on either leaf. In this example, the readers run only when
+the controller calls them; the simulation does not also run them separately.
+The `Diagnostics.explain_calls` table shows which leaves the controller can
+call:
 
 ```@example journey_advanced_execution
 using PlantSimEngine, DataFrames
@@ -77,16 +80,18 @@ select(
 )
 ```
 
-`run_call!(context, :readers)` executes every resolved target and returns a
-vector-like `CallTargets` collection. `One` still returns a collection of one;
-`OptionalOne` returns zero or one; `Many` returns zero or more.
+`run_call!(context, :readers)` runs the reader for every selected leaf and
+returns a `CallTargets` collection that you can loop over. Even `One` returns
+a collection, containing one target. `OptionalOne` returns zero or one target;
+`Many` returns zero or more.
 
-## Inspect, select, iterate, then publish once
+## Try several values and save the accepted result
 
-`ToySelectiveCallControllerModel` needs different treatment per target, so its
-kernel first calls `call_targets(context, :readers)` without executing
-anything. It records the total, restricts the same declared call to
-`:sun_leaf`, runs two temperature trials, and accepts one result:
+The controller in this example wants to run only the sun leaf's reader.
+`call_targets(context, :readers)` lists the available targets without running
+them. The controller counts both leaves, selects `:sun_leaf`, tries two
+temperatures, then records one accepted result. The repeated calls follow
+this pattern:
 
 ```@example journey_advanced_execution
 function run_selected_trials!(
@@ -109,9 +114,10 @@ function run_selected_trials!(
 end
 ```
 
-`publish=false` is the default. Trials may update the called model's current
-status for convergence checks, but they neither append output samples nor
-commit mutable environment state. Publish exactly the accepted execution.
+`publish=false` is the default. Each trial updates the called model's status,
+so the controller can inspect it and decide whether to continue. The trial
+does not add a result to the output history or save changes to the environment.
+Use `publish=true` for the accepted calculation.
 
 ```@example journey_advanced_execution
 simulation = run!(model; outputs=:all)
@@ -121,11 +127,11 @@ simulation = run!(model; outputs=:all)
 )
 ```
 
-The controller resolved two targets but selected only `:sun_leaf`. Object
-selection uses `call_targets(context, name; objects=(ObjectId(:sun_leaf),))`;
-it does not depend on iteration order. Two trials
-left no history; its accepted call published once, while `:shade_leaf` was
-never executed:
+The controller found two leaves but ran only `:sun_leaf`. It selects that leaf
+by name with `call_targets(context, name; objects=(ObjectId(:sun_leaf),))`,
+so changing the order of the leaves would not change the selection. The two
+trials were not recorded. The accepted calculation recorded one result, and
+the reader on `:shade_leaf` did not run:
 
 ```@example journey_advanced_execution
 filter(
@@ -134,21 +140,28 @@ filter(
 )
 ```
 
-Use `run_call!(context, name; environment=trial_state)` when every target
-should sample the same provider-aware trial state through its own compiled
-handle. If the caller has already sampled the model-facing environment, use
-`run_call!(context, name; sampled_environment=value)` to execute all targets
-through cached typed batches. Use `call_targets` and
-`run_call!(target; sampled_environment=...)` only for selection, custom order,
-status inspection, or distinct already-sampled environments. For one target,
-`call_model(context, name)` provides allocation-free access to its concrete
-model when an algorithm must dispatch on model type or read its parameters.
+There are two ways to supply trial conditions:
 
-## Order intentional duplicate writers
+- `run_call!(context, name; environment=trial_state)` lets each target read
+  its own local values from the trial environment. Use this when, for example,
+  a trial canopy temperature field gives different values to different leaves.
+- `run_call!(context, name; sampled_environment=value)` passes values you have
+  already chosen, such as `(T=22.0,)`, directly to all targets.
 
-One canonical variable normally has one writer. Two applications that both
-claim `stock` therefore fail compilation unless their relationship is
-intentional and ordered. `Updates` makes that ownership explicit:
+Both forms run all selected targets together. Use `call_targets` followed by
+`run_call!(target; sampled_environment=...)` when you need to choose individual
+targets, change their order, inspect their status, or give each one different
+values. For a call with one target, `call_model(context, name)` gives access to
+the model itself, for example to read a parameter. It preserves the concrete
+model type and does not allocate memory.
+
+## Let two models update the same value
+
+Normally, only one model may set a given variable on an object. If two models
+both set `stock`, PlantSimEngine needs to know which value to keep. If the
+second model is meant to change the first model's result, use `Updates` to
+specify their order. Without that instruction, this configuration is rejected
+before either model runs:
 
 ```@example journey_advanced_execution
 writer_model = CompositeModel(
@@ -184,10 +197,10 @@ select(
 )
 ```
 
-`initial_stock` owns the first canonical write and `adjusted_stock` explicitly
-updates it afterward. The alternative value is useful as a retained comparison
-but must not replace canonical status, so `output_routing` marks it
-`:stream_only`.
+`initial_stock` sets `stock` first, then `adjusted_stock` changes it. The third
+model calculates an alternative value that we want to keep for comparison.
+`output_routing=(stock=:stream_only,)` records that alternative in its own
+output history without replacing the object's `stock` value.
 
 ```@example journey_advanced_execution
 writer_simulation = run!(writer_model; outputs=:all)
@@ -202,18 +215,9 @@ writer_simulation = run!(writer_model; outputs=:all)
 )
 ```
 
-The canonical result is `8`; the three application-specific streams retain
-`4`, `8`, and `99`. A stream-only output is not a fallback writer and is not
-selected by an application-free `OutputRequest`; request its application
-explicitly when retaining only selected outputs.
-
-## Page recap
-
-- **You added:** one declared hard call, selective trials, one accepted
-  publication, explicit update ordering, and one stream-only alternative.
-- **PlantSimEngine inferred:** the call-only schedule, concrete targets,
-  canonical writer ownership, and update edge.
-- **You keep explicit:** when each target runs, `publish`, per-target forcing,
-  intentional duplicate writers, and non-canonical streams.
-- **New API names:** `calls`, `call_targets`, `run_call!`, `CallTargets`,
-  `Updates`, `output_routing`, and `:stream_only`.
+The object's final `stock` is `8`. The three models' output histories keep
+their respective values: `4`, `8`, and `99`. The `:stream_only` setting never
+lets the alternative replace the stored `stock`, even if no other model sets
+it. If you use `OutputRequest` to save selected results, name
+`:alternative_stock` explicitly to retain its output; requesting `stock`
+without an application name does not select this alternative.

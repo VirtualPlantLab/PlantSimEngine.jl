@@ -4,16 +4,17 @@ CurrentModule = PlantSimEngine
 
 # Visualize And Edit A CompositeModel
 
-The CompositeModel graph shows how model applications, objects, and compiled value
-bindings fit together before a simulation runs. Use the static visualizer when
-you want an inspectable HTML artifact, and the interactive editor when you want
-browser actions to update a Julia [`CompositeModel`](@ref).
+The graph shows which models run on which objects and how values pass between
+them. For example, you can follow LAI from the model that calculates it to the
+light model that uses it. Use the viewer to explore and share a graph, or the
+editor to change your [`CompositeModel`](@ref) from the browser.
 
 ## A Small CompositeModel
 
-This example applies three toy models to one plant object. The compiler infers
-the same-object `TT_cu` and `LAI` bindings from the declared input and output
-names.
+This example applies three teaching models to one plant object. The
+thermal-time model supplies `TT_cu` to the LAI model, which supplies `LAI` to
+the light model. PlantSimEngine connects them using their matching input and
+output names.
 
 ```@example graph_viewer
 using PlantSimEngine
@@ -39,23 +40,24 @@ embeds it below.
 ```@raw html
 <iframe
   id="pse-model-graph-example"
+  src="../assets/model_graph_example.html"
   title="Interactive PlantSimEngine CompositeModel graph example"
   style="width: 100%; height: 720px; border: 1px solid #d8cdbc; border-radius: 6px;"
   loading="lazy">
 </iframe>
-<script>
-  document.getElementById("pse-model-graph-example").src =
-    `${documenterBaseURL}/assets/model_graph_example.html`;
-</script>
 ```
 
-The default **Applications** projection groups all concrete executions of one
-application into one card. Use **Objects** to inspect topology and **Executions**
-to inspect concrete `(application, object)` pairs. Search, diagnostics,
-initialization, selectors, parameters, and resolved edge details remain
-available in the static viewer. The topology projection includes model,
-template, and instance containers; selecting an instance or object subtree scopes the
-application and execution projections until the filter is cleared.
+Use the three views to explore the simulation:
+
+- **Applications** shows one card for each configured use of a model, even
+  when it runs on many leaves or plants.
+- **Objects** shows the plant structure and groups of objects.
+- **Executions** shows each model application on each object separately.
+
+Select a card or connection to inspect its parameters, inputs, starting
+values, and any problems found. Selecting a plant or a branch of the structure
+filters the other views to those objects. Clear the filter to see the whole
+simulation again. These controls also work in a saved, read-only viewer.
 
 ## Write A Static Viewer
 
@@ -66,7 +68,7 @@ server:
 path = GraphEditor.write_model_graph_view("model-graph.html", model)
 ```
 
-The output bundles the graph payload, JavaScript, and CSS in one HTML file. It
+The output includes the graph data and viewer code in one HTML file. It
 can be opened locally or embedded in Documenter documentation. A downstream
 package can generate the file from `docs/make.jl` and place it under
 `docs/src/assets`:
@@ -80,13 +82,13 @@ GraphEditor.write_model_graph_view(
 ```
 
 Then embed it from a Markdown page with an HTML `iframe`. The graph is
-read-only, but its projection controls, search, inspector, and diagnostics are
+read-only, but its views, search, details panel, and error reports are
 interactive in the browser.
 
 ## Start The Editor
 
-The mutable editor is an optional package extension activated by HTTP.jl. Add
-HTTP once to the environment that will launch the editor:
+The editor needs the optional HTTP.jl package to communicate with Julia. Add
+HTTP once to the project where you will use the editor:
 
 ```julia
 using Pkg
@@ -103,9 +105,9 @@ session = GraphEditor.edit_graph(model)
 ```
 
 The default browser opens automatically. The returned session also prints its
-URL and shutdown command. Julia remains authoritative: browser edits are sent
-as semantic commands, applied transactionally to a candidate CompositeModel, compiled,
-and returned as a fresh graph state.
+URL and shutdown command. When you make an edit, the browser sends it to
+Julia. Julia checks the proposed change before accepting it and sends the
+updated graph back to the browser.
 
 Inspect the current result or stop the server with:
 
@@ -119,10 +121,10 @@ Call `GraphEditor.edit_graph()` without a CompositeModel to start from an empty 
 
 ## Templates And Several Plants
 
-A template is a reusable set of already coupled applications. Mounting the same
-template twice creates two instance-local application sets. Unqualified selectors
-remain inside their own plant, so a model in `plant_a` does not accidentally read
-values from `plant_b`.
+A template is a reusable set of connected models. Applying the same template
+to two plants gives each plant its own set of calculations. By default, the
+models look for inputs within their own plant, so a model in `plant_a` does
+not accidentally read values from `plant_b`.
 
 ```julia
 using Dates
@@ -159,15 +161,16 @@ session = GraphEditor.edit_graph(
 )
 ```
 
-The **Add instance** wizard can mount a catalog template on an existing unclaimed
-root and its descendants, or create a minimal root and mount the template in one
-transaction. Preview the claimed subtree and resolved application targets before
-committing. Unmounting removes the applications but keeps the object subtree.
+Use **Add instance** to apply a template to an existing root object and its
+descendants, provided they are not already part of another instance. You can
+also create a new root and apply the template in one operation. Preview the
+objects and model applications before accepting. Removing the template from
+an instance removes its applications but keeps the objects.
 
 Catalog templates are presets. The first edit to a mounted preset creates a
-model-local replacement shared by all instances that currently use it. The original
+replacement within this simulation, shared by all instances that currently use it. The original
 preset remains available when adding another instance. Template application names
-are fixed because they are part of the template contract.
+cannot be changed; they identify the applications within the template.
 
 ## Overrides
 
@@ -185,13 +188,14 @@ plant_b = ObjectInstance(
 )
 ```
 
-The editor offers the same operation at instance or object scope. Julia checks that
-the replacement implements the same process and variable contract.
+The editor can replace a model for a whole plant instance or for an individual
+object. Julia checks that the replacement describes the same process and has
+compatible inputs, outputs, and other requirements.
 
 ## Environment Catalogs And Routing
 
-Environment values remain in Julia. Give the editor a named catalog rather than
-serializing backends to the browser:
+Give the editor names for the environment sources it can use. The browser
+shows these names; the weather data and other environment objects stay in Julia:
 
 ```julia
 session = GraphEditor.edit_graph(
@@ -204,14 +208,15 @@ session = GraphEditor.edit_graph(
 )
 ```
 
-The scene environment can be replaced from this catalog. Each application can use
-the scene backend or a catalog backend and can configure `provider`, model-facing
-input-to-source mappings, `sink`, and backend-specific typed options. The editor
-shows `environment_hint(model)` and the effective compiled bindings read-only, then
-asks Julia to validate the candidate routing before it is committed.
+You can choose a new environment for the whole simulation or for one model
+application. The settings include the source to read (`provider`), any
+variable-name translations, and the destination for accepted updates (`sink`).
+Other options depend on the environment source. The editor shows the model's
+defaults from `environment_hint(model)` and its current environment
+connections. Julia checks a proposed change before accepting it.
 
-Application cadence and temporal windows use `Dates.Second`, `Dates.Minute`,
-`Dates.Hour`, or `Dates.Day`. Whole-scene targeting is also explicit:
+Model time steps and time windows use `Dates.Second`, `Dates.Minute`,
+`Dates.Hour`, or `Dates.Day`. To select objects across the whole scene,
 `SceneScope()` must be selected deliberately. Omitting the scope keeps a template
 application local to each mounted instance.
 
@@ -219,17 +224,17 @@ application local to each mounted instance.
 
 The editor supports:
 
-- model objects, metadata, status initialization, and parent topology;
-- model applications, constructor parameters, target selectors, and cadence;
-- explicit value bindings, hard calls, output routing, and update ordering;
-- template catalogs, transactional instance mounting, shared template edits, and overrides;
-- named scene and application environment backends, providers, sources, and sinks;
-- dependency cycles through an explicit `PreviousTimeStep` break action;
-- undo, redo, temporary recovery autosaves, and readable Julia CompositeModel scripts.
+- objects, their labels and starting values, and their place in the structure;
+- models, their parameters, which objects they run on, and their time steps;
+- input connections, calls between models, saved outputs, and update order;
+- templates, plant instances, and model replacements;
+- environment sources and destinations for the scene or individual models;
+- feedback loops, by choosing an input that should read the previous step;
+- undo, redo, recovery files, and saving the simulation setup as Julia code.
 
-Application target and binding dialogs can ask Julia to preview the concrete
-objects selected by a declaration. This is important for `Many`, relative
-scopes such as `SelfPlant`, and composite models containing several plant instances.
+When selecting objects or connecting inputs, preview the matching objects
+before applying the change. This helps check selections such as `Many` and
+`SelfPlant`, especially when the simulation contains several plants.
 
 ## Models From Other Packages
 
@@ -245,34 +250,36 @@ using HTTP
 session = GraphEditor.edit_graph(model)
 ```
 
-The `+` buttons next to ports use exact declared variable names only. For an
+The `+` buttons next to inputs and outputs search by exact variable name. For an
 input named `LAI`, the editor lists loaded models whose `outputs_` contains
 `LAI`. For an output named `LAI`, it lists models whose `inputs_` contains
 `LAI`, as well as compatible applications already present in the CompositeModel. This is
-a composition aid, not a scientific compatibility inference.
+a way to find possible connections. You still need to check the units and
+physical meaning of the values.
 
 When the CompositeModel is saved as Julia code, required package imports are emitted for
 the model types used by the CompositeModel.
 
 ## Invalid And Cyclic Composite Models
 
-Simulation compilation remains strict, but graph compilation preserves as much
-structure as possible and attaches diagnostics. This lets the editor display
-incomplete selectors, missing initialization, ambiguous writers, and cycles.
+The editor can display an incomplete simulation and show its problems, even
+when it cannot run yet. These include missing starting values, selections
+that do not identify the intended objects, several models trying to set the
+same output, and circular dependencies.
 
-Cycle edges are shown in red. The break workflow asks which consumer input
-should read its previous accepted timestep value and asks for initial values
-when the affected target objects do not already provide one. The action changes
-the application input policy for every target selected by that application.
+Connections in a circular dependency are shown in red. To break a loop, choose
+which input should read the previous step's value. The editor also asks for
+starting values if the objects do not have them. This change applies to every
+object selected by that model application.
 
 !!! warning
-    `PreviousTimeStep` changes model semantics. It disconnects the selected
-    input from current-step producers during one run step. Use it only when that
-    lag and its initialization value are scientifically intentional.
+    `PreviousTimeStep` changes the calculation: the model reads an older value
+    instead of the value calculated at the current step. Use it only when this
+    delay and the starting value make sense for your scientific model.
 
 ## Saving And Recovery
 
-The **Save** action writes readable Julia code whose final binding is
+The **Save** action writes readable Julia code ending with
 `model = CompositeModel(...)`. Once a path is selected, every successful edit rewrites
 that file. The editor also keeps a temporary recovery file and lists recent
 CompositeModel scripts in **Open**.
@@ -286,12 +293,12 @@ source = Authoring.scenario_source(
 )
 ```
 
-This is editable scenario code. It is distinct from
-`Authoring.compiled_model_source(model)`, which exposes the resolved execution
-plan for inspection and is not a second scheduler.
+Use this code to edit or share the simulation setup.
+`Authoring.compiled_model_source(model)` provides a more detailed view of how
+PlantSimEngine will run the calculations.
 
-Generated code is best effort for arbitrary Julia values and external runtime
-resources. Templates and instances are written inline. Named environment values are
+Some Julia values and external resources cannot be recreated automatically
+from a saved script. Templates and instances are written into the script. Named environment values are
 referenced through a `scenario_environments` named tuple, and the generated header
 lists the keys that must be supplied when reopening the file:
 

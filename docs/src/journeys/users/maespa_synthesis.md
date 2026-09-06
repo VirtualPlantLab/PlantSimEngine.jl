@@ -1,21 +1,27 @@
 # MAESPA-Style Synthesis
 
-## New concept: synthesis without another runtime mechanism
+Bring the earlier tutorials together in a small MAESPA-style stand with two
+species and five leaves. Canopy and soil exchange run hourly; carbon
+allocation and LAI run daily. Within each hour, a controller repeatedly runs
+the leaf models to find a consistent canopy air temperature and humidity.
+This is an advanced example; start with the individual tutorials if these
+steps are unfamiliar.
 
-This page is an integrated reference, not an onboarding example. It combines
-the ideas developed independently in the earlier journeys into a small
-MAESPA-style stand: two species, five leaves, hourly canopy and soil exchange,
-daily allocation and LAI, iterative leaf calls, and accepted mutable canopy
-air.
+This is an uncalibrated teaching example inspired by MAESPA's process
+structure. It is not a validated MAESPA implementation. Leaf illumination is
+uniform with complete absorption, the canopy has one air layer, and the soil
+water model uses prescribed withdrawals and bounds rather than a complete
+soil hydraulic balance. The example tests coupling and carbon accounting;
+its results should not be used to predict a real stand's behaviour.
 
-If any individual mechanism is unfamiliar, follow its focused link in
-[How the pieces compose](@ref) before reading the implementation.
+The table in [How the pieces compose](@ref) links each part of this example
+to the tutorial that explains it.
 
 ## Run the reference case
 
-The complete, tested source lives in
-`examples/maespa_model_example.jl`. Run 25 hours so both hourly and daily
-applications cross a day boundary:
+The complete, tested source is in `examples/maespa_model_example.jl`. Run it
+with 25 hourly weather records. The daily models run on the first step and
+again 24 hours later, so this is long enough to see two calls:
 
 ```@example journey_maespa_synthesis
 using PlantSimEngine, DataFrames
@@ -32,8 +38,9 @@ model = result.model
 nothing
 ```
 
-The model contains one scene, one soil object, and two template instances with
-different species parameters and leaf counts:
+The model contains one object for the whole scene, one soil object, and two
+plants with the same model connections. Each plant has its own template,
+species parameters, and number of leaves:
 
 ```@example journey_maespa_synthesis
 (
@@ -45,11 +52,13 @@ different species parameters and leaf counts:
 )
 ```
 
-## Inspect the compiled architecture
+## Check when models run and where their inputs come from
 
-The execution schedule makes the two cadences and parent-controlled
-applications visible. Leaf energy balance and soil water are call-only under
-the scene controller; allocation and LAI run daily:
+Check when each calculation runs. The scene controller decides when to call
+leaf energy balance and soil water; these models do not run independently.
+Allocation and LAI run once per day. In the table, `root_scheduled` means a
+model runs directly from the simulation schedule, `manual_call_only` means
+another model calls it, and `dt_steps` gives the interval in hourly steps:
 
 ```@example journey_maespa_synthesis
 schedule = DataFrame(Diagnostics.explain_schedule(result.compiled))
@@ -72,8 +81,10 @@ select(
 )
 ```
 
-The scene energy-balance application resolves all five leaves through one
-`Many` hard call and the soil through one `One` hard call:
+The scene energy-balance model calls all five leaf models with `Many` and the
+single soil model with `One`. These are **hard calls**: the calling model
+controls when the other models run. The table lists the models and objects
+called from `:scene_eb`:
 
 ```@example journey_maespa_synthesis
 calls = DataFrame(Diagnostics.explain_calls(result.compiled))
@@ -86,9 +97,14 @@ select(
 )
 ```
 
-Each plant allocation application receives a live vector of only its own
-descendant leaves. The scene receives stand-wide vectors and one scalar soil
-potential:
+Each plant's allocation model reads carbon values from its own leaves. The
+scene model reads areas from all leaves and water potential from the soil.
+Here `AllocA` and `AllocB` use the same fixed-fraction allocation equation
+with different parameters. For two different allocation rules running on
+two plants together, see [Instantiate Several Plants](several_plants.md).
+Inspect `source_ids` below to check where each input comes from. The values
+are shared by reference, meaning the reader sees the current source values
+without copying them:
 
 ```@example journey_maespa_synthesis
 bindings = DataFrame(Diagnostics.explain_bindings(result.compiled))
@@ -115,11 +131,17 @@ select(
 
 ## Follow trial canopy air to its accepted state
 
-The scene controller reads above-canopy `:forcing`, iterates leaf models
-against typed trial canopy air with `publish=false`, commits the converged
-state to `sink=:canopy`, and then publishes one accepted leaf execution. Leaf
-applications read the committed `:canopy` provider. Those routes are compiled
-into opaque handles:
+The scene controller starts from the above-canopy weather, named `:forcing`.
+It tries different canopy air conditions and runs the leaf models for each
+trial with `publish=false`, so these intermediate results are not saved in
+the output history. Once the calculation converges, it commits the accepted
+air conditions with `sink=:canopy` and runs the leaves once more to publish
+their accepted results.
+
+The leaf models then read the accepted conditions from `:canopy`. The table
+below shows which environmental variables each model reads or changes. Its
+`handle` column contains an internal identifier used to retrieve those
+conditions; you do not need to interpret that identifier:
 
 ```@example journey_maespa_synthesis
 environment_bindings = DataFrame(
@@ -142,16 +164,34 @@ select(
 )
 ```
 
-`MaespaSingleLayerEnvironment` is intentionally a one-layer canopy backend.
-Its handle still separates forcing, canopy, and commit-sink routes per
-application/object. A voxel or multilayer backend can replace it without
-changing the model-facing environment contract; the two-cell proof is in
-[Modify The Environment](@ref), and backend implementation belongs in
+`MaespaSingleLayerEnvironment` supplies one set of air conditions for the
+whole canopy. It keeps the above-canopy weather separate from the canopy
+conditions that the controller changes. You could replace it with an
+environment that represents several layers or 3D cells, while keeping the
+same variables available to the process models. See the two-cell example in
+[Modify The Environment](@ref) and the implementation guide in
 [Environment Backend Extensions](@ref).
 
-## Check the scientific handoffs
+## Check units and carbon accounting
 
-The final snapshots expose canonical state independently of retained history:
+Check the units and conversions as values pass between models:
+
+| Quantity | Meaning and units |
+|---|---|
+| `Ri_SW_f`, `Ri_PAR_f` | Incoming radiation in W m⁻²; PAR is `PlantMeteo.Constants().PAR_fraction` of shortwave energy. |
+| Leaf `aPPFD` | Absorbed photon flux in µmol photons m[leaf]⁻² s⁻¹: `Ri_PAR_f * constants.J_to_umol`, assuming uniform illumination and complete absorption. |
+| Leaf `A` | Net CO₂ assimilation in µmol CO₂ m[leaf]⁻² s⁻¹. |
+| Leaf `leaf_carbon` | Cumulative net assimilation in g elemental C: sum of `A * leaf_area * duration_seconds * 12e-6`. |
+| Plant `daily_growth` | Net C since this plant's previous allocation, in g C per allocation interval. The first call covers only the start of the simulation, not a full day. |
+| Plant carbon pools | Allocated g elemental C, not g dry matter; the unassigned allocation fraction remains in `reserve_pool`. |
+| `scene_transpiration` | Accepted water loss in mm over the current hourly forcing interval. |
+
+Every leaf receives the same above-canopy irradiance here. There is no
+shading, scattering, or leaf-angle calculation; a radiation model would need
+to replace that assumption for a realistic stand.
+
+Use `final_state` to read the latest values, whether or not you saved their
+history:
 
 ```@example journey_maespa_synthesis
 scene = final_state(simulation, :model)
@@ -160,18 +200,43 @@ plants = final_state(simulation, Many(scale=:Plant))
 
 (
     lai=scene.lai,
-    canopy_temperature=scene.canopy_tair,
-    transpiration=scene.scene_transpiration,
-    soil_water_potential=soil.psi_soil,
-    daily_growth=Dict(
+    canopy_temperature_C=scene.canopy_tair,
+    hourly_transpiration_mm=scene.scene_transpiration,
+    soil_water_potential_MPa=soil.psi_soil,
+    allocation_interval_g_C=Dict(
         id => state.daily_growth
         for (id, state) in plants
     ),
 )
 ```
 
-Retained output counts confirm the cadence boundary: hourly scene and leaf
-variables have 25 samples, while daily LAI and allocation variables have two:
+Allocation reads cumulative leaf C without resetting it. Each plant stores
+the cumulative amount it has already accounted for and allocates only the
+difference at the next daily call. This prevents the same carbon being
+allocated again on later days. Carbon gained or lost since the last
+allocation remains pending until the next one:
+
+```@example journey_maespa_synthesis
+DataFrame([
+    (
+        plant=id,
+        cumulative_net_C_g=sum(state.leaf_carbon),
+        accounted_C_g=state.accounted_carbon,
+        pools_C_g=state.leaf_pool + state.wood_pool + state.reserve_pool,
+        pending_C_g=sum(state.leaf_carbon) - state.accounted_carbon,
+    )
+    for (id, state) in plants
+])
+```
+
+At each allocation, the three pools sum to `accounted_carbon`. Adding pending
+C recovers cumulative net assimilation. These accounts can increase or
+decrease: negative net assimilation reduces them. The example does not model initial
+biomass, construction respiration, dry-matter conversion, or limits on
+withdrawing reserves, so the pools are not predictions of organ mass.
+
+Count the saved values to check how often the models ran. Hourly scene and
+leaf variables have 25 samples; daily LAI and allocation variables have two:
 
 ```@example journey_maespa_synthesis
 output_summary = DataFrame(Diagnostics.explain_outputs(simulation))
@@ -198,45 +263,32 @@ select(
 
 ## How the pieces compose
 
-| Construct in this synthesis | Role here | Focused journey |
+| Part of the example | What it does here | Tutorial |
 |---|---|---|
-| `CompositeModelTemplate` and two `ObjectInstance`s | Reuse one species-specific application set across several plants | [Instantiate Several Plants](@ref) |
-| Scene, plant, internode, leaf, and soil objects | Represent one registry without prescribing plant architecture | [Build One Multiscale Plant](@ref) |
-| Scalar and `Many` live-reference bindings | Couple soil-to-scene and leaf-to-plant/scene values | [Build One Multiscale Plant](@ref) |
-| Hourly and daily applications with `HoldLast` | Keep canopy exchange and allocation on scientific cadences | [Give Models Different Cadences](@ref) |
-| Forcing and canopy providers with compiled handles | Sample global forcing and committed canopy state through one contract | [Understand Environments](@ref) |
-| Typed trials and explicit accepted commit | Iterate canopy air without publishing rejected states | [Modify The Environment](@ref) |
-| Nested hard calls and accepted publication | Let scene energy balance control leaf and soil execution | [Control Advanced Execution](@ref) |
-| `Simulation`, final state, and retained streams | Separate current canonical state from requested history | [Couple Models On One Object](@ref) |
+| `CompositeModelTemplate` and two `ObjectInstance`s | Reuse the same models for plants with different species parameters | [Instantiate Several Plants](@ref) |
+| Scene, plant, internode, leaf, and soil objects | Represent the chosen plant structure and shared soil | [Build One Multiscale Plant](@ref) |
+| `One` and `Many` inputs | Read one soil value or a collection of leaf values | [Build One Multiscale Plant](@ref) |
+| Hourly and daily models with `HoldLast` | Keep using the last daily value between daily calculations | [Give Models Different Cadences](@ref) |
+| Above-canopy weather and canopy conditions | Supply each model with the environment it needs | [Understand Environments](@ref) |
+| Trial air conditions and an accepted result | Find consistent canopy conditions, then save the accepted result | [Modify The Environment](@ref) |
+| Hard calls | Let scene energy balance decide when leaf and soil models run | [Control Advanced Execution](@ref) |
+| `Simulation`, `final_state`, and saved outputs | Read current values and analyse changes over time | [Couple Models On One Object](@ref) |
 
-This 25-hour reference keeps plant topology fixed because organogenesis is not
-part of its scientific question. A growth model can add, reparent, or remove
-organs through the same registry and refresh machinery; that independent
-lifecycle is demonstrated in [Modify Plant Structure](@ref). Keeping it out of
-this synthesis prevents canopy iteration, daily allocation, and topology
-mutation from becoming one inseparable example.
+Plant structure stays fixed during this 25-hour example. To add or remove
+organs with a growth model, follow [Modify Plant Structure](@ref).
 
-## Reference invariants
+## What the tests check
 
-The automated example test verifies the important handoffs rather than exact
-floating-point trajectories:
+The automated tests check that the parts work together as intended:
 
-- the stand contains two isolated instances and five correctly routed leaves;
-- plant allocation vectors contain only descendant leaves;
-- the scene call resolves every leaf and the shared soil application;
-- hourly and daily output counts match their cadences;
-- accepted canopy air is committed separately from above-canopy forcing;
-- leaf fluxes are finite and aggregate consistently at scene scale;
-- both species grow, while their parameterized allocations remain distinct.
-
-## Page recap
-
-- **You added:** no new primitive; you assembled the earlier topology,
-  cadence, hard-call, environment, and output mechanisms into one stand.
-- **PlantSimEngine inferred:** application order, plant-local bindings,
-  concrete call targets, environment handles, and the hourly/daily schedule.
-- **You keep explicit:** species parameters, topology, scientific iteration,
-  accepted state, output requests, and the invariants used to validate the
-  result.
-- **New API names:** none. Every API in this synthesis was introduced on a
-  focused earlier journey.
+- the stand contains two plants, with five leaves assigned to the right plant;
+- each plant's allocation model reads only its own leaves;
+- the scene controller calls every leaf and the shared soil model;
+- hourly and daily output counts match their scheduled intervals;
+- accepting new canopy conditions does not replace the above-canopy weather;
+- leaf fluxes are finite and their totals agree with the scene results;
+- PAR energy is bounded by shortwave energy and converted to photon units;
+- a longer run with 73 hourly samples covers three daily intervals plus the
+  initial call, with no carbon added by rejected trial calculations;
+- each plant allocates every C increment once, preserves cumulative leaf C,
+  and conserves the sum of its leaf, wood, reserve, and pending C accounts.

@@ -38,6 +38,10 @@ else
         include("test-model-object-id.jl")
     end
 
+    @testset "CompositeModel display" begin
+        include("test-model-display.jl")
+    end
+
     @testset "Composite Model/Object API stabilization" begin
         include("test-model-api-stabilization.jl")
     end
@@ -188,6 +192,10 @@ else
 
     @testset "MAESPA-style model example" begin
         include("test-maespa-model-example.jl")
+    end
+
+    @testset "Two-plant allocation comparison" begin
+        include("test-two-plant-allocation.jl")
     end
 
     @testset "Status" begin
