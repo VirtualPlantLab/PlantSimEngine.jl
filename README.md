@@ -62,12 +62,19 @@ This example runs three existing toy models on one model object:
 2. `ToyLAIModel` consumes cumulative thermal time and computes LAI.
 3. `Beer` consumes LAI and meteorology to compute absorbed PAR.
 
+Run the full weather year to see canopy growth and senescence. The bundled
+file contains daily radiation totals in MJ m⁻² d⁻¹ under historical `_f`
+column names; convert them to mean fluxes in W m⁻² for `Beer` when reading.
+
 ```julia
 using PlantSimEngine, PlantMeteo, Dates, DataFrames
 using PlantSimEngine.Examples
 
 meteo_day = read_weather(
-    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
+    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
+    :Ri_SW_f => (x -> x .* 1e6 ./ 86_400) => :Ri_SW_f,
+    :Ri_PAR_f => (x -> x .* 1e6 ./ 86_400) => :Ri_PAR_f,
+    :Ri_NIR_f => (x -> x .* 1e6 ./ 86_400) => :Ri_NIR_f;
     duration=Dates.Day,
 )
 
@@ -78,7 +85,7 @@ model = CompositeModel(
     environment=meteo_day,
 )
 
-sim = run!(model; steps=30, outputs=:all)
+sim = run!(model; steps=length(meteo_day), outputs=:all)
 out = collect_outputs(sim; sink=DataFrame)
 first(out, 6)
 ```

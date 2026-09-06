@@ -110,16 +110,24 @@ This example runs three existing toy models on one object:
 2. `ToyLAIModel` consumes cumulative thermal time and computes LAI.
 3. `Beer` consumes LAI and meteorology to compute absorbed PAR.
 
-The model kernels are unchanged; the model application layer says where they
-run. Since no `every` is specified, these applications use the daily
-cadence of `meteo_day`.
+The model application layer says where the kernels run. Since no `every` is
+specified, these applications use the daily cadence of `meteo_day`. We run
+the full weather year to show canopy growth and senescence; the first 30
+winter days barely accumulate any thermal time.
+
+The bundled weather file stores daily radiation totals in MJ m⁻² d⁻¹,
+despite its historical `_f` column names. Convert them to mean fluxes in
+W m⁻² when reading the file, as required by `Beer`.
 
 ```@example readme
 using PlantSimEngine, PlantMeteo, Dates, DataFrames
 using PlantSimEngine.Examples
 
 meteo_day = read_weather(
-    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
+    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
+    :Ri_SW_f => (x -> x .* 1e6 ./ 86_400) => :Ri_SW_f,
+    :Ri_PAR_f => (x -> x .* 1e6 ./ 86_400) => :Ri_PAR_f,
+    :Ri_NIR_f => (x -> x .* 1e6 ./ 86_400) => :Ri_NIR_f;
     duration=Dates.Day,
 )
 
@@ -130,7 +138,7 @@ model = CompositeModel(
     environment=meteo_day,
 )
 
-sim = run!(model; steps=30, outputs=:all)
+sim = run!(model; steps=length(meteo_day), outputs=:all)
 out = collect_outputs(sim; sink=DataFrame)
 first(out, 6)
 ```
@@ -150,7 +158,10 @@ select(
 )
 ```
 
-The outputs can be plotted like any other tabular result:
+The outputs can be plotted like any other tabular result. `Beer` returns
+`aPPFD` in μmol m⁻² s⁻¹ per unit ground area. Multiply by the number of
+seconds in each day and divide by one million to plot daily absorbed PAR
+in mol m⁻² d⁻¹.
 
 ```@example readme
 using CairoMakie
@@ -158,15 +169,20 @@ using CairoMakie
 lai = out[out.variable .== :LAI, :value]
 appfd = out[out.variable .== :aPPFD, :value]
 tt_cu = out[out.variable .== :TT_cu, :value]
+seconds_per_day = Dates.value.(Second.(meteo_day[:duration]))
+absorbed_par_day = appfd .* seconds_per_day ./ 1e6
 
-fig = Figure(resolution=(800, 600))
+fig = Figure(size=(800, 600))
 ax = Axis(fig[1, 1], ylabel="LAI (m² m⁻²)")
 lines!(ax, tt_cu, lai, color=:mediumseagreen)
 
-ax2 = Axis(fig[2, 1], xlabel="Cumulated growing degree days since sowing (°C)", ylabel="aPPFD (mol m⁻² d⁻¹)")
-lines!(ax2, tt_cu, appfd, color=:firebrick1)
+ax2 = Axis(fig[2, 1], xlabel="Cumulated growing degree days since sowing (°C d)", ylabel="Absorbed PAR (mol m⁻² d⁻¹)")
+lines!(ax2, tt_cu, absorbed_par_day, color=:firebrick1)
 fig
 ```
+
+The toy canopy reaches a LAI of about 8, then senesces around 1,500 degree
+days. Absorbed PAR follows both canopy development and daily weather.
 
 ## Multi-Object Inputs
 
