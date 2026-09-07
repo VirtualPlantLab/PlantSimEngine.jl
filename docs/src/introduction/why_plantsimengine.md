@@ -20,8 +20,10 @@ of processes or assumptions:
   connect their results to the plant, and update the structure during growth.
   Start with [one multiscale plant](../journeys/users/one_plant.md).
 
+PlantSimEngine lets you start with one approach and switch to another in no time. For example you can start with an FSPM approach because you want to make digital twins of plants, and then ditch the 3D architecture for simpler plot-scale models (**e.g.** LAI approach) without changing the other models that were already calibrated and tested (phenology, carbon allocation...).
+
 The scientific models, parameter sets, input data, and validation for your
-species or experiment come from your own work or model packages such as
+species or experiment come from your own work, your AI agent or model packages such as
 [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl). PlantSimEngine
 provides the tools for connecting and running them.
 
@@ -41,9 +43,8 @@ and whether it is a rate or an accumulated amount. The same variable name
 alone is insufficient. Moving from a quantity per unit ground area to a total
 per plant, for example, needs an explicit conversion.
 
-To replace a model only for selected plants, its inputs, outputs, and other
-requirements must match the original model. A replacement that needs an extra
-input, such as soil water content, requires changes to the simulation setup. See
+To replace a model, its inputs, outputs, and other
+requirements don't necessarily have to match the original model, because PlantSimEngine will connect it automatically to other models. However, some models require more inputs, that need other models to compute them, so replacing a model can lead to adding/removing other models too. See
 [model compatibility and replacement](../step_by_step/model_switching.md).
 
 Model authors can read each equation together with its inputs and outputs.

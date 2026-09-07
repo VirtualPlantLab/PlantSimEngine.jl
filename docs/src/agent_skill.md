@@ -24,16 +24,16 @@ skill_root = joinpath(package_root, "skills", "plantsimengine")
 
 Copy or link that complete directory into your coding agent's skill directory,
 following its installation instructions. Keep its `SKILL.md`, `references`,
-`assets`, and `scripts` together. Use the copy from your installed package
-rather than the latest `main` branch: different versions can describe
+`assets`, and `scripts` together. Don't forget to tell your agent to upgrade its skill
+whenever you update PlantSimEngine: different versions can describe
 different APIs.
 
 The skill uses the Julia tools available in your agent's environment. It does
-not require a particular editor or connector.
+not require a particular editor or connector, but you can use e.g. [Kaimon](https://kahliburke.github.io/Kaimon.jl) to help your agents further.
 
 ## Ask it to assemble existing models
 
-Adapt this request to the packages, data, and scientific question you have:
+You can ask your agents anything, for example you can ask it to assemble existing models into a simulation:
 
 > Use the PlantSimEngine skill shipped with my loaded package. I want to
 > compare two existing models for the same process. First identify available
@@ -47,6 +47,8 @@ Useful inputs to provide are the package names, the process of interest,
 your input data and its units, and the outputs you want to compare. The
 [Loaded model catalog](@ref) and [Model compatibility and replacement](@ref)
 show the corresponding manual workflow.
+
+Please give as much contest a possible to your agent, for example the data should be documented properly with protocols, units, etc...
 
 ## Ask it to implement an equation
 

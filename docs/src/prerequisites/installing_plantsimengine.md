@@ -1,35 +1,26 @@
 # Installing PlantSimEngine
 
 !!! compat "Use the package version described by this manual"
-    These development pages use the `CompositeModel` API. Registered releases
-    through 0.14.1 use the previous mapping API. Follow the commands below to
-    use the development version, or use the documentation matching your
-    installed release. For a pull-request preview, replace `"main"` with the
-    branch or commit shown by that pull request so its examples and package
-    sources match.
+    These development pages use the `CompositeModel` API introduced in v0.15.0.
 
 Install Julia from the
 [official download page](https://julialang.org/downloads/), create a project
-environment (a folder that records the packages used for this simulation),
-and install the tutorial packages:
+environment (a folder that records the packages used for this simulation), open julia from this repository, and install the tutorial packages:
 
 ```julia
 using Pkg
-Pkg.activate("my_simulation")
-Pkg.add(["PlantMeteo", "DataFrames", "CairoMakie"])
-Pkg.add(url="https://github.com/VirtualPlantLab/PlantSimEngine.jl", rev="main")
+Pkg.activate(".")
+Pkg.add(["PlantMeteo", "DataFrames", "CairoMakie", "PlantSimEngine.jl"])
 ```
 
 PlantMeteo supplies weather data, DataFrames organizes the results, and
 CairoMakie draws the tutorial figures. Run these commands at Julia's
 interactive prompt, also called the **REPL**;
 `my_simulation` is the project directory created relative to your current
-working directory. In a later session, run `Pkg.activate("my_simulation")`
+working directory. In a later session, run `Pkg.activate(".")`
 from the same location before using the project again.
 
-For reproducible work, record the package revision and keep the generated
-`Project.toml` and `Manifest.toml` with your experiment. The development branch
-can change; a commit revision selects one exact version.
+Julia makes reproducibility seemless: whenever you add a new package, it records the package versions you're using in two files called `Project.toml` and `Manifest.toml`.
 
 ## First Simulation
 
@@ -70,6 +61,3 @@ of photons per m² of ground per second. The inputs are
 illustrative, not a calibrated crop scenario. Next,
 [couple three models over time](../journeys/users/one_object.md), then
 [collect and plot their outputs](../guides/data/outputs_plotting.md).
-
-For local package development, use `Pkg.develop(path="...")`. Run the package
-tests with `Pkg.test("PlantSimEngine")`.

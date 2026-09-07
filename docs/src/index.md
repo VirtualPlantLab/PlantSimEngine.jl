@@ -88,19 +88,17 @@ supported package versions.
 
 ## See what you can build
 
-These examples show two ways to represent a plant system. The canopy curves
-are calculated when this documentation is built, using teaching models and a
-full year of weather. The 3D image illustrates an explicit organ structure.
+These examples show two ways to represent a plant system. A crop-scale simulation like in crop models, and an 3D organ-scale structure like in frunctional-structural models.
 
 ```@raw html
 <div class="pse-home-examples">
   <figure>
     <img src="home-canopy.svg" alt="Teaching simulation: leaf area index rises and falls over the season, while absorbed light responds to both canopy development and weather." loading="lazy">
-    <figcaption><strong>A crop canopy over a season.</strong> Connect thermal time, leaf area index (LAI) and light interception without describing individual leaves. <a href="journeys/users/one_object.html">Couple models for a canopy →</a></figcaption>
+    <figcaption><strong>A crop canopy over a season.</strong> Connect thermal time, leaf area index (LAI) and light interception without describing individual organs. <a href="journeys/users/one_object.html">Couple models for a canopy →</a></figcaption>
   </figure>
   <figure>
     <img class="pse-plant-illustration" src="www/toy_plant.png" alt="Static illustration of a plant with a stem, branches and individual leaves in three dimensions." loading="lazy">
-    <figcaption><strong>A plant described by its organs.</strong> Apply models to leaves and combine their outputs at plant level. This is an illustrative 3D structure, not the output of the canopy example. <a href="journeys/users/one_plant.html">Connect organ and plant models →</a></figcaption>
+    <figcaption><strong>A plant described by its organs.</strong> Apply models to individual organs and combine their outputs at plant level. <a href="journeys/users/one_plant.html">Connect organ and plant models →</a></figcaption>
   </figure>
 </div>
 ```
@@ -115,14 +113,10 @@ MAESPA.
 
 What happens if carbon gain stops increasing in proportion to absorbed light?
 Here, the same small simulation is run with a linear response and then a
-saturating response. Only the carbon-gain model changes. Both models declare
-the same inputs, outputs and units, so PlantSimEngine can check whether
-one can replace the other.
+saturating response. Only the carbon-gain model changes. Both models simulate the same process, so we can just replace one by another, and PlantSimEngine handles the rest: **how, where and when the model is called**, relative to other models, objects (organs/plants/scene), and simulation rate.
 
 ![Two teaching models predict different carbon gains from the same absorbed light: a linear response and a saturating response.](home-model-comparison.svg)
 
-The coefficients are illustrative. These curves demonstrate how to compare
-model formulations; they are not calibrated predictions for a crop or species.
 The models come from the [examples supplied for model authors and AI agents](agent_skill.md).
 Follow the [model replacement guide](step_by_step/model_switching.md) to try
 alternatives and check whether their inputs require different connections.
@@ -148,22 +142,19 @@ alternatives and check whether their inputs require different connections.
   connections before the time loop and reuses them during execution. This
   avoids resolving those connections again at every time step, including when
   models run on many organs.
-  [Read about the design and performance evidence](introduction/why_plantsimengine.md).
+  [Read about the design and performance of PlantSimEngine](introduction/why_plantsimengine.md).
 
 ## Work with an AI coding agent
 
 An **AI coding agent** is software that can read and edit code and run tests
-with your development tools. PlantSimEngine is designed to support this way
-of working: models expose their inputs and outputs, and can declare units and
-other scientific conventions. Tools report model compatibility, missing inputs
-and simulation connections. A versioned
-**agent skill** provides instructions and tested examples for the installed
-package. These give an agent concrete information to implement, inspect and
-check a proposed model or coupling. You guide the scientific assumptions and
-validate the equations, parameters and results.
+with your development tools. Think OpenAI's ChatGPT App (formerly Codex), Anthropic's Claude Code, SpaceXAI's Grok Bot, or Mistral's Vibe. PlantSimEngine is designed to support this way
+of working, so you can just make new models, compare hypothesis, make model calibration or anything you'd like with just a prompt, such as:
 
-[Set up an agent for PlantSimEngine](agent_skill.md), or use the same
-[model descriptions and checks](API/model_catalog.md) directly from Julia.
+> Replace the radiation-use efficiency approach I'm using at the moment in my model by the FvCB, Medlyn and Monteith models from PlantBiophysics. Apply them at an hourly rate first, then at half-hourly, and compare the impact on yield of the three approaches. Report the results through dynamic graphs and statistics.
+
+For optimum results, ask your agent to [install the **agent skill**](agent_skill.md). It'll give your agent concrete information to implement, inspect and check models. Then, it will have access to every detail of the simulation, so you'll be able to ask it complex prompts such as:
+
+> Yield simulation is too low compared to data in 2025 and 2026, can you check why?
 
 ## Choose your starting point
 
@@ -181,8 +172,7 @@ start with [installation](prerequisites/installing_plantsimengine.md) and
 
 The canopy example above connects three existing models: temperature drives
 thermal time, thermal time drives LAI, and LAI and radiation determine absorbed
-photosynthetically active radiation (PAR). The phenology and LAI models are
-teaching examples, not a calibrated crop model.
+photosynthetically active radiation (PAR).
 
 First follow the [installation instructions](prerequisites/installing_plantsimengine.md)
 to get the package version used by this manual and the tutorial dependencies.
