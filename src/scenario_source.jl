@@ -238,12 +238,11 @@ end
 
 function _scenario_source_object_code(environment_catalog, object)
     keywords = String[
-        "scale=$(repr(object.scale))",
-        "kind=$(repr(object.kind))",
-        "species=$(repr(object.species))",
-        "name=$(repr(object.name))",
-        "parent=$(isnothing(object.parent) ? "nothing" : repr(object.parent.value))",
+        "$(key)=$(repr(getfield(object, key)))"
+        for key in (:scale, :kind, :species, :name)
+        if !isnothing(getfield(object, key))
     ]
+    isnothing(object.parent) || push!(keywords, "parent=$(repr(object.parent.value))")
     if object.status isa Status
         values = join(
             (

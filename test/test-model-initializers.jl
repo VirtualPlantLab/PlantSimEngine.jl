@@ -882,7 +882,7 @@ end
                 on=One(scale=:Scene),
                 outputs_to=(
                     plants=OutputTo(
-                        Many(name=:plant_a, within=SceneScope());
+                        Many(id=:plant_a, within=SceneScope());
                         vars=(incident_par=Default(0.0),),
                     ),
                 ),
@@ -893,7 +893,7 @@ end
                 on=One(scale=:Scene),
                 outputs_to=(
                     plants=OutputTo(
-                        Many(name=:plant_b, within=SceneScope());
+                        Many(id=:plant_b, within=SceneScope());
                         vars=(incident_par=Default(0.0),),
                     ),
                 ),

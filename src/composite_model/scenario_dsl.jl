@@ -5,12 +5,12 @@ Return the normalized, structured diagnostic address for an object selector.
 The address preserves scope, object labels, producer/callee routing, temporal
 policy/window, live-status ordering, and multiplicity.
 """
-struct ObjectAddress{SC,K,SP,S,N,P,A,V,R,POL,W,FS,AF,M}
+struct ObjectAddress{SC,K,SP,S,I,P,A,V,R,POL,W,FS,AF,M}
     scope::SC
     kind::K
     species::SP
     scale::S
-    name::N
+    id::I
     process::P
     application::A
     var::V
@@ -28,7 +28,7 @@ function ObjectAddress(selector::AbstractObjectMultiplicity)
     kind = _criteria_value(c, :kind)
     species = _criteria_value(c, :species)
     scale = _criteria_value(c, :scale)
-    name = haskey(c, :name) ? c.name : nothing
+    id = haskey(c, :id) ? c.id : nothing
     process = haskey(c, :process) ? c.process : nothing
     application = haskey(c, :application) ? c.application : nothing
     var = haskey(c, :var) ? c.var : nothing
@@ -42,7 +42,7 @@ function ObjectAddress(selector::AbstractObjectMultiplicity)
         kind,
         species,
         scale,
-        name,
+        id,
         process,
         application,
         var,

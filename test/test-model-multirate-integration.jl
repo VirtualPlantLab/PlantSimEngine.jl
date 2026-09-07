@@ -171,7 +171,7 @@ end
                 name=Symbol(:cadence_, cadence),
                 on=One(
                     scale=:ScheduleSlot,
-                    name=object_names[index],
+                    id=object_names[index],
                 ),
                 every=Hour(cadence),
             )

@@ -557,10 +557,14 @@ end
 
 _model_graph_object_id(value) = value isa ObjectId ? value.value : value
 _model_graph_application_node_id(id) = string("application:", id)
-_model_graph_object_node_id(id) = string("object:", _model_graph_object_id(id))
+function _model_graph_object_id_key(id)
+    value = ObjectId(id).value
+    return repr((typeof(value), value))
+end
+_model_graph_object_node_id(id) = string("object:", _model_graph_object_id_key(id))
 _model_graph_instance_node_id(name) = string("instance:", name)
 _model_graph_execution_node_id(application_id, object_id) =
-    string("execution:", application_id, ":", _model_graph_object_id(object_id))
+    string("execution:", repr(application_id), ":", _model_graph_object_id_key(object_id))
 _model_graph_port_id(application_id, role, variable) =
     string(_model_graph_application_node_id(application_id), ":", role, ":", variable)
 
@@ -646,6 +650,53 @@ function _model_graph_period_dict(period)
     )
 end
 
+# Object identities use a separate codec from parameters and display metadata.
+# Bare JSON arrays mean a collection of IDs in selectors, so a tuple-valued
+# scalar ID needs a tagged wrapper. Nested symbols and strings remain distinct.
+function _model_graph_typed_id_value(value)
+    value isa Symbol && return Dict("type" => "Symbol", "value" => string(value))
+    value isa AbstractString && return String(value)
+    value isa Bool && return value
+    if value isa Int && -(2^53 - 1) <= value <= 2^53 - 1
+        return value
+    end
+    if value isa Union{Integer,Float16,Float32,Float64}
+        return Dict("type" => string(typeof(value)), "value" => string(value))
+    end
+    value isa Char && return Dict("type" => "Char", "value" => string(value))
+    value isa ObjectId && return Dict("type" => "ObjectId", "value" => _model_graph_typed_id_value(value.value))
+    if value isa NamedTuple
+        return Dict(
+            "type" => "NamedTuple",
+            "names" => string.(keys(value)),
+            "items" => [_model_graph_typed_id_value(item) for item in value],
+        )
+    end
+    value isa Tuple && return Dict("type" => "Tuple", "items" => [_model_graph_typed_id_value(item) for item in value])
+    value isa Pair && return Dict(
+        "type" => "Pair",
+        "first" => _model_graph_typed_id_value(first(value)),
+        "second" => _model_graph_typed_id_value(last(value)),
+    )
+    # Custom IDs can still be inspected, but cannot be reconstructed by a
+    # browser command without a user-defined codec or evaluating Julia code.
+    return Dict("type" => "Opaque", "juliaType" => string(typeof(value)), "value" => repr(value))
+end
+
+function _model_graph_object_id_value(id)
+    value = ObjectId(id).value
+    value isa Symbol && return string(value)
+    value isa Bool && return value
+    value isa Int && -(2^53 - 1) <= value <= 2^53 - 1 && return value
+    return Dict("type" => "ObjectId", "value" => _model_graph_typed_id_value(value))
+end
+
+function _model_graph_selector_id_value(value)
+    isnothing(value) && return nothing
+    value isa Tuple && return [_model_graph_object_id_value(id) for id in value]
+    return _model_graph_object_id_value(value)
+end
+
 function _model_graph_json_value(value)
     value === nothing && return nothing
     value === missing && return nothing
@@ -682,7 +733,13 @@ end
 function _model_graph_selector_atom(selector::AbstractObjectSelector)
     descriptor = Dict{String,Any}("type" => string(nameof(typeof(selector))))
     selector isa Ancestor && (descriptor["scale"] = _model_graph_json_value(selector.scale))
-    selector isa Scope && (descriptor["name"] = string(selector.name))
+    if selector isa Scope
+        if selector.root isa Symbol
+            descriptor["name"] = string(selector.root)
+        else
+            descriptor["id"] = _model_graph_object_id_value(selector.root)
+        end
+    end
     selector isa Relation && (descriptor["relation"] = string(selector.relation))
     return descriptor
 end
@@ -708,6 +765,8 @@ function _model_graph_selector_criteria(selector::AbstractObjectMultiplicity)
             [_model_graph_selector_atom(item) for item in value]
         elseif key == :within && value isa AbstractObjectSelector
             _model_graph_selector_atom(value)
+        elseif key == :id
+            _model_graph_selector_id_value(value)
         elseif key == :policy
             _model_graph_policy_dict(value)
         elseif key == :window
@@ -834,7 +893,7 @@ function _model_graph_application_dict(
         "package" => _model_package_name(parentmodule(typeof(process_model))),
         "modelParameters" => _model_graph_model_parameters(process_model),
         "selector" => _model_graph_selector_dict(application.applies_to),
-        "targetIds" => [_model_graph_json_value(id.value) for id in application.target_ids],
+        "targetIds" => [_model_graph_object_id_value(id.value) for id in application.target_ids],
         "targetCount" => length(application.target_ids),
         "targetScales" => sort!(unique!(String[string(object.scale) for object in target_objects if !isnothing(object.scale)])),
         "targetKinds" => sort!(unique!(String[string(object.kind) for object in target_objects if !isnothing(object.kind)])),
@@ -887,7 +946,7 @@ function _model_graph_application_dict(
         "modelStorage" => isnothing(application.model_overrides) ? "shared_application" : "per_object_override",
         "objectOverrides" => isnothing(application.model_overrides) ? Any[] : [
             Dict(
-                "objectId" => _model_graph_json_value(object_id.value),
+                "objectId" => _model_graph_object_id_value(object_id.value),
                 "modelType" => string(typeof(override)),
                 "parameters" => _model_graph_model_parameters(override),
             )
@@ -900,7 +959,7 @@ function _model_graph_object_dict(row)
     id = row.id
     return Dict{String,Any}(
         "id" => _model_graph_object_node_id(id),
-        "objectId" => _model_graph_json_value(id),
+        "objectId" => _model_graph_object_id_value(id),
         "scale" => _model_graph_json_value(row.scale),
         "kind" => _model_graph_json_value(row.kind),
         "species" => _model_graph_json_value(row.species),
@@ -994,15 +1053,15 @@ function _model_graph_instance_dict(model, row, template_catalog)
         "id" => _model_graph_instance_node_id(row.name),
         "name" => string(row.name),
         "templateId" => _model_graph_template_id(model, instance.template, template_catalog),
-        "rootId" => _model_graph_json_value(row.root_id),
+        "rootId" => _model_graph_object_id_value(row.root_id),
         "kind" => _model_graph_json_value(row.kind),
         "species" => _model_graph_json_value(row.species),
-        "objectIds" => [_model_graph_json_value(id) for id in row.object_ids],
+        "objectIds" => [_model_graph_object_id_value(id) for id in row.object_ids],
         "applicationIds" => string.(row.application_ids),
         "instanceOverrides" => string.(row.instance_overrides),
         "objectOverrides" => Dict{String,Any}[
             Dict(
-                "objectId" => _model_graph_json_value(override.object_id),
+                "objectId" => _model_graph_object_id_value(override.object_id),
                 "applicationId" => _model_graph_json_value(override.application),
                 "modelType" => string(override.model_type),
             )
@@ -1054,7 +1113,7 @@ function _model_graph_execution_dict(application, object_id)
         "id" => _model_graph_execution_node_id(application.id, object_id),
         "applicationId" => string(application.id),
         "applicationNodeId" => _model_graph_application_node_id(application.id),
-        "objectId" => _model_graph_json_value(object_id.value),
+        "objectId" => _model_graph_object_id_value(object_id.value),
         "objectNodeId" => _model_graph_object_node_id(object_id),
         "modelType" => string(typeof(model)),
         "modelParameters" => _model_graph_model_parameters(model),
@@ -1119,9 +1178,9 @@ function _model_graph_binding_edges(report, level)
                         binding.source_var,
                     )
                     edge_id = string(
-                        "binding:", source_application_id, ":", source_id.value,
+                        "binding:", source_application_id, ":", _model_graph_object_id_key(source_id),
                         ":", binding.source_var, ":", binding.application_id,
-                        ":", binding.consumer_id.value, ":", binding.input,
+                        ":", _model_graph_object_id_key(binding.consumer_id), ":", binding.input,
                     )
                     edges[edge_id] = Dict{String,Any}(
                         "id" => edge_id,
@@ -1136,11 +1195,11 @@ function _model_graph_binding_edges(report, level)
                         "targetVariable" => string(binding.input),
                         "sourceApplicationId" => string(source_application_id),
                         "targetApplicationId" => string(binding.application_id),
-                        "sourceObjectIds" => [_model_graph_json_value(source_id.value)],
+                        "sourceObjectIds" => [_model_graph_object_id_value(source_id.value)],
                         "sourceExecutionObjectIds" => [
-                            _model_graph_json_value(execution_source_id.value),
+                            _model_graph_object_id_value(execution_source_id.value),
                         ],
-                        "targetObjectIds" => [_model_graph_json_value(binding.consumer_id.value)],
+                        "targetObjectIds" => [_model_graph_object_id_value(binding.consumer_id.value)],
                         "kind" => previous ? "previous_timestep" : string(binding.origin == :inferred ? :inferred_same_object : :value_binding),
                         "projection" => "resolved",
                         "origin" => string(binding.origin),
@@ -1177,8 +1236,8 @@ function _model_graph_binding_edges(report, level)
                         "cycle" => !previous && get(cycle_memberships, source_application_id, 0) == get(cycle_memberships, binding.application_id, -1),
                     )
                 end
-                append!(edge["sourceObjectIds"], [_model_graph_json_value(id.value) for id in source_ids])
-                push!(edge["targetObjectIds"], _model_graph_json_value(binding.consumer_id.value))
+                append!(edge["sourceObjectIds"], [_model_graph_object_id_value(id.value) for id in source_ids])
+                push!(edge["targetObjectIds"], _model_graph_object_id_value(binding.consumer_id.value))
                 unique!(edge["sourceObjectIds"])
                 unique!(edge["targetObjectIds"])
             end
@@ -1239,8 +1298,8 @@ function _model_graph_call_edges(report, level)
             )
             for (callee_application_id, callee_object_id) in resolved_pairs
                 edge_id = string(
-                    "call:", binding.application_id, ":", binding.consumer_id.value,
-                    ":", binding.call, ":", callee_application_id, ":", callee_object_id.value,
+                    "call:", binding.application_id, ":", _model_graph_object_id_key(binding.consumer_id),
+                    ":", binding.call, ":", callee_application_id, ":", _model_graph_object_id_key(callee_object_id),
                 )
                 edges[edge_id] = Dict{String,Any}(
                     "id" => edge_id,
@@ -1384,7 +1443,7 @@ function _model_graph_environment_edges(report, level, environment_catalog)
         target_id = level == :resolved ?
                     _model_graph_execution_node_id(binding.application_id, binding.object_id) :
                     _model_graph_application_node_id(binding.application_id)
-        object_suffix = level == :resolved ? string(":", binding.object_id.value) : ""
+        object_suffix = level == :resolved ? string(":", _model_graph_object_id_key(binding.object_id)) : ""
         for (target_variable, source_variable) in zip(binding.required_inputs, binding.source_inputs)
             edge_id = string(
                 "environment-input:", provider, ":", source_variable, ":",
@@ -1412,7 +1471,7 @@ function _model_graph_environment_edges(report, level, environment_catalog)
                     "cycle" => false,
                 )
             end
-            push!(edge["targetObjectIds"], _model_graph_json_value(binding.object_id.value))
+            push!(edge["targetObjectIds"], _model_graph_object_id_value(binding.object_id.value))
             unique!(edge["targetObjectIds"])
         end
         for variable in binding.produced_outputs
@@ -1443,7 +1502,7 @@ function _model_graph_environment_edges(report, level, environment_catalog)
                     "cycle" => false,
                 )
             end
-            push!(edge["sourceObjectIds"], _model_graph_json_value(binding.object_id.value))
+            push!(edge["sourceObjectIds"], _model_graph_object_id_value(binding.object_id.value))
             unique!(edge["sourceObjectIds"])
         end
     end
@@ -1466,7 +1525,7 @@ function _model_graph_structure_edges(model, applications, template_catalog)
     for object in values(model.registry.objects)
         if !isnothing(object.parent)
             push!(edges, Dict{String,Any}(
-                "id" => string("topology:", object.parent.value, ":", object.id.value),
+                "id" => string("topology:", _model_graph_object_id_key(object.parent), ":", _model_graph_object_id_key(object.id)),
                 "source" => _model_graph_object_node_id(object.parent),
                 "target" => _model_graph_object_node_id(object.id),
                 "kind" => "object_topology",
@@ -1478,7 +1537,7 @@ function _model_graph_structure_edges(model, applications, template_catalog)
     for application in applications
         for object_id in application.target_ids
             push!(edges, Dict{String,Any}(
-                "id" => string("target:", application.id, ":", object_id.value),
+                "id" => string("target:", application.id, ":", _model_graph_object_id_key(object_id)),
                 "source" => _model_graph_application_node_id(application.id),
                 "target" => _model_graph_object_node_id(object_id),
                 "kind" => "application_target",
@@ -1497,7 +1556,7 @@ function _model_graph_diagnostic_dict(diagnostic::ModelGraphDiagnostic)
         "message" => diagnostic.message,
         "phase" => string(diagnostic.phase),
         "applicationIds" => string.(diagnostic.application_ids),
-        "objectIds" => _model_graph_json_value(diagnostic.object_ids),
+        "objectIds" => [_model_graph_object_id_value(id) for id in diagnostic.object_ids],
         "variable" => isnothing(diagnostic.variable) ? nothing : string(diagnostic.variable),
         "suggestions" => diagnostic.suggestions,
     )
@@ -1623,7 +1682,7 @@ function _model_graph_add_status_conversion!(rows, report)
     by_key = Dict(
         (
             string(explanation.application_id),
-            _model_graph_json_value(explanation.object_id),
+            _model_graph_object_id_value(explanation.object_id),
             string(explanation.role),
             string(explanation.variable),
         ) => explanation
@@ -1680,7 +1739,7 @@ function _model_graph_initialization_row(
 )
     row = Dict{String,Any}(
         "applicationId" => string(application_id),
-        "objectId" => _model_graph_json_value(object_id.value),
+        "objectId" => _model_graph_object_id_value(object_id.value),
         "variable" => string(variable),
         "role" => string(role),
         "disposition" => string(disposition),
@@ -1688,7 +1747,7 @@ function _model_graph_initialization_row(
         "valueJulia" => isnothing(value) ? nothing : repr(value),
         "expectedType" => string(expected_type),
         "sourceApplicationIds" => isnothing(binding) ? String[] : string.(binding.source_application_ids),
-        "sourceObjectIds" => isnothing(binding) ? Any[] : [_model_graph_json_value(id.value) for id in binding.source_ids],
+        "sourceObjectIds" => isnothing(binding) ? Any[] : [_model_graph_object_id_value(id.value) for id in binding.source_ids],
         "sourceVariable" => isnothing(binding) ? nothing : string(binding.source_var),
         "origin" => isnothing(binding) ?
                     string(
@@ -1722,10 +1781,10 @@ function _model_graph_cycle_dict(report, component, index)
         any(source -> source in members, binding.source_application_ids) || continue
         push!(break_candidates, Dict{String,Any}(
             "applicationId" => string(binding.application_id),
-            "objectId" => _model_graph_json_value(binding.consumer_id.value),
+            "objectId" => _model_graph_object_id_value(binding.consumer_id.value),
             "input" => string(binding.input),
             "sourceApplicationIds" => string.(binding.source_application_ids),
-            "sourceObjectIds" => [_model_graph_json_value(id.value) for id in binding.source_ids],
+            "sourceObjectIds" => [_model_graph_object_id_value(id.value) for id in binding.source_ids],
             "sourceVariable" => string(binding.source_var),
             "selector" => _model_graph_selector_dict(binding.selector),
         ))
@@ -2037,7 +2096,16 @@ function _model_graph_standalone_html(view::ModelGraphView)
 :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#2d2722;background:#f4efe6}*{box-sizing:border-box}body{margin:0}.shell{height:100vh;display:grid;grid-template-rows:auto 1fr}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:14px 18px;background:#fffaf2;border-bottom:1px solid #dccfbd}.brand{font-weight:800;font-size:19px;margin-right:auto}.toolbar button,.toolbar input{border:1px solid #cdbfaa;background:#fffaf2;border-radius:6px;padding:8px 10px;color:inherit}.toolbar button.active{border-color:#1f7a5a;color:#155b43;background:#e9f4ed}.content{display:grid;grid-template-columns:1fr 300px;min-height:0}.canvas{position:relative;overflow:auto;padding:24px}.grid{position:relative;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:18px;z-index:2}.card{position:relative;background:#fffaf2;border:1px solid #ddcfbc;border-radius:7px;box-shadow:0 5px 18px #4a3e3020;padding:14px;min-height:150px;cursor:pointer}.card.cycle{border:2px solid #c94c3d}.card h3{margin:0 0 3px;font-size:16px}.muted{color:#776d64;font-size:12px}.badges{display:flex;gap:5px;flex-wrap:wrap;margin:10px 0}.badge{border:1px solid #d6c8b5;border-radius:999px;padding:2px 7px;font-size:11px}.ports{display:grid;grid-template-columns:1fr 1fr;gap:12px}.ports strong{font-size:10px;color:#776d64;text-transform:uppercase}.port{font-family:ui-monospace,monospace;font-size:11px;padding:3px 0}.inspector{overflow:auto;border-left:1px solid #dccfbd;background:#fffaf2;padding:18px}.inspector pre{white-space:pre-wrap;font-size:11px}.diagnostic{border-left:3px solid #c94c3d;padding:8px;margin:8px 0;background:#fff1eb}.empty{padding:60px;text-align:center;color:#776d64}@media(max-width:760px){.content{grid-template-columns:1fr}.inspector{display:none}.toolbar input{width:100%}}
 """
     js = raw"""
-const data=JSON.parse(document.getElementById('pse-model-graph-data').textContent);const root=document.getElementById('root');let mode=data.level||'applications';let query='';let selected=null;const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function cards(){if(mode==='topology')return data.objects.map(o=>({...o,title:o.name||String(o.objectId),subtitle:[o.kind,o.scale,o.instance].filter(Boolean).join(' · '),inputs:[],outputs:[]}));if(mode==='resolved')return data.executions.map(e=>({...e,title:e.applicationId+' @ '+e.objectId,subtitle:e.modelType,inputs:[],outputs:[]}));return data.applications.map(a=>({...a,title:a.name||a.applicationId,subtitle:a.modelType}));}function render(){const items=cards().filter(item=>JSON.stringify(item).toLowerCase().includes(query.toLowerCase()));root.innerHTML=`<div class="shell"><div class="toolbar"><div class="brand">PlantSimEngine CompositeModel Graph</div><button data-mode="applications" class="${mode==='applications'?'active':''}">Applications</button><button data-mode="topology" class="${mode==='topology'?'active':''}">Objects</button><button data-mode="resolved" class="${mode==='resolved'?'active':''}">Executions</button><input id="search" placeholder="Search model, object, or variable" value="${esc(query)}"></div><div class="content"><main class="canvas">${items.length?`<div class="grid">${items.map(item=>{const appId=item.applicationId;const cyclic=data.cycles.some(c=>c.applicationIds.includes(appId));return `<article class="card ${cyclic?'cycle':''}" data-id="${esc(item.id)}"><h3>${esc(item.title)}</h3><div class="muted">${esc(item.subtitle)}</div>${item.targetCount!==undefined?`<div class="badges"><span class="badge">${item.targetCount} targets</span>${(item.targetScales||[]).map(v=>`<span class="badge">${esc(v)}</span>`).join('')}</div><div class="ports"><div><strong>Inputs</strong>${(item.inputs||[]).map(p=>`<div class="port">${esc(p.name)}</div>`).join('')}</div><div><strong>Outputs</strong>${(item.outputs||[]).map(p=>`<div class="port">${esc(p.name)}</div>`).join('')}</div></div>`:''}</article>`}).join('')}</div>`:'<div class="empty">No matching graph items.</div>'}</main><aside class="inspector"><h3>Inspector</h3>${selected?`<pre>${esc(JSON.stringify(selected,null,2))}</pre>`:'<p class="muted">Select an application or object.</p>'}<h3>Diagnostics</h3>${data.diagnostics.map(d=>`<div class="diagnostic"><strong>${esc(d.code)}</strong><div>${esc(d.message)}</div></div>`).join('')||'<p class="muted">No diagnostics.</p>'}</aside></div></div>`;root.querySelectorAll('[data-mode]').forEach(button=>button.onclick=()=>{mode=button.dataset.mode;selected=null;render()});root.querySelector('#search').oninput=event=>{query=event.target.value;render()};root.querySelectorAll('.card').forEach(card=>card.onclick=()=>{selected=cards().find(item=>item.id===card.dataset.id);render()});}render();
+function objectIdLabel(id) {
+  if (id === null || typeof id !== 'object') return String(id ?? '');
+  if (id.type === 'Tuple') return '(' + id.items.map(objectIdLabel).join(', ') + ')';
+  if (id.type === 'NamedTuple') return '(' + id.names.map((name, i) => name + '=' + objectIdLabel(id.items[i])).join(', ') + ')';
+  if (id.type === 'Pair') return objectIdLabel(id.first) + ' => ' + objectIdLabel(id.second);
+  if (id.type === 'Symbol') return ':' + String(id.value);
+  if ('value' in id) return objectIdLabel(id.value);
+  return JSON.stringify(id);
+}
+const data=JSON.parse(document.getElementById('pse-model-graph-data').textContent);const root=document.getElementById('root');let mode=data.level||'applications';let query='';let selected=null;const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function cards(){if(mode==='topology')return data.objects.map(o=>({...o,title:o.name||objectIdLabel(o.objectId),subtitle:[o.kind,o.scale,o.instance].filter(Boolean).join(' · '),inputs:[],outputs:[]}));if(mode==='resolved')return data.executions.map(e=>({...e,title:e.applicationId+' @ '+objectIdLabel(e.objectId),subtitle:e.modelType,inputs:[],outputs:[]}));return data.applications.map(a=>({...a,title:a.name||a.applicationId,subtitle:a.modelType}));}function render(){const items=cards().filter(item=>JSON.stringify(item).toLowerCase().includes(query.toLowerCase()));root.innerHTML=`<div class="shell"><div class="toolbar"><div class="brand">PlantSimEngine CompositeModel Graph</div><button data-mode="applications" class="${mode==='applications'?'active':''}">Applications</button><button data-mode="topology" class="${mode==='topology'?'active':''}">Objects</button><button data-mode="resolved" class="${mode==='resolved'?'active':''}">Executions</button><input id="search" placeholder="Search model, object, or variable" value="${esc(query)}"></div><div class="content"><main class="canvas">${items.length?`<div class="grid">${items.map(item=>{const appId=item.applicationId;const cyclic=data.cycles.some(c=>c.applicationIds.includes(appId));return `<article class="card ${cyclic?'cycle':''}" data-id="${esc(item.id)}"><h3>${esc(item.title)}</h3><div class="muted">${esc(item.subtitle)}</div>${item.targetCount!==undefined?`<div class="badges"><span class="badge">${item.targetCount} targets</span>${(item.targetScales||[]).map(v=>`<span class="badge">${esc(v)}</span>`).join('')}</div><div class="ports"><div><strong>Inputs</strong>${(item.inputs||[]).map(p=>`<div class="port">${esc(p.name)}</div>`).join('')}</div><div><strong>Outputs</strong>${(item.outputs||[]).map(p=>`<div class="port">${esc(p.name)}</div>`).join('')}</div></div>`:''}</article>`}).join('')}</div>`:'<div class="empty">No matching graph items.</div>'}</main><aside class="inspector"><h3>Inspector</h3>${selected?`<pre>${esc(JSON.stringify(selected,null,2))}</pre>`:'<p class="muted">Select an application or object.</p>'}<h3>Diagnostics</h3>${data.diagnostics.map(d=>`<div class="diagnostic"><strong>${esc(d.code)}</strong><div>${esc(d.message)}</div></div>`).join('')||'<p class="muted">No diagnostics.</p>'}</aside></div></div>`;root.querySelectorAll('[data-mode]').forEach(button=>button.onclick=()=>{mode=button.dataset.mode;selected=null;render()});root.querySelector('#search').oninput=event=>{query=event.target.value;render()};root.querySelectorAll('.card').forEach(card=>card.onclick=()=>{selected=cards().find(item=>item.id===card.dataset.id);render()});}render();
 """
     return _model_graph_html_document(view, css, js)
 end

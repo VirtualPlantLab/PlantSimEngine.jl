@@ -248,13 +248,13 @@ end
                 on=One(scale=:Scene),
                 inputs=(
                     one_value=One(
-                        name=:leaf_a,
+                        id=:leaf_a,
                         within=SceneScope(),
                         var=:signal,
                         from_status=true,
                     ),
                     optional_value=OptionalOne(
-                        name=:leaf_b,
+                        id=:leaf_b,
                         within=SceneScope(),
                         var=:signal,
                         from_status=true,
@@ -328,7 +328,7 @@ end
                 on=One(scale=:Scene),
                 calls=(
                     callee=One(
-                        name=:call_leaf,
+                        id=:call_leaf,
                         application=:status_type_runtime_callee,
                     ),
                 ),

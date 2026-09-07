@@ -125,20 +125,19 @@ function setup_many_cadence_schedule_benchmark(;
         throw(ArgumentError("`napplications` must be positive."))
     nsteps > 0 || throw(ArgumentError("`nsteps` must be positive."))
     cadences = (1, 2, 3, 4, 6, 8, 12, 24)
-    object_names = Tuple(Symbol(:schedule_slot_, index) for index in 1:napplications)
+    object_ids = Tuple(Symbol(:schedule_slot_, index) for index in 1:napplications)
     objects = Object[
         Object(
-            object_name;
-            name=object_name,
+            object_id;
             scale=:ScheduleSlot,
         )
-        for object_name in object_names
+        for object_id in object_ids
     ]
     applications = ModelSpec[
         ModelSpec(
             ImmutableScenarioBenchmarkSource();
             name=Symbol(:scheduled_application_, index),
-            on=One(scale=:ScheduleSlot, name=object_names[index]),
+            on=One(scale=:ScheduleSlot, id=object_ids[index]),
             every=Hour(cadences[mod1(index, length(cadences))]),
         )
         for index in 1:napplications

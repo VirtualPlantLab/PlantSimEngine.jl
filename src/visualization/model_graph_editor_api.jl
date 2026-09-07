@@ -738,7 +738,7 @@ function _model_edit_unmount_selector(
     for (key_, value_) in selector_criteria
         key = Symbol(key_)
         value = value_
-        key == :within && value isa Scope && value.name == instance.name && continue
+        key == :within && value isa Scope && value.root == instance.name && continue
         if key == :application && startswith(string(value), prefix)
             value = Symbol(chopprefix(string(value), prefix))
         end
@@ -935,18 +935,6 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectMet
     allowed = Set((:scale, :kind, :species, :name, :geometry, :parent))
     unknown = setdiff(Set(Symbol.(keys(edit.configuration))), allowed)
     isempty(unknown) || error("Unsupported object metadata fields: $(sort!(collect(unknown); by=string)).")
-    if haskey(edit.configuration, :name)
-        instance = findfirst(
-            item -> _instance_root_id(item) == object.id,
-            model.instances,
-        )
-        if !isnothing(instance)
-            required_name = model.instances[instance].name
-            edit.configuration.name == required_name || error(
-                "Instance root `$(object.id.value)` must keep the instance name `$(required_name)`.",
-            )
-        end
-    end
     _deindex_object!(model.registry, object)
     for (key_, value) in pairs(edit.configuration)
         key = Symbol(key_)
@@ -954,6 +942,8 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectMet
             continue
         elseif key == :geometry
             object.geometry = value
+        elseif key == :name
+            object.name = isnothing(value) ? nothing : String(value)
         else
             setfield!(object, key, isnothing(value) ? nothing : Symbol(value))
         end
@@ -1125,10 +1115,6 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::AddModelInstance)
     end
     haskey(model.registry.objects, edit.root_id) || error(
         "Object instance `$(edit.name)` refers to missing root `$(edit.root_id.value)`.",
-    )
-    root = _model_object(model, edit.root_id)
-    !isnothing(root.name) && root.name != edit.name && error(
-        "Instance name `$(edit.name)` conflicts with root name `$(root.name)`.",
     )
     instance = ObjectInstance(edit.name, edit.template; root=edit.root_id)
     return _model_edit_rebuild_instances(model, (model.instances..., instance))

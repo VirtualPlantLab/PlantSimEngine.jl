@@ -128,7 +128,7 @@ simulation = run!(model; outputs=:all)
 ```
 
 The controller found two leaves but ran only `:sun_leaf`. It selects that leaf
-by name with `call_targets(context, name; objects=(ObjectId(:sun_leaf),))`,
+by ID with `call_targets(context, name; objects=(ObjectId(:sun_leaf),))`,
 so changing the order of the leaves would not change the selection. The two
 trials were not recorded. The accepted calculation recorded one result, and
 the reader on `:shade_leaf` did not run:

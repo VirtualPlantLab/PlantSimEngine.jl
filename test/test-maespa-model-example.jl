@@ -222,8 +222,8 @@ include("../examples/maespa_model_example.jl")
     @test all(st -> isfinite(st.λE), leaf_statuses)
     @test any(st -> abs(st.Tₗ - scene_status.canopy_tair) > 1.0e-6, leaf_statuses)
 
-    plant_a_status = only(model_objects(model; name=:plant_A)).status
-    plant_b_status = only(model_objects(model; name=:plant_B)).status
+    plant_a_status = only(model_objects(model; id=:plant_A)).status
+    plant_b_status = only(model_objects(model; id=:plant_B)).status
     @test plant_a_status.daily_growth > 0.0
     @test plant_b_status.daily_growth > 0.0
     @test plant_a_status.daily_growth != plant_b_status.daily_growth

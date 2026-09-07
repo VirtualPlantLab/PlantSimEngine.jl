@@ -802,6 +802,6 @@ if abspath(PROGRAM_FILE) == @__FILE__
         only(model_objects(model; scale=:Scene)).status.scene_transpiration,
     )
     println("psi_soil = ", only(model_objects(model; kind=:soil)).status.psi_soil)
-    println("plant_A = ", only(model_objects(model; name=:plant_A)).status.daily_growth)
-    println("plant_B = ", only(model_objects(model; name=:plant_B)).status.daily_growth)
+    println("plant_A = ", only(model_objects(model; id=:plant_A)).status.daily_growth)
+    println("plant_B = ", only(model_objects(model; id=:plant_B)).status.daily_growth)
 end

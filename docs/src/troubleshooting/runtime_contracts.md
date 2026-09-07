@@ -39,7 +39,7 @@ simulation = run!(model; outputs=:all)
 DataFrame(Diagnostics.explain_output_retention(simulation))
 ```
 
-If model construction fails, use the error's object and application names to
+If model construction fails, use the error's object IDs and application names to
 correct the configuration first. A diagnostic cannot inspect a model that was
 never constructed.
 

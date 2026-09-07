@@ -172,8 +172,8 @@ end
     explicit_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene, name=:scene, status=Status(supplied=2.0));
         applications=(
-            ModelSpec(StabilizationSourceModel(); on=One(name=:scene)),
-            ModelSpec(StabilizationConsumerModel(); on=One(name=:scene)),
+            ModelSpec(StabilizationSourceModel(); on=One(id=:scene)),
+            ModelSpec(StabilizationConsumerModel(); on=One(id=:scene)),
         ),
     )
     concise_applications = explain_applications(model)
@@ -1251,7 +1251,7 @@ function stabilization_relation_candidate_scene()
             ModelSpec(
                 StabilizationSafeLaggedSumModel();
                 name=:sibling_sum,
-                on=One(name=:leaf_a),
+                on=One(id=:leaf_a),
                 inputs=(
                     :previous_signals => Many(
                         Relation(:siblings);
@@ -1862,7 +1862,7 @@ end
     @test_throws "immutable ObjectInstance root" remove_object!(model, :plant)
     @test_throws "immutable ObjectInstance root" remove_object!(model, :branch)
     @test object_ids(model) == ObjectId.([:branch, :leaf, :outside, :plant, :world])
-    @test only(model_objects(model; name=:plant_instance)).id == ObjectId(:plant)
+    @test only(model_objects(model; id=:plant)).id == ObjectId(:plant)
 
     @test_throws "immutable ObjectInstance root" reparent_object!(model, :plant, :outside)
     @test_throws "immutable ObjectInstance root" reparent_object!(model, :branch, :outside)

@@ -158,7 +158,6 @@ function setup_hard_call_path_benchmark(;
             PlantSimEngine.Object(
                 Symbol(:leaf_, index);
                 scale=:Leaf,
-                name=Symbol(:leaf_, index),
                 parent=:scene,
             )
             for index in 1:nobjects
@@ -179,7 +178,7 @@ function setup_hard_call_path_benchmark(;
     else
         caller_selector =
             usage == :sparse ?
-            One(name=:leaf_1) :
+            One(id=:leaf_1) :
             Many(scale=:Leaf)
         caller = ModelSpec(
             BenchmarkCallControllerModel();
@@ -277,26 +276,25 @@ function setup_compiled_hard_call_benchmark(;
     end
     if kind == :sampled_environment
         model = CompositeModel(
-            PlantSimEngine.Object(:scene; scale=:Scene, name=:scene),
+            PlantSimEngine.Object(:scene; scale=:Scene),
             PlantSimEngine.Object(
                 :leaf_1;
                 scale=:Leaf,
-                name=:leaf_1,
                 parent=:scene,
             );
             applications=(
                 ModelSpec(
                     BenchmarkSampledEnvironmentSourceModel();
                     name=:source,
-                    on=One(name=:leaf_1),
+                    on=One(id=:leaf_1),
                 ),
                 ModelSpec(
                     BenchmarkSampledEnvironmentControllerModel((T=30.0,));
                     name=:controller,
-                    on=One(name=:scene),
+                    on=One(id=:scene),
                     calls=(
                         :source => One(
-                            name=:leaf_1,
+                            id=:leaf_1,
                             application=:source,
                         ),
                     ),
@@ -307,14 +305,13 @@ function setup_compiled_hard_call_benchmark(;
         return model, Int(steps)
     end
     leaf_count = kind == :many ? target_count : 1
-    objects = Any[PlantSimEngine.Object(:scene; scale=:Scene, name=:scene)]
+    objects = Any[PlantSimEngine.Object(:scene; scale=:Scene)]
     if kind == :nested
         push!(
             objects,
             PlantSimEngine.Object(
                 :middle;
                 scale=:Plant,
-                name=:middle,
                 parent=:scene,
             ),
         )
@@ -325,7 +322,6 @@ function setup_compiled_hard_call_benchmark(;
             PlantSimEngine.Object(
                 Symbol(:leaf_, index);
                 scale=:Leaf,
-                name=Symbol(:leaf_, index),
                 parent=kind == :nested ? :middle : :scene,
             )
             for index in 1:leaf_count
@@ -341,10 +337,10 @@ function setup_compiled_hard_call_benchmark(;
         middle = ModelSpec(
             BenchmarkBulkCallControllerModel(1, false, false);
             name=:middle,
-            on=One(name=:middle),
+            on=One(id=:middle),
             calls=(
                 :source => One(
-                    name=:leaf_1,
+                    id=:leaf_1,
                     within=Subtree(),
                     application=:source,
                 ),
@@ -353,10 +349,10 @@ function setup_compiled_hard_call_benchmark(;
         root = ModelSpec(
             BenchmarkBulkCallControllerModel(1, false, true);
             name=:root,
-            on=One(name=:scene),
+            on=One(id=:scene),
             calls=(
                 :source => One(
-                    name=:middle,
+                    id=:middle,
                     within=Subtree(),
                     application=:middle,
                 ),
@@ -366,7 +362,7 @@ function setup_compiled_hard_call_benchmark(;
     else
         selector = kind == :many ?
                    Many(scale=:Leaf, application=:source) :
-                   One(name=:leaf_1, application=:source)
+                   One(id=:leaf_1, application=:source)
         effective_repeats = kind == :repeated ? repeats : 1
         effective_publish = kind == :published ? true : publish
         controller = ModelSpec(
@@ -376,7 +372,7 @@ function setup_compiled_hard_call_benchmark(;
                 true,
             );
             name=:controller,
-            on=One(name=:scene),
+            on=One(id=:scene),
             calls=(:source => selector,),
         )
         applications = (source, controller)
@@ -505,7 +501,6 @@ function benchmark_lifecycle_event(simulation, new_index)
         PlantSimEngine.Object(
             new_id;
             scale=:Leaf,
-            name=new_id,
             parent=:scene,
         ),
     )

@@ -1,4 +1,5 @@
 import { Check, Eye, X } from "lucide-react";
+import { objectChoiceValue, objectChoiceId, objectChoiceLabel, objectIdLabel } from "./ObjectChoice";
 import { useMemo, useState } from "react";
 import type { InstanceDescriptor, InstancePreview, ObjectGraphNode, TemplateDescriptor } from "./types";
 
@@ -9,11 +10,11 @@ export type InstanceFormValue = {
   rootObject?: {
     objectId: string;
     configuration: {
-      parent: string | null;
+      parent: unknown;
       scale: string | null;
       kind: string | null;
       species: string | null;
-      name: string;
+      name: string | null;
     };
   };
 };
@@ -39,7 +40,7 @@ export function InstanceForm({
   const [name, setName] = useState("");
   const [rootMode, setRootMode] = useState<"existing" | "new">("existing");
   const roots = useMemo(() => unclaimedInstanceRoots(objects, instances), [instances, objects]);
-  const [rootId, setRootId] = useState(String(roots[0]?.objectId ?? ""));
+  const [rootId, setRootId] = useState(objectChoiceValue(roots[0]?.objectId));
   const [newId, setNewId] = useState("");
   const [parent, setParent] = useState("");
   const [scale, setScale] = useState("");
@@ -49,18 +50,18 @@ export function InstanceForm({
   const value = (): InstanceFormValue => rootMode === "existing" ? {
     name: name.trim(),
     templateId,
-    rootId,
+    rootId: objectChoiceId(rootId),
   } : {
     name: name.trim(),
     templateId,
     rootObject: {
       objectId: newId.trim(),
       configuration: {
-        parent: parent || null,
+        parent: objectChoiceId(parent),
         scale: scale.trim() || null,
         kind: kind.trim() || null,
         species: species.trim() || null,
-        name: name.trim(),
+        name: null,
       },
     },
   };
@@ -78,14 +79,14 @@ export function InstanceForm({
           <button className={rootMode === "existing" ? "active" : ""} onClick={() => setRootMode("existing")}><strong>Use existing root</strong><span>All unclaimed descendants are mounted automatically</span></button>
           <button className={rootMode === "new" ? "active" : ""} onClick={() => setRootMode("new")}><strong>Create minimal root</strong><span>Create the object and mount the template atomically</span></button>
         </div>
-        {rootMode === "existing" ? <label>Unclaimed root<select value={rootId} onChange={(event) => setRootId(event.target.value)} data-testid="instance-root"><option value="">Choose an object</option>{roots.map((object) => <option value={String(object.objectId)} key={object.id}>{object.name || String(object.objectId)} · {object.scale || "unscaled"}</option>)}</select></label> : <div className="form-grid">
+        {rootMode === "existing" ? <label>Unclaimed root<select value={rootId} onChange={(event) => setRootId(event.target.value)} data-testid="instance-root"><option value="">Choose an object</option>{roots.map((object) => <option value={objectChoiceValue(object.objectId)} key={object.id}>{objectChoiceLabel(object)} · {object.scale || "unscaled"}</option>)}</select></label> : <div className="form-grid">
           <label>Stable object ID<input value={newId} onChange={(event) => setNewId(event.target.value)} data-testid="instance-new-root-id" /></label>
-          <label>Parent object<select value={parent} onChange={(event) => setParent(event.target.value)}><option value="">No parent</option>{objects.map((object) => <option value={String(object.objectId)} key={object.id}>{object.name || String(object.objectId)}</option>)}</select></label>
+          <label>Parent object<select value={parent} onChange={(event) => setParent(event.target.value)}><option value="">No parent</option>{objects.map((object) => <option value={objectChoiceValue(object.objectId)} key={object.id}>{objectChoiceLabel(object)}</option>)}</select></label>
           <label>Scale<input value={scale} onChange={(event) => setScale(event.target.value)} /></label>
           <label>Kind<input value={kind} onChange={(event) => setKind(event.target.value)} /></label>
           <label>Species<input value={species} onChange={(event) => setSpecies(event.target.value)} /></label>
         </div>}
-        {preview && <section className="selector-preview" data-testid="instance-preview"><strong>{preview.objectIds.length} claimed object{preview.objectIds.length === 1 ? "" : "s"}</strong><code>{preview.objectIds.map(String).join(", ")}</code>{preview.applications.map((application) => <div key={application.applicationId}><code>{application.applicationId}</code><span>{application.targetIds.length} resolved target{application.targetIds.length === 1 ? "" : "s"}</span></div>)}{preview.diagnostics.map((diagnostic) => <p key={diagnostic}>{diagnostic}</p>)}</section>}
+        {preview && <section className="selector-preview" data-testid="instance-preview"><strong>{preview.objectIds.length} claimed object{preview.objectIds.length === 1 ? "" : "s"}</strong><code>{preview.objectIds.map(objectIdLabel).join(", ")}</code>{preview.applications.map((application) => <div key={application.applicationId}><code>{application.applicationId}</code><span>{application.targetIds.length} resolved target{application.targetIds.length === 1 ? "" : "s"}</span></div>)}{preview.diagnostics.map((diagnostic) => <p key={diagnostic}>{diagnostic}</p>)}</section>}
       </div>
       <footer><button onClick={onClose}>Cancel</button><button disabled={!valid} onClick={() => onPreview(value())} data-testid="instance-preview-button"><Eye size={15} /> Preview mount</button><button className="primary" disabled={!valid} onClick={() => onSubmit(value())} data-testid="instance-submit"><Check size={15} /> Add instance</button></footer>
     </section>
@@ -93,6 +94,6 @@ export function InstanceForm({
 }
 
 export function unclaimedInstanceRoots(objects: ObjectGraphNode[], instances: InstanceDescriptor[]) {
-  const claimed = new Set(instances.flatMap((instance) => instance.objectIds.map(String)));
-  return objects.filter((object) => !claimed.has(String(object.objectId)));
+  const claimed = new Set(instances.flatMap((instance) => instance.objectIds.map(objectChoiceValue)));
+  return objects.filter((object) => !claimed.has(objectChoiceValue(object.objectId)));
 }

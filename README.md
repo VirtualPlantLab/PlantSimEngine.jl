@@ -40,6 +40,12 @@ ModelSpec(
 This is the package API for multiscale, multi-plant, soil, microclimate, and
 model-scale simulations.
 
+An object needs a unique ID, for example `Object(:leaf_1)`. Select it with
+`One(id=:leaf_1)`, or add `scale=:Leaf` to select it as part of
+`Many(scale=:Leaf)`. An optional `name="Sunlit leaf"` changes its display
+label; it does not change the object's identity or connections. Model
+application names identify the configured uses of models.
+
 ## Installation
 
 The examples on this development branch use `CompositeModel`. Registered

@@ -71,9 +71,9 @@ end
         Object(:source; scale=:Leaf, name=:source),
         Object(:consumer; scale=:Leaf, name=:consumer);
         applications=(
-            ModelSpec(ConfigurationProbeModel(); name=:source, on=One(name=:source)),
-            ModelSpec(ConfigurationConsumerModel(); name=:consumer, on=One(name=:consumer), inputs=(:value => One(
-                    name=:source,
+            ModelSpec(ConfigurationProbeModel(); name=:source, on=One(id=:source)),
+            ModelSpec(ConfigurationConsumerModel(); name=:consumer, on=One(id=:consumer), inputs=(:value => One(
+                    id=:source,
                     within=SceneScope(),
                     policy=:latest,
                 ))),

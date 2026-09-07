@@ -22,12 +22,14 @@ Common choices are:
 | input from one ancestor | `One(Ancestor(scale=:Plant))` |
 | input from this plant's leaves | `Many(scale=:Leaf, within=SelfPlant())` |
 | input from shared soil | `One(scale=:Soil, within=SceneScope())` |
-| optional named organ | `OptionalOne(name=:fruit, within=SelfPlant())` |
+| optional organ with a known ID | `OptionalOne(id=:fruit, within=SelfPlant())` |
 
 For a model running on a leaf, `Self()` means that leaf, not its plant or its
 species. Use object IDs and labels to select specific objects or groups.
-`Scope(name)` refers to a named search area that you must define in the
-simulation before using it.
+`Scope(:plant_a)` searches the root and descendants of the instance called
+`:plant_a`. To choose a root directly by its object ID, use
+`Scope(ObjectId(:plant_a))`. An object's display name does not define a scope
+or affect selection.
 
 Saved results identify the application, object, and variable. Each leaf's
 history therefore stays separate, including when you use the same process

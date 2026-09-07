@@ -41,6 +41,13 @@ describe("selector suggestions", () => {
 });
 
 describe("object topology scoping", () => {
+  it("keeps equally printed numeric and text roots separate", () => {
+    const numeric = { ...object("42", null), id: "numeric-root", objectId: 42 };
+    const textual = { ...object("42", null), id: "text-root" };
+    const leaf = { ...object("leaf", "numeric-root"), name: "Same label" };
+    expect(objectSubtreeIds([numeric, textual, leaf], 42)).toEqual([42, "leaf"]);
+    expect(objectSubtreeIds([numeric, textual, leaf], "42")).toEqual(["42"]);
+  });
   it("includes the selected object and all descendants", () => {
     const objects: ObjectGraphNode[] = [
       object("plant", null),

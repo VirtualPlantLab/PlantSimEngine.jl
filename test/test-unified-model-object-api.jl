@@ -1307,13 +1307,13 @@ end
     @test ObjectId(:axis_1) in only(model_objects(model; scale=:Plant)).children
 
     reparent_object!(model, :leaf_2, :axis_1)
-    @test only(model_objects(model; name=nothing, scale=:Axis)).children == [ObjectId(:leaf_2)]
+    @test only(model_objects(model; scale=:Axis)).children == [ObjectId(:leaf_2)]
     @test ObjectId(:leaf_2) ∉ only(model_objects(model; scale=:Plant)).children
 
     removed_axis = remove_object!(model, :axis_1)
     @test removed_axis.id == ObjectId(:axis_1)
     @test object_ids(model; scale=:Axis) == ObjectId[]
-    @test object_ids(model; name=:leaf_2) == ObjectId[]
+    @test object_ids(model; id=:leaf_2) == ObjectId[]
 
     object_rows = explain_objects(model)
     @test length(object_rows) == 3
@@ -1338,10 +1338,12 @@ end
     plant_1_scope = only(row for row in scope_rows if row.scope_type == :object_subtree && row.root_id == :plant_1)
     @test plant_1_scope.selector isa Subtree
     @test plant_1_scope.object_ids == [:axis_1, :leaf_1, :leaf_2, :plant_1]
-    palm_2_scope = only(row for row in scope_rows if row.scope_type == :named_scope && row.name == :palm_2)
-    @test palm_2_scope.selector isa Scope
-    @test palm_2_scope.root_id == :plant_2
-    @test palm_2_scope.object_ids == [:leaf_3, :plant_2]
+    plant_2_scope = only(row for row in scope_rows if row.scope_type == :object_scope && row.root_id == :plant_2)
+    @test plant_2_scope.selector isa Scope
+    @test plant_2_scope.name == "palm_2"
+    @test plant_2_scope.object_ids == [:leaf_3, :plant_2]
+    @test resolve_object_ids(selector_scene, Many(within=plant_2_scope.selector)) ==
+          ObjectId.([:leaf_3, :plant_2])
     leaf_label_scope = only(row for row in scope_rows if row.scope_type == :scale && row.scale == :Leaf)
     @test leaf_label_scope.selector == (:scale => :Leaf)
     @test leaf_label_scope.object_ids == [:leaf_1, :leaf_2, :leaf_3]
@@ -1361,7 +1363,7 @@ end
           [ObjectId(:leaf_1), ObjectId(:leaf_2)]
     @test resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Ancestor(scale=:Axis)); context=:leaf_2) ==
           [ObjectId(:leaf_2)]
-    @test resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Scope(:palm_2))) ==
+    @test resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Scope(ObjectId(:plant_2)))) ==
           [ObjectId(:leaf_3)]
     @test resolve_object_ids(selector_scene, One(Relation(:parent)); context=:leaf_2) ==
           [ObjectId(:axis_1)]
@@ -1408,13 +1410,14 @@ end
         One(scale=:Leaf, var=:leaf_area),
     )
     scope_selector_error = try
-        resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Scope(:palm_3)))
+        resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Scope(:plant_3)))
         nothing
     catch error
         sprint(showerror, error)
     end
-    @test contains(scope_selector_error, "available=[:axis_1")
-    @test contains(scope_selector_error, "suggestions=[:palm_1, :palm_2]")
+    @test contains(scope_selector_error, "available_ids=")
+    @test contains(scope_selector_error, ":axis_1")
+    @test contains(scope_selector_error, "suggestions=[:plant_1, :plant_2]")
     @test_throws ErrorException resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Subtree()))
     @test resolve_object_ids(selector_scene, Many(scale=:Leaf); context=:plant_1) ==
           [ObjectId(:leaf_1), ObjectId(:leaf_2), ObjectId(:leaf_3)]
@@ -1527,7 +1530,7 @@ end
     )
     @test length(template_scene.applications) == 8
     @test plant_template.parameters === shared_template_parameters
-    @test only(model_objects(template_scene; name=:palm_1)).id == ObjectId(:templated_plant_1)
+    @test only(model_objects(template_scene; id=:templated_plant_1)).id == ObjectId(:templated_plant_1)
     @test object_ids(template_scene; species=:oil_palm) == [
         ObjectId(:templated_leaf_1),
         ObjectId(:templated_leaf_1_exception),
@@ -1589,10 +1592,10 @@ end
     @test only(row for row in explain_objects(template_scene) if row.id == :templated_leaf_1).instance ==
           :palm_1
     run!(template_scene; steps=1)
-    @test only(model_objects(template_scene; name=:palm_1)).status.signal_total == 4.0
-    @test only(model_objects(template_scene; name=:palm_2)).status.signal_total == 2.0
-    @test only(model_objects(template_scene; name=:palm_3)).status.signal_total == 1.0
-    @test only(model_objects(template_scene; name=:palm_4)).status.signal_total == 1.0
+    @test only(model_objects(template_scene; id=:templated_plant_1)).status.signal_total == 4.0
+    @test only(model_objects(template_scene; id=:templated_plant_2)).status.signal_total == 2.0
+    @test only(model_objects(template_scene; id=:templated_plant_3)).status.signal_total == 1.0
+    @test only(model_objects(template_scene; id=:templated_plant_4)).status.signal_total == 1.0
     registered_template_leaf = register_object!(
         template_scene,
         Object(:templated_leaf_new; scale=:Leaf, status=Status(signal=0.0));

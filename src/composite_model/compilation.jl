@@ -262,12 +262,12 @@ struct CompiledApplicationSchedule{E,A,P,G}
 end
 
 """Reverse candidate index for compiled selector matchers."""
-struct SelectorCandidateIndex{W,S,K,SP,N,A,R,L,C}
+struct SelectorCandidateIndex{W,S,K,SP,I,A,R,L,C}
     wildcard::W
     by_scale::S
     by_kind::K
     by_species::SP
-    by_name::N
+    by_id::I
     by_scope_anchor::A
     scope_roots::R
     template_label_values::L
@@ -280,13 +280,13 @@ function _selector_candidate_index(; application_targets::Bool=false)
         Dict{Symbol,Vector{Int}}(),
         Dict{Symbol,Vector{Int}}(),
         Dict{Symbol,Vector{Int}}(),
-        Dict{Symbol,Vector{Int}}(),
+        Dict{ObjectId,Vector{Int}}(),
         Dict{
-            Union{ObjectId,Tuple{ObjectId,Symbol,Symbol}},
+            Union{ObjectId,Tuple{ObjectId,Symbol,Union{Symbol,ObjectId}}},
             Vector{Int},
         }(),
         Set{ObjectId}(),
-        Dict{Symbol,Set{Symbol}}(),
+        Dict{Symbol,Set{Union{Symbol,ObjectId}}}(),
         application_targets ? Dict{Any,Any}() : nothing,
     )
 end
@@ -298,7 +298,7 @@ function _freeze_selector_candidate_index(index::SelectorCandidateIndex)
         freeze(index.by_scale),
         freeze(index.by_kind),
         freeze(index.by_species),
-        freeze(index.by_name),
+        freeze(index.by_id),
         freeze(index.by_scope_anchor),
         Set(index.scope_roots),
         Dict(
@@ -384,7 +384,7 @@ function _selector_candidate_destination(
     if !isnothing(anchor)
         anchor_id = ObjectId(anchor)
         for (label, value) in (
-            (:name, matcher.name),
+            (:id, matcher.id),
             (:scale, matcher.scale),
             (:kind, matcher.kind),
             (:species, matcher.species),
@@ -400,7 +400,7 @@ function _selector_candidate_destination(
         return (index.by_scope_anchor, (anchor_id,))
     end
     for (groups, value) in (
-        (index.by_name, matcher.name),
+        (index.by_id, matcher.id),
         (index.by_scale, matcher.scale),
         (index.by_kind, matcher.kind),
         (index.by_species, matcher.species),
@@ -422,11 +422,11 @@ function _index_selector_candidate!(
     tracks_application_targets =
         !isnothing(index.application_target_templates)
     if tracks_application_targets
-        for label in (:scale, :kind, :species, :name)
+        for label in (:scale, :kind, :species, :id)
             value = getproperty(matcher, label)
             isnothing(value) && continue
             union!(
-                get!(index.template_label_values, label, Set{Symbol}()),
+                get!(index.template_label_values, label, Set{Union{Symbol,ObjectId}}()),
                 _selector_candidate_values(value),
             )
         end
@@ -464,7 +464,7 @@ function _union_selector_candidates!(
     union!(candidates, index.wildcard)
     object = _model_object(model, object_id)
     for (groups, value) in (
-        (index.by_name, object.name),
+        (index.by_id, object.id),
         (index.by_scale, object.scale),
         (index.by_kind, object.kind),
         (index.by_species, object.species),
@@ -474,7 +474,7 @@ function _union_selector_candidates!(
     for anchor in _object_ancestor_ids(model.registry, object_id)
         union!(candidates, get(index.by_scope_anchor, anchor, ()))
         for (label, value) in (
-            (:name, object.name),
+            (:id, object.id),
             (:scale, object.scale),
             (:kind, object.kind),
             (:species, object.species),
@@ -1932,7 +1932,7 @@ function _application_target_template_key(
         _application_target_template_label(index, :scale, object.scale),
         _application_target_template_label(index, :kind, object.kind),
         _application_target_template_label(index, :species, object.species),
-        _application_target_template_label(index, :name, object.name),
+        _application_target_template_label(index, :id, object.id),
         scope_roots,
     )
 end
@@ -2192,7 +2192,7 @@ function _many_binding_scope_anchor(
     elseif scope isa SelfPlant
         return (:plant, _ancestor_id(model, consumer_id; scale=:Plant))
     elseif scope isa Scope
-        return (:scope, scope.name)
+        return (:scope, _named_scope_root_id(model, scope))
     elseif scope isa Ancestor
         return (
             :ancestor,
@@ -4816,7 +4816,7 @@ end
 function _model_application_hint_scale(model::CompositeModel, target_ids::Vector{ObjectId})
     isempty(target_ids) && return :Scene
     scales = unique!([_model_object(model, object_id).scale for object_id in target_ids])
-    length(scales) == 1 && return only(scales)
+    length(scales) == 1 && return something(only(scales), :Default)
     return :Mixed
 end
 
@@ -6560,7 +6560,7 @@ _selector_constraint_values(value) =
 # Object-level multiplicity and writer ambiguity are still validated when
 # concrete targets exist.
 function _selector_labels_may_overlap(left, right)
-    for key in (:scale, :kind, :species, :name)
+    for key in (:scale, :kind, :species, :id)
         left_values = _selector_constraint_values(
             _criteria_value(criteria(left), key),
         )
@@ -7108,7 +7108,7 @@ function _push_model_input_binding!(
         )
     else
         _validate_policy_instance(
-            _model_object(model, consumer_id).scale,
+            something(_model_object(model, consumer_id).scale, :Default),
             application.process,
             input_sym,
             policy,

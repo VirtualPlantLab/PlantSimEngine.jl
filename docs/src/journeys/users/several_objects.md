@@ -49,7 +49,7 @@ model = CompositeModel(
 )
 ```
 
-The names `:canopy_a` and `:canopy_b` identify the canopies throughout the
+The IDs `:canopy_a` and `:canopy_b` identify the canopies throughout the
 simulation. Both use the same three models, but each keeps its own values.
 PlantSimEngine runs the models for each canopy, so the model code does not
 need a loop over canopies.
@@ -69,7 +69,7 @@ LAI is in m² of leaves per m² of ground; `aPPFD` is in μmol of absorbed PAR
 per m² of ground per second. The CSV radiation totals were converted to mean
 fluxes just as in the one-object example.
 
-The saved results include the model application name, canopy name, and
+The saved results include the model application name, canopy ID, and
 variable name. This keeps the two LAI time series separate:
 
 ```@example journey_several_objects

@@ -379,14 +379,14 @@ function _preview_instance_payload(session, command)
     payload["instancePreview"] = Dict{String,Any}(
         "name" => string(name),
         "objectIds" => [
-            PlantSimEngine._model_graph_json_value(id.value)
+            PlantSimEngine._model_graph_object_id_value(id.value)
             for id in PlantSimEngine._instance_object_ids(candidate, instance)
         ],
         "applications" => [
             Dict(
                 "applicationId" => string(application.id),
                 "targetIds" => [
-                    PlantSimEngine._model_graph_json_value(id.value)
+                    PlantSimEngine._model_graph_object_id_value(id.value)
                     for id in application.target_ids
                 ],
             )
@@ -418,7 +418,7 @@ function _preview_application_targets_payload(session, command)
                 append!(ids, selected_ids)
                 push!(groups, Dict(
                     "instance" => string(instance.name),
-                    "objectIds" => [id.value for id in selected_ids],
+                    "objectIds" => [PlantSimEngine._model_graph_object_id_value(id) for id in selected_ids],
                 ))
             end
             unique(ids)
@@ -430,7 +430,7 @@ function _preview_application_targets_payload(session, command)
     end
     payload = _state_payload(session)
     payload["targetPreview"] = Dict{String,Any}(
-        "objectIds" => [PlantSimEngine._model_graph_json_value(id.value) for id in target_ids],
+        "objectIds" => [PlantSimEngine._model_graph_object_id_value(id.value) for id in target_ids],
         "count" => length(target_ids),
         "groups" => groups,
     )
@@ -462,11 +462,11 @@ function _preview_input_binding_payload(session, command)
         "applicationRef" => _application_ref_payload(application),
         "input" => string(input),
         "consumerObjectIds" => unique([
-            PlantSimEngine._model_graph_json_value(binding.consumer_id.value)
+            PlantSimEngine._model_graph_object_id_value(binding.consumer_id.value)
             for binding in bindings
         ]),
         "sourceObjectIds" => unique([
-            PlantSimEngine._model_graph_json_value(source_id.value)
+            PlantSimEngine._model_graph_object_id_value(source_id.value)
             for binding in bindings for source_id in binding.source_ids
         ]),
         "sourceApplicationIds" => unique([
@@ -618,33 +618,33 @@ function _edit_from_command(session, command)
         _updates_from_payload(application, get(command, "updates", Any[])),
     )
     kind == "set_object_status" && return PlantSimEngine.GraphEditor.SetModelObjectStatus(
-        command["objectId"],
+        _object_id_from_payload(command["objectId"]),
         Symbol(command["variable"]),
         _parameter_value(session, command["value"]),
     )
     kind == "set_object_statuses" && return PlantSimEngine.GraphEditor.SetModelObjectStatuses(
-        command["objectIds"],
+        [_object_id_from_payload(id) for id in command["objectIds"]],
         Symbol(command["variable"]),
         _parameter_value(session, command["value"]),
     )
     kind == "remove_object_status" && return PlantSimEngine.GraphEditor.RemoveModelObjectStatus(
-        command["objectId"],
+        _object_id_from_payload(command["objectId"]),
         Symbol(command["variable"]),
     )
     kind in ("set_object_metadata", "update_object") && return PlantSimEngine.GraphEditor.SetModelObjectMetadata(
-        PlantSimEngine.ObjectId(command["objectId"]),
+        _object_id_from_payload(command["objectId"]),
         _metadata_from_payload(get(command, "configuration", Dict())),
     )
     kind == "add_object" && return PlantSimEngine.GraphEditor.AddModelObject(
         _object_from_command(session, command),
     )
     kind == "remove_object" && return PlantSimEngine.GraphEditor.RemoveModelObject(
-        command["objectId"];
+        _object_id_from_payload(command["objectId"]);
         recursive=Bool(get(command, "recursive", true)),
     )
     kind == "reparent_object" && return PlantSimEngine.ReparentModelObject(
-        command["objectId"],
-        get(command, "parentId", nothing),
+        _object_id_from_payload(command["objectId"]),
+        _optional_object_id_from_payload(get(command, "parentId", nothing)),
     )
     kind == "set_instance_override" && return PlantSimEngine.GraphEditor.SetModelInstanceOverride(
         command["instance"],
@@ -657,13 +657,13 @@ function _edit_from_command(session, command)
     )
     kind == "set_object_override" && return PlantSimEngine.GraphEditor.SetModelObjectOverride(
         command["instance"],
-        command["objectId"],
+        _object_id_from_payload(command["objectId"]),
         application.application_id,
         _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
     )
     kind == "remove_object_override" && return PlantSimEngine.GraphEditor.RemoveModelObjectOverride(
         command["instance"],
-        command["objectId"],
+        _object_id_from_payload(command["objectId"]),
         application.application_id,
     )
     kind == "add_application" && return _add_application_edit(session, command)
@@ -678,7 +678,7 @@ end
 function _add_instance_edit(session, command)
     root_payload = get(command, "rootObject", nothing)
     root = isnothing(root_payload) ? nothing : _object_from_command(session, root_payload)
-    root_id = isnothing(root) ? command["rootId"] : root.id
+    root_id = isnothing(root) ? _object_id_from_payload(command["rootId"]) : root.id
     return PlantSimEngine.GraphEditor.AddModelInstance(
         command["name"],
         _template_from_id(session, command["templateId"]),
@@ -722,10 +722,54 @@ function _symbol_keyed_namedtuple(payload)
     return (; (Symbol(key) => value for (key, value) in payload)...)
 end
 
+const _OBJECT_ID_NUMERIC_TYPES = Dict{String,Type}(
+    string(type) => type for type in (
+        Int8, Int16, Int32, Int64, Int128, UInt8, UInt16, UInt32, UInt64,
+        UInt128, BigInt, Float16, Float32, Float64,
+    )
+)
+
+function _typed_object_id_value_from_payload(payload)
+    payload isa AbstractDict || begin
+        payload isa Union{Bool,Integer,AbstractString} && return payload
+        error("Unsupported scalar value in a typed object ID.")
+    end
+    type = String(get(payload, "type", ""))
+    type == "Symbol" && return Symbol(payload["value"])
+    type == "Char" && return only(String(payload["value"]))
+    type == "Tuple" && return Tuple(_typed_object_id_value_from_payload(item) for item in payload["items"])
+    type == "NamedTuple" && return NamedTuple{Tuple(Symbol.(payload["names"]))}(
+        Tuple(_typed_object_id_value_from_payload(item) for item in payload["items"]),
+    )
+    type == "Pair" && return _typed_object_id_value_from_payload(payload["first"]) =>
+        _typed_object_id_value_from_payload(payload["second"])
+    type == "ObjectId" && return PlantSimEngine.ObjectId(_typed_object_id_value_from_payload(payload["value"]))
+    if haskey(_OBJECT_ID_NUMERIC_TYPES, type)
+        return parse(_OBJECT_ID_NUMERIC_TYPES[type], String(payload["value"]))
+    end
+    type == "Opaque" && error(
+        "The graph editor can display custom object IDs of type `$(payload["juliaType"])`, ",
+        "but cannot reconstruct them. Edit this object from Julia.",
+    )
+    error("Unsupported typed object ID `$(type)`.")
+end
+
+function _object_id_from_payload(payload)
+    if payload isa AbstractDict
+        get(payload, "type", nothing) == "ObjectId" || error("Expected a tagged ObjectId payload.")
+        return PlantSimEngine.ObjectId(_typed_object_id_value_from_payload(payload["value"]))
+    end
+    payload isa Union{Bool,Integer,AbstractString} || error("Expected a scalar object ID or a tagged ObjectId payload.")
+    return PlantSimEngine.ObjectId(payload)
+end
+
+_optional_object_id_from_payload(payload) = isnothing(payload) ? nothing : _object_id_from_payload(payload)
+
 function _metadata_from_payload(payload)
     payload isa AbstractDict || error("Expected an object metadata payload.")
     return (; (
-        Symbol(key) => (value isa AbstractString && isempty(strip(value)) ? nothing : value)
+        Symbol(key) => (value isa AbstractString && isempty(strip(value)) ? nothing :
+            Symbol(key) == :parent ? _optional_object_id_from_payload(value) : value)
         for (key, value) in payload
     )...)
 end
@@ -779,12 +823,12 @@ function _object_from_command(session, command)
         )...))
     end
     return PlantSimEngine.Object(
-        command["objectId"];
+        _object_id_from_payload(command["objectId"]);
         scale=get(configuration, "scale", nothing),
         kind=get(configuration, "kind", nothing),
         species=get(configuration, "species", nothing),
         name=get(configuration, "name", nothing),
-        parent=get(configuration, "parent", nothing),
+        parent=_optional_object_id_from_payload(get(configuration, "parent", nothing)),
         status=status,
     )
 end
@@ -884,7 +928,9 @@ function _selector_from_payload(payload)
 end
 
 function _selector_value(key, value)
-    key in (:scale, :kind, :species, :name, :process, :var, :relation, :application) &&
+    key == :id && return value isa AbstractVector ?
+        Tuple(_object_id_from_payload(id) for id in value) : _object_id_from_payload(value)
+    key in (:scale, :kind, :species, :process, :var, :relation, :application) &&
         return value isa AbstractVector ? Symbol.(value) : Symbol(value)
     key == :within && return _selector_atom_from_payload(value)
     key == :policy && return _policy_from_payload(value)
@@ -900,7 +946,11 @@ function _selector_atom_from_payload(payload)
     type == "Subtree" && return PlantSimEngine.Subtree()
     type == "SelfPlant" && return PlantSimEngine.SelfPlant()
     type == "Ancestor" && return PlantSimEngine.Ancestor(; scale=get(payload, "scale", nothing))
-    type == "Scope" && return PlantSimEngine.Scope(payload["name"])
+    if type == "Scope"
+        return haskey(payload, "id") ?
+            PlantSimEngine.Scope(_object_id_from_payload(payload["id"])) :
+            PlantSimEngine.Scope(payload["name"])
+    end
     type == "Relation" && return PlantSimEngine.Relation(payload["relation"])
     error("Unsupported structured object selector type `$(type)`.")
 end

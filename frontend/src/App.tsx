@@ -1,3 +1,4 @@
+import { objectChoiceValue, objectIdLabel } from "./ObjectChoice";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Background,
@@ -231,7 +232,7 @@ export default function App() {
       if (node.data.nodeKind === "object") {
         const object = node.data.detail as ObjectGraphNode;
         setScopeFilter({
-          label: `subtree ${object.name || String(object.objectId)}`,
+          label: `subtree ${object.name || objectIdLabel(object.objectId)}`,
           objectIds: objectSubtreeIds(graph.objects, object.objectId),
         });
       } else if (node.data.nodeKind === "instance") {
@@ -352,7 +353,7 @@ export default function App() {
   const activeInitialization = useMemo(() => {
     if (!selected) return graph.initialization;
     if ("applicationId" in selected) return graph.initialization.filter((row) => row.applicationId === selected.applicationId);
-    if ("objectId" in selected) return graph.initialization.filter((row) => String(row.objectId) === String(selected.objectId));
+    if ("objectId" in selected) return graph.initialization.filter((row) => objectKey(row.objectId) === objectKey(selected.objectId));
     if ("objectIds" in selected) {
       const ids = new Set(selected.objectIds.map(objectKey));
       return graph.initialization.filter((row) => ids.has(objectKey(row.objectId)));
@@ -639,7 +640,7 @@ function buildNodes({
       position: { x: 0, y: 0 },
       data: {
         nodeKind: "object",
-        title: object.name || String(object.objectId),
+        title: object.name || objectIdLabel(object.objectId),
         subtitle: [object.kind, object.scale, object.instance].filter(Boolean).join(" · "),
         badges: [object.species, object.hasStatus ? "status" : null, object.hasGeometry ? "geometry" : null].filter(Boolean) as string[],
         detail: object,
@@ -660,7 +661,7 @@ function buildNodes({
         data: {
           nodeKind: "execution",
           title: execution.applicationId,
-          subtitle: `object ${String(execution.objectId)}`,
+          subtitle: `object ${objectIdLabel(execution.objectId)}`,
           badges: [shortType(execution.modelType), execution.overridden ? "override" : "shared"],
           inputPortIds: [...(application?.inputs ?? []), ...(application?.environmentInputs ?? [])].map((port) => port.id),
           outputPortIds: [...(application?.outputs ?? []), ...(application?.environmentOutputs ?? [])].map((port) => port.id),
@@ -756,10 +757,12 @@ function topologyContainerEdges(graph: ModelGraphView): ModelGraphEdge[] {
     });
   }
   for (const instance of graph.instances) {
+    const root = graph.objects.find((object) => objectKey(object.objectId) === objectKey(instance.rootId));
+    if (!root) continue;
     edges.push({
-      id: `topology:${instance.id}:object:${String(instance.rootId)}`,
+      id: `topology:${instance.id}:${root.id}`,
       source: instance.id,
-      target: `object:${String(instance.rootId)}`,
+      target: root.id,
       kind: "object_topology",
       projection: "topology",
       cycle: false,
@@ -782,9 +785,12 @@ function topologyContainerEdges(graph: ModelGraphView): ModelGraphEdge[] {
 
 export function objectSubtreeIds(objects: ObjectGraphNode[], rootId: unknown): unknown[] {
   const children = new Map<string, unknown[]>();
+  const objectsByNodeId = new Map(objects.map((object) => [object.id, object]));
   for (const object of objects) {
     if (object.parent === null) continue;
-    const key = objectKey(object.parent);
+    const parent = objectsByNodeId.get(String(object.parent));
+    if (!parent) continue;
+    const key = objectKey(parent.objectId);
     children.set(key, [...(children.get(key) ?? []), object.objectId]);
   }
   const result: unknown[] = [];
@@ -802,8 +808,7 @@ export function objectSubtreeIds(objects: ObjectGraphNode[], rootId: unknown): u
 }
 
 function objectKey(value: unknown) {
-  const text = String(value);
-  return text.startsWith("object:") ? text.slice("object:".length) : text;
+  return objectChoiceValue(value);
 }
 
 function edgeProjectionMatches(edge: ModelGraphEdge, view: GraphViewMode) {
@@ -963,7 +968,7 @@ function InitializationGroup({ rows, interactive, sendCommand }: { rows: ModelGr
     <header><div><strong>{first.variable}</strong><span>{first.applicationId}</span></div><small>{rows.length} object{rows.length === 1 ? "" : "s"} · expected {first.expectedType}</small></header>
     <p>Required because the input has no producer, environment source, status value, or usable temporal initialization.</p>
     {interactive && <div className="initialization-value"><label>Type<select value={valueType} onChange={(event) => setValueType(event.target.value)}><option value="float">Float</option><option value="integer">Integer</option><option value="boolean">Boolean</option><option value="symbol">Symbol</option><option value="string">String</option><option value="julia">Julia expression</option></select></label><label>Value<input value={value} onChange={(event) => setValue(event.target.value)} /></label><button disabled={!value.trim()} onClick={() => sendCommand({ action: "edit", kind: "set_object_statuses", objectIds: rows.map((row) => row.objectId), variable: first.variable, value: typedValue })}>Set all targets</button></div>}
-    <div className="initialization-object-list">{rows.map((row) => <div key={String(row.objectId)}><span>Object {String(row.objectId)}</span><code>{row.origin}</code>{interactive && <button disabled={!value.trim()} onClick={() => sendCommand({ action: "edit", kind: "set_object_status", objectId: row.objectId, variable: row.variable, value: typedValue })}>Set this object</button>}</div>)}</div>
+    <div className="initialization-object-list">{rows.map((row) => <div key={objectKey(row.objectId)}><span>Object {objectIdLabel(row.objectId)}</span><code>{row.origin}</code>{interactive && <button disabled={!value.trim()} onClick={() => sendCommand({ action: "edit", kind: "set_object_status", objectId: row.objectId, variable: row.variable, value: typedValue })}>Set this object</button>}</div>)}</div>
   </article>;
 }
 
@@ -1021,7 +1026,7 @@ function Overlay({ title, onClose, children }: { title: string; onClose: () => v
 
 function selectionLabel(selection: Exclude<InspectorSelection, null>) {
   if ("applicationId" in selection) return selection.applicationId;
-  if ("objectId" in selection) return String(selection.objectId);
+  if ("objectId" in selection) return objectIdLabel(selection.objectId);
   if ("objectIds" in selection) return selection.name;
   if ("entity" in selection) return "Composite model";
   if ("provider" in selection) return selection.provider;

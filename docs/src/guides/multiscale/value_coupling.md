@@ -43,7 +43,7 @@ end
 The returned `BoundMany` gives access to both values and their object IDs,
 without copying either. Its values are the same ones available through
 `status.irradiance`. Their order follows `ObjectId`, not the position of an
-organ on the plant. Use `irradiance[ObjectId(:leaf_12)]` to read a named leaf's
+organ on the plant. Use `irradiance[ObjectId(:leaf_12)]` to read that leaf's
 value, or an integer index to read a position in the collection.
 
 Call `bound_input` each time the model runs. PlantSimEngine may replace the

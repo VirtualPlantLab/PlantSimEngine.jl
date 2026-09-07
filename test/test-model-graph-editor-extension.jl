@@ -71,7 +71,7 @@ editor_template_ref(instance, application_id) = Dict(
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0));
         applications=(
-            ModelSpec(EditorSourceModel(); name=:source, on=One(name=:leaf)),
+            ModelSpec(EditorSourceModel(); name=:source, on=One(id=:leaf)),
         ),
     )
     session = edit_graph(model; port=0, open_browser=false, autosave=false)
@@ -94,7 +94,7 @@ editor_template_ref(instance, application_id) = Dict(
         @test static_view.status == 200
         @test occursin("pse-model-graph-data", String(static_view.body))
 
-        consumer_spec = ModelSpec(EditorConsumerModel(); name=:consumer, on=One(name=:leaf))
+        consumer_spec = ModelSpec(EditorConsumerModel(); name=:consumer, on=One(id=:leaf))
         apply_edit!(session, AddModelApplication(consumer_spec))
         @test length(current_model(session).applications) == 2
         @test !isempty(session.history)
@@ -458,7 +458,7 @@ end
             "parameters" => Dict(),
             "selector" => Dict(
                 "multiplicity" => "one",
-                "criteria" => Dict("selectors" => Any[], "name" => "leaf"),
+                "criteria" => Dict("selectors" => Any[], "id" => "leaf"),
             ),
             "cadence" => Dict("mode" => "period", "value" => 2, "unit" => "Hour"),
         ))
@@ -575,7 +575,7 @@ end
             "parameters" => Dict(),
             "selector" => Dict(
                 "multiplicity" => "one",
-                "criteria" => Dict("selectors" => Any[], "name" => "leaf"),
+                "criteria" => Dict("selectors" => Any[], "id" => "leaf"),
             ),
             "cadence" => Dict("mode" => "default"),
         ))
@@ -712,7 +712,7 @@ end
         scale=:Leaf,
         status=Status(driver=1.0),
         applications=(
-            ModelSpec(EditorSourceModel(); name=:local_source, on=One(name=:local_leaf)),
+            ModelSpec(EditorSourceModel(); name=:local_source, on=One(id=:local_leaf)),
         ),
     ))
     local_session = edit_graph(local_model; port=0, open_browser=false, autosave=false)
@@ -867,4 +867,51 @@ end
     )
     @test registered_closure.status.ordinary isa Float32
     @test registered_closure.status.special isa Float32
+end
+
+@testset "JSON selectors preserve typed object IDs and separate instance names" begin
+    editor_extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
+    model = CompositeModel(Object(42), Object("42"))
+    for raw_id in (42, "42")
+        selector = editor_extension._selector_from_payload(Dict(
+            "multiplicity" => "one",
+            "criteria" => Dict(
+                "selectors" => Any[],
+                "id" => raw_id,
+            ),
+        ))
+        @test resolve_object_ids(model, selector) == [ObjectId(raw_id)]
+        scope = editor_extension._selector_atom_from_payload(Dict("type" => "Scope", "id" => raw_id))
+        @test resolve_object_ids(model, One(within=scope)) == [ObjectId(raw_id)]
+    end
+    instance_scope = editor_extension._selector_atom_from_payload(Dict("type" => "Scope", "name" => "plant"))
+    @test instance_scope.root == :plant
+end
+
+@testset "JSON selector round-trips distinguish compound IDs from ID collections" begin
+    editor_extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
+    compound = ObjectId((:plant, 42, :leaf, 1))
+    nested = ObjectId((:plant, (:segment, 2), "tip"))
+    model = CompositeModel(
+        Object(42),
+        Object("42"),
+        Object(compound),
+        Object(nested; parent=compound),
+    )
+    cases = (
+        (One(id=42), Set([ObjectId(42)])),
+        (One(id="42"), Set([ObjectId("42")])),
+        (One(id=compound), Set([compound])),
+        (One(id=nested), Set([nested])),
+        (Many(id=(42, "42", compound)), Set([ObjectId(42), ObjectId("42"), compound])),
+        (Many(within=Scope(compound)), Set([compound, nested])),
+        (One(within=Scope(nested)), Set([nested])),
+    )
+    for (selector, expected) in cases
+        # Go through actual JSON so tuple/number handling cannot rely on Julia's
+        # in-memory payload types surviving a browser round trip.
+        payload = JSON.parse(JSON.json(PlantSimEngine._model_graph_selector_dict(selector)))
+        restored = editor_extension._selector_from_payload(payload)
+        @test Set(resolve_object_ids(model, restored)) == expected
+    end
 end

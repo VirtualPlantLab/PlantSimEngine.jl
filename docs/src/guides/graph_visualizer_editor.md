@@ -34,6 +34,16 @@ view = GraphEditor.model_graph_view(model)
 view.metadata
 ```
 
+`id=:plant` identifies the object. Its optional `name` is a display label;
+because none is given here, the viewer shows `plant`. You could use
+`name="Oil palm"` without changing any connections. Display names can be
+shared by several objects; IDs must be different.
+
+`scale` and `kind` describe groups of objects. They are optional, unless your
+models select those groups. To target one particular object, use
+`One(id=:plant)`. See [how the pieces fit](../journeys/users/mental_model.md)
+for the distinction between object labels and model application names.
+
 The documentation build writes that graph as a self-contained HTML page and
 embeds it below.
 
@@ -146,12 +156,12 @@ plant_template = CompositeModelTemplate((
 plant_a = ObjectInstance(
     :plant_a,
     plant_template;
-    root=Object(:plant_a; name=:plant_a, scale=:Plant),
+    root=Object(:plant_a; scale=:Plant),
 )
 plant_b = ObjectInstance(
     :plant_b,
     plant_template;
-    root=Object(:plant_b; name=:plant_b, scale=:Plant),
+    root=Object(:plant_b; scale=:Plant),
 )
 
 model = CompositeModel(plant_a, plant_b)
@@ -160,6 +170,11 @@ session = GraphEditor.edit_graph(
     templates=(oil_palm=plant_template,),
 )
 ```
+
+The instance name and root ID happen to match here, but they serve different
+purposes and may differ. The instance name separates its model applications
+from those on the other plant. The root ID identifies the plant object. The
+root keeps its own optional display name when you apply a template.
 
 Use **Add instance** to apply a template to an existing root object and its
 descendants, provided they are not already part of another instance. You can
@@ -181,7 +196,7 @@ changing the shared template:
 plant_b = ObjectInstance(
     :plant_b,
     plant_template;
-    root=Object(:plant_b; name=:plant_b, scale=:Plant),
+    root=Object(:plant_b; scale=:Plant),
     overrides=(
         degree_days=ToyDegreeDaysCumulModel(T_base=12.0),
     ),

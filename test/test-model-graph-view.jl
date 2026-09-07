@@ -133,7 +133,7 @@ end
         kind=:plant,
         species=:oil_palm,
         scale=:Leaf,
-        name=:leaf_1,
+        id=:leaf_1,
         process=:energy_balance,
         application=:sunlit_energy,
         var=:temperature,
@@ -150,7 +150,7 @@ end
         "kind",
         "species",
         "scale",
-        "name",
+        "id",
         "process",
         "application",
         "var",
@@ -173,8 +173,8 @@ end
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, kind=:organ, status=Status(driver=1.0));
         applications=(
-            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:leaf)),
-            ModelSpec(ModelGraphConsumerModel(); name=:consumer, on=One(name=:leaf)),
+            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(id=:leaf)),
+            ModelSpec(ModelGraphConsumerModel(); name=:consumer, on=One(id=:leaf)),
         ),
     )
 
@@ -320,7 +320,10 @@ end
         if get(edge, "projection", nothing) == "resolved" &&
            get(edge, "targetApplicationId", nothing) == "consumer"
     )
-    @test resolved_binding["source"] == "execution:second_writer:scene"
+    @test resolved_binding["source"] == only(
+        execution["id"] for execution in resolved.executions
+        if execution["applicationId"] == "second_writer" && execution["objectId"] == "scene"
+    )
     @test resolved_binding["sourceObjectIds"] == ["leaf"]
     @test resolved_binding["sourceExecutionObjectIds"] == ["scene"]
     @test resolved_binding["source"] in
@@ -523,8 +526,8 @@ end
     cyclic_scene = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status());
         applications=(
-            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(name=:leaf)),
-            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(name=:leaf)),
+            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(id=:leaf)),
+            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(id=:leaf)),
         ),
     )
     report = PlantSimEngine.compile_model_report(cyclic_scene)
@@ -543,8 +546,8 @@ end
     broken_scene = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status(y=0.0));
         applications=(
-            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(name=:leaf), inputs=(PreviousTimeStep(:y) => One(within=Self(), var=:y))),
-            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(name=:leaf)),
+            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(id=:leaf), inputs=(PreviousTimeStep(:y) => One(within=Self(), var=:y))),
+            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(id=:leaf)),
         ),
     )
     broken_view = model_graph_view(broken_scene)
@@ -556,7 +559,7 @@ end
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status());
         applications=(
-            ModelSpec(ModelGraphConsumerModel(); name=:consumer, on=One(name=:leaf)),
+            ModelSpec(ModelGraphConsumerModel(); name=:consumer, on=One(id=:leaf)),
         ),
     )
     view = model_graph_view(model)
@@ -575,7 +578,7 @@ end
             ModelSpec(
                 ModelGraphGenericTypeModel();
                 name=:generic,
-                on=One(name=:leaf),
+                on=One(id=:leaf),
             ),
         ),
         type_promotion=Dict(Float64 => Float32),
@@ -605,7 +608,7 @@ end
 
 @testset "CompositeModel graph edits are transactional" begin
     model = CompositeModel(Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0)))
-    source_spec = ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:leaf))
+    source_spec = ModelSpec(ModelGraphSourceModel(); name=:source, on=One(id=:leaf))
     with_source = apply_model_graph_edit(model, AddModelApplication(source_spec))
     @test isempty(model.applications)
     @test length(with_source.applications) == 1
@@ -641,8 +644,8 @@ end
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status(y=0.0));
         applications=(
-            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(name=:leaf)),
-            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(name=:leaf)),
+            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(id=:leaf)),
+            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(id=:leaf)),
         ),
     )
     @test model_graph_view(model).metadata["cyclic"]
@@ -664,8 +667,8 @@ end
     initialized_scene = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status());
         applications=(
-            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(name=:leaf)),
-            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(name=:leaf)),
+            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(id=:leaf)),
+            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(id=:leaf)),
         ),
     )
     lagged_without_initial_value = apply_model_graph_edit(
@@ -690,7 +693,7 @@ end
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, kind=:organ, status=Status(driver=1.0));
         applications=(
-            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:leaf)),
+            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(id=:leaf)),
         ),
     )
 
@@ -722,8 +725,8 @@ end
     ordered_writers = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0));
         applications=(
-            ModelSpec(ModelGraphSourceModel(1.0); name=:first_writer, on=One(name=:leaf)),
-            ModelSpec(ModelGraphSourceModel(2.0); name=:second_writer, on=One(name=:leaf), updates=Updates(:signal; after=:first_writer)),
+            ModelSpec(ModelGraphSourceModel(1.0); name=:first_writer, on=One(id=:leaf)),
+            ModelSpec(ModelGraphSourceModel(2.0); name=:second_writer, on=One(id=:leaf), updates=Updates(:signal; after=:first_writer)),
         ),
     )
     update_edge = only(
@@ -737,7 +740,7 @@ end
     environment_scene = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf);
         applications=(
-            ModelSpec(ModelGraphEnvironmentModel(); name=:environment_user, on=One(name=:leaf), environment=Environment(provider=:forcing, sink=:canopy)),
+            ModelSpec(ModelGraphEnvironmentModel(); name=:environment_user, on=One(id=:leaf), environment=Environment(provider=:forcing, sink=:canopy)),
         ),
     )
     environment_edges = [
@@ -763,7 +766,7 @@ end
         SetModelObjectMetadata(:leaf; scale=:Organ, kind=:leaf, species=:test, name=:leaf_1),
     )
     object = only(model_objects(metadata))
-    @test (object.scale, object.kind, object.species, object.name) == (:Organ, :leaf, :test, :leaf_1)
+    @test (object.scale, object.kind, object.species, object.name) == (:Organ, :leaf, :test, "leaf_1")
     @test object_ids(metadata; scale=:Organ) == [ObjectId(:leaf)]
     @test isempty(object_ids(metadata; scale=:Leaf))
 
@@ -777,21 +780,21 @@ end
         Object(:source_object; name=:source_object, scale=:Leaf, status=Status(driver=1.0)),
         Object(:consumer_object; name=:consumer_object, scale=:Plant);
         applications=(
-            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:source_object)),
-            ModelSpec(ModelGraphConsumerModel(); name=:consumer, on=One(name=:consumer_object)),
+            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(id=:source_object)),
+            ModelSpec(ModelGraphConsumerModel(); name=:consumer, on=One(id=:consumer_object)),
         ),
     )
 
     configured = apply_model_graph_edit(
         model,
-        SetModelApplicationTargets(model_graph_global(:consumer), OptionalOne(name=:consumer_object)),
+        SetModelApplicationTargets(model_graph_global(:consumer), OptionalOne(id=:consumer_object)),
     )
     configured = apply_model_graph_edit(
         configured,
         SetModelInputBinding(
             model_graph_global(:consumer),
             :signal,
-            One(name=:source_object, application=:source, var=:signal),
+            One(id=:source_object, application=:source, var=:signal),
         ),
     )
     configured = apply_model_graph_edit(
@@ -799,7 +802,7 @@ end
         SetModelCallBinding(
             model_graph_global(:consumer),
             :source_call,
-            One(name=:source_object, application=:source),
+            One(id=:source_object, application=:source),
         ),
     )
     configured = apply_model_graph_edit(
@@ -885,7 +888,7 @@ end
             ModelSpec(
                 ModelGraphDistributedWriterModel();
                 name=:creator,
-                on=One(name=:plant),
+                on=One(id=:plant),
             ),
         ),
     )
@@ -997,7 +1000,7 @@ end
             objects=(Object(:leaf; scale=:Leaf, parent=:plant, status=Status(driver=1.0)),),
         );
         applications=(
-            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:leaf)),
+            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(id=:leaf)),
         ),
     )
     renamed = apply_model_graph_edit(
@@ -1186,10 +1189,14 @@ end
         mounted,
         RemoveModelObject(:plant),
     )
-    @test_throws "must keep the instance name" apply_model_graph_edit(
+    renamed = apply_model_graph_edit(
         mounted,
-        SetModelObjectMetadata(:plant; name=:renamed_root),
+        SetModelObjectMetadata(:plant; name="Renamed plant"),
     )
+    @test model_object(renamed, :plant).name == "Renamed plant"
+    @test only(renamed.instances).name == :plant
+    @test only(model_graph_view(renamed).applications)["targetIds"] == ["leaf"]
+    @test model_object(mounted, :plant).name == "plant"
 
     @test_throws Exception apply_model_graph_edit(
         mounted,
@@ -1209,7 +1216,7 @@ end
 @testset "CompositeModel graph replaces scene environment transactionally" begin
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0));
-        applications=(ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:leaf)),),
+        applications=(ModelSpec(ModelGraphSourceModel(); name=:source, on=One(id=:leaf)),),
         environment=ModelGraphWeatherBackend(),
     )
     changed = apply_model_graph_edit(
@@ -1220,4 +1227,65 @@ end
     @test model.environment isa ModelGraphWeatherBackend
     @test length(changed.applications) == 1
     @test length(model_objects(changed)) == 1
+end
+
+@testset "graph labels can change without changing model or instance identities" begin
+    template = CompositeModelTemplate((
+        ModelSpec(ModelGraphSourceModel(); name=:source, on=Many(scale=:Leaf)),
+    ))
+    model = CompositeModel(
+        ObjectInstance(
+            :first_plant,
+            template;
+            root=Object(10; scale=:Plant, name="First plant"),
+            objects=(Object(11; scale=:Leaf, parent=10, status=Status(driver=1.0)),),
+        ),
+        ObjectInstance(
+            :second_plant,
+            template;
+            root=Object(20; scale=:Plant, name="Plant"),
+            objects=(Object(21; scale=:Leaf, parent=20, status=Status(driver=2.0)),),
+        ),
+    )
+    before = model_graph_view(model)
+    renamed = apply_model_graph_edit(model, SetModelObjectMetadata(10; name="Plant"))
+    after = model_graph_view(renamed)
+    @test model_object(renamed, 10).name == model_object(renamed, 20).name == "Plant"
+    @test model_object(model, 10).name == "First plant"
+    @test [instance["name"] for instance in after.instances] ==
+          [instance["name"] for instance in before.instances]
+    @test Dict(application["applicationId"] => application["targetIds"] for application in after.applications) ==
+          Dict("first_plant__source" => [11], "second_plant__source" => [21])
+    @test Dict(application["applicationId"] => application["targetIds"] for application in after.applications) ==
+          Dict(application["applicationId"] => application["targetIds"] for application in before.applications)
+
+    code = PlantSimEngine.Authoring.scenario_source(renamed)
+    restored = Base.include_string(Main, code, "graph_label_identity_roundtrip.jl")
+    @test object_ids(restored) == object_ids(model)
+    @test model_object(restored, 10).name == model_object(restored, 20).name == "Plant"
+    @test isnothing(model_object(restored, 11).name)
+    @test Dict(application["applicationId"] => application["targetIds"] for application in model_graph_view(restored).applications) ==
+          Dict(application["applicationId"] => application["targetIds"] for application in after.applications)
+end
+
+@testset "graph node identities distinguish numeric and symbolic object IDs" begin
+    model = CompositeModel(
+        Object(42; name="Leaf", scale=:Leaf, status=Status(driver=1.0)),
+        Object("42"; name="Leaf", scale=:Leaf, status=Status(driver=2.0));
+        applications=(ModelSpec(ModelGraphSourceModel(); name=:source, on=Many(scale=:Leaf)),),
+    )
+    view = model_graph_view(model; level=:resolved)
+    @test length(view.objects) == 2
+    @test length(unique(object["id"] for object in view.objects)) == 2
+    @test length(view.executions) == 2
+    @test length(unique(execution["id"] for execution in view.executions)) == 2
+    for raw_id in (42, "42")
+        object = only(object for object in view.objects if object["objectId"] == raw_id)
+        execution = only(execution for execution in view.executions if execution["objectId"] == raw_id)
+        @test execution["objectNodeId"] == object["id"]
+        @test execution["applicationId"] == "source"
+    end
+    target_edges = filter(edge -> edge["kind"] == "application_target", view.edges)
+    @test length(unique(edge["id"] for edge in target_edges)) == 2
+    @test Set(edge["target"] for edge in target_edges) == Set(object["id"] for object in view.objects)
 end

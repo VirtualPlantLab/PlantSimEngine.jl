@@ -35,9 +35,21 @@ model = CompositeModel(
 )
 ```
 
-`scale`, `kind`, `species`, and `name` are scenario labels, not a prescribed
-botanical ontology. Object ids are stable runtime identities. Topology alone
-does not determine execution order; compiled input, call, and writer edges do.
+Object IDs are unique, stable runtime identities. `Object(:leaf_1)` needs no
+other labels. An optional `name="Sunlit leaf"` is display text; it need not be
+unique and does not affect selection. The graph viewer shows the ID when the
+name is omitted. Use `One(id=:leaf_1)` for an individual object, preserving
+numeric or other typed IDs when present.
+
+`scale`, `kind`, and `species` are optional group labels, not a prescribed
+botanical ontology. Add them when a model selects those groups. Topology
+alone does not determine execution order; compiled input, call, and writer
+edges do.
+
+`ModelSpec.name` identifies an application. Omit it when the process occurs
+once, or give each separate application of the same process a distinct name.
+`ObjectInstance.name` identifies an instance and prefixes its applications;
+it does not rename the root object or change its ID.
 
 ## Choose multiplicity and scope deliberately
 
@@ -50,8 +62,10 @@ does not determine execution order; compiled input, call, and writer edges do.
 - `Subtree()`: the consumer and its descendants.
 - `SelfPlant()`: the containing plant/root scope.
 - `SceneScope()`: the complete scene.
-- `Ancestor(...)`, `Scope(name)`, and `Relation(...)`: explicit topology or
-  named-scope relationships.
+- `Ancestor(...)` and `Relation(...)`: explicit topology relationships.
+- `Scope(:instance_name)`: the instance's root and descendants.
+- `Scope(ObjectId(root_id))`: a root selected by its typed object ID and its
+  descendants. Object display names never define a scope.
 
 `Self()` never means “this model” or “this plant” unless the current target
 object is itself that object.

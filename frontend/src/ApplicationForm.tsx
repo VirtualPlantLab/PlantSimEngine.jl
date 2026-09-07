@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Check, Eye, X } from "lucide-react";
+import { ObjectChoice, objectChoiceValue, objectChoiceId, objectIdLabel, scopeObjectId } from "./ObjectChoice";
 import type { ApplicationGraphNode, ApplicationOwner, ModelConstructorField, ModelDescriptor, ObjectGraphNode, PeriodDescriptor, SelectorDescriptor, TargetPreview } from "./types";
 
 export type ApplicationFormValue = {
@@ -47,13 +48,13 @@ export function ApplicationForm({
   const [scale, setScale] = useState(stringCriterion(initialSelector, "scale"));
   const [kind, setKind] = useState(stringCriterion(initialSelector, "kind"));
   const [species, setSpecies] = useState(stringCriterion(initialSelector, "species"));
-  const [objectName, setObjectName] = useState(stringCriterion(initialSelector, "name"));
+  const [objectId, setObjectId] = useState(objectChoiceValue(initialSelector.criteria.id));
   const initialWithin = structuredCriterion(initialSelector, "within");
   const mountedLocalScope = application?.owner.scope === "template" &&
     initialWithin?.type === "Scope" &&
     String(initialWithin.name || "") === application.owner.instance;
   const [scope, setScope] = useState(initialWithin?.type === "Scope" && !mountedLocalScope ? "named_scope" : initialWithin?.type === "SceneScope" ? "scene" : "local");
-  const [scopeName, setScopeName] = useState(initialWithin?.type === "Scope" && !mountedLocalScope ? String(initialWithin.name || "") : "");
+  const [scopeName, setScopeName] = useState(initialWithin?.type === "Scope" && !mountedLocalScope ? objectChoiceValue(scopeObjectId(initialWithin, objects)) : "");
   const [cadenceMode, setCadenceMode] = useState<"default" | "period">(application?.cadence.mode === "period" ? "period" : "default");
   const [periodValue, setPeriodValue] = useState(String(application?.cadence.value ?? 1));
   const [periodUnit, setPeriodUnit] = useState(application?.cadence.unit || "Hour");
@@ -69,23 +70,22 @@ export function ApplicationForm({
     scales: unique(objects.map((object) => object.scale)),
     kinds: unique(objects.map((object) => object.kind)),
     species: unique(objects.map((object) => object.species)),
-    names: unique(objects.map((object) => object.name)),
   }), [objects]);
 
   const targetSummary = useMemo(() => {
-    const clauses = [scale && `scale ${scale}`, kind && `kind ${kind}`, species && `species ${species}`, objectName && `name ${objectName}`].filter(Boolean);
+    const clauses = [scale && `scale ${scale}`, kind && `kind ${kind}`, species && `species ${species}`, objectId && `ID ${objectIdLabel(objectChoiceId(objectId))}`].filter(Boolean);
     const base = clauses.length ? clauses.join(", ") : "matching objects";
-    return scope === "scene" ? `${base} in the whole scene` : scope === "named_scope" ? `${base} below ${scopeName || "the named root"}` : `${base} in the local instance scope`;
-  }, [kind, objectName, scale, scope, scopeName, species]);
+    return scope === "scene" ? `${base} in the whole scene` : scope === "named_scope" ? `${base} below ${scopeName ? objectIdLabel(objectChoiceId(scopeName)) : "the selected root"}` : `${base} in the local instance scope`;
+  }, [kind, objectId, scale, scope, scopeName, species]);
 
   const selector = (): SelectorDescriptor => {
     const criteria: Record<string, unknown> = { selectors: [] };
-    if (scope === "named_scope" && scopeName) criteria.within = { type: "Scope", name: scopeName };
+    if (scope === "named_scope" && scopeName) criteria.within = { type: "Scope", id: objectChoiceId(scopeName) };
     if (scope === "scene") criteria.within = { type: "SceneScope" };
     if (scale) criteria.scale = scale;
     if (kind) criteria.kind = kind;
     if (species) criteria.species = species;
-    if (objectName) criteria.name = objectName;
+    if (objectId) criteria.id = objectChoiceId(objectId);
     return { type: selectorType(multiplicity), multiplicity, criteria, julia: "" };
   };
 
@@ -115,16 +115,16 @@ export function ApplicationForm({
           <fieldset><legend>Target selector</legend>
             <div className="form-grid">
               <label>Multiplicity<select value={multiplicity} onChange={(event) => setMultiplicity(event.target.value as SelectorDescriptor["multiplicity"])}><option value="one">One</option><option value="optional_one">Optional one</option><option value="many">Many</option></select></label>
-              <label>Scope<select value={scope} onChange={(event) => setScope(event.target.value)}><option value="local">Default / instance local</option><option value="scene">Explicit whole scene</option><option value="named_scope">Named object subtree</option></select></label>
-              {scope === "named_scope" && <SelectCriterion label="Scope root" value={scopeName} options={options.names} onChange={setScopeName} />}
+              <label>Scope<select value={scope} onChange={(event) => setScope(event.target.value)}><option value="local">Default / instance local</option><option value="scene">Explicit whole scene</option><option value="named_scope">Object subtree</option></select></label>
+              {scope === "named_scope" && <ObjectChoice label="Scope root" value={scopeName} objects={objects} onChange={setScopeName} emptyLabel="Choose an object" />}
               <SelectCriterion label="Scale" value={scale} options={options.scales} onChange={setScale} />
               <SelectCriterion label="Kind" value={kind} options={options.kinds} onChange={setKind} />
               <SelectCriterion label="Species" value={species} options={options.species} onChange={setSpecies} />
-              <SelectCriterion label="Object name" value={objectName} options={options.names} onChange={setObjectName} />
+              <ObjectChoice label="Object ID" value={objectId} objects={objects} onChange={setObjectId} />
             </div>
             <p className="selector-summary">Julia will resolve <strong>{multiplicity.replace("_", " ")}</strong> target from {targetSummary}.</p>
             <button className="selector-preview-button" type="button" onClick={() => onPreview(selector())} data-testid="application-target-preview"><Eye size={15} /> Preview targets in Julia</button>
-            {preview && <section className="selector-preview" data-testid="application-target-preview-result"><strong>{preview.count} target object{preview.count === 1 ? "" : "s"}</strong><code>{preview.objectIds.map(String).join(", ") || "No targets"}</code>{preview.groups.map((group) => <div key={group.instance}><span>{group.instance}</span><code>{group.objectIds.map(String).join(", ") || "No targets"}</code></div>)}</section>}
+            {preview && <section className="selector-preview" data-testid="application-target-preview-result"><strong>{preview.count} target object{preview.count === 1 ? "" : "s"}</strong><code>{preview.objectIds.map(objectIdLabel).join(", ") || "No targets"}</code>{preview.groups.map((group) => <div key={group.instance}><span>{group.instance}</span><code>{group.objectIds.map(objectIdLabel).join(", ") || "No targets"}</code></div>)}</section>}
           </fieldset>
 
           <fieldset><legend>Cadence</legend><div className="form-grid"><label>Mode<select value={cadenceMode} onChange={(event) => setCadenceMode(event.target.value as "default" | "period")} data-testid="application-cadence-mode"><option value="default">Model or environment default</option><option value="period">Explicit period</option></select></label>{cadenceMode === "period" && <><label>Value<input type="number" min="1" step="1" value={periodValue} onChange={(event) => setPeriodValue(event.target.value)} data-testid="application-cadence-value" /></label><label>Unit<select value={periodUnit} onChange={(event) => setPeriodUnit(event.target.value)} data-testid="application-cadence-unit"><option>Second</option><option>Minute</option><option>Hour</option><option>Day</option></select></label></>}</div></fieldset>
