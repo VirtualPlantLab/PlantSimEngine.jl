@@ -71,6 +71,33 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     await expect(page.getByText("Edit application")).toHaveCount(0);
   });
 
+  for (const width of [760, 420]) {
+    test(`static viewer keeps the graph visible in a ${width}px documentation iframe`, async ({ page }) => {
+      const url = new URL(server.url);
+      url.pathname = "/static";
+      await page.setViewportSize({ width: 1200, height: 900 });
+      await page.setContent(`<!doctype html>
+        <html><body style="margin: 0">
+          <iframe title="Embedded model graph" src="${url.toString()}"
+            style="width: ${width}px; height: 720px; border: 0" loading="lazy"></iframe>
+        </body></html>`);
+
+      const viewer = page.frameLocator('iframe[title="Embedded model graph"]');
+      const canvas = viewer.locator(".react-flow");
+      await expect.poll(async () => (await canvas.boundingBox())?.height ?? 0).toBeGreaterThan(200);
+      await expect(viewer.getByTestId("application-node-light")).toBeInViewport({ ratio: 0.9 });
+      await expect(viewer.locator(".react-flow__controls")).toBeInViewport({ ratio: 1 });
+
+      // Toolbar wrapping must leave the canvas within the iframe, with no lost space below it.
+      await expect.poll(async () => {
+        const shellBounds = await viewer.getByTestId("model-graph-viewer").boundingBox();
+        const canvasBounds = await canvas.boundingBox();
+        if (!shellBounds || !canvasBounds) return Infinity;
+        return Math.abs(shellBounds.y + shellBounds.height - canvasBounds.y - canvasBounds.height);
+      }).toBeLessThanOrEqual(1);
+    });
+  }
+
   test("creates and breaks a cycle directly in the graph", async ({ page, request }) => {
     await page.goto(server.url);
     await page.getByTestId("port-input-LAI").getByRole("button").click();
@@ -86,6 +113,8 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     await page.getByTestId("choose-cycle-break").click();
     const scissors = page.locator("[data-testid^='cycle-break-']").first();
     await expect(scissors).toBeVisible();
+    // Adding the second model preserves the previous zoom; fit the expanded graph before editing it.
+    await page.getByRole("button", { name: "Fit View", exact: true }).click();
     await scissors.click();
     await expect(page.getByTestId("cycle-break-dialog")).toBeVisible();
     const initialization = page.getByTestId("cycle-break-dialog").getByRole("textbox");
