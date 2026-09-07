@@ -548,7 +548,7 @@ function _edit_from_command(session, command)
         "set_application_cadence", "set_application_environment", "set_output_routing",
         "set_update_ordering", "set_instance_override", "remove_instance_override",
         "set_object_override", "remove_object_override", "update_application",
-        "replace_application_model",
+        "replace_application_model", "set_output_destinations",
     ) ? _application_ref_from_command(command) : nothing
     kind == "remove_application" && return PlantSimEngine.GraphEditor.RemoveModelApplication(application)
     kind == "mark_previous_timestep" && return PlantSimEngine.GraphEditor.MarkModelPreviousTimeStep(
@@ -613,6 +613,21 @@ function _edit_from_command(session, command)
         Symbol(command["output"]),
         Symbol(command["route"]),
     )
+    if kind == "set_output_destinations"
+        payload = command["destinations"]
+        payload isa AbstractVector || error("Output destinations must be an array.")
+        destinations = Tuple(map(payload) do destination
+            vars = get(destination, "vars", nothing)
+            isnothing(vars) || (vars isa AbstractVector && all(value -> value isa AbstractString, vars)) ||
+                error("Output destination vars must be null or an array of variable names.")
+            PlantSimEngine.OutputTo(
+                _selector_for_application(session, application, destination["selector"]);
+                vars=isnothing(vars) ? nothing : Tuple(Symbol.(vars)),
+                coverage=Symbol(get(destination, "coverage", "exact")),
+            )
+        end)
+        return PlantSimEngine.GraphEditor.SetModelOutputDestinations(application, destinations)
+    end
     kind == "set_update_ordering" && return PlantSimEngine.GraphEditor.SetModelUpdateOrdering(
         application,
         _updates_from_payload(application, get(command, "updates", Any[])),

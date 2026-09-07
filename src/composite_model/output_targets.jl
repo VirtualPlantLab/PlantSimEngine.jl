@@ -12,7 +12,7 @@ end
 """
     OutputTargets
 
-Identity-aware, columnar destination view for one named `OutputTo` group.
+Identity-aware, columnar destination view for selected distributed variables.
 Obtain it inside a model kernel with [`output_targets`](@ref), inspect its
 stable identities with [`object_ids`](@ref), and assign identified result
 tables with [`assign_outputs!`](@ref).
@@ -26,9 +26,10 @@ Do not retain it across a lifecycle barrier.
 struct OutputTargets{B,C}
     binding::B
     assignment_cache::C
+    alignment_id::Int
 end
 
-function OutputTargets(binding::CompiledModelOutputDestinationBinding)
+function OutputTargets(binding::CompiledModelOutputDestinationBinding, alignment_id::Int)
     count = length(binding.destination_ids)
     return OutputTargets(
         binding,
@@ -41,7 +42,20 @@ function OutputTargets(binding::CompiledModelOutputDestinationBinding)
             false,
             false,
         ),
+        alignment_id,
     )
+end
+
+"""A selection of columns sharing one compiled destination identity order."""
+struct OutputTargetColumns{B,C}
+    source::B
+    columns::C
+end
+
+@inline function Base.getproperty(view::OutputTargetColumns, name::Symbol)
+    name === :columns && return getfield(view, :columns)
+    name === :source && return getfield(view, :source)
+    return getproperty(getfield(view, :source), name)
 end
 
 @inline function Base.getproperty(targets::OutputTargets, name::Symbol)
@@ -51,12 +65,12 @@ end
 end
 
 Base.propertynames(::OutputTargets, private::Bool=false) =
-    private ? (:columns, :binding, :assignment_cache) : (:columns,)
+    private ? (:columns, :binding, :assignment_cache, :alignment_id) : (:columns,)
 
 object_ids(targets::OutputTargets) =
-    BoundManyObjectIds(getfield(getfield(targets, :binding), :destination_ids))
+    BoundManyObjectIds(getproperty(getfield(targets, :binding), :destination_ids))
 Base.length(targets::OutputTargets) =
-    length(getfield(getfield(targets, :binding), :destination_ids))
+    length(getproperty(getfield(targets, :binding), :destination_ids))
 Base.isempty(targets::OutputTargets) = iszero(length(targets))
 Base.eachindex(targets::OutputTargets) = eachindex(object_ids(targets))
 
@@ -81,7 +95,7 @@ end
 
 function _output_target_context(targets::OutputTargets)
     binding = getfield(targets, :binding)
-    return "application `$(binding.application_id)`, output group `$(binding.group)`"
+    return "application `$(binding.application_id)`, output variables `$(propertynames(targets.columns))`"
 end
 
 function _output_table_columns(

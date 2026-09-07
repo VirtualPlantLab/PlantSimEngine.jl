@@ -28,6 +28,7 @@ end
 
 PlantSimEngine.inputs_(::StatusTypeRuntimeOutputWriterModel) = NamedTuple()
 PlantSimEngine.outputs_(::StatusTypeRuntimeOutputWriterModel) = (
+    distributed_value=Distributed(Default(0.0)),
     canonical_value=0.0,
     private_value=0.0,
 )
@@ -41,7 +42,7 @@ function PlantSimEngine.run!(
 )
     status.canonical_value += one(status.canonical_value)
     status.private_value += one(status.private_value)
-    destinations = output_targets(context, :leaves)
+    destinations = output_targets(context, (:distributed_value,))
     for index in eachindex(destinations.columns.distributed_value)
         destinations.columns.distributed_value[index] =
             status.canonical_value +
@@ -139,9 +140,9 @@ end
                 name=:status_type_runtime_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(distributed_value=Default(0.0),),
+                        vars=(:distributed_value,),
                     ),
                 ),
                 output_routing=(private_value=:stream_only,),

@@ -351,51 +351,81 @@ function bound_input(context, input)
 end
 
 """
-    output_targets(context::RunContext, group)
+    output_targets(context::RunContext, variables::Tuple)
 
-Return the compiled [`OutputTargets`](@ref) view for the named `outputs_to`
-group on the application currently executing. The lookup is a typed field
-access; selectors and destination indexes were resolved before the kernel.
+Return a compiled destination view for the named distributed outputs, for
+example `output_targets(context, (:incident_par, :absorbed_par))`. A combined
+view requires identical destination ObjectIds for every requested variable
+and exposes only those columns. Use a one-element tuple for one variable.
+
+Names resolve through the typed execution context; destination alignment is
+prepared during compilation and refreshed after lifecycle changes.
 """
 @inline Base.@constprop :aggressive function output_targets(
     context::RunContext,
-    group::Symbol,
+    variables::Tuple,
 )
-    return output_targets(context, Val(group))
+    return output_targets(context, Val(variables))
 end
 
-@inline function output_targets(
-    context::RunContext,
-    ::Val{group},
-) where {group}
-    hasproperty(context.output_targets, group) || throw(
-        ArgumentError(
-            "Application `$(context.application.id)` on object " *
-            "`$(context.object_id.value)` has no declared distributed output " *
-            "group `$(group)`. Available groups: " *
-            "`$(propertynames(context.output_targets))`.",
-        ),
-    )
-    return getproperty(context.output_targets, group)
+@noinline function _missing_distributed_output_target(context, name)
+    throw(ArgumentError(
+        "Application `$(context.application.id)` on object `$(context.object_id.value)` " *
+        "has no distributed output `$(name)`. Available variables: " *
+        "`$(propertynames(context.output_targets))`.",
+    ))
 end
 
-function output_targets(context::RunContext, group)
-    throw(
-        ArgumentError(
-            "`output_targets` expects a declared output group name as a Symbol; " *
-            "got `$(repr(group))` of type `$(typeof(group))` for application " *
-            "`$(context.application.id)`.",
-        ),
-    )
+@noinline function _unaligned_distributed_output_targets(context, variables)
+    throw(ArgumentError(
+        "Distributed outputs `$(variables)` on application `$(context.application.id)` " *
+        "have different destination ObjectIds. Request separate output target views.",
+    ))
 end
 
-function output_targets(context, group)
-    throw(
-        ArgumentError(
-            "`output_targets` requires the compiled RunContext passed to a " *
-            "model kernel; got `$(typeof(context))` for group `$(group)`.",
-        ),
-    )
+# Names are fixed by the kernel's tuple. Select each field explicitly so views
+# spanning different destination declarations retain concrete carrier types.
+@generated function output_targets(context::RunContext, ::Val{variables}) where {variables}
+    if !(variables isa Tuple) || isempty(variables) || !all(name -> name isa Symbol, variables)
+        return :(throw(ArgumentError("`output_targets` requires a non-empty tuple of output variable names.")))
+    end
+    if length(unique(variables)) != length(variables)
+        return :(throw(ArgumentError("`output_targets` requires distinct output variable names.")))
+    end
+    checks = map(variables) do name
+        :(hasproperty(context.output_targets, $(QuoteNode(name))) ||
+          _missing_distributed_output_target(context, $(QuoteNode(name))))
+    end
+    first_name = QuoteNode(first(variables))
+    alignment_checks = map(Base.tail(variables)) do name
+        :(getproperty(context.output_targets, $(QuoteNode(name))).alignment_id == first_target.alignment_id ||
+          _unaligned_distributed_output_targets(context, $(QuoteNode(variables))))
+    end
+    columns = Expr(:tuple, map(variables) do name
+        :(getproperty(getproperty(context.output_targets, $(QuoteNode(name))).columns, $(QuoteNode(name))))
+    end...)
+    return quote
+        $(checks...)
+        first_target = getproperty(context.output_targets, $first_name)
+        $(alignment_checks...)
+        columns = NamedTuple{$(QuoteNode(variables))}($columns)
+        binding = OutputTargetColumns(first_target.binding, columns)
+        OutputTargets(binding, first_target.assignment_cache, first_target.alignment_id)
+    end
+end
+
+function output_targets(context::RunContext, variables)
+    throw(ArgumentError(
+        "`output_targets` expects a non-empty tuple of output variable names; " *
+        "got `$(repr(variables))` of type `$(typeof(variables))`.",
+    ))
+end
+
+function output_targets(context, variables)
+    throw(ArgumentError(
+        "`output_targets` requires the compiled RunContext passed to a model kernel; " *
+        "got `$(repr(context))` of type `$(typeof(context))`.",
+    ))
 end
 
 """
@@ -1441,7 +1471,7 @@ function _model_output_object_ids(
         (application.id, variable),
         nothing,
     )
-    variable in keys(outputs_(application.spec)) ||
+    variable in keys(_local_output_schema(application.spec)) ||
         return isnothing(destination_ids) ? ObjectId[] : destination_ids
     isnothing(destination_ids) && return application.target_ids
     object_ids = copy(application.target_ids)
@@ -1465,7 +1495,7 @@ function _model_output_reference(
     object_id::ObjectId,
     variable::Symbol,
 )
-    if variable in keys(outputs_(application.spec)) &&
+    if variable in keys(_local_output_schema(application.spec)) &&
        haskey(
            compiled.status_views_by_target,
            (application.id, object_id),
@@ -1543,7 +1573,7 @@ function _initialize_changed_model_output_streams!(
         )
         isempty(variables) && continue
         application = _compiled_application_by_id(compiled, application_id)
-        model_outputs = keys(outputs_(application.spec))
+        model_outputs = keys(_local_output_schema(application.spec))
         if haskey(compiled.status_views_by_target, (application_id, object_id))
             for variable in variables
                 variable in model_outputs || continue
@@ -3112,7 +3142,7 @@ function _runtime_model_output_streams(
     )
     variables = Tuple(
         variable for variable in variables
-        if variable in keys(outputs_(application.spec))
+        if variable in keys(_local_output_schema(application.spec))
     )
     return Tuple(begin
         key = _model_stream_key(application.id, object_id, variable)
@@ -3306,9 +3336,22 @@ function _runtime_model_output_targets(
         nothing,
     )
     isnothing(groups) && return NamedTuple()
-    names = propertynames(groups)
-    targets = map(OutputTargets, values(groups))
-    return NamedTuple{names}(targets)
+    names = Symbol[]
+    targets = Any[]
+    anchors = Any[]
+    for binding in values(groups)
+        alignment_id = findfirst(anchor -> anchor.destination_ids == binding.destination_ids, anchors)
+        if isnothing(alignment_id)
+            push!(anchors, binding)
+            alignment_id = length(anchors)
+        end
+        target = OutputTargets(binding, alignment_id)
+        for name in keys(binding.declarations)
+            push!(names, name)
+            push!(targets, target)
+        end
+    end
+    return NamedTuple{Tuple(names)}(Tuple(targets))
 end
 
 _runtime_model_output_targets(compiled, application, object_id) =
@@ -3698,7 +3741,7 @@ function _model_execution_outputs_match(
         nothing,
     )
     for variable in variables
-        variable in keys(outputs_(application.spec)) || continue
+        variable in keys(_local_output_schema(application.spec)) || continue
         output_index += 1
         output_index <= length(runtime_outputs) || return false
         output = runtime_outputs[output_index]
@@ -3811,11 +3854,27 @@ function _model_execution_output_targets_match(
         nothing,
     )
     isnothing(bindings) && return isempty(targets)
-    propertynames(targets) == propertynames(bindings) || return false
-    for name in propertynames(bindings)
-        getfield(getproperty(targets, name), :binding) ===
-        getproperty(bindings, name) || return false
+    count = 0
+    ordered_bindings = values(bindings)
+    for (index, binding) in enumerate(ordered_bindings)
+        for name in keys(binding.declarations)
+            hasproperty(targets, name) || return false
+            target = getproperty(targets, name)
+            target.binding === binding || return false
+            count += 1
+        end
+        # A monotonic addition can extend existing columns and streams in place.
+        # Rebuild only if it changes which destination declarations are aligned.
+        current = getproperty(targets, first(keys(binding.declarations)))
+        for previous_index in 1:(index - 1)
+            previous = ordered_bindings[previous_index]
+            previous_target = getproperty(targets, first(keys(previous.declarations)))
+            was_aligned = current.alignment_id == previous_target.alignment_id
+            now_aligned = binding.destination_ids == previous.destination_ids
+            was_aligned == now_aligned || return false
+        end
     end
+    length(targets) == count || return false
     return true
 end
 
@@ -5033,7 +5092,7 @@ function _model_application_output_variables(
     application,
     ::NoCompiledDistributedOutputs,
 )
-    return Tuple(Symbol(variable) for variable in keys(outputs_(application.spec)))
+    return Tuple(Symbol(variable) for variable in keys(_local_output_schema(application.spec)))
 end
 
 function _model_application_output_variables(
@@ -5041,7 +5100,7 @@ function _model_application_output_variables(
     application,
     distributed_outputs::CompiledDistributedOutputs,
 )
-    variables = Symbol[Symbol(variable) for variable in keys(outputs_(application.spec))]
+    variables = Symbol[Symbol(variable) for variable in keys(_local_output_schema(application.spec))]
     for ((application_id, variable), destination_ids) in
         distributed_outputs.destination_ids_by_application_variable
         application_id == application.id || continue
@@ -7570,7 +7629,7 @@ function _model_request_application(model::CompositeModel, compiled::CompiledCom
             application.id == request.application ||
             application.name == request.application ||
             continue
-        local_output = request.var in keys(outputs_(application.spec))
+        local_output = request.var in keys(_local_output_schema(application.spec))
         local_match = local_output && (
             any(id -> id in requested_ids, application.target_ids) ||
             (!isnothing(declared_scale) &&

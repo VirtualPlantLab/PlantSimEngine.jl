@@ -111,6 +111,20 @@ struct SetModelOutputRouting <: AbstractModelGraphEdit
     route::Symbol
 end
 
+"""
+    GraphEditor.SetModelOutputDestinations(application, destinations)
+
+Replace an application's distributed output destinations with an anonymous
+tuple of `OutputTo` declarations. `application` is a `GlobalApplicationRef`
+or `TemplateApplicationRef`. Omitted `vars` remains omitted in the edited
+scenario; the model's distributed schema validates the complete destination
+partition before the edit is applied.
+"""
+struct SetModelOutputDestinations{T<:Tuple} <: AbstractModelGraphEdit
+    application::ModelApplicationRef
+    destinations::T
+end
+
 struct SetModelUpdateOrdering{U} <: AbstractModelGraphEdit
     application::ModelApplicationRef
     updates::U
@@ -691,7 +705,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelOutputRou
         "Output route must be `:canonical` or `:stream_only`.",
     )
     spec = _model_edit_spec(model, edit.application)
-    edit.output in Symbol.(keys(outputs_(spec))) || error(
+    edit.output in keys(_output_schema(spec)) || error(
         "Application `$(edit.application.application_id)` model has no output `$(edit.output)`.",
     )
     routing = _model_edit_namedtuple_set(spec.output_routing, edit.output, edit.route)
@@ -700,6 +714,13 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelOutputRou
         edit.application,
         _replace_model_spec(spec; output_routing=routing),
     )
+end
+
+function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelOutputDestinations)
+    spec = _model_edit_spec(model, edit.application)
+    replacement = _replace_model_spec(spec; outputs_to=edit.destinations)
+    _resolved_output_destinations(replacement)
+    return _replace_model_edit_spec!(model, edit.application, replacement)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelUpdateOrdering)

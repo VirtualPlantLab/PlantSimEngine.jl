@@ -4,9 +4,11 @@ export type GraphPort = {
   id: string;
   name: string;
   role: GraphPortRole;
+  storage: "local" | "distributed" | "environment";
   default: unknown;
-  defaultJulia: string;
+  defaultJulia: string | null;
   expectedType: string;
+  declaration?: "initial" | "required" | "defaulted";
 };
 
 export type SelectorDescriptor = {
@@ -17,6 +19,14 @@ export type SelectorDescriptor = {
 };
 
 export type CallMode = "manual" | "initializer";
+
+export type OutputDestinationDescriptor = {
+  selector: SelectorDescriptor;
+  vars: string[] | null;
+  resolvedVars: string[] | null;
+  origin: "inferred" | "explicit";
+  coverage: "exact";
+};
 
 export type CallBindingDescriptor = SelectorDescriptor & {
   mode: CallMode;
@@ -84,6 +94,7 @@ export type ApplicationGraphNode = {
   environmentBindings: Record<string, unknown>;
   environmentWindow: PeriodDescriptor;
   outputRouting: Record<string, string>;
+  outputsTo: OutputDestinationDescriptor[];
   updates: Array<{ variables: string[]; after: string[] }>;
   modelStorage: "shared_application" | "per_object_override";
   objectOverrides: Array<Record<string, unknown>>;

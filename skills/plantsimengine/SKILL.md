@@ -130,7 +130,10 @@ behavioral evidence.
 3. Make the process-versus-hypothesis decision explicit.
 4. Create the concrete model type and declare its fixed parameters.
 5. Declare `inputs_`, `outputs_`, `environment_inputs_`, and
-   `environment_outputs_`.
+   `environment_outputs_`. Keep local output values raw; wrap outputs destined
+   for other objects as `Distributed(Default(value))` or
+   `Distributed(Required(T))`. Bind them with anonymous `OutputTo` entries and
+   request target views by variable tuple, never by destination group name.
 6. Declare complete `variable_contracts_` beside the corresponding ports.
 7. Add `dep`, hard calls, initializers, temporal/output traits, or environment
    hints only when they are intrinsic to the model.

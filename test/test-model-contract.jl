@@ -50,7 +50,7 @@ PlantSimEngine.outputs_(::Union{
 PlantSimEngine.outputs_(::Union{
     ContractDistributedGroundSource,
     ContractDistributedPlantSource,
-}) = NamedTuple()
+}) = (aPPFD=Distributed(Default(0.0)),)
 PlantSimEngine.inputs_(::Union{
     ContractPlantConsumer,
     ContractUnspecifiedConsumer,
@@ -84,7 +84,7 @@ PlantSimEngine.variable_contracts_(::ContractDistributedGroundSource) =
 PlantSimEngine.variable_contracts_(::ContractDistributedPlantSource) =
     (aPPFD=PLANT_DAILY_PHOTONS,)
 PlantSimEngine.variable_contracts_(::ContractPlantConsumer) =
-    (aPPFD=PLANT_DAILY_PHOTONS,)
+    (aPPFD=PLANT_DAILY_PHOTONS, observed=PLANT_DAILY_PHOTONS)
 PlantSimEngine.variable_contracts_(::ContractUnknownVariable) =
     (unknown=PLANT_DAILY_PHOTONS,)
 PlantSimEngine.variable_contracts_(::ContractInvalidDeclaration) =
@@ -108,6 +108,14 @@ function PlantSimEngine.run!(
     context,
 )
     status.observed = status.aPPFD
+end
+
+function PlantSimEngine.run!(
+    ::Union{ContractDistributedGroundSource,ContractDistributedPlantSource},
+    status, environment, constants, context,
+)
+    fill!(output_targets(context, (:aPPFD,)).columns.aPPFD, 12.0)
+    return nothing
 end
 
 @testset "direct model trait defaults" begin
@@ -154,9 +162,9 @@ function _distributed_contract_scene(source, consumer)
                 name=:source,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    plants=OutputTo(
+                    OutputTo(
                         Many(scale=:Plant, within=SceneScope());
-                        vars=(aPPFD=Default(0.0),),
+                        vars=(:aPPFD,),
                     ),
                 ),
             ),
@@ -201,6 +209,11 @@ end
         ContractPlantConsumer(),
     )
     Advanced.refresh_bindings!(distributed)
+    @test Authoring.validate_model(ContractDistributedPlantSource(); strict=true).valid
+    @test Authoring.validate_scenario(distributed; strict=true).valid
+    run!(distributed; outputs=:none)
+    @test model_object(distributed, :plant).status.observed == 12.0
+    @test !(:aPPFD in propertynames(model_object(distributed, :scene).status))
     distributed_mismatch = _distributed_contract_scene(
         ContractDistributedGroundSource(),
         ContractPlantConsumer(),

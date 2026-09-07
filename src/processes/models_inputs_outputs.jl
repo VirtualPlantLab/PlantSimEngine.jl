@@ -218,7 +218,7 @@ outputs(Process1Model(1.0))
 ```
 """
 function outputs(model::T) where {T<:AbstractModel}
-    keys(outputs_(model))
+    keys(_output_schema(model))
 end
 
 function outputs(v::T, vars...) where {T<:AbstractModel}
@@ -241,6 +241,8 @@ end
 Return the values PlantSimEngine can initialize without user input: genuine
 input defaults declared with `Default(value)` and initial output-state values.
 Required inputs have no initialization value and are therefore omitted.
+Distributed outputs are also omitted: their destination storage is resolved
+from `outputs_to` when the scenario is compiled.
 
 # Note
 
@@ -273,7 +275,7 @@ function variables(m::T, ms...) where {T<:Union{Missing,AbstractModel}}
     input_defaults = m isa Missing ?
                      NamedTuple() :
                      _input_default_values(_input_schema(m))
-    return merge(input_defaults, outputs_(m))
+    return merge(input_defaults, _local_output_schema(m))
 end
 
 """
@@ -306,7 +308,9 @@ end
     init_variables(model)
 
 Return the merged genuine input defaults and initial output-state values
-declared by `model`. Inputs declared with `Required(T)` are omitted.
+declared by `model` for its execution object. Required inputs and distributed
+outputs are omitted; distributed defaults initialize selected destinations
+during scenario compilation.
 """
 init_variables(model::AbstractModel; verbose::Bool=true) = variables(model)
 init_variables(spec::ModelSpec; verbose::Bool=true) = init_variables(model_(spec); verbose=verbose)
@@ -317,6 +321,7 @@ init_variables(spec::ModelSpec; verbose::Bool=true) = init_variables(model_(spec
 
 Returns a named tuple with the name and the types of the variables needed by a model, or a
 union of those for several models.
+Distributed outputs report their payload types, rather than declaration types.
 
 # Examples
 
@@ -347,8 +352,8 @@ function variables_typed(m::T) where {T<:AbstractModel}
         Symbol(name) => _input_expected_type(declaration)
         for (name, declaration) in pairs(in_vars)
     )
-    out_vars = outputs_(m)
-    out_vars_type = Dict(zip(keys(out_vars), typeof(out_vars).types))
+    out_vars = _output_schema(m)
+    out_vars_type = Dict(name => _output_value_type(value) for (name, value) in pairs(out_vars))
 
     # Merge both with type promotion:
     vars = mergewith(promote_type, in_vars_type, out_vars_type)

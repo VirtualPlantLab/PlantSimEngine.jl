@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { applicationPortId, applicationsForPort, deriveCandidatePortIds, endpointsForCandidate, modelsForPort, objectSubtreeIds, selectorSuggestion } from "./App";
 import type { ApplicationGraphNode, GraphPort, ModelDescriptor, ObjectGraphNode, ModelGraphView } from "./types";
 
-const output: GraphPort = { id: applicationPortId("source", "output", "signal"), name: "signal", role: "output", default: 0, defaultJulia: "0", expectedType: "Int" };
-const input: GraphPort = { id: applicationPortId("consumer", "input", "signal"), name: "signal", role: "input", default: 0, defaultJulia: "0", expectedType: "Int" };
+const output: GraphPort = { id: applicationPortId("source", "output", "signal"), name: "signal", role: "output", storage: "local", default: 0, defaultJulia: "0", expectedType: "Int" };
+const input: GraphPort = { id: applicationPortId("consumer", "input", "signal"), name: "signal", role: "input", storage: "local", default: 0, defaultJulia: "0", expectedType: "Int" };
 
 const source = application("source", [], [output], ["leaf"]);
 const consumer = application("consumer", [input], [], ["leaf"]);
@@ -64,7 +64,7 @@ function application(id: string, inputs: GraphPort[], outputs: GraphPort[], targ
     id: `application:${id}`, applicationId: id, owner: { scope: "global", applicationId: id, instance: null, templateId: null }, name: id, process: id, modelType: id, modelName: id, module: "Main", package: null,
     modelParameters: {}, selector: { type: "One", multiplicity: "one", criteria: { selectors: [], scale: "Leaf" }, julia: "" },
     targetIds, targetCount: targetIds.length, targetScales: ["Leaf"], targetKinds: [], targetSpecies: [], targetInstances: [], cadence: { mode: "default", value: null, unit: null, julia: "nothing" }, clock: null,
-    inputs, outputs, environmentInputs: [], environmentOutputs: [], inputBindings: {}, callBindings: {}, environment: null, environmentBindings: {}, environmentWindow: { mode: "default", value: null, unit: null, julia: "nothing" }, outputRouting: {}, updates: [], modelStorage: "shared_application", objectOverrides: [],
+    inputs, outputs, environmentInputs: [], environmentOutputs: [], inputBindings: {}, callBindings: {}, environment: null, environmentBindings: {}, environmentWindow: { mode: "default", value: null, unit: null, julia: "nothing" }, outputRouting: {}, outputsTo: [], updates: [], modelStorage: "shared_application", objectOverrides: [],
   };
 }
 

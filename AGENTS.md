@@ -10,6 +10,8 @@ API.
 - `@process` defines the abstract process type.
 - `process(model)` identifies the process.
 - `inputs_(model)` and `outputs_(model)` declare status variables.
+- In `outputs_`, `Distributed(Default(value))` or `Distributed(Required(T))`
+  declares an output on selected destination objects. Ordinary values stay local.
 - `environment_inputs_(model)` and `environment_outputs_(model)` declare environment
   variables.
 - `dep(model)` optionally returns model-author defaults using `Input(...)` and
@@ -48,6 +50,10 @@ ModelSpec(model; name=:application, on=selector, inputs=(...), calls=(...), ever
 
 - `on` selects where the model runs.
 - `inputs` declares value dependencies.
+- `outputs_to` is a tuple of anonymous `OutputTo(selector; vars=...)` entries.
+  One entry can omit `vars` to bind all distributed outputs; several entries
+  must explicitly partition their names. Kernels request columns with
+  `output_targets(context, (:variable,))`.
 - `calls` declares manually executable hard dependencies.
 - `Updates(:x; after=:producer)` orders intentional duplicate writers.
 - `output_routing=(x=:stream_only,)` excludes an output from canonical

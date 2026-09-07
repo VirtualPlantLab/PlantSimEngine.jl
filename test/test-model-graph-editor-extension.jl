@@ -13,6 +13,13 @@ struct EditorConsumerModel <: AbstractEditorConsumerModel end
 PlantSimEngine.inputs_(::EditorConsumerModel) = (signal=Required(Float64),)
 PlantSimEngine.outputs_(::EditorConsumerModel) = (result=-Inf,)
 
+struct EditorDistributedModel <: AbstractEditorSourceModel end
+PlantSimEngine.outputs_(::EditorDistributedModel) = (
+    signal=Distributed(Default(0.0)),
+    absorbed=Distributed(Default(0.0)),
+    total=0.0,
+)
+
 struct EditorNamedStatusTransform end
 
 function (::EditorNamedStatusTransform)(variable, value)
@@ -66,6 +73,45 @@ editor_template_ref(instance, application_id) = Dict(
     "applicationId" => string(application_id),
     "instance" => string(instance),
 )
+
+@testset "Editor output destinations preserve omission and variable partitions" begin
+    model = CompositeModel(
+        Object(10; scale=:Scene), Object(11; scale=:Leaf, parent=10);
+        applications=(ModelSpec(EditorDistributedModel(); name=:writer, on=One(id=10),
+            outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope())),)),),
+    )
+    session = edit_graph(model; port=0, open_browser=false, autosave=false)
+    extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
+    try
+        selector = Dict("multiplicity" => "one", "criteria" => Dict("id" => 11))
+        command = Dict(
+            "kind" => "set_output_destinations",
+            "applicationRef" => editor_global_ref(:writer),
+            "destinations" => [Dict("selector" => selector, "vars" => nothing)],
+        )
+        inferred = extension._edit_from_command(session, command)
+        @test only(inferred.destinations).vars === nothing
+        command["destinations"] = [Dict("selector" => selector, "vars" => ["absorbed", "signal"])]
+        explicit = extension._edit_from_command(session, command)
+        edited = apply_model_graph_edit(session.model, explicit)
+        @test only(outputs_to(only(edited.applications))).vars == (:absorbed, :signal)
+        @test only(outputs_to(only(session.model.applications))).vars === nothing
+
+        command["destinations"] = [Dict("selector" => selector, "vars" => [name]) for name in ("signal", "absorbed")]
+        partition = extension._edit_from_command(session, command)
+        edited_partition = apply_model_graph_edit(session.model, partition)
+        @test Tuple(entry.vars for entry in outputs_to(only(edited_partition.applications))) == ((:signal,), (:absorbed,))
+        restored = Base.include_string(Main, Authoring.scenario_source(edited_partition), "editor_output_destinations.jl")
+        @test Tuple(entry.vars for entry in outputs_to(only(restored.applications))) == ((:signal,), (:absorbed,))
+
+        command["destinations"] = [Dict("selector" => selector, "vars" => String[])]
+        @test_throws "requires at least one variable name" extension._edit_from_command(session, command)
+        command["destinations"] = [Dict("selector" => selector, "vars" => Dict("signal" => 0.0))]
+        @test_throws "null or an array" extension._edit_from_command(session, command)
+    finally
+        close(session)
+    end
+end
 
 @testset "session lifecycle and edits" begin
     model = CompositeModel(

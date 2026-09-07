@@ -655,7 +655,8 @@ struct InitializerDistributedWriterModel{T} <:
 end
 
 PlantSimEngine.inputs_(::InitializerDistributedWriterModel) = NamedTuple()
-PlantSimEngine.outputs_(::InitializerDistributedWriterModel) = NamedTuple()
+PlantSimEngine.outputs_(::InitializerDistributedWriterModel) =
+    (incident_par=Distributed(Default(0.0)),)
 
 function PlantSimEngine.run!(
     model::InitializerDistributedWriterModel,
@@ -664,7 +665,7 @@ function PlantSimEngine.run!(
     constants,
     context,
 )
-    targets = output_targets(context, :plants)
+    targets = output_targets(context, (:incident_par,))
     fill!(targets.columns.incident_par, model.multiplier * context.time)
     return nothing
 end
@@ -753,17 +754,23 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+struct InitializerRemoteMassModel <: AbstractInitializer_Distributed_WriterModel end
+# This fixture is only used to exercise initializer/distributed-writer validation.
+PlantSimEngine.inputs_(::InitializerRemoteMassModel) = (previous_mass=Default(0.0),)
+PlantSimEngine.outputs_(::InitializerRemoteMassModel) = (mass=Distributed(Default(0.0)),)
+
 function initializer_leaf_application(;
     every=nothing,
     output_routing=NamedTuple(),
-    outputs_to=NamedTuple(),
+    outputs_to=(),
     calls=NamedTuple(),
     environment=nothing,
     policy=PreviousTimeStep(:previous_mass),
     throw_after_mutation=false,
+    model=InitializerLeafStateModel(throw_after_mutation),
 )
     return ModelSpec(
-        InitializerLeafStateModel(throw_after_mutation);
+        model;
         name=:leaf_initializer,
         on=Many(scale=:Leaf),
         inputs=(
@@ -881,9 +888,9 @@ end
                 name=:writer_a,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    plants=OutputTo(
+                    OutputTo(
                         Many(id=:plant_a, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -892,9 +899,9 @@ end
                 name=:writer_b,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    plants=OutputTo(
+                    OutputTo(
                         Many(id=:plant_b, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -1603,13 +1610,13 @@ end
             initializer_creator_application(),
             initializer_leaf_application(),
             ModelSpec(
-                InitializerOverlapWriterModel();
+                InitializerRemoteMassModel();
                 name=:distributed_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(mass=Default(0.0),),
+                        vars=(:mass,),
                     ),
                 ),
             ),
@@ -1640,10 +1647,11 @@ end
         applications=(
             initializer_creator_application(),
             initializer_leaf_application(
+                model=InitializerRemoteMassModel(),
                 outputs_to=(
-                    plant=OutputTo(
+                    OutputTo(
                         One(scale=:Plant, within=SceneScope());
-                        vars=(mass=Default(0.0),),
+                        vars=(:mass,),
                     ),
                 ),
             ),

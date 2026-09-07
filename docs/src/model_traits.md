@@ -29,8 +29,12 @@ Choose a type that fits the calculation; it need not always be `Float64`.
 model provides one. Each object gets its own copy. For example, changing a
 default array on one leaf does not change the array on another leaf.
 
-The values in `outputs_` are the outputs' starting values. In this example,
-`assimilation` starts at `0.0` before the model first runs.
+Ordinary values in `outputs_` are local outputs' starting values. In this
+example, `assimilation` starts at `0.0` before the model first runs. Wrap an
+output as `Distributed(Default(value))` or `Distributed(Required(T))` when
+it belongs on destination objects selected by `ModelSpec(...; outputs_to=...)`.
+`outputs(model)` lists both local and distributed output names; the model can
+be inspected without a scenario. See [coupling values across objects](guides/multiscale/value_coupling.md).
 
 PlantSimEngine uses these declarations to prepare each object's values,
 connect models, and find missing inputs. Writing a plain number in `inputs_`
@@ -38,8 +42,9 @@ is rejected: it would not say whether the model needs a supplied value or
 can use a default.
 
 Use `init_variables(model)` to inspect only values PlantSimEngine can
-initialize by itself: `Default` input values and output initial values.
-Required inputs are intentionally omitted.
+initialize on an execution object: `Default` input values and local output
+initial values. Required inputs and distributed outputs are omitted; their
+destination storage is checked when the scenario is compiled.
 
 Before running a scenario, `Diagnostics.explain_initialization(model)` classifies inputs as
 `:required`, `:defaulted`, `:supplied`, or `:producer_bound`. A
@@ -82,8 +87,11 @@ stored. Your equations still receive numbers or arrays, including compatible
 types that carry units, uncertainty, or derivatives.
 
 Use `variable_contracts(model)` to inspect the validated declarations. Contract
-keys must occur in one of the model's declared status or environment traits, or
-in the compiled application's distributed `outputs_to` declaration.
+keys must occur in one of the model's declared status or environment traits.
+Distributed outputs are declared in `outputs_` with `Distributed(Default(value))`
+or `Distributed(Required(T))`, so their contracts are inspectable without a
+scenario. `outputs_to` selects their destinations and does not declare their
+schema.
 
 | Value or operation | Declaration | Where it comes from or goes |
 |---|---|---|
@@ -92,7 +100,7 @@ in the compiled application's distributed `outputs_to` declaration.
 | Constant | the `constants` argument | Values supplied for the simulation, such as physical constants |
 | Manual model call | `dep` plus `ModelSpec(...; calls=...)` | Another model that this model decides when to run |
 | Output on the current object | `outputs_` | The object on which this model runs |
-| Outputs on other objects | `ModelSpec(...; outputs_to=...)` | Selected objects, such as leaves receiving a scene light calculation |
+| Outputs on other objects | `Distributed(...)` in `outputs_`, bound by `ModelSpec(...; outputs_to=...)` | Selected objects, such as leaves receiving a scene light calculation |
 
 ## Manual Dependencies
 

@@ -300,7 +300,7 @@ function PlantSimEngine.run!(
 end
 
 PlantSimEngine.inputs_(::SourceCompilerDistributedModel) = NamedTuple()
-PlantSimEngine.outputs_(::SourceCompilerDistributedModel) = (local_value=0.0,)
+PlantSimEngine.outputs_(::SourceCompilerDistributedModel) = (local_value=0.0, distributed_value=Distributed(Default(0.0)))
 
 function PlantSimEngine.run!(
     ::SourceCompilerDistributedModel,
@@ -310,7 +310,7 @@ function PlantSimEngine.run!(
     context,
 )
     status.local_value += one(status.local_value)
-    leaves = output_targets(context, :leaves)
+    leaves = output_targets(context, (:distributed_value,))
     for index in eachindex(leaves.columns.distributed_value)
         leaves.columns.distributed_value[index] =
             status.local_value + convert(typeof(status.local_value), index)
@@ -513,9 +513,9 @@ function source_compiler_distributed_fixture()
                 name=:distributed,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(distributed_value=Default(0.0),),
+                        vars=(:distributed_value,),
                     ),
                 ),
             ),
@@ -784,7 +784,7 @@ end
         source_compiler_distributed_fixture();
         function_name=:distributed_source_model!,
     )
-    @test occursin("distributed outputs: leaves=>", source)
+    @test occursin("distributed outputs:", source) && occursin("distributed_value", source)
     path = tempname() * ".jl"
     write(path, source)
     generated_module = Module(gensym(:DistributedSourceModel))

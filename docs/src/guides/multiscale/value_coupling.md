@@ -72,9 +72,15 @@ so do not store it in your model for later calls.
 
 Some models run once for a scene or plant but compute one value per organ.
 For example, a light model may calculate illumination for the whole scene
-and then store each leaf's irradiance on that leaf. Declare these
-destinations with `outputs_to`, and use object IDs to assign each result to
-the right leaf:
+and then store each leaf's irradiance on that leaf. Declare the output
+variables in the model with `Distributed`, select their destinations in the
+scenario with `outputs_to`, and use object IDs to assign each result to the
+right leaf.
+
+The following is a wrapper skeleton for a solver you supply. Its names and
+zero defaults illustrate the API; they do not define radiation units or a
+light calculation. Complete its status inputs, environment inputs, and
+scientific contracts for the chosen solver before using it:
 
 ```julia
 PlantSimEngine.@process "scene light" verbose = false
@@ -84,7 +90,11 @@ struct SceneLightModel{F} <: AbstractScene_LightModel
 end
 
 PlantSimEngine.inputs_(::SceneLightModel) = NamedTuple()
-PlantSimEngine.outputs_(::SceneLightModel) = NamedTuple()
+PlantSimEngine.outputs_(::SceneLightModel) = (
+    incident_par=Distributed(Default(0.0)),
+    absorbed_par=Distributed(Default(0.0)),
+)
+# Declare environment_inputs_ and variable_contracts_ for your solver.
 
 function PlantSimEngine.run!(
     model::SceneLightModel,
@@ -93,7 +103,7 @@ function PlantSimEngine.run!(
     constants,
     context,
 )
-    targets = output_targets(context, :leaves)
+    targets = output_targets(context, (:incident_par, :absorbed_par))
     result = model.solve(
         runtime_model(context),
         environment,
@@ -118,16 +128,53 @@ light_application = ModelSpec(
     name=:scene_light,
     on=One(scale=:Scene),
     outputs_to=(
-        leaves=OutputTo(
-            Many(scale=:Leaf, within=SceneScope());
-            vars=(
-                incident_par=Default(0.0),
-                absorbed_par=Default(0.0),
-            ),
-        ),
+        OutputTo(Many(scale=:Leaf, within=SceneScope())),
     ),
 )
 ```
+
+A single `OutputTo` with omitted `vars` binds all the model's `Distributed`
+outputs, in declaration order. It is equivalent to:
+
+```julia
+OutputTo(
+    Many(scale=:Leaf, within=SceneScope());
+    vars=(:incident_par, :absorbed_par),
+)
+```
+
+Ordinary outputs, such as `intercepted_total=0.0`, remain on the scene's
+status. This also applies to local arrays, tuples, and other structured
+values: only `Distributed(...)` changes the destination. The wrappers
+are declarations and are never stored in object status. A destination
+selector may also include the execution object itself, for example to store
+a plant total alongside organ values. That object receives the variable
+because it is a selected destination; the declaration adds no implicit local
+field.
+
+If you supply several `OutputTo` entries, each must give an explicit,
+nonempty tuple of variable names. Every distributed variable must occur
+exactly once; missing, duplicate, unknown, or local variable names are
+errors before destination initialization. A single declaration cannot infer
+variables from a model with no distributed outputs. A valid `Many` selector
+may currently match no objects and acquire destinations as the plant grows.
+
+`Distributed(Default(value))` can initialize a missing destination field.
+`Distributed(Required(T))` requires each destination to have a compatible
+field already. Neither declaration makes the output optional. A consumer's
+`Required(T)` input does not provide an initial value. Existing competing
+writers still need explicit `Updates` ordering. Distributed outputs write
+canonical destination status, so routing a distributed variable with, for
+example, `output_routing=(incident_par=:stream_only,)` is rejected.
+
+A kernel can request a subset, such as `output_targets(context, (:absorbed_par,))`.
+A combined request exposes exactly the named columns, in the requested order,
+and requires identical ordered object IDs for all of them. This also works
+when separate `OutputTo` entries select the same objects. Different destination
+sets cause an error at lookup, before the solver runs in the wrapper above.
+Use separate views only when the calculation supports separate destination
+sets. Compilation validates variable bindings; it cannot infer arbitrary
+combined-view requests inside a kernel.
 
 Inside `run!`, `targets.columns.incident_par` and
 `targets.columns.absorbed_par` give direct access to the selected leaves'
@@ -135,6 +182,26 @@ values. `object_ids(targets)` lists their IDs in the same order; this list
 cannot be modified. Write directly by position only if your calculation
 already uses that exact order. For a separate result table with its own IDs,
 use `assign_outputs!` to match the rows to leaves.
+
+### Declare the solver's inputs and environment
+
+The empty `inputs_` above means this skeleton declares no status inputs.
+If the solver reads areas, optical properties, or other model values, declare
+those inputs and bind cross-object values explicitly, for example with
+`Many`. Access to `runtime_model(context)` does not replace those declarations.
+
+Likewise, declare every environmental variable the solver reads in
+`environment_inputs_`. The unspecified `solve_light` callback determines
+these requirements; this example does not assume weather fields, solar
+position inputs, units, or equations. Keep `environment_outputs_` empty when
+the solver only writes object status. Declare environment outputs and use
+`commit_environment!` only when it commits accepted changes to an environment
+backend. Distributed status writes and environment commits are separate
+operations.
+
+Use `variable_contracts_` with the output variable names to specify units,
+basis, time meaning, aggregation, and extent. Selectors only choose objects;
+they do not establish these scientific properties.
 
 ## Consume those values normally
 
@@ -195,7 +262,7 @@ the same rules:
 |---|---|
 | One row for every current destination | Required |
 | Unknown, duplicate, extra, or missing IDs | Rejected before any destination value changes |
-| Every variable declared by `OutputTo` | Required |
+| Every variable requested in the target view | Required |
 | Additional columns such as solver metadata | Ignored |
 | Result columns sharing memory with destination columns | Rejected, except assigning a column to itself in exactly the same order |
 

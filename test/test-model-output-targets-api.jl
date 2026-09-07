@@ -35,14 +35,8 @@ end
 PlantSimEngine.inputs_(::OutputTargetsApiActionModel) = NamedTuple()
 PlantSimEngine.outputs_(::OutputTargetsApiActionModel) = NamedTuple()
 
-function PlantSimEngine.run!(
-    model::OutputTargetsApiWriterModel,
-    status,
-    environment,
-    constants,
-    context,
-)
-    targets = output_targets(context, :organs)
+function output_targets_api_run!(model::OutputTargetsApiWriterModel, context, variables)
+    targets = output_targets(context, variables)
     push!(model.seen_types, typeof(targets))
     push!(model.seen_ids, collect(object_ids(targets)))
     push!(model.seen_lengths, length(targets))
@@ -51,14 +45,19 @@ function PlantSimEngine.run!(
     return nothing
 end
 
-function PlantSimEngine.run!(
-    model::OutputTargetsApiActionModel,
-    status,
-    environment,
-    constants,
-    context,
-)
+function output_targets_api_run!(model::OutputTargetsApiActionModel, context, variables)
     model.action(context)
+    return nothing
+end
+
+struct OutputTargetsApiSchemaModel{M,O} <: AbstractOutput_Targets_Api_WriterModel
+    writer::M
+    declarations::O
+end
+PlantSimEngine.inputs_(::OutputTargetsApiSchemaModel) = NamedTuple()
+PlantSimEngine.outputs_(model::OutputTargetsApiSchemaModel) = model.declarations
+function PlantSimEngine.run!(model::OutputTargetsApiSchemaModel, status, environment, constants, context)
+    output_targets_api_run!(model.writer, context, keys(model.declarations))
     return nothing
 end
 
@@ -79,7 +78,7 @@ end
 function output_targets_api_scene(
     writer;
     leaf_ids=(:leaf_a, :leaf_b),
-    vars=(incident_par=Default(0.0),),
+    declarations=(incident_par=Default(0.0),),
 )
     objects = Object[Object(:scene; scale=:Scene)]
     for leaf_id in leaf_ids
@@ -92,13 +91,13 @@ function output_targets_api_scene(
         objects...;
         applications=(
             ModelSpec(
-                writer;
+                OutputTargetsApiSchemaModel(writer, map(Distributed, declarations));
                 name=:output_targets_api_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    organs=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=vars,
+                        vars=keys(declarations),
                     ),
                 ),
             ),
@@ -113,10 +112,10 @@ end
 
 function output_targets_api_failed_assignment(
     table;
-    vars=(incident_par=Default(0.0),),
+    declarations=(incident_par=Default(0.0),),
 )
     writer = OutputTargetsApiWriterModel(table)
-    model = output_targets_api_scene(writer; vars=vars)
+    model = output_targets_api_scene(writer; declarations=declarations)
     error = try
         run!(model; outputs=:none)
         nothing
@@ -174,7 +173,7 @@ end
     writer = OutputTargetsApiWriterModel(table)
     model = output_targets_api_scene(
         writer;
-        vars=(
+        declarations=(
             incident_par=Default(0.0),
             absorbed_par=Default(0.0),
         ),
@@ -206,13 +205,13 @@ end
         source_element=[:element_b, :element_a],
     )
     writer = OutputTargetsApiActionModel() do context
-        targets = output_targets(context, :organs)
+        targets = output_targets(context, (:incident_par, :absorbed_par))
         assigned = assign_outputs!(targets, ids, columns)
         @test assigned === targets
     end
     model = output_targets_api_scene(
         writer;
-        vars=(
+        declarations=(
             incident_par=Default(0.0),
             absorbed_par=Default(0.0),
         ),
@@ -239,7 +238,7 @@ end
         exact_allocations = Ref(-1)
         permuted_allocations = Ref(-1)
         writer = OutputTargetsApiActionModel() do context
-            targets = output_targets(context, :organs)
+            targets = output_targets(context, names)
 
             assign_outputs!(targets, exact_ids, exact_columns)
             exact_allocations[] = @allocated assign_outputs!(
@@ -257,7 +256,7 @@ end
         end
         model = output_targets_api_scene(
             writer;
-            vars=output_targets_api_wide_vars(names),
+            declarations=output_targets_api_wide_vars(names),
         )
         simulation = run!(model; outputs=:none)
 
@@ -280,7 +279,7 @@ end
         push!(
             lookup_errors,
             output_targets_api_capture(
-                () -> output_targets(context, :missing_group),
+                () -> output_targets(context, (:missing_output,)),
             ),
         )
         push!(
@@ -290,7 +289,7 @@ end
             ),
         )
         assign_outputs!(
-            output_targets(context, :organs),
+            output_targets(context, (:incident_par,)),
             ObjectId[ObjectId(:leaf_a), ObjectId(:leaf_b)],
             (incident_par=[1.0, 2.0],),
         )
@@ -301,15 +300,15 @@ end
     @test length(lookup_errors) == 2
     @test all(error -> error isa ArgumentError, lookup_errors)
     missing_message = output_targets_api_error_message(lookup_errors[1])
-    @test occursin("missing_group", missing_message)
-    @test occursin("available groups", missing_message)
-    @test occursin("organs", missing_message)
+    @test occursin("missing_output", missing_message)
+    @test occursin("distributed", missing_message)
+    @test occursin("incident_par", missing_message)
     invalid_message = output_targets_api_error_message(lookup_errors[2])
-    @test occursin("symbol", invalid_message)
+    @test occursin("tuple", invalid_message)
     @test occursin("string", invalid_message)
 
     invalid_context_error = output_targets_api_capture(
-        () -> output_targets(nothing, :organs),
+        () -> output_targets(nothing, (:incident_par,)),
     )
     @test invalid_context_error isa ArgumentError
     invalid_context_message = output_targets_api_error_message(
@@ -328,7 +327,7 @@ end
     values_after_cross_carrier_view_alias = Ref(Float64[])
     values_after_cross_carrier_alias = Ref(Float64[])
     writer = OutputTargetsApiActionModel() do context
-        targets = output_targets(context, :organs)
+        targets = output_targets(context, (:incident_par,))
         targets.columns.incident_par[1] = 10.0
         targets.columns.incident_par[2] = 20.0
         exact_ids = collect(object_ids(targets))
@@ -419,7 +418,7 @@ end
     incident_after_error = Ref(Float64[])
     absorbed_after_error = Ref(Float64[])
     writer = OutputTargetsApiActionModel() do context
-        targets = output_targets(context, :organs)
+        targets = output_targets(context, (:incident_par, :absorbed_par))
         targets.columns.incident_par[1] = 10.0
         targets.columns.incident_par[2] = 20.0
         targets.columns.absorbed_par[1] = 1.0
@@ -440,7 +439,7 @@ end
     end
     model = output_targets_api_scene(
         writer;
-        vars=(
+        declarations=(
             incident_par=Default(0.0),
             absorbed_par=Default(0.0),
         ),
@@ -479,7 +478,7 @@ end
     model = output_targets_api_scene(
         writer;
         leaf_ids=(:leaf_a, :leaf_b, :leaf_c),
-        vars=(
+        declarations=(
             incident_par=Default(0.0),
             absorbed_par=Default(0.0),
         ),
@@ -539,7 +538,7 @@ end
     recovery_error = Ref{Any}(nothing)
     values_after_invalid = Ref(Float64[])
     writer = OutputTargetsApiActionModel() do context
-        targets = output_targets(context, :organs)
+        targets = output_targets(context, (:incident_par,))
         assign_outputs!(
             targets,
             valid_ids,
@@ -583,7 +582,7 @@ end
     writer = OutputTargetsApiWriterModel(column_table)
     model = output_targets_api_scene(
         writer;
-        vars=(
+        declarations=(
             incident_par=Default(0.0),
             organ_label=Default(:unset),
             hit_count=Default(0),
@@ -660,7 +659,7 @@ end
     )
     error, model = output_targets_api_failed_assignment(
         invalid_late_column;
-        vars=(
+        declarations=(
             incident_par=Default(0.0),
             hit_count=Default(0),
         ),
@@ -737,7 +736,7 @@ end
     )
     error, model = output_targets_api_failed_assignment(
         missing_column_table;
-        vars=(
+        declarations=(
             incident_par=Default(0.0),
             absorbed_par=Default(0.0),
         ),
@@ -823,4 +822,169 @@ end
     @test last(writer.seen_lengths) == 1
     @test last(writer.seen_ids) == ObjectId[ObjectId(:first_leaf)]
     @test final_state(simulation, :first_leaf).incident_par == 7.5
+end
+
+function output_targets_api_split_scene(action; second_selector=Many(kind=:leaf), empty=false)
+    objects = Object[Object(:scene; scale=:Scene)]
+    if !empty
+        append!(objects, [
+            Object(:leaf_b; scale=:Leaf, kind=:leaf, parent=:scene),
+            Object(:leaf_a; scale=:Leaf, kind=:leaf, parent=:scene),
+        ])
+    end
+    model = OutputTargetsApiSchemaModel(OutputTargetsApiActionModel(action), (
+        x=Distributed(Default(0.0f0)),
+        y=Distributed(Default(0.0f0)),
+    ))
+    return CompositeModel(objects...; applications=(
+        ModelSpec(model; name=:split_writer, on=One(scale=:Scene), outputs_to=(
+            OutputTo(Many(scale=:Leaf); vars=(:x,)),
+            OutputTo(second_selector; vars=(:y,)),
+        )),
+    ), environment=(duration=Hour(1),))
+end
+
+@testset "combined output views align independent declarations by object ID" begin
+    seen = Ref(0)
+    scenario = output_targets_api_split_scene() do context
+        combined = output_targets(context, (:y, :x))
+        x_only = output_targets(context, (:x,))
+        @test propertynames(combined.columns) == (:y, :x)
+        @test propertynames(x_only.columns) == (:x,)
+        @test object_ids(combined) == object_ids(x_only)
+        @test collect(object_ids(combined)) == ObjectId.([:leaf_a, :leaf_b])
+        @test eltype(combined.columns.x) === Float32
+        @test eltype(combined.columns.y) === Float32
+        assign_outputs!(combined, ObjectId.([:leaf_b, :leaf_a]),
+            (x=Float32[20, 10], y=Float32[2, 1], metadata=["b", "a"]))
+        @test collect(x_only.columns.x) == Float32[10, 20]
+        x_only.columns.x[1] = 30.0f0
+        @test combined.columns.x[1] === 30.0f0
+        @test_throws ArgumentError output_targets(context, ())
+        @test_throws ArgumentError output_targets(context, (:x, :x))
+        @test_throws ArgumentError output_targets(context, (:x, :unknown))
+        @test_throws ArgumentError output_targets(context, :x)
+        seen[] += 1
+    end
+    simulation = run!(scenario; outputs=:all)
+    @test seen[] == 1
+    @test final_state(simulation, :leaf_a).x === 30.0f0
+    @test final_state(simulation, :leaf_a).y === 1.0f0
+    @test final_state(simulation, :leaf_b).x === 20.0f0
+    @test !(:x in propertynames(model_object(scenario, :scene).status))
+    @test haskey(outputs(simulation), (:split_writer, ObjectId(:leaf_a), :x))
+    @test !haskey(outputs(simulation), (:split_writer, ObjectId(:scene), :x))
+end
+
+@testset "combined output view rejects unequal destinations before assignment" begin
+    calls_after_lookup = Ref(0)
+    action = context -> begin
+        targets = output_targets(context, (:x, :y))
+        calls_after_lookup[] += 1
+        fill!(targets.columns.x, 1.0f0)
+    end
+    scenario = output_targets_api_split_scene(action;
+        second_selector=One(id=:leaf_b))
+    Advanced.refresh_bindings!(scenario) # Both independent bindings are valid.
+    @test_throws ArgumentError run!(scenario; outputs=:none)
+    @test calls_after_lookup[] == 0
+    @test model_object(scenario, :leaf_a).status.x === 0.0f0
+    @test model_object(scenario, :leaf_b).status.y === 0.0f0
+
+    separate = output_targets_api_split_scene(; second_selector=One(id=:leaf_b)) do context
+        fill!(output_targets(context, (:x,)).columns.x, 2.0f0)
+        fill!(output_targets(context, (:y,)).columns.y, 3.0f0)
+    end
+    simulation = run!(separate; outputs=:none)
+    @test final_state(simulation, :leaf_a).x === 2.0f0
+    @test final_state(simulation, :leaf_b).y === 3.0f0
+end
+
+@testset "combined views refresh empty, growing, removed and unequal targets" begin
+    lengths = Int[]
+    scenario = output_targets_api_split_scene(; empty=true) do context
+        targets = output_targets(context, (:x, :y))
+        push!(lengths, length(targets))
+        fill!(targets.columns.x, 4.0f0)
+        fill!(targets.columns.y, 5.0f0)
+    end
+    simulation = run!(scenario; outputs=:all)
+    @test lengths == [0]
+    register_object!(scenario, Object(:new_leaf; scale=:Leaf, kind=:leaf); parent=:scene)
+    continue!(simulation)
+    @test lengths == [0, 1]
+    @test final_state(simulation, :new_leaf).x === 4.0f0
+    @test final_state(simulation, :new_leaf).y === 5.0f0
+    remove_object!(scenario, :new_leaf)
+    continue!(simulation)
+    @test lengths == [0, 1, 0]
+    @test length(outputs(simulation)[(:split_writer, ObjectId(:new_leaf), :x)]) == 1
+    register_object!(scenario, Object(:unmatched_leaf; scale=:Leaf, kind=:other); parent=:scene)
+    @test_throws ArgumentError continue!(simulation)
+    @test lengths == [0, 1, 0]
+    @test model_object(scenario, :unmatched_leaf).status.x === 0.0f0
+end
+
+# Measure lookup itself through a specialized kernel call, independently of
+# assign_outputs! and its warmed result-row permutation cache.
+@noinline function output_targets_api_literal_lookup(context)
+    return output_targets(context, (:x, :y))
+end
+
+function output_targets_api_lookup_allocations(context)
+    output_targets_api_literal_lookup(context)
+    return @allocated output_targets_api_literal_lookup(context)
+end
+
+@testset "literal-tuple output lookup is inferred and allocation-free" begin
+    for separate_declarations in (false, true)
+        allocations = Int[]
+        action = context -> begin
+            targets = @inferred output_targets_api_literal_lookup(context)
+            @test propertynames(targets.columns) == (:x, :y)
+            @test length(targets) == 2
+            push!(allocations, output_targets_api_lookup_allocations(context))
+            fill!(targets.columns.x, 7)
+            fill!(targets.columns.y, 8)
+            return nothing
+        end
+        scenario = if separate_declarations
+            output_targets_api_split_scene(action)
+        else
+            output_targets_api_scene(OutputTargetsApiActionModel(action);
+                declarations=(x=Default(0.0f0), y=Default(0.0f0)))
+        end
+        simulation = run!(scenario; steps=2, outputs=:none)
+        @test allocations == [0, 0]
+        @test final_state(simulation, :leaf_a).x === 7.0f0
+        @test final_state(simulation, :leaf_b).y === 8.0f0
+    end
+end
+
+@testset "a distributed selector may include its execution object" begin
+    action = context -> begin
+        targets = output_targets(context, (:x,))
+        assign_outputs!(targets, ObjectId.([:leaf_b, :plant, :leaf_a]),
+            (x=[7.0, 10.0, 3.0],))
+    end
+    writer = OutputTargetsApiSchemaModel(OutputTargetsApiActionModel(action),
+        (x=Distributed(Default(0.0)),))
+    scenario = CompositeModel(
+        Object(:plant; scale=:Plant),
+        Object(:leaf_a; scale=:Leaf, parent=:plant),
+        Object(:leaf_b; scale=:Leaf, parent=:plant);
+        applications=(ModelSpec(writer; name=:inclusive_writer, on=One(scale=:Plant),
+            outputs_to=(OutputTo(Many(scale=(:Plant, :Leaf), within=Subtree())),)),),
+    )
+    simulation = run!(scenario; outputs=:all)
+    @test final_state(simulation, :plant).x == 10.0
+    @test final_state(simulation, :leaf_a).x == 3.0
+    @test final_state(simulation, :leaf_b).x == 7.0
+    application = only(Diagnostics.explain_applications(scenario))
+    @test application.local_outputs == ()
+    @test application.distributed_outputs == (:x,)
+    writer_row = only(row for row in Diagnostics.explain_writers(scenario)
+        if row.object_id == :plant && row.variable == :x)
+    @test writer_row.owner_kinds == [:output_destination]
+    @test last.(outputs(simulation)[(:inclusive_writer, ObjectId(:plant), :x)]) == [10.0]
 end

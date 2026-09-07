@@ -810,23 +810,43 @@ end
 function _model_graph_port(application, role::Symbol, variable, declaration)
     name = Symbol(variable)
     is_input = role == :input
-    default = is_input && declaration isa Required ? nothing :
-              is_input ? declaration.value :
-              declaration
-    expected_type = is_input ?
-                    _input_expected_type(declaration) :
-                    typeof(declaration)
+    distributed = role == :output && declaration isa Distributed
+    payload = distributed ? declaration.declaration : declaration
+    has_policy = is_input || distributed
+    default = has_policy ? (payload isa Required ? nothing : payload.value) : payload
+    expected_type = has_policy ? _input_expected_type(payload) : typeof(payload)
     port = Dict{String,Any}(
         "id" => _model_graph_port_id(application.id, role, name),
         "name" => string(name),
         "role" => string(role),
+        "storage" => distributed ? "distributed" :
+                     role in (:input, :output) ? "local" : "environment",
         "default" => _model_graph_json_value(default),
         "defaultJulia" => isnothing(default) ? nothing : repr(default),
         "expectedType" => string(expected_type),
     )
-    is_input && (port["declaration"] =
-        declaration isa Required ? "required" : "defaulted")
+    port["declaration"] = has_policy ?
+                          (payload isa Required ? "required" : "defaulted") : "initial"
     return port
+end
+
+function _model_graph_output_destinations(spec)
+    resolved = try
+        _resolved_output_destinations(spec)
+    catch
+        # Invalid declarations remain editable; compilation reports the error.
+        nothing
+    end
+    return Dict{String,Any}[
+        Dict{String,Any}(
+            "selector" => _model_graph_selector_dict(destination.selector),
+            "vars" => isnothing(destination.vars) ? nothing : collect(string.(destination.vars)),
+            "resolvedVars" => isnothing(resolved) ? nothing : collect(string.(keys(resolved[index].vars))),
+            "origin" => isnothing(destination.vars) ? "inferred" : "explicit",
+            "coverage" => string(destination.coverage),
+        )
+        for (index, destination) in pairs(outputs_to(spec))
+    ]
 end
 
 function _model_graph_environment_catalog_id(value, environment_catalog)
@@ -871,7 +891,7 @@ function _model_graph_application_dict(
     process_model = _application_default_model(application)
     spec = application.spec
     inputs = _input_schema(application.spec)
-    outputs = outputs_(application.spec)
+    outputs = _output_schema(application.spec)
     environment_inputs = environment_inputs_(application.spec)
     environment_outputs = environment_outputs_(application.spec)
     target_objects = [_model_object(composite_model, id) for id in application.target_ids]
@@ -936,6 +956,7 @@ function _model_graph_application_dict(
         "environmentBindings" => _model_graph_json_value(environment_bindings(spec)),
         "environmentWindow" => _model_graph_period_dict(environment_window(spec)),
         "outputRouting" => _model_graph_json_value(output_routing(spec)),
+        "outputsTo" => _model_graph_output_destinations(spec),
         "updates" => Dict{String,Any}[
             Dict(
                 "variables" => collect(string.(_update_variables(update))),
@@ -1578,7 +1599,7 @@ function _model_graph_initialization(report)
     rows = Dict{String,Any}[]
     for application in report.applications
         model_inputs = _input_schema(application.spec)
-        model_outputs = outputs_(application.spec)
+        model_outputs = _local_output_schema(application.spec)
         model_environment_inputs = environment_inputs_(application.spec)
         model_environment_outputs = environment_outputs_(application.spec)
         source_overrides = _environment_source_overrides(application.spec)
@@ -1663,6 +1684,7 @@ function _model_graph_initialization(report)
             end
         end
     end
+    _model_graph_distributed_initialization!(rows, report)
     sort!(rows; by=row -> (
         row["applicationId"],
         string(row["objectId"]),
@@ -1670,6 +1692,41 @@ function _model_graph_initialization(report)
         row["variable"],
     ))
     _model_graph_add_status_conversion!(rows, report)
+    return rows
+end
+
+function _model_graph_distributed_initialization!(rows, report)
+    destinations = try
+        plans = _compile_model_output_destination_plans(report.model, report.applications)
+        _resolve_model_output_destinations(report.model, report.applications, plans)
+    catch
+        # A binding error is already in the report. Valid destinations can still
+        # expose required storage when later compilation phases fail.
+        return rows
+    end
+    for destination in destinations
+        for object_id in destination.destination_ids
+            object = _model_object(report.model, object_id)
+            for (variable, declaration) in pairs(destination.plan.declarations)
+                supplied = variable in get(report.initial_status_variables, object_id, Set{Symbol}())
+                value = supplied ? object.status[variable] :
+                        declaration isa Default ? declaration.value : nothing
+                row = _model_graph_initialization_row(
+                    destination.plan.application_id,
+                    object_id,
+                    variable,
+                    :output,
+                    supplied ? :supplied : declaration isa Default ? :defaulted : :required,
+                    value;
+                    declaration=declaration isa Required ? :required : :defaulted,
+                    expected_type=_input_expected_type(declaration),
+                )
+                row["storage"] = "distributed"
+                row["executionObjectId"] = _model_graph_object_id_value(destination.execution_object_id.value)
+                push!(rows, row)
+            end
+        end
+    end
     return rows
 end
 
@@ -1742,6 +1799,7 @@ function _model_graph_initialization_row(
         "objectId" => _model_graph_object_id_value(object_id.value),
         "variable" => string(variable),
         "role" => string(role),
+        "storage" => role in (:input, :output) ? "local" : "environment",
         "disposition" => string(disposition),
         "value" => _model_graph_json_value(value),
         "valueJulia" => isnothing(value) ? nothing : repr(value),
@@ -1834,6 +1892,7 @@ function _model_graph_model_descriptor(type::Type{<:AbstractModel})
         "processType" => description.process_type,
         "inputs" => inputs,
         "outputs" => values_for(:output),
+        "ports" => serialized["ports"],
         "environmentInputs" => values_for(:environment_input),
         "environmentOutputs" => values_for(:environment_output),
         "variableContracts" => isnothing(interface) ?

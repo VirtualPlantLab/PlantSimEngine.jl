@@ -51,7 +51,16 @@ PlantSimEngine.environment_outputs_(::ModelGraphEnvironmentModel) = (leaf_temper
 
 struct ModelGraphDistributedWriterModel <: AbstractModelGraphDistributedWriterModel end
 PlantSimEngine.inputs_(::ModelGraphDistributedWriterModel) = NamedTuple()
-PlantSimEngine.outputs_(::ModelGraphDistributedWriterModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelGraphDistributedWriterModel) = (signal=Distributed(Default(0.0)),)
+
+struct ModelGraphInitializerControllerModel <: AbstractModelGraphDistributedWriterModel end
+
+struct ModelGraphMixedOutputModel <: AbstractModelGraphDistributedWriterModel end
+PlantSimEngine.outputs_(::ModelGraphMixedOutputModel) = (
+    local_values=Float32[0, 1],
+    signal=Distributed(Default(0.0f0)),
+    absorbed=Distributed(Required(Real)),
+)
 
 struct ModelGraphGenericTypeModel <: AbstractModelGraphGenericTypeModel end
 PlantSimEngine.inputs_(::ModelGraphGenericTypeModel) = (driver=Required(Real),)
@@ -236,10 +245,104 @@ end
     @test occursin("Applications", html)
 end
 
+@testset "Distributed graph ports and scenario serialization" begin
+    destinations = (
+        (OutputTo(Many(scale=:Leaf, within=SceneScope())),),
+        (OutputTo(Many(scale=:Leaf, within=SceneScope()); vars=(:absorbed, :signal)),),
+        (
+            OutputTo(Many(scale=:Leaf, within=SceneScope()); vars=(:signal,)),
+            OutputTo(One(id=11); vars=(:absorbed,)),
+        ),
+    )
+    for output_destinations in destinations
+        spec = ModelSpec(ModelGraphMixedOutputModel(); name=:writer, on=One(id=10), outputs_to=output_destinations)
+        model = CompositeModel(
+            Object(10; scale=:Scene),
+            Object(11; scale=:Leaf, parent=10, status=Status(absorbed=1.0f0));
+            applications=(spec,),
+        )
+        view = model_graph_view(model)
+        @test isempty(view.diagnostics)
+        application = only(view.applications)
+        ports = Dict(port["name"] => port for port in application["outputs"])
+        @test ports["local_values"]["storage"] == "local"
+        @test ports["local_values"]["expectedType"] == "Vector{Float32}"
+        @test ports["signal"]["storage"] == ports["absorbed"]["storage"] == "distributed"
+        @test ports["signal"]["expectedType"] == "Float32"
+        @test ports["signal"]["default"] === 0.0f0
+        @test ports["absorbed"]["expectedType"] == "Real"
+        @test ports["absorbed"]["declaration"] == "required"
+        @test isnothing(ports["absorbed"]["default"])
+        @test length(application["outputsTo"]) == length(output_destinations)
+        for (entry, original) in zip(application["outputsTo"], output_destinations)
+            @test entry["vars"] == (isnothing(original.vars) ? nothing : collect(string.(original.vars)))
+            @test entry["origin"] == (isnothing(original.vars) ? "inferred" : "explicit")
+            @test entry["resolvedVars"] == (isnothing(original.vars) ? ["signal", "absorbed"] : collect(string.(original.vars)))
+        end
+        output_rows = filter(row -> row["role"] == "output", view.initialization)
+        @test only(row for row in output_rows if row["variable"] == "local_values")["objectId"] == 10
+        @test all(row["objectId"] == 11 && row["storage"] == "distributed"
+                  for row in output_rows if row["variable"] in ("signal", "absorbed"))
+        @test length(output_rows) == 3
+        @test isnothing(model_object(model, 10).status)
+        @test propertynames(model_object(model, 11).status) == (:absorbed,)
+
+        code = Authoring.scenario_source(model)
+        @test occursin("outputs_to=(OutputTo(", code)
+        restored = Base.include_string(Main, code, "distributed_graph_scenario_roundtrip.jl")
+        restored_destinations = outputs_to(only(restored.applications))
+        @test length(restored_destinations) == length(output_destinations)
+        for (restored_entry, original) in zip(restored_destinations, output_destinations)
+            @test restored_entry.vars == original.vars
+            @test repr(restored_entry.selector) == repr(original.selector)
+            @test restored_entry.coverage == original.coverage
+        end
+        @test isempty(model_graph_view(restored).diagnostics)
+    end
+
+    missing_binding = CompositeModel(
+        Object(10; scale=:Scene);
+        applications=(ModelSpec(ModelGraphMixedOutputModel(); name=:writer, on=One(id=10)),),
+    )
+    missing_view = model_graph_view(missing_binding)
+    @test any(diagnostic["severity"] == "error" for diagnostic in missing_view.diagnostics)
+    @test isempty(only(missing_view.applications)["outputsTo"])
+
+    missing_storage = CompositeModel(
+        Object(10; scale=:Scene), Object(11; scale=:Leaf, parent=10);
+        applications=(ModelSpec(ModelGraphMixedOutputModel(); name=:writer, on=One(id=10),
+            outputs_to=(OutputTo(One(id=11)),)),),
+    )
+    missing_storage_view = model_graph_view(missing_storage)
+    @test any(diagnostic["severity"] == "error" for diagnostic in missing_storage_view.diagnostics)
+    required = only(row for row in missing_storage_view.initialization if row["variable"] == "absorbed")
+    @test required["disposition"] == "required"
+    @test required["objectId"] == 11
+    @test required["expectedType"] == "Real"
+    @test required["storage"] == "distributed"
+end
+
+@testset "Graph destination edits preserve anonymous declaration intent" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene), Object(:leaf; scale=:Leaf, parent=:scene);
+        applications=(ModelSpec(ModelGraphDistributedWriterModel(); name=:writer, on=One(id=:scene),
+            outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope())),)),),
+    )
+    edited = apply_model_graph_edit(model, SetModelOutputDestinations(
+        model_graph_global(:writer), (OutputTo(One(id=:leaf); vars=(:signal,)),),
+    ))
+    @test only(outputs_to(only(model.applications))).vars === nothing
+    @test only(outputs_to(only(edited.applications))).vars == (:signal,)
+    @test only(only(model_graph_view(edited).applications)["outputsTo"])["origin"] == "explicit"
+    @test_throws "distributed" apply_model_graph_edit(model, SetModelOutputDestinations(
+        model_graph_global(:writer), (OutputTo(One(id=:leaf); vars=(:unknown,)),),
+    ))
+end
+
 @testset "CompositeModel graph compiles distributed writers like the strict compiler" begin
     leaf_destination = () -> OutputTo(
         Many(scale=:Leaf, within=SceneScope());
-        vars=(signal=Default(0.0),),
+        vars=(:signal,),
     )
     model = CompositeModel(
         Object(:scene; scale=:Scene),
@@ -254,13 +357,13 @@ end
                 ModelGraphDistributedWriterModel();
                 name=:first_writer,
                 on=One(scale=:Scene),
-                outputs_to=(leaves=leaf_destination(),),
+                outputs_to=(leaf_destination(),),
             ),
             ModelSpec(
                 ModelGraphDistributedWriterModel();
                 name=:second_writer,
                 on=One(scale=:Scene),
-                outputs_to=(leaves=leaf_destination(),),
+                outputs_to=(leaf_destination(),),
                 updates=Updates(:signal; after=:first_writer),
             ),
         ),
@@ -341,7 +444,7 @@ end
                 ModelGraphDistributedWriterModel();
                 name=:empty_writer,
                 on=One(scale=:Scene),
-                outputs_to=(leaves=leaf_destination(),),
+                outputs_to=(leaf_destination(),),
             ),
         ),
     )
@@ -886,7 +989,7 @@ end
                 on=Many(scale=:Leaf),
             ),
             ModelSpec(
-                ModelGraphDistributedWriterModel();
+                ModelGraphInitializerControllerModel();
                 name=:creator,
                 on=One(id=:plant),
             ),

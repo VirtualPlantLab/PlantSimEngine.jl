@@ -27,6 +27,7 @@ end
 struct ModelPortDescription
     name::Symbol
     role::Symbol
+    storage::Symbol
     declaration::Symbol
     expected_type::String
     initial_value::Any
@@ -308,6 +309,7 @@ function _model_ports(model::AbstractModel)
         push!(ports, ModelPortDescription(
             name,
             :input,
+            :local,
             declaration isa Required ? :required : :defaulted,
             string(_input_expected_type(declaration)),
             initial_value,
@@ -315,7 +317,7 @@ function _model_ports(model::AbstractModel)
         ))
     end
     for (role, declarations) in (
-        :output => outputs_(model),
+        :output => _output_schema(model),
         :environment_input => environment_inputs_(model),
         :environment_output => environment_outputs_(model),
     )
@@ -323,13 +325,18 @@ function _model_ports(model::AbstractModel)
             "`$(role)_($(typeof(model)))` must return a NamedTuple; got " *
             "`$(typeof(declarations))`.",
         )
-        for (name_, initial_value) in pairs(declarations)
+        for (name_, value) in pairs(declarations)
             name = Symbol(name_)
+            distributed = role == :output && value isa Distributed
+            declaration = distributed ? value.declaration : value
+            initial_value = distributed ?
+                            (declaration isa Default ? declaration.value : nothing) : value
             push!(ports, ModelPortDescription(
                 name,
                 role,
-                :initial,
-                string(typeof(initial_value)),
+                distributed ? :distributed : role == :output ? :local : :environment,
+                distributed ? (declaration isa Required ? :required : :defaulted) : :initial,
+                string(distributed ? _output_value_type(value) : typeof(value)),
                 initial_value,
                 haskey(contracts, name) ? contracts[name] : nothing,
             ))
@@ -537,7 +544,7 @@ function _push_schema_differences!(
         ))
     end
     for name in sort!(collect(intersect(left_set, right_set)); by=string)
-        isequal(left[name], right[name]) && continue
+        isequal(_model_declaration_semantics(left[name]), _model_declaration_semantics(right[name])) && continue
         push!(differences, ModelDifference(
             string(field, ".", name),
             :changed,
@@ -746,7 +753,7 @@ function validate_model(model::AbstractModel; strict::Bool=false)
         field=:inputs,
     )
     outputs = _capture_validation!(
-        () -> _validate_named_model_declaration(model, :outputs_, outputs_),
+        () -> _output_schema(model),
         diagnostics,
         :invalid_outputs;
         field=:outputs,
@@ -795,10 +802,9 @@ function validate_model(model::AbstractModel; strict::Bool=false)
         unbound = sort!(Symbol[name for name in keys(contracts) if name ∉ declared]; by=string)
         isempty(unbound) || push!(diagnostics, _validation_diagnostic(
             :unbound_variable_contract,
-            "Variable contract(s) `$(Tuple(unbound))` are not model ports. They are valid only when a ModelSpec declares matching distributed outputs.";
+            "Variable contract(s) `$(Tuple(unbound))` are not declared model ports.";
             field=:variable_contracts,
-            severity=:warning,
-            suggestions=["Declare matching outputs_to variables in every ModelSpec using this model."],
+            suggestions=["Declare distributed outputs in outputs_ using Distributed(Default(value)) or Distributed(Required(T))."],
         ))
         if strict
             missing = sort!(collect(setdiff(declared, Set(Symbol.(keys(contracts))))); by=string)
@@ -1082,6 +1088,11 @@ function _authoring_json_value(value)
     value isa Type && return string(value)
     value isa Module && return string(value)
     value isa ObjectId && return _authoring_json_value(value.value)
+    value isa Distributed && return Dict{String,Any}(
+        "kind" => "distributed",
+        "declaration" => _authoring_json_value(value.declaration),
+        "valueType" => string(_output_value_type(value)),
+    )
     value isa Required && return Dict{String,Any}(
         "kind" => "required",
         "expectedType" => string(_input_expected_type(value)),
@@ -1182,6 +1193,7 @@ function to_dict(port::ModelPortDescription)
     return Dict{String,Any}(
         "name" => string(port.name),
         "role" => string(port.role),
+        "storage" => string(port.storage),
         "declaration" => string(port.declaration),
         "expectedType" => port.expected_type,
         "initialValue" => _authoring_json_value(port.initial_value),

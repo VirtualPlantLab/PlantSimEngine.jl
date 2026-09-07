@@ -1,6 +1,6 @@
 """
     ModelSpec(model; name=nothing, on=nothing, inputs=NamedTuple(),
-              calls=NamedTuple(), outputs_to=NamedTuple(),
+              calls=NamedTuple(), outputs_to=(),
               environment=nothing, every=nothing,
               environment_bindings=NamedTuple(), environment_window=nothing,
               output_routing=NamedTuple(), updates=())
@@ -49,33 +49,24 @@ struct ModelSpec{M,N,AT,IN,IO,CA,CO,OT,EV,TS,MB,MW,OR,UP}
     updates::UP
 end
 
-function _normalize_output_to_variables(vars::NamedTuple)
-    isempty(vars) && error(
-        "`OutputTo(...; vars=...)` requires at least one destination variable."
-    )
-    _has_only_input_declarations(values(vars)) && return vars
-    invalid = Pair{Symbol,Any}[
-        Symbol(name) => declaration
-        for (name, declaration) in pairs(vars)
-        if !_is_input_declaration(declaration)
-    ]
-    isempty(invalid) || error(
-        "`OutputTo(...; vars=...)` must declare every destination variable with ",
-        "`Required(T)` or `Default(value)`. Invalid declaration(s): ",
-        join(
-            ["`$(name)=$(repr(declaration))`" for (name, declaration) in invalid],
-            ", ",
-        ),
-        ".",
-    )
+_normalize_output_to_variables(::Nothing) = nothing
+
+function _normalize_output_to_variables(vars::Tuple)
+    isempty(vars) && throw(ArgumentError("`OutputTo(...; vars=...)` requires at least one variable name."))
+    all(name -> name isa Symbol, vars) || throw(ArgumentError(
+        "`OutputTo(...; vars=...)` requires a tuple of variable names as Symbols.",
+    ))
+    length(unique(vars)) == length(vars) || throw(ArgumentError(
+        "`OutputTo(...; vars=...)` contains duplicate variable names.",
+    ))
     return vars
 end
 
 function _normalize_output_to_variables(vars)
-    error(
-        "`OutputTo(...; vars=...)` requires a non-empty `NamedTuple` of ",
-        "`Required(T)` and `Default(value)` declarations; got `$(typeof(vars))`."
-    )
+    throw(ArgumentError(
+        "`OutputTo(...; vars=...)` requires a non-empty tuple of variable names, " *
+        "or omit `vars` to infer all distributed outputs for a single destination; got `$(typeof(vars))`.",
+    ))
 end
 
 function _normalize_output_to_coverage(coverage)
@@ -87,26 +78,23 @@ function _normalize_output_to_coverage(coverage)
 end
 
 """
-    OutputTo(selector; vars, coverage=:exact)
+    OutputTo(selector; vars=nothing, coverage=:exact)
 
-Declare status outputs computed by one model application and stored on other
-objects selected by `selector`.
+Bind distributed model outputs to objects selected by `selector`.
 
-`vars` is a non-empty `NamedTuple` whose values are [`Required`](@ref) or
-[`Default`](@ref) declarations. `coverage=:exact` requires the application to
-publish every declared variable for every selected destination; no partial
-coverage policy is currently supported.
+Declare each variable in `outputs_` using [`Distributed`](@ref). `vars` lists
+those names as a tuple. With a single `OutputTo`, omitted `vars` binds all
+`Distributed` outputs. With multiple destinations, every entry must specify
+`vars`. The compiler rejects missing, duplicate, unknown, and local-output
+bindings before initializing destination status.
+
+`coverage=:exact` requires one result for every selected destination.
 
 # Example
 
 ```julia
-OutputTo(
-    Many(scale=(:Leaf, :Internode), within=SceneScope());
-    vars=(
-        incident_par=Default(0.0),
-        absorbed_par=Required(Float64),
-    ),
-)
+OutputTo(Many(scale=:Leaf, within=SceneScope()))
+OutputTo(Many(scale=:Leaf, within=SceneScope()); vars=(:incident_par, :absorbed_par))
 ```
 """
 struct OutputTo{S,V,C}
@@ -114,7 +102,7 @@ struct OutputTo{S,V,C}
     vars::V
     coverage::C
 
-    function OutputTo(selector; vars, coverage=:exact)
+    function OutputTo(selector; vars=nothing, coverage=:exact)
         normalized_selector = _validate_selector_context(selector, :output_destination)
         normalized_vars = _normalize_output_to_variables(vars)
         normalized_coverage = _normalize_output_to_coverage(coverage)
@@ -126,23 +114,64 @@ struct OutputTo{S,V,C}
     end
 end
 
-function _normalize_outputs_to(outputs_to::NamedTuple)
-    for (name, destination) in pairs(outputs_to)
-        destination isa OutputTo || error(
-            "Unsupported output destination `$(name)=$(repr(destination))`. ",
-            "Every `ModelSpec(...; outputs_to=...)` entry must be an `OutputTo(...)` ",
-            "declaration."
-        )
-    end
-    return outputs_to
+function _normalize_outputs_to(destinations::Tuple)
+    all(destination -> destination isa OutputTo, destinations) || throw(ArgumentError(
+        "`outputs_to` requires a tuple of anonymous `OutputTo(...)` declarations.",
+    ))
+    return destinations
 end
 
-function _normalize_outputs_to(outputs_to)
-    error(
-        "Unsupported `outputs_to` value `$(repr(outputs_to))` of type ",
-        "`$(typeof(outputs_to))`. Use a `NamedTuple` of named `OutputTo(...)` ",
-        "declarations."
-    )
+function _normalize_outputs_to(destinations)
+    throw(ArgumentError(
+        "`outputs_to` requires a tuple of anonymous `OutputTo(...)` declarations; " *
+        "got `$(typeof(destinations))`.",
+    ))
+end
+
+function _resolved_output_destinations(spec::ModelSpec, effective_model=model_(spec))
+    schema = _distributed_output_schema(effective_model)
+    destinations = spec.outputs_to
+    application = isnothing(spec.name) ? process(effective_model) : spec.name
+    context = "Application `$(application)`"
+    for name in keys(schema)
+        get(spec.output_routing, name, :canonical) === :stream_only && throw(ArgumentError(
+            "$(context) cannot route Distributed output `$(name)` as stream_only: " *
+            "output targets write destination status. Use canonical routing for this variable.",
+        ))
+    end
+    used = Set{Symbol}()
+    resolved = map(destinations) do destination
+        inferred = isnothing(destination.vars)
+        inferred && length(destinations) != 1 && throw(ArgumentError(
+            "$(context) has multiple OutputTo destinations; specify `vars` for every entry.",
+        ))
+        names = inferred ? keys(schema) : destination.vars
+        isempty(names) && throw(ArgumentError(
+            "$(context) has no Distributed outputs to infer for OutputTo.",
+        ))
+        for name in names
+            haskey(schema, name) || throw(ArgumentError(
+                "$(context) binds `$(name)` in OutputTo, but it is not declared as " *
+                "a Distributed output. Declared distributed outputs: `$(keys(schema))`.",
+            ))
+            name in used && throw(ArgumentError(
+                "$(context) binds distributed output `$(name)` more than once in outputs_to.",
+            ))
+            push!(used, name)
+        end
+        (
+            selector=destination.selector,
+            vars=NamedTuple{names}(map(name -> schema[name], names)),
+            coverage=destination.coverage,
+            origin=inferred ? :inferred : :explicit,
+        )
+    end
+    missing = Tuple(name for name in keys(schema) if !(name in used))
+    isempty(missing) || throw(ArgumentError(
+        "$(context) declares Distributed output(s) `$(missing)` without an " *
+        "OutputTo binding in `outputs_to`.",
+    ))
+    return resolved
 end
 
 """
@@ -203,7 +232,7 @@ function ModelSpec(
     on=nothing,
     inputs=NamedTuple(),
     calls=NamedTuple(),
-    outputs_to=NamedTuple(),
+    outputs_to=(),
     environment=nothing,
     every=nothing,
     environment_bindings=NamedTuple(),
@@ -235,7 +264,7 @@ function _build_model_spec(
     input_origins=nothing,
     calls=NamedTuple(),
     call_origins=nothing,
-    outputs_to=NamedTuple(),
+    outputs_to=(),
     environment=nothing,
     every=nothing,
     environment_bindings=NamedTuple(),
@@ -470,13 +499,8 @@ environment_inputs_(m::ModelSpec) = environment_inputs_(model_(m))
 environment_outputs_(m::ModelSpec) = environment_outputs_(model_(m))
 variable_contracts_(m::ModelSpec) = variable_contracts_(model_(m))
 
-function _declared_contract_variable_names(spec::ModelSpec)
-    declared = _declared_contract_variable_names(model_(spec))
-    for destination in values(spec.outputs_to)
-        union!(declared, Symbol.(keys(destination.vars)))
-    end
-    return declared
-end
+_declared_contract_variable_names(spec::ModelSpec) =
+    _declared_contract_variable_names(model_(spec))
 
 function _validate_variable_contract_names(spec::ModelSpec, schema)
     declared = _declared_contract_variable_names(spec)
@@ -488,8 +512,7 @@ function _validate_variable_contract_names(spec::ModelSpec, schema)
         spec,
         "declares unknown variable(s) `$(Tuple(unknown))`. Contract keys must " *
         "also appear in `inputs_`, `outputs_`, `environment_inputs_`, " *
-        "`environment_outputs_`, or this ModelSpec's distributed `outputs_to` " *
-        "variables.",
+        "`environment_outputs_`. Declare distributed outputs with `Distributed` in `outputs_`.",
     )
     return schema
 end

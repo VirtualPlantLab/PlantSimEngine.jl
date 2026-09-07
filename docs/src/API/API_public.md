@@ -53,15 +53,19 @@ time-based inputs can instead read saved results.
   values, without copying them.
 - `ModelSpec(...; calls=...)` declares models that this model can run from
   inside its own calculation.
-- `ModelSpec(...; outputs_to=(name=OutputTo(selector; vars=...),))`
-  declares variables that this application writes into other selected objects'
-  statuses. Each variable uses `Required(T)` or `Default(value)`. Before
-  initializing the statuses, PlantSimEngine finds the destination objects and
-  checks that competing applications do not write the same value.
-- `output_targets(context, :name)` returns an [`OutputTargets`](@ref) view
-  for one named `outputs_to` group. Read or write a variable's destination
-  values through `targets.columns.<variable>`. `object_ids(targets)` returns
-  their identifiers in the same order; those identifiers are read-only.
+- `outputs_(model)` declares local output values and distributed outputs
+  wrapped as `Distributed(Default(value))` or `Distributed(Required(T))`.
+- `ModelSpec(...; outputs_to=(OutputTo(selector; vars=(:x, :y)),))`
+  binds declared distributed outputs to selected objects. One `OutputTo` may
+  omit `vars` to select all distributed variables. Multiple declarations
+  require explicit variable tuples, with each distributed variable bound
+  exactly once. Types and defaults come from the model's `outputs_`.
+  Destinations, storage, and writer ownership are checked before initialization.
+- `output_targets(context, (:x, :y))` returns an [`OutputTargets`](@ref) view
+  with exactly the requested columns. Combined variables must have identical
+  ordered destination IDs, including when bound by separate declarations.
+  Read or write values through `targets.columns.<variable>`.
+  `object_ids(targets)` returns their read-only identifiers in the same order.
 - `assign_outputs!(targets, table; id=:object_id)` assigns a
   Tables.jl-compatible result to objects using their identifiers. The
   `assign_outputs!(targets, ids, columns)` overload accepts an ID vector and a

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Declare outputs written to selected objects inside `outputs_` with
+  `Distributed(Default(value))` or `Distributed(Required(T))`. These variables
+  are now visible when inspecting a model before building a scenario.
+- `outputs_to` now takes an anonymous tuple of `OutputTo` entries. One entry
+  can omit `vars` to bind all distributed outputs; multiple entries must
+  explicitly partition variable names. Defaults and types belong to the model.
+- Request destination columns with `output_targets(context, (:x, :y))`.
+  Missing, duplicate, and incompatible destination declarations fail before
+  initialization. Named output groups and schemas in `OutputTo.vars` were removed.
+
 ## v0.15.0
 
 ### Summary

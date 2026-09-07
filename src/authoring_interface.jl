@@ -3,8 +3,10 @@ const AUTHORING_SCHEMA_VERSION = 1
 """
     ModelInterface
 
-Versioned representation of every model declaration that the compiler takes
-from the base application when it installs an object or instance override.
+Versioned representation of the model contract enforced for object and instance
+overrides. Local defaults remain exact; distributed defaults compare their
+declaration kind and payload type because destination initialization uses the
+effective model's value.
 Two model instances are directly override-compatible when their semantic
 fields are equal. `provenance` records whether the declarations were read from
 the supplied instance (`:exact`) or from a real zero-argument instance created
@@ -26,8 +28,17 @@ struct ModelInterface
     environment_hint::Any
 end
 
+_model_declaration_semantics(value) = (kind=:value, value=value)
+function _model_declaration_semantics(value::Distributed)
+    declaration = value.declaration
+    payload = declaration isa Default ?
+              (kind=:default, type=typeof(declaration.value)) :
+              (kind=:required, type=_input_expected_type(declaration))
+    return (kind=:distributed, value=payload)
+end
+
 _model_named_declaration_semantics(declaration::NamedTuple) = Tuple(
-    name => declaration[name]
+    name => _model_declaration_semantics(declaration[name])
     for name in sort!(collect(Symbol.(keys(declaration))); by=string)
 )
 
@@ -72,11 +83,13 @@ dummy model or guesses parameter values.
 The interface includes the full status and environment schemas, scientific
 contracts, model-level dependencies, clock, output policy, timestep hint, and
 environment hint because object overrides execute behind declarations compiled
-from the base application.
+from the base application. Distributed default values are retained for
+inspection but excluded from compatibility: their kind and payload type must
+match, while destination initialization reads the effective model's value.
 """
 function model_interface(model::AbstractModel)
     process_name = process(model)
-    outputs = _authoring_named_declaration(model, :outputs_, outputs_(model))
+    outputs = _output_schema(model)
     return ModelInterface(
         AUTHORING_SCHEMA_VERSION,
         :exact,

@@ -20,7 +20,7 @@ explains the functions and their requirements in detail.
 
 - Building a simulation: `CompositeModel`, `Object`, `ObjectId`, `CompositeModelTemplate`,
   `ObjectInstance`, `Override`.
-- Configuring model applications: `ModelSpec`, `OutputTo`, `Environment`, and `Updates`.
+- Configuring model applications: `ModelSpec`, `Distributed`, `OutputTo`, `Environment`, and `Updates`.
 - Inspecting application settings: `application_name`, `applies_to`, `value_inputs`,
   `model_calls`, `outputs_to`, `environment_config`, `output_routing`,
   `updates`.
@@ -110,7 +110,7 @@ model definitions and connections; they do not prove scientific validity.
 ## Model-author contract
 
 - Model identity: `AbstractModel`, `@process`, `process`.
-- Declaring variables and initial values: `Status`, `Required`, `Default`,
+- Declaring variables and initial values: `Status`, `Required`, `Default`, `Distributed`,
   `VariableContract`, `variable_contracts`, `init_variables`, `dep`.
 - Inspecting inputs and outputs: `inputs`, `outputs`, `variables`,
   `environment_inputs`, `environment_outputs`,
@@ -157,6 +157,9 @@ are not imported by `using PlantSimEngine`.
   `GraphEditor.AddModelApplication`, `GraphEditor.apply_model_graph_edit`,
   `GraphEditor.edit_graph`, `GraphEditor.current_model`,
   `GraphEditor.undo!`, and `GraphEditor.redo!`.
+- Editing distributed output destinations:
+  `GraphEditor.SetModelOutputDestinations(application, destinations)` replaces
+  the anonymous `OutputTo` tuple and preserves omitted versus explicit `vars`.
 
 ## Evaluation namespace
 

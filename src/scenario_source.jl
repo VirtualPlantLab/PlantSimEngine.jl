@@ -340,6 +340,11 @@ function _scenario_source_application_code(environment_catalog, spec)
         push!(options, "inputs=$(repr(value_inputs(spec)))")
     isempty(keys(model_calls(spec))) ||
         push!(options, "calls=$(repr(model_calls(spec)))")
+    destinations = outputs_to(spec)
+    if !isempty(destinations)
+        destination_codes = _scenario_source_output_destination_code.(destinations)
+        push!(options, "outputs_to=($(join(destination_codes, ", ")),)")
+    end
     environment = environment_config(spec)
     if !isnothing(environment)
         payload = environment isa EnvironmentConfig ? environment.config : environment
@@ -371,6 +376,13 @@ function _scenario_source_application_code(environment_catalog, spec)
         push!(options, "updates=($(join(update_codes, ", ")),)")
     end
     return "ModelSpec($(repr(model_(spec))); $(join(options, ", ")))"
+end
+
+function _scenario_source_output_destination_code(destination::OutputTo)
+    options = String[]
+    isnothing(destination.vars) || push!(options, "vars=$(repr(destination.vars))")
+    push!(options, "coverage=$(repr(destination.coverage))")
+    return "OutputTo($(repr(destination.selector)); $(join(options, ", ")))"
 end
 
 function _scenario_source_status_conversion_module_code(module_::Module)
