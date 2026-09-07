@@ -34,7 +34,6 @@ two amounts:
 
 If both demands are zero, both models put all available carbon into reserves.
 
-These are teaching rules, not calibrated models of particular species.
 All amounts are grams of elemental carbon (g C) per plant. The example does
 not convert carbon into dry biomass or subtract respiration losses, and
 neither rule withdraws carbon from reserves.

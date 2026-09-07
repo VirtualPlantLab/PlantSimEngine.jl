@@ -20,6 +20,21 @@ diagnostics. Use `Diagnostics.input_value` to read the values,
 `Diagnostics.input_carrier` to inspect their container, and
 `Diagnostics.explain_bindings` to see where they come from.
 
+!!! note "Reading the model examples"
+    The examples below show code inside a model. A model stores its parameters
+    in a Julia `struct`, declares its variables with `inputs_` and `outputs_`,
+    and implements its calculation as a method of `PlantSimEngine.run!`.
+    PlantSimEngine calls that method for each object selected by `ModelSpec`.
+
+    Inside the method, `model` provides the parameters and `status` holds the
+    current object's inputs and outputs. `environment` provides environmental
+    data, `constants` supplies shared constants, and `context` gives access to
+    connected objects and other runtime operations.
+
+    The first example shows only this method: `MyModel` stands for your own
+    model type. [Implement a basic model](@ref) walks through the complete
+    definition and tests.
+
 ## Keep identities aligned with values
 
 If a model only needs to sum or multiply the values in a `Many` input, use
@@ -28,12 +43,10 @@ other object each value belongs to, call `bound_input` using `context`, the
 information PlantSimEngine passes to each `run!` call:
 
 ```julia
-function PlantSimEngine.run!(model, status, environment, constants, context)
+function PlantSimEngine.run!(model::MyModel, status, environment, constants, context)
     irradiance = bound_input(context, :irradiance)
 
-    @inbounds for index in eachindex(irradiance)
-        object_id = object_ids(irradiance)[index]
-        value = irradiance[index]
+    for (object_id, value) in zip(object_ids(irradiance), irradiance)
         # Use object_id and value as one aligned pair.
     end
     return nothing
@@ -45,6 +58,11 @@ without copying either. Its values are the same ones available through
 `status.irradiance`. Their order follows `ObjectId`, not the position of an
 organ on the plant. Use `irradiance[ObjectId(:leaf_12)]` to read that leaf's
 value, or an integer index to read a position in the collection.
+
+Iterating over `irradiance` alone yields values. `zip(object_ids(irradiance),
+irradiance)` pairs each object ID with its value as the loop runs, without
+building a new collection. `pairs(irradiance)` uses integer positions as
+keys, so it does not provide object IDs.
 
 Call `bound_input` each time the model runs. PlantSimEngine may replace the
 collection after an object is added, removed, or moved to a different parent,
@@ -157,8 +175,7 @@ applications = (
 PlantSimEngine knows that `:scene_light` supplies `:absorbed_par` for each
 selected leaf and that `:leaf_assimilation` needs it. It connects the two and
 runs the light calculation first, even though the assimilation model appears
-first in the tuple. You do not need an extra model to copy the light values
-or an `after=:scene_light` instruction to set their order.
+first in the tuple.
 
 ## Rules for assigning results
 
