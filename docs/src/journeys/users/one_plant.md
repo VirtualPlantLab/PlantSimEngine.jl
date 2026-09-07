@@ -8,8 +8,8 @@ and radiation values are illustrative.
 
 The structure is:
 
-> `:plant`<br>
-> ├─ `:leaf_1`<br>
+> `:plant`
+> ├─ `:leaf_1`
 > └─ `:leaf_2`
 
 To choose objects for a calculation, use a **selector** such as
