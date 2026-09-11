@@ -1120,13 +1120,14 @@ end
 Result of running a [`CompositeModel`](@ref). Use `outputs`, `collect_outputs`,
 [`final_state`](@ref), and `PlantSimEngine.Diagnostics` to inspect it.
 """
-mutable struct Simulation{S,CS,EB,EP,OR,TS,R,RM,RT,C,P}
+mutable struct Simulation{S,CS,EB,EP,OR,TS,DT,R,RM,RT,C,P}
     model::S
     compiled::CS
     environment_bindings::EB
     execution_plan::EP
     output_retention::OR
     temporal_streams::TS
+    output_datetimes::DT
     output_requests::R
     output_request_matchers::RM
     output_request_targets::RT
@@ -7556,6 +7557,7 @@ function run!(
         execution_plan,
         output_retention,
         temporal_streams,
+        _model_output_datetimes(environment_backend(model.environment), env_bindings),
         output_requests,
         output_request_matchers,
         output_request_targets,
@@ -7584,6 +7586,46 @@ Advance an existing [`Simulation`](@ref) by one timestep.
 """
 step!(simulation::Simulation) = continue!(simulation; steps=1)
 
+# Keep the calendar labels with the simulation, independently of later edits to
+# the weather table. Model clocks and output requests share these base-step dates.
+function _model_output_datetimes(backend, environment_bindings)
+    backend isa GlobalConstant || return missing
+    source = environment_source(backend)
+    isnothing(source) && return missing
+    # DataFrame forcing may already be prepared in a cached environment plan.
+    # Use those same rows so the labels agree with the weather kernels receive.
+    for plan in environment_bindings.application_plans
+        plan.backend isa GlobalConstant || continue
+        environment_source(plan.backend) === source || continue
+        plan.prepared_source isa PreparedGlobalEnvironmentRows || continue
+        return Union{Missing,Dates.DateTime}[
+            _model_output_row_datetime(row) for row in plan.prepared_source.rows
+        ]
+    end
+    if source isa TimeStepTable || DataFormat(source) == TableAlike()
+        return Union{Missing,Dates.DateTime}[
+            _model_output_row_datetime(row) for row in Tables.rows(source)
+        ]
+    end
+    return _model_output_row_datetime(source)
+end
+
+function _model_output_row_datetime(row)
+    hasproperty(row, :date) || return missing
+    date = getproperty(row, :date)
+    date isa Dates.DateTime && return date
+    date isa Dates.Date && return Dates.DateTime(date)
+    return missing
+end
+
+_model_output_datetime(date::Union{Missing,Dates.DateTime}, time) = date
+
+function _model_output_datetime(dates::AbstractVector, time)
+    # Samples use the global base-step index, not the producer's execution count.
+    step = Int(time)
+    return checkbounds(Bool, dates, step) ? dates[step] : missing
+end
+
 function _model_output_rows(sim::Simulation, filter_object=nothing, filter_var=nothing)
     rows = NamedTuple[]
     for ((application_id, object_id, variable), samples) in sort!(
@@ -7597,7 +7639,7 @@ function _model_output_rows(sim::Simulation, filter_object=nothing, filter_var=n
                 rows,
                 (
                     timestep=Int(round(time)),
-                    time=time,
+                    datetime=_model_output_datetime(sim.output_datetimes, time),
                     application_id=application_id,
                     object_id=object_id.value,
                     variable=variable,
@@ -7833,7 +7875,7 @@ function _model_requested_output_rows(
                 rows,
                 (
                     timestep=time,
-                    time=float(time),
+                    datetime=_model_output_datetime(sim.output_datetimes, time),
                     scale=isnothing(declared_scale) ?
                           row.scale :
                           declared_scale,
@@ -7869,6 +7911,28 @@ function _collect_model_requested_outputs(sim::Simulation, sink)
     return outputs
 end
 
+"""
+    collect_outputs(simulation; sink=DataFrames.DataFrame)
+    collect_outputs(simulation, name::Symbol; sink=DataFrames.DataFrame)
+    collect_outputs(simulation, object_id, variable::Symbol; sink=DataFrames.DataFrame)
+
+Materialize retained output streams, a named [`OutputRequest`](@ref), or one
+object's variable. With output requests, the first form returns a dictionary
+keyed by request name. Pass `sink=nothing` for rows of named tuples.
+
+Each row includes `timestep`, `datetime`, `application_id`, `object_id`,
+`variable`, and `value`. Requested outputs also include `scale` and `process`.
+`timestep` is the integer global simulation base-step index. `datetime` is the
+`date` of the corresponding meteorology row, saved when [`run!`](@ref) starts. This
+mapping follows actual publication steps for models with different cadences,
+and the requested sampling step for resampled outputs, including held values.
+It does not describe an aggregation window's start or end.
+
+Meteorology `Date` values become midnight `DateTime` values. Undated rows,
+unsupported date types, steps without a corresponding row, and custom
+environment backends return `missing`. A singleton environment repeats its
+supplied date, just as it repeats its forcing; dates are not extrapolated.
+"""
 function collect_outputs(sim::Simulation; sink=DataFrames.DataFrame)
     started_at = _runtime_performance_start(sim.performance)
     collected = isempty(sim.output_requests) ?

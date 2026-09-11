@@ -609,8 +609,10 @@ end
         id in sort!(collect(keys(normal_leaves)))
     ]
     @test generated_leaf_values == normal_leaf_values == [1.5, 1.5]
-    @test collect_outputs(generated_simulation; sink=nothing) ==
-          collect_outputs(normal_simulation; sink=nothing)
+    @test isequal(
+        collect_outputs(generated_simulation; sink=nothing),
+        collect_outputs(normal_simulation; sink=nothing),
+    )
 
     # Exercise the generic method's short-circuit bare `return` after the
     # source has already crossed its threshold.
@@ -618,8 +620,10 @@ end
     continue!(normal_simulation)
     @test final_state(generated_simulation, :scene).generic_value ==
           final_state(normal_simulation, :scene).generic_value == 12.0
-    @test collect_outputs(generated_simulation; sink=nothing) ==
-          collect_outputs(normal_simulation; sink=nothing)
+    @test isequal(
+        collect_outputs(generated_simulation; sink=nothing),
+        collect_outputs(normal_simulation; sink=nothing),
+    )
 end
 
 
@@ -657,8 +661,10 @@ end
           final_state(normal_simulation, :scene).initialized_runs_seen == 1
     @test final_state(generated_simulation, :initialized_leaf).initialized_runs ==
           final_state(normal_simulation, :initialized_leaf).initialized_runs == 1
-    @test collect_outputs(generated_simulation; sink=nothing) ==
-          collect_outputs(normal_simulation; sink=nothing)
+    @test isequal(
+        collect_outputs(generated_simulation; sink=nothing),
+        collect_outputs(normal_simulation; sink=nothing),
+    )
 end
 
 
@@ -689,8 +695,10 @@ end
     normal_leaf = final_state(normal_simulation, One(scale=:Leaf))
     @test generated_leaf.leaf_value == normal_leaf.leaf_value == 0.5
     @test final_state(generated_simulation, One(scale=:Scene)).created == 1
-    @test collect_outputs(generated_simulation; sink=nothing) ==
-          collect_outputs(normal_simulation; sink=nothing)
+    @test isequal(
+        collect_outputs(generated_simulation; sink=nothing),
+        collect_outputs(normal_simulation; sink=nothing),
+    )
 
     register_object!(
         runtime_model(generated_simulation),
@@ -709,8 +717,10 @@ end
     generated_run(generated_simulation)
     continue!(normal_simulation)
     @test final_state(generated_simulation, :leaf_2).leaf_value == 1.0
-    @test collect_outputs(generated_simulation; sink=nothing) ==
-          collect_outputs(normal_simulation; sink=nothing)
+    @test isequal(
+        collect_outputs(generated_simulation; sink=nothing),
+        collect_outputs(normal_simulation; sink=nothing),
+    )
 end
 
 @testset "Readable source temporal, environment, and continuation parity" begin
@@ -750,8 +760,10 @@ end
     @test generated_scene.lagged_runs == normal_scene.lagged_runs
     @test generated_scene.temperature_seen == normal_scene.temperature_seen == 18.5
     @test generated_scene.environment_runs == normal_scene.environment_runs
-    @test collect_outputs(generated_simulation; sink=nothing) ==
-          collect_outputs(normal_simulation; sink=nothing)
+    @test isequal(
+        collect_outputs(generated_simulation; sink=nothing),
+        collect_outputs(normal_simulation; sink=nothing),
+    )
 end
 
 @testset "Readable source compatibility guard" begin
@@ -808,6 +820,8 @@ end
           final_state(normal_simulation, :leaf_1).distributed_value === Float32(3)
     @test final_state(generated_simulation, :leaf_2).distributed_value ===
           final_state(normal_simulation, :leaf_2).distributed_value === Float32(4)
-    @test collect_outputs(generated_simulation; sink=nothing) ==
-          collect_outputs(normal_simulation; sink=nothing)
+    @test isequal(
+        collect_outputs(generated_simulation; sink=nothing),
+        collect_outputs(normal_simulation; sink=nothing),
+    )
 end

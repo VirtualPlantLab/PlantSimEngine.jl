@@ -3474,7 +3474,9 @@ end
         sink=nothing,
     )
     @test getproperty.(tracked_output_rows, :value) == [1.0, 5.0]
-    @test getproperty.(tracked_output_rows, :time) == [1.0, 3.0]
+    @test getproperty.(tracked_output_rows, :timestep) == [1, 3]
+    @test all(row -> row.timestep isa Integer, tracked_output_rows)
+    @test all(row -> !hasproperty(row, :time), tracked_output_rows)
     @test all(row -> row.object_id == :leaf_1, tracked_output_rows)
     @test all(row -> row.application_id == :hourly_signal, tracked_output_rows)
     @test Set(keys(outputs(tracked_output_simulation))) == Set([
@@ -3490,8 +3492,10 @@ end
             current_output_object_count=1,
         ),
     ]
-    @test collect_outputs(tracked_output_simulation; sink=nothing)[:signal_two_hour] ==
-          tracked_output_rows
+    @test isequal(
+        collect_outputs(tracked_output_simulation; sink=nothing)[:signal_two_hour],
+        tracked_output_rows,
+    )
     tracked_output_frames = collect_outputs(tracked_output_simulation)
     @test sort(collect(keys(tracked_output_frames))) == [:signal_two_hour]
     @test tracked_output_frames[:signal_two_hour][!, :value] == [1.0, 5.0]

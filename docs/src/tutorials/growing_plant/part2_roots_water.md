@@ -55,7 +55,7 @@ model = CompositeModel(
 )
 simulation = run!(model; steps=49, outputs=:all)
 water_history = [
-    (base_step=row.time, stored_water_g=row.value)
+    (base_step=row.timestep, stored_water_g=row.value)
     for row in collect_outputs(simulation; sink=nothing)
     if row.object_id == :plant && row.variable == :stored_water
 ]

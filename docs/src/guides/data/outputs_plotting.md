@@ -18,7 +18,10 @@ using Dates, DataFrames, CairoMakie, PlantSimEngine
 using PlantSimEngine.Examples
 
 incident_par = [0.0, 50, 150, 300, 500, 650, 700, 650, 500, 300, 150, 50, 0]
-weather = [(Ri_PAR_f=par, duration=Hour(1)) for par in incident_par]
+weather = [
+    (date=DateTime(2025, 7, 1, h), Ri_PAR_f=par, duration=Hour(1))
+    for (h, par) in zip(6:18, incident_par)
+]
 model = CompositeModel(
     Beer(0.6);
     id=:canopy, scale=:Canopy,
@@ -33,14 +36,14 @@ first(light, 3)
 `sink=DataFrame` asks for a DataFrame; this is already the default if you
 leave out `sink`. Each row records one variable for one object at one time,
 and identifies which model application produced it.
-`aPPFD` is absorbed PAR in μmol m⁻² of ground s⁻¹. The `time` column uses
-simulation steps rather than clock hours, with the first record at 1. In
-this example each step lasts one hour and the first record is at 06:00, so
-`6 + (time - 1)` gives the hour of day. Use your weather data's actual dates
-and durations when they follow a different timetable.
+`aPPFD` is absorbed PAR in μmol m⁻² of ground s⁻¹. The `datetime` column
+contains the date and time supplied in the weather record for that simulation
+step. Here the records run from 06:00 to 18:00 on 1 July 2025, so we can
+extract their hours directly for the plot. The integer `timestep` column
+identifies the global simulation step, with the first record at 1.
 
 ```@example collect-output
-light.hour_of_day = 6 .+ (light.time .- 1)
+light.hour_of_day = hour.(light.datetime)
 figure_one = Figure(size=(740, 380), fontsize=16)
 axis_one = Axis(figure_one[1, 1],
     xlabel="Hour of day",
@@ -76,7 +79,7 @@ comparison = run!(two_canopies; steps=length(weather), outputs=:all)
 comparison_rows = collect_outputs(comparison; sink=DataFrame)
 comparison_light = comparison_rows[
     (comparison_rows.application_id .== :light) .& (comparison_rows.variable .== :aPPFD), :]
-comparison_light.hour_of_day = 6 .+ (comparison_light.time .- 1)
+comparison_light.hour_of_day = hour.(comparison_light.datetime)
 
 figure_two = Figure(size=(740, 380), fontsize=16)
 axis_two = Axis(figure_two[1, 1],
@@ -85,7 +88,7 @@ axis_two = Axis(figure_two[1, 1],
     xticks=6:2:18,
 )
 for series in groupby(comparison_light, [:application_id, :object_id])
-    sort!(series, :time)
+    sort!(series, :timestep)
     scatterlines!(axis_two, series.hour_of_day, series.value;
         label=string(first(series.object_id)), linewidth=2.5, markersize=6)
 end
@@ -131,12 +134,26 @@ each time series is being stored.
 
 ## Reading the result tables
 
-The basic result table has the columns `timestep`, `time`, `application_id`,
-`object_id`, `variable` and `value`. Tables produced by an `OutputRequest`
-also identify `scale` and `process`. Requests that combine values over time
-or sample them at new times can return `missing` if there is not enough
-saved history. Check when the model ran and when the simulation started
-before interpreting a missing result as a gap in the weather observations.
+The basic result table has the columns `timestep`, `datetime`,
+`application_id`, `object_id`, `variable` and `value`. Tables produced by an
+`OutputRequest` also identify `scale` and `process`.
+
+`datetime` follows the global simulation step. When a model runs less often,
+each output row still uses the weather record for its global step. For an
+`OutputRequest` that holds, interpolates, or combines values, it identifies
+the requested sampling step. Contributing values may have been published
+at earlier steps.
+
+Dates are saved from the environment's weather records when `run!` starts.
+A `Date` becomes a `DateTime` at midnight. Undated records and custom
+environment backends produce `missing`. A single
+weather record reused across steps keeps its supplied date; PlantSimEngine
+does not invent later dates from its duration.
+
+Requests that combine values over time or sample them at new times can
+return `missing` values if there is not enough saved history. Check when the
+model ran and when the simulation started before interpreting a missing
+result as a gap in the weather observations.
 
 Saved values, including arrays, record the result at that time. Later changes
 do not rewrite earlier rows, and removing an organ does not delete its past

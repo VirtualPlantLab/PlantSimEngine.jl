@@ -110,6 +110,10 @@ else
         include("test-model-output-boundaries.jl")
     end
 
+    @testset "Composite model output datetimes" begin
+        include("test-model-output-datetime.jl")
+    end
+
     @testset "Composite model time validation" begin
         include("test-model-time-validation.jl")
     end
