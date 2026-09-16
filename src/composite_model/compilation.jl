@@ -5096,7 +5096,7 @@ mutable struct _CanonicalStatusRecipe
     original::Union{Nothing,Status}
     names::Vector{Symbol}
     references::Union{Vector{Base.RefValue},Vector{Ref}}
-    positions::Dict{Symbol,Int}
+    positions::Union{Nothing,Dict{Symbol,Int}}
     changed::Bool
     field_changes::Int
 end
@@ -5112,10 +5112,15 @@ function _CanonicalStatusRecipe(status::Union{Nothing,Status})
     else
         _status_recipe_references(refvalues(status))
     end
-    positions = Dict{Symbol,Int}()
-    sizehint!(positions, length(names))
-    for (index, name) in pairs(names)
-        positions[name] = index
+    positions = if length(names) > 1
+        index = Dict{Symbol,Int}()
+        sizehint!(index, length(names))
+        for (position, name) in pairs(names)
+            index[name] = position
+        end
+        index
+    else
+        nothing
     end
     return _CanonicalStatusRecipe(
         status,
@@ -5127,14 +5132,22 @@ function _CanonicalStatusRecipe(status::Union{Nothing,Status})
     )
 end
 
+@inline function _status_recipe_position(recipe::_CanonicalStatusRecipe, variable::Symbol)
+    positions = recipe.positions
+    isnothing(positions) || return get(positions, variable, 0)
+    return !isempty(recipe.names) && first(recipe.names) === variable ? 1 : 0
+end
+
 @inline _status_recipe_has_variable(recipe::_CanonicalStatusRecipe, variable::Symbol) =
-    haskey(recipe.positions, variable)
+    !iszero(_status_recipe_position(recipe, variable))
 
 function _status_recipe_reference(
     recipe::_CanonicalStatusRecipe,
     variable::Symbol,
 )
-    return recipe.references[recipe.positions[variable]]
+    position = _status_recipe_position(recipe, variable)
+    iszero(position) && throw(KeyError(variable))
+    return recipe.references[position]
 end
 
 function _status_recipe_set_reference!(
@@ -5142,11 +5155,19 @@ function _status_recipe_set_reference!(
     variable::Symbol,
     reference::Ref,
 )
-    position = get(recipe.positions, variable, 0)
+    position = _status_recipe_position(recipe, variable)
     if iszero(position)
         push!(recipe.names, variable)
         push!(recipe.references, reference)
-        recipe.positions[variable] = length(recipe.names)
+        if isnothing(recipe.positions)
+            # Zero/one-field recipes need no lookup table. Once a second field
+            # is added, use the same indexed path as wider status schemas.
+            if length(recipe.names) == 2
+                recipe.positions = Dict(first(recipe.names) => 1, variable => 2)
+            end
+        else
+            recipe.positions[variable] = length(recipe.names)
+        end
     elseif recipe.references[position] === reference
         return false
     else
@@ -5188,6 +5209,18 @@ function _finish_status_recipe(recipe::_CanonicalStatusRecipe)
     return Status(NamedTuple{names}(references))
 end
 
+function _model_object_status_for_preparation(
+    model::CompositeModel,
+    object_id::ObjectId,
+)
+    status = _model_object(model, object_id).status
+    (isnothing(status) || status isa Status) || error(
+        "Model object `$(object_id.value)` uses model applications but its status has type " *
+        "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
+    )
+    return status
+end
+
 function _status_recipe_for_object!(
     recipes::Dict{ObjectId,_CanonicalStatusRecipe},
     recipe_order::Vector{ObjectId},
@@ -5195,15 +5228,25 @@ function _status_recipe_for_object!(
     object_id::ObjectId,
 )
     return get!(recipes, object_id) do
-        object = _model_object(model, object_id)
-        status = object.status
-        (isnothing(status) || status isa Status) || error(
-            "Model object `$(object_id.value)` uses model applications but its status has type " *
-            "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
-        )
+        status = _model_object_status_for_preparation(model, object_id)
         push!(recipe_order, object_id)
         _CanonicalStatusRecipe(status)
     end
+end
+
+function _status_preparation_for_object!(
+    recipes::Dict{ObjectId,_CanonicalStatusRecipe},
+    recipe_order::Vector{ObjectId},
+    model::CompositeModel,
+    object_id::ObjectId,
+)
+    recipe = get(recipes, object_id, nothing)
+    isnothing(recipe) || return recipe
+    status = _model_object_status_for_preparation(model, object_id)
+    # Existing fields can be checked without copying their names and references.
+    # A missing status still needs a staged, distinct Status even with no ports.
+    isnothing(status) || return status
+    return _status_recipe_for_object!(recipes, recipe_order, model, object_id)
 end
 
 function _apply_status_recipes!(
@@ -5324,7 +5367,7 @@ function _prepare_model_output_statuses_batched!(
     for application in applications
         defaults = outputs_(application.spec)
         for object_id in application.target_ids
-            recipe = _status_recipe_for_object!(
+            preparation = _status_preparation_for_object!(
                 recipes,
                 recipe_order,
                 model,
@@ -5333,9 +5376,18 @@ function _prepare_model_output_statuses_batched!(
             for (variable, value) in pairs(defaults)
                 _publish_mode_for_output(application.spec, variable) ==
                     :canonical || continue
+                if preparation isa Status
+                    variable in propertynames(preparation) && continue
+                    preparation = _status_recipe_for_object!(
+                        recipes,
+                        recipe_order,
+                        model,
+                        object_id,
+                    )
+                end
                 _status_recipe_add_default!(
                     model,
-                    recipe,
+                    preparation,
                     object_id,
                     variable,
                     value;
@@ -5426,7 +5478,7 @@ function _prepare_model_output_destination_statuses!(
     try
         for resolved in resolved_destinations
             for destination_id in resolved.destination_ids
-                recipe = _status_recipe_for_object!(
+                preparation = _status_preparation_for_object!(
                     recipes,
                     recipe_order,
                     model,
@@ -5435,9 +5487,18 @@ function _prepare_model_output_destination_statuses!(
                 for (variable_, declaration) in pairs(resolved.plan.declarations)
                     declaration isa Default || continue
                     variable = Symbol(variable_)
+                    if preparation isa Status
+                        variable in propertynames(preparation) && continue
+                        preparation = _status_recipe_for_object!(
+                            recipes,
+                            recipe_order,
+                            model,
+                            destination_id,
+                        )
+                    end
                     _status_recipe_add_default!(
                         model,
-                        recipe,
+                        preparation,
                         destination_id,
                         variable,
                         _input_default(declaration);
@@ -6015,7 +6076,7 @@ function _prepare_model_input_statuses_batched!(
         schema = _input_schema(application.spec)
         defaults = _input_default_values(schema)
         for object_id in application.target_ids
-            recipe = _status_recipe_for_object!(
+            preparation = _status_preparation_for_object!(
                 recipes,
                 recipe_order,
                 model,
@@ -6023,7 +6084,17 @@ function _prepare_model_input_statuses_batched!(
             )
             for (variable_, value) in pairs(defaults)
                 variable = Symbol(variable_)
-                _status_recipe_has_variable(recipe, variable) && continue
+                if preparation isa Status
+                    variable in propertynames(preparation) && continue
+                    preparation = _status_recipe_for_object!(
+                        recipes,
+                        recipe_order,
+                        model,
+                        object_id,
+                    )
+                else
+                    _status_recipe_has_variable(preparation, variable) && continue
+                end
                 reference = isnothing(final_references) ?
                             nothing :
                             get(
@@ -6046,7 +6117,7 @@ function _prepare_model_input_statuses_batched!(
                             conversion_records=conversion_records,
                         )
                     _status_recipe_set_reference!(
-                        recipe,
+                        preparation,
                         variable,
                         reference,
                     )
@@ -6055,7 +6126,7 @@ function _prepare_model_input_statuses_batched!(
                 end
                 _status_recipe_add_default!(
                     model,
-                    recipe,
+                    preparation,
                     object_id,
                     variable,
                     value;
@@ -6075,12 +6146,6 @@ function _prepare_model_input_statuses_batched!(
         if isnothing(recipe)
             status = _model_object(model, binding.consumer_id).status
             status isa Status || continue
-            recipe = _status_recipe_for_object!(
-                recipes,
-                recipe_order,
-                model,
-                binding.consumer_id,
-            )
         end
         reference = if isnothing(final_references)
             _model_input_status_reference(binding)
@@ -6097,8 +6162,20 @@ function _prepare_model_input_statuses_batched!(
         end
         isnothing(reference) &&
             (reference = _model_input_status_reference(binding))
-        if _status_recipe_has_variable(recipe, binding.input) &&
-           _status_recipe_reference(recipe, binding.input) === reference
+        if isnothing(recipe)
+            if binding.input in propertynames(status) &&
+               refvalue(status, binding.input) === reference
+                default_status_updates[(binding.consumer_id, binding.input)] = false
+                continue
+            end
+            recipe = _status_recipe_for_object!(
+                recipes,
+                recipe_order,
+                model,
+                binding.consumer_id,
+            )
+        elseif _status_recipe_has_variable(recipe, binding.input) &&
+               _status_recipe_reference(recipe, binding.input) === reference
             default_status_updates[(binding.consumer_id, binding.input)] = false
             continue
         end
@@ -6265,6 +6342,7 @@ function _validate_temporal_input_output_overlap!(
     application::CompiledModelApplication,
     temporal_bindings,
 )
+    isempty(temporal_bindings) && return nothing
     output_names = Set(Symbol.(keys(outputs_(application.spec))))
     for binding in temporal_bindings
         binding.input in output_names || continue
@@ -6294,6 +6372,24 @@ Base.@nospecializeinfer function _compile_model_status_view(
     # The assembled Status and CompiledModelStatusView still have concrete types.
     @nospecialize application input_bindings
     canonical_status = _ensure_model_object_status!(model, object_id)
+    has_temporal_inputs = false
+    for binding in input_bindings
+        if binding.carrier_hint == :temporal_stream
+            has_temporal_inputs = true
+            break
+        end
+    end
+    # Ordinary applications use the canonical status directly. Avoid preparing
+    # temporal/private scratch storage and validating a nonexistent overlap.
+    if !has_temporal_inputs && isempty(output_routing(application.spec))
+        return CompiledModelStatusView(
+            canonical_status,
+            canonical_status,
+            (),
+            NamedTuple(),
+            _compiled_bound_many_inputs(input_bindings, canonical_status),
+        )
+    end
     temporal_bindings = CompiledModelInputBinding[]
     for binding in input_bindings
         binding.carrier_hint == :temporal_stream && push!(temporal_bindings, binding)

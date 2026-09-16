@@ -44,6 +44,88 @@ initial_preparation_status(model, id) = only(
     object.status for object in model_objects(model) if object.id == ObjectId(id)
 )
 
+@testset "complete initial statuses retain identity and arbitrary Ref aliases" begin
+    storage = [7.5, 2.25]
+    supplied_reference = Ref(storage, 1)
+    result_reference = Ref(storage, 2)
+    original = Status((
+        supplied=supplied_reference,
+        alias=supplied_reference,
+        result=result_reference,
+        offset=Ref(3.0),
+    ))
+    model = CompositeModel(
+        Object(:leaf; scale=:Leaf, status=original);
+        applications=(
+            ModelSpec(
+                InitialStatusPreparationProbe(
+                    (supplied=Required(Real), offset=Default(-1.0)),
+                    (result=-2.0,),
+                ); name=:first, on=One(scale=:Leaf),
+            ),
+            ModelSpec(
+                InitialStatusPreparationProbe((offset=Default(-3.0),), NamedTuple());
+                name=:second, on=One(scale=:Leaf),
+            ),
+        ),
+    )
+    compiled = Advanced.refresh_bindings!(model)
+    @test initial_preparation_status(model, :leaf) === original
+    @test propertynames(original) == (:supplied, :alias, :result, :offset)
+    @test original.offset == 3.0
+    @test PlantSimEngine.refvalue(original, :supplied) === supplied_reference
+    @test PlantSimEngine.refvalue(original, :alias) === supplied_reference
+    @test PlantSimEngine.refvalue(original, :result) === result_reference
+    for application_id in (:first, :second)
+        view = compiled.status_views_by_target[(application_id, ObjectId(:leaf))]
+        @test view.status === original
+        @test view.canonical_status === original
+        @test isempty(view.temporal_inputs)
+        @test isempty(view.private_outputs)
+    end
+
+    # Both directions must still reach the caller's storage after preparation.
+    storage[1] = 9.25
+    @test original.supplied == original.alias == 9.25
+    original.result = 4.5
+    @test storage[2] == 4.5
+    simulation = run!(model; steps=1, outputs=:none)
+    @test initial_preparation_status(model, :leaf) === original
+    @test final_state(simulation).supplied == 9.25
+    @test storage == [9.25, 4.5]
+end
+
+@testset "empty model ports still create and validate object statuses" begin
+    probe = InitialStatusPreparationProbe(NamedTuple(), NamedTuple())
+    supplied = Status()
+    model = CompositeModel(
+        Object(:supplied; scale=:Leaf, status=supplied),
+        Object(:missing_a; scale=:Leaf),
+        Object(:missing_b; scale=:Leaf);
+        applications=(ModelSpec(probe; name=:empty, on=Many(scale=:Leaf)),),
+    )
+    compiled = Advanced.refresh_bindings!(model)
+    @test initial_preparation_status(model, :supplied) === supplied
+    for object in model_objects(model)
+        @test object.status isa Status
+        @test isempty(propertynames(object.status))
+        @test object_id(model, object.status) == object.id
+        view = compiled.status_views_by_target[(:empty, object.id)]
+        @test view.status === object.status
+        @test view.canonical_status === object.status
+    end
+    @test initial_preparation_status(model, :missing_a) !==
+          initial_preparation_status(model, :missing_b)
+
+    invalid_status = (sentinel=7.0,)
+    invalid = CompositeModel(
+        Object(:invalid; scale=:Leaf, status=invalid_status);
+        applications=(ModelSpec(probe; name=:empty, on=One(scale=:Leaf)),),
+    )
+    @test_throws "Model object `invalid` uses model applications but its status has type" Advanced.refresh_bindings!(invalid)
+    @test initial_preparation_status(invalid, :invalid) === invalid_status
+end
+
 @testset "initial preparation preserves existing references and first defaults" begin
     original = Status(signal=7.0, untouched=[8.0])
     signal_reference = PlantSimEngine.refvalue(original, :signal)
@@ -134,6 +216,50 @@ end
     @test final_state(simulation, :leaf_b).observed == 14.0
 end
 
+@testset "initial bound defaults retain conversion evidence and source identity" begin
+    transformed = Symbol[]
+    transform = (variable, value) -> begin
+        push!(transformed, variable)
+        variable == :bound ? 2 * value : value
+    end
+    model = CompositeModel(
+        Object(:source; scale=:Source),
+        Object(:leaf; scale=:Leaf);
+        applications=(
+            ModelSpec(
+                InitialStatusPreparationProbe(NamedTuple(), (signal=5.0,));
+                name=:source, on=One(scale=:Source),
+            ),
+            ModelSpec(
+                InitialStatusPreparationProbe((bound=Default(-99.0),), NamedTuple());
+                name=:reader, on=One(scale=:Leaf),
+                inputs=(bound=One(scale=:Source, within=SceneScope(),
+                    application=:source, var=:signal),),
+            ),
+        ),
+        type_promotion=Dict(Float64 => Float32),
+        status_transform=transform,
+    )
+    compiled = Advanced.refresh_bindings!(model)
+    source = initial_preparation_status(model, :source)
+    reader = initial_preparation_status(model, :leaf)
+    @test reader.bound === source.signal === 5.0f0
+    @test PlantSimEngine.refvalue(reader, :bound) ===
+          PlantSimEngine.refvalue(source, :signal)
+    @test count(==(:bound), transformed) == 1
+    row = only(row for row in explain_initialization(model)
+        if row.application_id == :reader && row.role == :input && row.variable == :bound)
+    @test row.disposition == :producer_bound
+    @test row.original_type === Float64
+    @test row.effective_type === Float32
+    @test row.type_mapping_applied
+    @test row.status_transform_applied
+    @test row.status_transform_changed
+    view = compiled.status_views_by_target[(:reader, ObjectId(:leaf))]
+    @test view.status === reader
+    @test view.canonical_status === reader
+end
+
 @testset "initial defaults preserve numeric conversion diagnostics" begin
     transform = (variable, value) -> variable == :offset ? 2 * value : value
     probe = InitialStatusPreparationProbe(
@@ -184,12 +310,19 @@ end
     )
     original = only(model_objects(model)).status
     kept_reference = PlantSimEngine.refvalue(original, :kept)
-    Advanced.refresh_bindings!(model)
+    compiled = Advanced.refresh_bindings!(model)
     status = only(model_objects(model)).status
     @test propertynames(status) == (:kept,)
     @test status.kept == 7.0
     @test PlantSimEngine.refvalue(status, :kept) === kept_reference
     @test !hasproperty(status, :scratch)
+
+    view = compiled.status_views_by_target[(:private_output, ObjectId(:leaf))]
+    @test view.status !== status
+    @test view.canonical_status === status
+    @test PlantSimEngine.refvalue(view.status, :kept) !== kept_reference
+    @test view.status.kept == 1.0
+    @test view.status.scratch == [2.0]
 
     simulation = run!(model; steps=1, outputs=:all)
     @test !hasproperty(only(model_objects(model)).status, :scratch)
