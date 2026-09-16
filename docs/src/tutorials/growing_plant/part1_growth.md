@@ -1,35 +1,51 @@
 # Growing A Plant CompositeModel
 
-Begin with a plant object and leaf objects whose carbon production is gathered
-by a plant application through `Many(scale=:Leaf, within=Subtree())`. A growth
-model calls `register_object!` after its carbon or thermal threshold is met.
+Start with [Modify Plant Structure](@ref) for a runnable example of adding and
+removing leaves, or changing which object they belong to. This page explains
+how to connect those operations to a growth model and a carbon budget.
 
-Structural changes refresh compiled targets after the application that made
-the change. A new leaf may run applications that remain later in the same
-timestep. It runs an application that already completed only when its creator
-declares that application as an `Initializer` and explicitly initializes the
-newborn object.
-When callers mutate structure between `step!` calls, refresh occurs before the
-next step.
+## Connect organ creation to a resource budget
 
-Build the initial registry explicitly so ownership remains visible:
+Store the plant's carbon reserves on the plant object and each leaf's carbon
+production on that leaf. `Many(scale=:Leaf, within=Subtree())` lets the plant
+collect production from its own leaves. Before adding production to reserves,
+check what it represents: a rate, an amount produced during one interval, or
+a total accumulated since the start of the simulation. For an accumulated
+total, add only the increase since the last update. Adding the full total at
+every step would count the same carbon repeatedly.
 
-```julia
-model = CompositeModel(
-    Object(:plant; scale=:Plant, status=Status(carbon=0.0)),
-    Object(:leaf_1; scale=:Leaf, parent=:plant, status=Status(area=1.0));
-    applications=(leaf_application, plant_balance, growth_application),
-    environment=weather,
-)
-```
+The growth model's `run!` function then follows this sequence:
 
-The plant balance gathers leaf production with
-`Many(scale=:Leaf, within=Subtree())`. The growth kernel obtains the live model
-with `runtime_model(context)`, checks its carbon and thermal thresholds, creates
-a fully initialized `Object`, and calls `register_object!`. It should deduct
-the construction cost exactly once before registration.
+1. Read the available carbon and check whether the plant is ready to grow.
+2. If so, create the new organ's status with initial area, mass, and any
+   other values its models need.
+3. Subtract the construction cost once. Add the organ to the simulation with
+   a unique identity and the correct parent object.
+4. Check the carbon balance: the remaining reserves, the carbon in the new
+   organ, and any carbon spent on respiration must add up to the amount
+   available before growth.
 
-After each step, assert both biology and structure: remaining plant carbon,
-the number of leaf objects, each new leaf's parent, and accepted historical
-outputs. `Diagnostics.explain_applications` should show that the new leaf is absent
-during its creation step and present after the between-step refresh.
+Use `register_object!` if your model has already created an `Object` with all
+its initial values. If you represent the plant with a MultiScaleTreeGraph
+(MTG), use `add_organ!` to create its MTG node, status, and simulation object
+together. Your growth model must still decide when an organ appears, what it
+costs, and how carbon is converted to dry matter.
+
+## Know when a newborn can run
+
+When a model adds, removes, or reparents an organ, PlantSimEngine updates
+which objects each model runs on and where their inputs come from
+**after that application finishes**. A new leaf can run models scheduled
+later in the same timestep. Models that already ran are not repeated.
+If the new leaf needs one of those earlier calculations immediately, the
+model creating it must declare an `Initializer` and call `run_initializer!`.
+
+If you change the plant structure between `step!` calls, these connections
+are updated before the next step. Neither case automatically undoes changes
+to the plant's values if something goes wrong.
+
+After creating an organ, check its parent, initial values, first saved result,
+and the plant's carbon budget. Use the working example in
+[Modify Plant Structure](@ref) to inspect the objects, then continue with
+[Adding Roots And Water](@ref) for a small resource-accounting example and
+[Debugging Growth And Resource Ordering](@ref) when execution order is unclear.

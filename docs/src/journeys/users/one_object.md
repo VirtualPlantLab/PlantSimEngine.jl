@@ -1,25 +1,52 @@
 # Couple Models On One Object
 
-## New concept: automatic same-object coupling over time
+In this example, we combine three models to calculate how a canopy develops
+and absorbs light over 30 days. We represent the whole canopy as one
+**object**: one part of the simulated system, with its own values. We do not
+describe individual leaves here.
 
-This first executable simulation couples three existing models on one object:
+The three models pass values to one another:
 
-1. `ToyDegreeDaysCumulModel` reads temperature and accumulates thermal time.
-2. `ToyLAIModel` reads cumulative thermal time and computes LAI.
-3. `Beer` reads LAI and radiation and computes absorbed PAR.
+1. `ToyDegreeDaysCumulModel` uses temperature to calculate cumulative thermal
+   time, a measure of accumulated warmth.
+2. `ToyLAIModel` uses that thermal time to calculate leaf area index (LAI).
+3. `Beer` uses LAI and incoming radiation to calculate the light absorbed by the canopy.
 
-The weather file is supplied forcing data for now. Environments get their own
-journey later.
+These are teaching models with illustrative parameters. They show how to
+connect calculations; their results are not predictions for a particular crop.
+
+Start with the [tutorial installation](../../prerequisites/installing_plantsimengine.md)
+if these packages are not yet available in your Julia project.
+
+## Prepare the weather data
+
+We use a weather file included with PlantSimEngine. Each row describes one day.
+The file records daily radiation totals in MJ m⁻² d⁻¹. `Beer` needs the average
+radiation during that day in W m⁻², so the code below converts those columns.
+`SW` means shortwave radiation, `PAR` is the light used for photosynthesis,
+and `NIR` means near-infrared radiation. The weather data are called the
+**environment** in this simulation.
 
 ```@example journey_one_object
 using PlantSimEngine, PlantMeteo, Dates, DataFrames
 using PlantSimEngine.Examples
 
 weather = read_weather(
-    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
+    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
+    :Ri_SW_f => (x -> x .* 1e6 ./ 86_400) => :Ri_SW_f,
+    :Ri_PAR_f => (x -> x .* 1e6 ./ 86_400) => :Ri_PAR_f,
+    :Ri_NIR_f => (x -> x .* 1e6 ./ 86_400) => :Ri_NIR_f;
     duration=Day,
 )
+nothing # hide
 
+```
+
+## Connect the models
+
+Put the three models together in a `CompositeModel` and give it the weather data:
+
+```@example journey_one_object
 model = CompositeModel(
     ToyDegreeDaysCumulModel(),
     ToyLAIModel(),
@@ -28,39 +55,37 @@ model = CompositeModel(
 )
 ```
 
-No `ModelSpec` or selector is needed when all models run on the one object made
-by the concise constructor.
+PlantSimEngine connects these models automatically. The thermal-time model
+provides `TT_cu` to the LAI model, which provides `LAI` to `Beer`. Each input
+has the same name as an output from exactly one other model on this canopy.
+PlantSimEngine also runs the models in that order, so each calculation can
+use the result it needs.
 
-!!! tip "Choose a status type for the whole scenario"
-    Add `type_promotion=Dict(Float64 => Float32)` to the constructor to
-    materialize every matching status scalar, model input default, and model
-    output default as `Float32`. Ordinary numeric arrays are converted element
-    by element. Model parameters such as `Beer(0.6)` and values supplied by
-    `weather` keep their own types.
+## Run 30 days and look at the results
 
-    Use `status_transform=(variable, value) -> ...` when only selected
-    variables need another representation. The precise transform runs before
-    the general type mapping. See [Numerical Reliability](@ref) for complete
-    `Float32` and uncertainty-propagation examples.
+`run!` starts the simulation. Here, `steps=30` runs the first 30 weather rows,
+and `outputs=:all` saves the results from every model at each step.
+`collect_outputs(simulation; sink=DataFrame)` gathers those saved results
+into a DataFrame, the table type provided by DataFrames.jl. `DataFrame` is
+already the default, so you can also write `collect_outputs(simulation)`.
 
-Run thirty daily steps and retain the model outputs:
+These first 30 days fall in winter, so thermal time increases slowly and LAI
+stays small. The [plotting guide](../../guides/data/outputs_plotting.md) shows
+how to plot results and compare two canopies.
 
 ```@example journey_one_object
 simulation = run!(model; steps=30, outputs=:all)
-results = collect_outputs(simulation)
-
-thermal_time = results[results.variable .== :TT_cu, :value]
-lai = results[results.variable .== :LAI, :value]
-evolution = DataFrame(
-    step=1:length(thermal_time),
-    TT_cu=thermal_time,
-    LAI=lai,
-)
-vcat(first(evolution, 3), last(evolution, 3))
+results = collect_outputs(simulation; sink=DataFrame)
+first(select(results, :timestep, :variable, :value), 8)
 ```
 
-The table is retained history. The latest values are also available directly,
-whether or not history was requested:
+Each row records one variable on one day. The last line selects three
+columns and shows the first eight rows: four variables for each of the first
+two days. `TT` is daily thermal time and `TT_cu` is cumulative thermal time,
+both in °C d. LAI is leaf area per ground area, in m² m⁻².
+
+`final_state` gives the latest values, here at the end of day 30. It is also
+available when you run a simulation without saving its history:
 
 ```@example journey_one_object
 state_at_day_30 = final_state(simulation)
@@ -69,26 +94,17 @@ state_at_day_30 = final_state(simulation)
     TT_cu=state_at_day_30.TT_cu,
     LAI=state_at_day_30.LAI,
     aPPFD=state_at_day_30.aPPFD,
-    retained_streams=length(outputs(simulation)),
 )
 ```
 
-PlantSimEngine inferred both status connections because each has one
-unambiguous producer on the same object. This focused diagnostic shows the
-resolved sources and the live reference carriers:
+`aPPFD` measures absorbed photosynthetically active radiation (PAR), the light
+available for photosynthesis. Its unit here is μmol of photons per m² of
+ground per second, averaged over the day. The area refers to the ground
+covered by the canopy, rather than the area of its leaves.
 
-```@example journey_one_object
-select(
-    DataFrame(Diagnostics.explain_bindings(model)),
-    :application_id,
-    :input,
-    :source_application_ids,
-    :carrier_kind,
-)
-```
+## Continue for another day
 
-A `Simulation` owns a continuing timeline. Advancing it does not rebuild a
-separate result object:
+`step!` runs the next day and adds its results to the same simulation:
 
 ```@example journey_one_object
 step!(simulation)
@@ -96,16 +112,6 @@ state_at_day_31 = final_state(simulation)
 (current_step=current_step(simulation), TT_cu=state_at_day_31.TT_cu)
 ```
 
-## Page recap
-
-- **You added:** three models, supplied weather, a 30-step run, and retained
-  outputs.
-- **PlantSimEngine inferred:** the one object, three applications, their
-  execution order, and the `TT_cu` and `LAI` connections.
-- **You keep explicit:** model parameters, forcing data, number of steps, and
-  whether output history is retained.
-- **New API names:** `CompositeModel`, `run!`, `Simulation`, `final_state`,
-  `collect_outputs`, `outputs`, `current_step`, `step!`, and
-  `Diagnostics.explain_bindings`.
-- **Optional status policies:** `type_promotion` for a general type mapping and
-  `status_transform` for a variable-specific conversion.
+You have now extended the same history to day 31. Continue with
+[several independent objects](several_objects.md), or
+[plot the results](../../guides/data/outputs_plotting.md).

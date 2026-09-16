@@ -1,7 +1,13 @@
 # API - internal functions
 ## Un-exported
 
-Private functions, types or constants from `PlantSimEngine`. These are not exported, so you need to use `PlantSimEngine.` to access them (*e.g.* `PlantSimEngine.DataFormat`). Most of them are developer code, but some may be useful for tinkerers, or to have greater control over some simulation parameters (future versions of this documentation might break those categories into separate pages for clarity).
+This reference is for people working on PlantSimEngine itself. The names
+below are internal functions, types, and constants. They may change as the
+implementation develops.
+
+For building a simulation, use the [public API](API_public.md). To inspect
+its connections and results, use the
+[simulation reports](../troubleshooting/runtime_contracts.md).
 
 ## Index
 

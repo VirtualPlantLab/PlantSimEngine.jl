@@ -1,188 +1,141 @@
 # Model compatibility and replacement
 
-```@setup scene_model_switching
-using PlantSimEngine, PlantMeteo, Dates, DataFrames
-using PlantSimEngine.Examples
+Suppose daily carbon gain increases with intercepted light. We want to compare
+a linear response with a saturating response, then add a soil-water limitation.
+All three models answer the same scientific question, but the last needs an
+extra input.
 
-meteo_day = read_weather(
-    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
-    duration=Dates.Day,
+This example uses teaching models with arbitrary coefficients. They demonstrate
+replacement and input checks; their outputs are not predictions for a crop.
+
+## Load one family of alternatives
+
+```@example scene_model_switching
+using Dates, Test, PlantSimEngine
+
+include(joinpath(
+    pkgdir(PlantSimEngine), "skills", "plantsimengine",
+    "assets", "alternative-model.jl",
+))
+using .AlternativeModelExample
+
+linear = LinearCarbonGain(0.2)
+saturating = SaturatingCarbonGain(10.0, 5.0)
+water_limited = WaterLimitedCarbonGain(0.2)
+```
+
+| Model | Equation | Required inputs |
+|---|---|---|
+| Linear | efficiency × absorbed PAR | Absorbed PAR |
+| Saturating | maximum × absorbed PAR / (half-saturation + absorbed PAR) | Absorbed PAR |
+| Water-limited | efficiency × absorbed PAR × bounded soil-water fraction | Absorbed PAR and soil-water fraction |
+
+Absorbed PAR is a daily total in mol photons per plant; carbon gain is a daily
+total in g carbon per plant. The soil-water fraction is dimensionless. The
+models record these units and meanings in `VariableContract` declarations.
+
+## Check before changing a scenario
+
+Compare the models with their chosen parameters:
+
+```@example scene_model_switching
+compatible = Authoring.compare_models(linear, saturating)
+needs_water = Authoring.compare_models(linear, water_limited)
+
+@test compatible.override_compatible
+@test needs_water.requires_binding_changes
+(
+    saturating_can_replace_directly=compatible.override_compatible,
+    water_limited_needs_new_inputs=needs_water.requires_binding_changes,
 )
 ```
 
-One main objective of PlantSimEngine is to compare and switch model
-implementations for a process without changing the engine or unrelated model
-kernels. Process identity and substitutability are nevertheless different
-claims:
+The linear and saturating models can replace each other directly: they read
+and write the same kinds of values and have compatible settings. The
+water-limited model answers the same question, but it also needs `ftsw`, the
+fraction of transpirable soil water.
 
-1. **Same process:** two models answer the same scientific question.
-2. **Scenario-compatible replacement:** the new model supplies every value
-   required by the current consumers and its own inputs can be bound.
-3. **Drop-in replacement:** process, status and environment ports, scientific
-   contracts, dependencies, and relevant traits are compatible without
-   changing scenario wiring.
+Three distinctions matter:
 
-Only the third level is suitable for an `Override`, whose applications share
-one logical interface. Models may belong to the same process while using
-different inputs or producing additional outputs; this is useful scientific
-variation, not an error.
+- **Same process:** the models answer the same scientific question.
+- **Usable in this scenario:** the new model can get all its inputs and
+  provide the results needed by the models connected to it.
+- **Direct override:** you can replace the model without changing its
+  connections or other settings. PlantSimEngine checks the process, variables
+  and their physical meaning, calls to other models, and timing requirements.
 
-At the model-application layer, replace the model inside a `ModelSpec`, keep
-the same `ModelSpec(...; on=...)` selector, then revalidate every binding and
-consumer affected by the changed interface.
+Use `Override` only for the third case. For broader changes, replace the
+model in a `ModelSpec` and update the affected inputs or other configuration.
 
-## A first simulation
+## Compare the two light responses
 
-This model computes degree-days, LAI, absorbed PAR, and growth on one model
-object:
+Keep the plants, input data, and timing identical:
 
 ```@example scene_model_switching
-function plant_model_with_growth(growth_model; growth_name=:growth)
+function carbon_scenario(gain_model; values=(absorbed_par=10.0,))
     CompositeModel(
-        Object(:scene; scale=:Scene, kind=:scene);
+        Object(:plant; scale=:Plant, status=Status(; values...));
         applications=(
-            ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days, on=One(scale=:Scene), every=Day(1)),
-
-            ModelSpec(ToyLAIModel(); name=:lai, on=One(scale=:Scene), every=Day(1)),
-
-            ModelSpec(Beer(0.5); name=:light_interception, on=One(scale=:Scene), every=Day(1)),
-
-            ModelSpec(growth_model; name=growth_name, on=One(scale=:Scene), every=Day(1)),
+            ModelSpec(gain_model; name=:carbon_gain, on=One(scale=:Plant)),
         ),
-        environment=meteo_day,
+        environment=(duration=Day(1),),
     )
 end
 
-rue_scene = plant_model_with_growth(ToyRUEGrowthModel(0.2))
-rue_sim = run!(rue_scene; steps=10)
-rue_status = final_state(rue_sim)
-(growth_model=:ToyRUEGrowthModel, biomass=rue_status.biomass)
+linear_scene = carbon_scenario(linear)
+saturating_scene = carbon_scenario(saturating)
+
+linear_gain = final_state(run!(linear_scene)).carbon_gain
+saturating_gain = final_state(run!(saturating_scene)).carbon_gain
+@test linear_gain == 2.0
+@test saturating_gain ≈ 100 / 15
+(linear=linear_gain, saturating=saturating_gain)
 ```
 
-The compiler infers the same-object bindings from the model declarations. The
-growth model reads `aPPFD`, which is produced by the light interception model:
+Only the selected hypothesis changed. At 10 mol of absorbed photons the
+linear equation produces 2 g carbon and the saturating equation about
+6.67 g carbon. These different outcomes reflect the chosen teaching
+coefficients. Models that can replace each other do not have to give the
+same result: comparing those results is the purpose of the experiment.
+
+## Supply the additional water input
+
+For a controlled comparison, supply a soil-water fraction of 0.5 alongside
+the same light input:
 
 ```@example scene_model_switching
-select(
-    DataFrame(Diagnostics.explain_bindings(rue_scene)),
-    :application_id,
-    :input,
-    :source_application_ids,
-    :origin,
-    :carrier_kind,
+water_scene = carbon_scenario(
+    water_limited;
+    values=(absorbed_par=10.0, ftsw=0.5),
 )
+validation = Authoring.validate_scenario(water_scene)
+@test validation.valid
+
+water_gain = final_state(run!(water_scene)).carbon_gain
+@test water_gain == 1.0
+(linear=linear_gain, water_limited=water_gain)
 ```
 
-## Switching the growth model
+Here we supplied the soil-water fraction ourselves. To let it change during
+a simulation, read it from a soil model or dataset using [Coupling models](@ref). Inspect
+`Diagnostics.explain_initialization(water_scene)` to see how each required
+input was supplied, then `Diagnostics.explain_bindings(water_scene)` for
+connections to other models.
 
-`ToyAssimGrowthModel` implements the same `:growth` process and reads the same
-`aPPFD` input, but computes additional outputs such as carbon assimilation and
-respiration. It is compatible with this small scenario because no downstream
-model requires an output that disappeared. Its larger output interface means
-that same process alone did not prove a strict drop-in replacement:
+## Keep physical meaning and scientific validation visible
 
-```@example scene_model_switching
-assim_scene = plant_model_with_growth(ToyAssimGrowthModel())
-assim_sim = run!(assim_scene; steps=10)
-assim_status = final_state(assim_sim)
-(
-    growth_model=:ToyAssimGrowthModel,
-    carbon_assimilation=assim_status.carbon_assimilation,
-    Rm=assim_status.Rm,
-    biomass=assim_status.biomass,
-)
-```
+Two variables with the same name may use different units or describe
+different quantities. Check whether each value is per plant or per unit
+area, and whether it is a rate, a mean, or a total. If a conversion is needed,
+write it as a small model; see [explicit adapters](../guides/coupling.md).
 
-The dependency graph and execution plan are rebuilt from the new application
-set:
+`Authoring.compare_models` reports differences in declarations.
+`Authoring.validate_scenario` checks whether the models can work together in
+your setup. Neither proves that an equation or its parameters are valid for
+your study. Also compare assumptions, the conditions in which the models
+have been tested, reference data, and simulation results.
 
-```@example scene_model_switching
-select(
-    DataFrame(Diagnostics.explain_execution_plan(assim_sim)),
-    :application_id,
-    :object_ids,
-    :batch_size,
-    :inner_loop_dispatch,
-)
-```
-
-## Check before replacing
-
-Use the public authoring report on the concrete instances:
-
-```@example scene_model_switching
-alternative_asset = joinpath(
-    pkgdir(PlantSimEngine),
-    "skills",
-    "plantsimengine",
-    "assets",
-    "alternative-model.jl",
-)
-include(alternative_asset)
-using .AlternativeModelExample
-
-drop_in = Authoring.compare_models(
-    LinearCarbonGain(0.2),
-    SaturatingCarbonGain(10.0, 5.0),
-)
-needs_binding = Authoring.compare_models(
-    LinearCarbonGain(0.2),
-    WaterLimitedCarbonGain(0.2),
-)
-(
-    drop_in=(
-        same_process=drop_in.same_process,
-        override_compatible=drop_in.override_compatible,
-        requires_reconfiguration=drop_in.requires_reconfiguration,
-        compatibility=drop_in.compatibility,
-    ),
-    water_limited=(
-        same_process=needs_binding.same_process,
-        override_compatible=needs_binding.override_compatible,
-        requires_binding_changes=needs_binding.requires_binding_changes,
-        requires_reconfiguration=needs_binding.requires_reconfiguration,
-        compatibility=needs_binding.compatibility,
-    ),
-)
-```
-
-`requires_binding_changes` is specific to ports, contracts, dependencies,
-output policies, or model-level environment hints. `requires_reconfiguration`
-is broader: it is true for any interface difference that prevents a direct
-override, including a schedule-only trait change.
-
-The report compares:
-
-- `process(model)`;
-- required and defaulted status inputs, including declared types;
-- local `outputs_` schemas, including initial values;
-- environment inputs and outputs;
-- complete `VariableContract`s;
-- model-authored `Input`, `Call`, and `Initializer` dependencies;
-- cadence and temporal output policies.
-
-A variable with the same name but a different unit, basis, temporal meaning,
-aggregation, or extent is incompatible. Add an explicit adapter rather than
-weakening or omitting the contract.
-
-After replacement, compile the candidate scenario and inspect:
-
-```@example scene_model_switching
-candidate_validation = Authoring.validate_scenario(assim_scene)
-(
-    scenario_valid=candidate_validation.valid,
-    initialization=Diagnostics.explain_initialization(assim_scene),
-    bindings=Diagnostics.explain_bindings(assim_scene),
-    schedule=Diagnostics.explain_schedule(assim_scene),
-)
-```
-
-The compiler diagnostics prove that this concrete scenario can initialize and
-route the replacement. They do not prove that two equations are scientifically
-equivalent or valid over the same domain; that remains model documentation and
-validation evidence. Distributed `outputs_to` destinations belong to the
-`ModelSpec`, not `ModelInterface`, so revalidate them at this scenario level.
-
-Use `ObjectInstance(...; overrides=...)` only for a model that satisfies the
-logical application's exact replacement contract. Otherwise create or replace
-a complete `ModelSpec` and update the affected bindings explicitly.
+For detailed reports, inspect `requires_binding_changes` for connection
+changes and `requires_reconfiguration` for all differences that prevent a
+direct override, including changes to how often a model runs. The [Public API](@ref) describes
+the complete report.

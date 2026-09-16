@@ -260,8 +260,8 @@ end
     @test low_wind.canopy_air_ms ≈ m.gbcan_min
     @test isfinite(low_wind.soil_canopy_ms)
 
-    meteo_above = Atmosphere(T=25.0, Rh=0.50, Wind=1.2, Ri_PAR_f=800.0, Ri_SW_f=400.0, duration=Dates.Hour(1))
-    canopy_meteo = Atmosphere(T=25.0, Rh=0.50, Wind=1.2, P=meteo_above.P, Ri_PAR_f=800.0, Ri_SW_f=400.0, duration=Dates.Hour(1))
+    meteo_above = Atmosphere(T=25.0, Rh=0.50, Wind=1.2, Ri_PAR_f=200.0, Ri_SW_f=400.0, duration=Dates.Hour(1))
+    canopy_meteo = Atmosphere(T=25.0, Rh=0.50, Wind=1.2, P=meteo_above.P, Ri_PAR_f=200.0, Ri_SW_f=400.0, duration=Dates.Hour(1))
     hot_fluxes = (rn=5000.0, lambda_e=-5000.0, a=0.0, lai=0.75, rad_interc=0.0)
     hot = canopy_air_update(m, hot_fluxes, meteo_above, canopy_meteo, PlantMeteo.Constants())
     @test hot.tair <= meteo_above.T + 10.0
@@ -275,4 +275,69 @@ end
     @test 0.0 <= wet.rh <= 1.0
     @test meteo_above.T == 25.0
     @test max(0.01, meteo_above.VPD) == meteo_above.VPD
+end
+
+@testset "MAESPA illustrative radiation units" begin
+    constants = PlantMeteo.Constants()
+    weather = maespa_meteo(; nhours=73)
+    @test all(row -> 0 <= row.Ri_PAR_f <= row.Ri_SW_f, weather)
+    @test all(row -> row.Ri_PAR_f ≈ row.Ri_SW_f * constants.PAR_fraction, weather)
+
+    status = Status(leaf_Ra_SW_f=zeros(2), leaf_aPPFD=zeros(2), Ψₗ=zeros(2))
+    noon = weather[12]
+    _prepare_model_leaf_inputs!(status, noon, -0.2, constants)
+    @test status.leaf_Ra_SW_f == fill(noon.Ri_SW_f, 2)
+    @test status.leaf_aPPFD ≈ fill(noon.Ri_PAR_f * constants.J_to_umol, 2)
+    @test status.Ψₗ == fill(-0.2, 2)
+
+    # The supplied run constants, rather than a hidden default, own the conversion.
+    _prepare_model_leaf_inputs!(status, noon, -0.2, (J_to_umol=2.0,))
+    @test status.leaf_aPPFD == fill(2 * noon.Ri_PAR_f, 2)
+end
+
+@testset "MAESPA allocation accounts each carbon increment once" begin
+    status = _maespa_plant_status()
+    model = AllocA(0.35, 0.55)
+    for (cumulative, increment) in ((3.0, 3.0), (8.0, 5.0), (15.0, 7.0), (15.0, 0.0), (14.0, -1.0))
+        status.leaf_carbon[1] = cumulative
+        PlantSimEngine.run!(model, status, nothing, nothing, nothing)
+        @test status.leaf_carbon == [cumulative]
+        @test status.daily_growth ≈ increment
+        @test status.accounted_carbon ≈ cumulative
+        @test status.leaf_pool + status.wood_pool + status.reserve_pool ≈ cumulative
+    end
+end
+
+@testset "MAESPA three-day elemental carbon balance" begin
+    result = run_maespa_example(; nhours=73, check=true)
+    rows = collect_outputs(result.simulation; sink=nothing)
+    for (plant_id, leaf_ids) in (
+        (:plant_A, (:plant_A_leaf_1, :plant_A_leaf_2)),
+        (:plant_B, (:plant_B_leaf_1, :plant_B_leaf_2, :plant_B_leaf_3)),
+    )
+        state = model_status(result.model, plant_id)
+        # Independently integrate the 73 accepted assimilation samples for each
+        # leaf. Trial iterations must neither publish nor accumulate extra C.
+        accepted_carbon = sum(leaf_ids) do leaf_id
+            leaf = model_status(result.model, leaf_id)
+            assimilation = [row.value for row in rows if row.object_id == leaf_id && row.variable == :A]
+            @test length(assimilation) == 73
+            carbon = sum(assimilation) * leaf.leaf_area * 3600 * 12e-6
+            @test leaf.leaf_carbon ≈ carbon
+            carbon
+        end
+        @test sum(state.leaf_carbon) ≈ accepted_carbon
+        pool_carbon = state.leaf_pool + state.wood_pool + state.reserve_pool
+        @test pool_carbon ≈ state.accounted_carbon
+        pending_carbon = accepted_carbon - state.accounted_carbon
+        @test pool_carbon + pending_carbon ≈ accepted_carbon
+
+        history(variable) = [row.value for row in rows if row.object_id == plant_id && row.variable == variable]
+        accounted = history(:accounted_carbon)
+        growth = history(:daily_growth)
+        @test length(growth) == length(accounted) == 4
+        @test growth ≈ diff([0.0; accounted])
+        @test sum(growth) ≈ last(accounted)
+        @test history(:leaf_pool) .+ history(:wood_pool) .+ history(:reserve_pool) ≈ accounted
+    end
 end

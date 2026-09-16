@@ -1,142 +1,106 @@
 # Implement Environment And Cadence Traits
 
-**New concept:** model-authored runtime traits. Environment declarations name
-the fields a kernel samples, while cadence and output-policy traits state when
-the same kernel runs and how its values cross clocks.
+A model may need air temperature or may be intended to run once a day.
+Describe these requirements alongside the model's equation. The simulation
+setup then chooses where the temperature comes from and how often the model
+runs. This update frequency is also called its **cadence**.
 
-Simulation users configure providers in [Understand Environments](@ref) and
-application clocks in [Give Models Different Cadences](@ref).
+Start with [Understand Environments](@ref) and
+[Give Models Different Cadences](@ref) for the scenario-user perspective.
 
-## Model 6: declare sampled environment inputs
+## Declare an environmental input
 
-`ToyMaintenanceRespirationModel` reads object state and sampled temperature.
-The tested contract names that environment field explicitly:
+This teaching model simply copies the environmental temperature to an output.
+It shows how to read environmental data before adding a biological equation.
+These are its actual definitions in `examples/ToySpatialEnvironment.jl`:
+
+```@eval
+Main.DocsSources.section(
+    "examples/ToySpatialEnvironment.jl",
+    "struct ToyEnvironmentReaderModel",
+    "\"\"\"\n    ToyEnvironmentControllerModel",
+)
+```
+
+`environment_inputs_` declares `T`, and `run!` reads it from
+`environment.T`. The model does not need to know whether the temperature
+comes from a weather file or varies with position in the canopy.
+
+Test that read directly:
 
 ```@example modeler_environment_time
-using Dates, PlantMeteo, PlantSimEngine, DataFrames
+using Dates, Test, PlantSimEngine
 using PlantSimEngine.Examples
 
-respiration = ToyMaintenanceRespirationModel(
-    2.0,
-    0.06,
-    25.0,
-    0.5,
-    0.02,
-)
-(
-    inputs=PlantSimEngine.inputs_(respiration),
-    environment_inputs=PlantSimEngine.environment_inputs_(respiration),
-    environment_outputs=PlantSimEngine.environment_outputs_(respiration),
-    outputs=PlantSimEngine.outputs_(respiration),
-)
+reader = ToyEnvironmentReaderModel()
+sample = Status(temperature_seen=0.0)
+PlantSimEngine.run!(reader, sample, (T=25.0,), nothing, nothing)
+@test sample.temperature_seen == 25.0
+sample.temperature_seen
 ```
 
-The kernel reads model parameters from `model`, object state from `status`, and
-forcing from `environment`:
-
-```@example modeler_environment_time
-direct_status = Status(carbon_biomass=10.0, Rm=-Inf)
-PlantSimEngine.run!(
-    respiration,
-    direct_status,
-    (T=25.0,),
-    nothing,
-    nothing,
-)
-direct_status
-```
+Then supply an environment through the simulation:
 
 ```@example modeler_environment_time
 model = CompositeModel(
-    Object(
-        :leaf;
-        scale=:Leaf,
-        status=Status(carbon_biomass=10.0),
-    );
-    applications=(
-        ModelSpec(
-            respiration;
-            name=:maintenance,
-            on=One(scale=:Leaf),
-        ),
-    ),
-    environment=Atmosphere(
-        T=25.0,
-        Wind=1.0,
-        Rh=0.7,
-        duration=Hour(1),
-    ),
+    reader;
+    environment=(T=25.0, duration=Hour(1)),
 )
+result = final_state(run!(model)).temperature_seen
+@test result == 25.0
+result
+```
 
-(
-    declared=PlantSimEngine.environment_inputs_(respiration),
-    final=final_state(run!(model)),
+A scientific model should also declare the temperature's units and meaning
+with `variable_contracts_`, as in [Implement a basic model](@ref).
+Use [Port an existing model](@ref) for an equation that combines environmental
+temperature with object state.
+
+## Give a model a default cadence
+
+The next teaching model adds a fixed increment whenever it runs. By default,
+it runs every 24 simulation steps. Other models can keep reading its latest
+result until it runs again:
+
+```@eval
+Main.DocsSources.section(
+    "examples/ToyModelDeveloper.jl",
+    "PlantSimEngine.inputs_(::ToyDailyDevelopmentModel)",
 )
 ```
 
-The model does not name a provider or inspect raw weather storage.
-`Environment(...)` remains scenario configuration.
+`timespec` sets the default update frequency. `output_policy` describes how
+other models read the result between updates. Here `HoldLast` tells them to
+use the latest available value; it does not run this equation again.
 
-## Model 7: declare cadence and output semantics
-
-`ToyDailyDevelopmentModel` accumulates one increment whenever it runs. Its
-model-level traits say “every 24 simulation steps, starting at step 1” and
-“consumers may hold the last daily value between publications”:
+`ClockSpec(24.0, 1.0)` means every 24 base steps, starting at step 1. It
+corresponds to a day only when the base step is an hour. In a scenario,
+`every=Day(1)` expresses the intended duration directly:
 
 ```@example modeler_environment_time
 daily = ToyDailyDevelopmentModel(2.0)
-(
-    clock=PlantSimEngine.timespec(daily),
-    outputs=PlantSimEngine.output_policy(daily),
-)
-```
-
-`ClockSpec` is expressed in simulation steps. Use
-`ModelSpec(...; every=Day(1))` when a scenario should express a
-duration-relative cadence or override the model default.
-
-```@example modeler_environment_time
 daily_model = CompositeModel(
     Object(:plant; scale=:Plant);
     applications=(
         ModelSpec(
-            daily;
-            name=:daily_development,
-            on=One(scale=:Plant),
+            daily; name=:daily_development, on=One(scale=:Plant),
+            every=Day(1),
         ),
     ),
-    environment=[
-        (duration=Hour(1),)
-        for _ in 1:25
-    ],
+    environment=[(duration=Hour(1),) for _ in 1:25],
 )
 
-daily_simulation =
-    run!(daily_model; steps=25, outputs=:all)
-(
-    traits=(
-        clock=PlantSimEngine.timespec(daily),
-        outputs=PlantSimEngine.output_policy(daily),
-    ),
-    schedule=DataFrame(Diagnostics.explain_schedule(daily_model)),
-    final=final_state(daily_simulation),
-    retained=DataFrame(
-        Diagnostics.explain_outputs(daily_simulation),
-    ),
-)
+daily_simulation = run!(daily_model; steps=25, outputs=:all)
+growth = final_state(daily_simulation).daily_growth
+@test growth == 4.0
+growth
 ```
 
-The model runs at steps 1 and 25. A downstream application can override
-`HoldLast` with an explicit selector policy when its scientific interpretation
-requires `Integrate`, `Aggregate`, or `Interpolate`.
+The model runs at steps 1 and 25, adding 2 each time. When connecting another
+model, you can choose to average or add results over an interval instead of
+keeping the last value. The choice depends on what the variable represents;
+see [Give Models Different Cadences](@ref).
 
-## Model-author recap
-
-- **You implemented:** declared environment reads, a model default clock, and
-  per-output temporal meaning.
-- **PlantSimEngine inferred:** environment validation/sampling, execution
-  steps, and the default cross-clock policy.
-- **The scenario author keeps explicit:** concrete environment provider,
-  simulation base step, cadence overrides, and input-policy overrides.
-- **New API names:** `environment_inputs_`, `timespec`, `ClockSpec`,
-  `output_policy`, and `HoldLast`.
+Give a model a default update frequency only when its equations require one.
+Choose weather data, timing for a particular study, and results to save in
+the simulation setup.

@@ -1,78 +1,107 @@
 # Coupling models
 
-PlantSimEngine has three coupling mechanisms with different ownership:
+Coupling means letting models work together. For example, a light model can
+calculate the radiation that a growth model needs. The growth model then reads
+that result as an input.
 
-| Mechanism | Use it when | Who owns the operation? |
+Choose how to connect your models from the calculation you need:
+
+| Connection | Example | How to set it up |
 |---|---|---|
-| Value coupling | A consumer reads a producer's accepted value | The scenario declares `inputs`; the compiler transports references or streams |
-| Hard call | A parent must choose when or how often a child executes | The parent declares `Call` and invokes `run_call!` |
-| Adapter model | Unit, basis, temporal meaning, or aggregation changes | An ordinary model owns and tests the explicit conversion |
+| Value coupling | Growth reads the radiation calculated by a light model | Connect the output to the input with `inputs` |
+| Manual call, also called a hard dependency | An energy-balance model runs photosynthesis at several trial leaf temperatures | Declare `Call`, then use `run_call!` inside the energy-balance calculation |
+| Adapter model | Radiation per square metre must become radiation per plant | Write a small model that performs the conversion |
 
-Use `inputs` when a model reads a value produced by another application. A
-unique same-object producer is inferred; cross-object sources should use an
-explicit `One`, `OptionalOne`, or `Many` selector. Inspect the resolved
-references with `Diagnostics.explain_bindings`.
-
-Use `calls` only when a parent algorithm owns child execution or iteration.
-Use `run_call!(context, :name)` to execute every resolved target. Pass
-`sampled_environment=value` to this bulk path when the caller already has one
-model-facing environment for all targets. Use `call_model(context, :name)` to
-inspect a singular dependency model without materializing a public target. For
-selection, target status access, custom ordering, or distinct environments,
-retrieve the vector-like collection with `call_targets(context, :name)` and
-execute individual targets. Trial calls use `publish=false`; accepted state is
-published once.
-Nested calls inherit publication suppression, so a descendant cannot publish
-inside an unpublished ancestor trial. `Diagnostics.explain_calls` and `Diagnostics.explain_schedule`
-show call-only targets and ordering.
-
-`Diagnostics.explain_initialization(model)` classifies values as supplied, generated,
-producer-bound, defaulted, required, or environment-bound before execution.
+A **model application** is a model configured with `ModelSpec`: it has a name,
+a choice of objects, and any settings needed for its inputs or timing.
 
 ## Value coupling
 
-A consumer on the same object needs no scenario syntax when exactly one
-canonical producer exists. Make cross-object intent explicit:
+Suppose a growth model needs `absorbed_par`. If exactly one model on the same
+object writes that variable, PlantSimEngine connects them automatically and
+runs the light calculation first. When the value comes from another object,
+describe where to find it in `ModelSpec(...; inputs=...)`.
 
-[Implement Cross-Object Values](@ref) is the executable example: a plant
-consumer receives a `Many(...; within=Subtree())` collection from its own
-leaves while PlantSimEngine preserves each source object's identity.
+Use these selectors to choose how many objects supply a value:
 
-`One` is a contract: zero or multiple matches are errors. Use `OptionalOne`
-only when absence has a scientific meaning, and `Many` when aggregation is
-part of the consumer model. `within=Subtree()` searches descendants of the
-current target; `within=Self()` selects only the current target;
-`within=SelfPlant()` anchors repeated plant instances; and `SceneScope()`
-is deliberately global.
+| Selector | Meaning |
+|---|---|
+| `One(...)` | Exactly one match is required; zero or several matches are errors |
+| `OptionalOne(...)` | A match may be absent; use this only if your model can meaningfully handle that absence |
+| `Many(...)` | Read several values, for example to add the respiration of all leaves |
 
-By default, an input selector also identifies applications that produce the
-selected variable, and those producers are scheduled before the consumer. Use
-`from_status=true` only when the input deliberately reads the objects' current
-`Status` references independently of any producer. Declare that selector as
+The `within` setting limits where PlantSimEngine looks. `Self()` means the
+current object. `Subtree()` means that object and its descendants, such as a
+plant and its organs. `SelfPlant()` means the plant instance to which the
+current object belongs. `SceneScope()` searches the whole simulation.
+
+[Implement Cross-Object Values](@ref) gives a complete example: a plant model
+reads respiration from its own leaves with `Many(...; within=Subtree())`.
+The model then adds those values. Choosing `Many` does not perform the sum
+for you.
+
+Normally, PlantSimEngine identifies which model writes an input and runs it
+before the model that reads it. Sometimes you want to read a value already
+stored in an object's `Status`, such as an initial soil-water reserve. Use
+`from_status=true` for this case.
+
+That setting reads the current stored value directly. It does not look for a
+model that should calculate it first. If you need to wait for a particular
+calculation, name it with `after`, for example
 `Many(...; var=:reserve, from_status=true, after=:plant_allocation)`.
+Otherwise, the applications keep their order in the scenario. You cannot
+combine `from_status=true` with `process`, `application`, `policy`, or `window`.
 
-This is a same-step live-reference binding. It cannot be combined with
-`process`, `application`, `policy`, or `window`. It does not infer a producer
-edge; use `after=:application_id` when the state must be read or mutated after
-a particular application. Otherwise, the scenario's application order is
-preserved.
+Use `Diagnostics.explain_bindings(model)` to see where each input comes from.
+`Diagnostics.explain_initialization(model)` shows how starting values are
+obtained, including values you supplied, defaults, and missing required inputs.
 
 ## Manual calls
 
-[Implement A Hard Dependency](@ref) is the executable parent/child example.
-Inside a controller, iterate over `call_targets(context, :leaf_energy)`. Run
-candidate states with `run_call!(target; publish=false)` and publish the
-accepted state once with `publish=true`. A call-only target is excluded from
-root scheduling, and an unpublished outer call suppresses publication by every
-nested descendant.
+A model that controls another model's calculation is called a **controller**.
+For example, an energy-balance controller can try different temperatures,
+run photosynthesis at each temperature, and keep the result that satisfies
+its energy-balance equation.
+
+Declare the models to call with `Call` in the controller's `dep` method, or
+with `ModelSpec(...; calls=...)` in the scenario. Then use:
+
+| What the controller needs to do | Function |
+|---|---|
+| Run all models selected by a named call | `run_call!(context, :leaf_energy)` |
+| Choose individual models or objects to run | `call_targets(context, :leaf_energy)`, then `run_call!(target)` |
+| Read a called model's type or parameters | `call_model(context, :leaf_energy)`; this requires exactly one match |
+
+Here a **target** is one selected model application on one object. If the
+controller has already prepared the environmental values for every target,
+pass them as `sampled_environment=value` to `run_call!`. Use individual
+targets when each object needs different values.
+
+Trial calls use `publish=false`, the default. Their results are not saved as
+accepted output samples for time-based connections or output history. Use
+`publish=true` for the accepted calculation. This setting does not undo
+changes to model state: the controller must handle any changes that should
+be discarded after a trial.
+
+A model used only through calls runs when its controller calls it; it does
+not also run independently. If a trial calls further models, those nested
+calls cannot save accepted samples either. The same rule prevents a nested
+controller from committing trial values to the environment.
+
+[Implement A Hard Dependency](@ref) walks through a complete example.
+`Diagnostics.explain_calls(model)` lists the selected models and objects;
+`Diagnostics.explain_schedule(model)` shows their execution order.
 
 ## Explicit adapters
 
-Variable renaming only changes the local field name. It must never silently
-convert molar to mass units, ground-area to plant-area basis, rates to totals,
-or one carbon convention to another. Put that operation in a small, named
-model with a contract on each side. The executable adapter shipped with the
-agent skill converts radiation per unit ground area to radiation per plant:
+Two variables can have the same name and still mean different things. For
+example, radiation per square metre of ground cannot be used directly where
+a model expects radiation per plant. Renaming the variable does not convert it.
+
+An **adapter** is a small model that performs such a conversion. Its
+`VariableContract` declarations record the units and physical meaning before
+and after the conversion. This example multiplies radiation per unit ground
+area by the ground area assigned to a plant:
 
 ```@example coupling-adapter
 using PlantSimEngine
@@ -105,21 +134,17 @@ simulation = run!(adapted)
 )
 ```
 
-The producer-to-adapter binding matches `GROUND_PAR_CONTRACT`; the
-adapter-to-consumer binding matches `PLANT_PAR_CONTRACT`. The conversion
-parameter, equation, units, and bases are now visible and testable. Document
-the scientific domain and validity limits explicitly; the fixture does not
-invent them. Use the same pattern for temporal or carbon-basis conversions.
+The adapter reads radiation per ground area and writes radiation per plant.
+The models on either side therefore receive the units they expect. You can
+inspect and test the area parameter and the conversion equation separately.
+For your own adapter, also explain when that conversion is scientifically
+appropriate.
 
-Temporal policies currently leave contracts unchanged. In particular,
-`Integrate(reducer)` with a duration-aware reducer computes an integral but
-does not make a rate contract
-compatible with a total contract. For a contracted rate-to-amount conversion,
-perform the calculation in the adapter kernel and declare the different
-contracts on its input and output. Accumulate varying rates at their producer
-cadence or supply a correctly averaged rate before multiplying by duration.
+Use the same approach to convert a rate to an amount. A constant rate can be
+multiplied by its duration. If it varies, add its contributions at each update
+or use the correct mean rate over the interval.
 
-After compilation, inspect `Diagnostics.explain_bindings(compiled)` for source identity
-and carrier type, `Diagnostics.explain_calls(compiled)` for call-only targets, and
-`Diagnostics.explain_schedule(compiled)` for root execution order. These rows are the
-supported diagnostic surface; compiled fields are internal.
+Time settings such as `Integrate(reducer)` can calculate an integral, but
+they do not change the variable's declared units or meaning. To connect a
+declared rate to a model expecting an amount, perform that calculation in an
+adapter and declare the rate as its input and the amount as its output.

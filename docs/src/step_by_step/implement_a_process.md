@@ -1,63 +1,66 @@
 # New process or new model?
 
-A process names a biological or physical question. A concrete model is one
-hypothesis, formulation, or scale at which that process is computed. Make this
-choice before writing the model type: it determines whether users can discover
-your implementation beside existing alternatives.
+A **process** names a biological or physical question. A **model** is one
+hypothesis or formulation used to answer it. For example, two photosynthesis
+equations can belong to the same process even if they need different inputs.
 
-## Prefer an existing process
+Before creating a model, check whether the process already exists. That lets
+users find your implementation beside the alternatives they may want to compare.
 
-Start by loading the packages that may own the process and inspect what they
-declare:
+## Find the existing family
+
+Load the package that provides the models. This example uses the teaching models
+distributed with PlantSimEngine:
 
 ```@example choose_process
 using PlantSimEngine
+using PlantSimEngine.Examples
 
-Authoring.available_processes()
+growth_models = Authoring.available_models(AbstractGrowthModel)
+growth_models
 ```
 
-`Authoring.available_processes()` can only see loaded Julia modules. Search the source of
-the target package as well before deciding that a process is missing. The
-[Loaded model catalog](@ref) shows the same discovery result grouped into a
-generated table with provenance and completeness.
+For a scientific application, load its model package first and inspect its
+documentation. `Authoring.available_processes()` lists the process types
+available in the packages you have loaded. `Authoring.available_models(process_type)`
+then lists the model types that implement that process.
 
-Reuse an existing abstract process type when the new implementation answers
-the same scientific question. Examples include two photosynthesis
-formulations, a simple and a water-stress-aware radiation-use-efficiency model,
-or the same process represented at different scales. Give each hypothesis its
-own concrete model instead of adding a `method=:a_or_b` switch to one large
-kernel.
+Choose a model, give it a parameter value, and inspect its inputs and outputs:
 
-Models in the same process form a scientific family, but they are not
-necessarily interchangeable. They may require different inputs, produce
-different outputs, use different clocks, or declare different
-`VariableContract`s. See [Model compatibility and replacement](@ref) before
-using one as an `Override` or replacing it without revisiting scenario
-bindings.
+```@example choose_process
+candidate = ToyRUEGrowthModel(0.2)
+(
+    process=process(candidate),
+    inputs=inputs(candidate),
+    outputs=outputs(candidate),
+)
+```
 
-## Declare a process only for a new meaning
+[Loaded model catalog](@ref) explains discovery and inspection in more detail.
+These functions only find packages loaded into Julia. Also check the package
+you plan to use before concluding that a process is missing.
 
-Create a process when no existing process has the same biological or physical
-meaning:
+## Decide what your new equation changes
+
+| Your change | What to create |
+|---|---|
+| Another equation, assumption, or level of detail for the same question | A model under the existing process |
+| A distinct biological or physical question | A new process and its model |
+| A conversion such as radiation per square metre to radiation per plant | A small conversion model, called an adapter |
+
+Give alternative equations separate model types so users can select and test
+them. To compare parameter values in the same equation, create instances of
+that model with different parameters. Models in one process may need
+different inputs, produce different outputs, or run at different frequencies.
+Use [Model compatibility and replacement](@ref) before substituting one.
+
+## Declare a genuinely new process
+
+This declaration creates a process for a teaching example of root exudation:
 
 ```@example choose_process
 PlantSimEngine.@process "docs_root_exudation" verbose=false
 
-abstract = AbstractDocs_Root_ExudationModel
-abstract <: AbstractModel
-```
-
-The generated abstract type is formed by prefixing `Abstract`, preserving word
-boundaries from the process name, and appending `Model`. For example:
-
-| Declaration | Generated abstract type |
-|---|---|
-| `@process "growth"` | `AbstractGrowthModel` |
-| `@process "light_interception"` | `AbstractLight_InterceptionModel` |
-
-Concrete implementations subtype the generated abstract type:
-
-```@example choose_process
 struct DocsLinearExudation{T} <: AbstractDocs_Root_ExudationModel
     fraction::T
 end
@@ -65,43 +68,18 @@ end
 process(DocsLinearExudation(0.1))
 ```
 
-The macro generates process identity and the abstract type; it does not choose
-ports, units, parameters, defaults, equations, or scientific validation for
-you. Continue with [Implement a basic model](@ref), which is the canonical
-model-authoring path.
+`@process` creates the abstract type that concrete models inherit from:
 
-## A practical decision test
+| Declaration | Generated abstract type |
+|---|---|
+| `@process "growth"` | `AbstractGrowthModel` |
+| `@process "light_interception"` | `AbstractLight_InterceptionModel` |
 
-Ask these questions in order:
+When another package already declares the process, import its abstract type
+and use it after `<:` in your model definition. This puts your model in the
+same family as the existing alternatives.
 
-1. Is the quantity being simulated and its scientific meaning already
-   represented by a loaded process?
-2. Would users reasonably compare this implementation with the existing
-   implementations as alternative hypotheses?
-3. Is the difference only an equation, assumption, parameterization, scale, or
-   resolution of that same question?
-
-If the answers point to the same question, add a model to the existing
-process. Create a new process only when the meaning itself changes. If the new
-model changes units or basis while connecting two existing meanings, implement
-an explicit adapter model instead; see [Coupling models](@ref).
-
-## Without the macro
-
-`@process` is a small convenience. The equivalent manual declaration is:
-
-```@example choose_process
-abstract type AbstractDocsManualRootExudationModel <:
-              PlantSimEngine.AbstractModel end
-PlantSimEngine.process_(
-    ::Type{AbstractDocsManualRootExudationModel},
-) = :docs_manual_root_exudation
-
-struct DocsManualRootExudation <: AbstractDocsManualRootExudationModel end
-
-manual_process = process(DocsManualRootExudation())
-@assert manual_process == :docs_manual_root_exudation
-manual_process
-```
-
-Prefer the macro for ordinary package code so process naming stays consistent.
+The type above is only the beginning. It still needs input and output
+declarations, descriptions of the variables' units and meaning, an equation,
+and tests. Continue with
+[Implement a basic model](@ref) to complete those steps.

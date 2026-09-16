@@ -1,110 +1,154 @@
 # Why PlantSimEngine?
 
-PlantSimEngine was developed to address fundamental limitations in existing plant modeling tools. This framework emerged from the need for a system that could efficiently handle the complex dynamics of the soil-plant-atmosphere continuum while remaining accessible to researchers and practitioners from diverse disciplines.
+PlantSimEngine helps you build plant simulations from process models that you
+can inspect, test, reuse, and replace. You choose the scientific equations,
+the plants, organs or other entities they describe, and the exchanges between
+them. The engine connects their inputs and outputs and runs the resulting
+simulation in Julia.
 
-## The Current Landscape of Plant Modeling
+This is useful when your research question requires a particular combination
+of processes or assumptions:
 
-Plant modeling has evolved significantly over the years, with different tools making different design tradeoffs to address specific research needs. These tools generally fall into three categories, each with their own strengths and limitations:
+- **Crop modelling:** assemble development, light interception, biomass, or
+  water-balance processes at the resolution your question needs. Start with
+  [a coupled simulation for a canopy](../journeys/users/one_object.md).
+- **Canopy ecophysiology:** connect weather, local conditions and organ processes,
+  including calculations that must iterate together. The
+  [MAESPA-style synthesis](../journeys/users/maespa_synthesis.md) demonstrates
+  how these calculations can work together, using teaching models.
+- **Functional–structural plant modelling:** apply processes to organs,
+  connect their results to the plant, and update the structure during growth.
+  Start with [one multiscale plant](../journeys/users/one_plant.md).
 
-### Monolithic Systems
+The scientific models, parameter sets, input data, and validation for your
+species or experiment come from your own work or model packages such as
+[PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl). PlantSimEngine
+provides the tools for connecting and running them.
 
-Systems like APSIM[^1], GroIMP[^2], AMAPStudio[^3], Helios[^4], and CPlantBox[^5] offer comprehensive functionality but present certain tradeoffs:
+## Compare hypotheses without rewriting the whole simulation
 
-These systems provide robust, well-tested frameworks with established scientific validity, but their large, complex codebases can be challenging to navigate and modify without extensive programming expertise.
+A process can have several model implementations. For example, you may want
+to compare two biomass-production equations or introduce water limitation
+into a previously radiation-driven model. Each implementation keeps its own
+parameters and equations; the scenario specifies where it runs and how it
+receives inputs.
 
-Their comprehensive architecture offers a wealth of integrated features but may require adaptation when implementing novel approaches that don't align with their predefined frameworks.
+Replacement depends on the model's interface: the values it needs and produces,
+and what those values mean. The new model must provide the outputs other
+models need, and its own inputs must be available. A variable contract records
+information such as units, whether a quantity is per plant or per unit area,
+and whether it is a rate or an accumulated amount. The same variable name
+alone is insufficient. Moving from a quantity per unit ground area to a total
+per plant, for example, needs an explicit conversion.
 
-They excel at specific types of simulations but may require additional engineering effort for seamless multi-scale simulations and model coupling across the soil-plant-atmosphere continuum.
+To replace a model only for selected plants, its inputs, outputs, and other
+requirements must match the original model. A replacement that needs an extra
+input, such as soil water content, requires changes to the simulation setup. See
+[model compatibility and replacement](../step_by_step/model_switching.md).
 
-These platforms typically require dedicated engineering resources for maintenance and extension, with research teams often needing specialized technical staff to implement new models.
+Model authors can read each equation together with its inputs and outputs.
+Researchers assembling models can see which equations and assumptions were
+chosen in the simulation setup. Both can test a component
+before investigating its behaviour in the full system.
 
-### Distributed Systems
+## Choose the representation that answers your question
 
-Platforms like OpenAlea[^6] and Crops in Silico[^7] offer different advantages and tradeoffs:
+An object can represent a leaf, a plant, a canopy layer, a soil compartment,
+or another entity you define. You can work with one object, several objects,
+or a hierarchy imported from a multiscale tree graph. Geometry is optional.
+Different models can be applied to different selections of these objects.
 
-These systems provide accessible interfaces (often in Python) that prioritize ease of use and flexibility, making them approachable for many researchers, though they may require performance optimization for large-scale simulations.
+The same process equation can be reused over compatible objects while the
+scenario handles their selection and connections. A plant-level model can,
+for example, read values from its own leaves. The modeller decides how to combine these values, for example by summing leaf
+areas, and supplies any required area, mass, or time conversion.
+Changing resolution also requires checking the assumptions and validity of
+the chosen models. See [value coupling across objects](../guides/multiscale/value_coupling.md).
 
-Their modular nature facilitates component reuse and integration, while sometimes requiring proficiency in multiple programming languages for extending computational backends.
+When organs appear, disappear, or move within the plant structure,
+PlantSimEngine updates the affected model selections and connections. This lets
+growth change which organs contribute to a plant-level calculation while
+retaining their identities and historical outputs. Follow
+[Modify Plant Structure](../journeys/users/structure_changes.md).
 
-They support diverse modeling paradigms but may involve a longer iteration cycle between design, implementation, and performance tuning compared to more specialized tools.
+## Connect different time steps and control scientific iteration
 
-While offering flexibility, implementing complex models often requires significant developer time, especially when optimizing performance using lower-level languages.
+Canopy exchange may run hourly while development runs daily. Each model
+can run at its own time step, with explicit rules for reading values produced
+at another time step. The appropriate averaging, accumulation,
+or rate-to-amount conversion is a scientific choice. The
+[cadence tutorial](../journeys/users/cadences.md) makes those choices explicit.
 
-### Architecture-Focused Tools
+Some calculations also need a controller: an energy-balance algorithm may
+call gas-exchange models repeatedly while finding an accepted leaf temperature.
+Explicit model calls let the controller manage that iteration and record the
+accepted result once. See [advanced execution](../journeys/users/advanced_execution.md).
 
-Tools like AMAPSim[^8] make specific design choices that benefit certain applications:
+## Understand what the simulation will do
 
-These systems excel in their focused domains (such as structural modeling of plants) while requiring integration with other tools for comprehensive studies of plant physiology and environmental responses.
+The `Authoring` and `Diagnostics` interfaces expose model declarations,
+missing inputs, the sources of values, execution order, local environmental
+conditions, and which results are saved. You can inspect why a particular leaf
+receives a value, which model supplies it, and when it is updated. The
+[graph viewer](../guides/graph_visualizer_editor.md) provides another view of
+how the models are connected.
 
-Their implementation in languages like C++ or Java delivers excellent performance but represents a tradeoff in terms of accessibility for researchers without expertise in these languages.
+These reports help separate a coupling problem from a problem in an equation
+or its assumptions. Declared units and physical meanings help reveal incompatible connections;
+scientific validation still needs suitable observations, reference results,
+and tests. See the [model authoring API](../API/API_public.md) and
+[model testing guide](../guides/modelers/repository_and_tests.md).
 
-They provide sophisticated functionality in their target domains but may require additional work for rapid hypothesis testing and model prototyping across diverse aspects of plant science.
+## Keep repeated simulations practical
 
-## The PlantSimEngine Solution
+PlantSimEngine prepares model selections and connections before repeated
+execution, avoids copying input values where possible, and processes groups
+of similar objects together. Model equations remain ordinary Julia
+calculations whose performance can be measured and improved.
 
-PlantSimEngine brings together innovative ideas to address these various tradeoffs, offering a unique combination of features:
+There is application-level performance evidence: the
+[2025 PlantBiophysics.jl paper](https://doi.org/10.1093/insilicoplants/diaf021)
+reports a median of 5.3 microseconds for one leaf and one time step of its
+coupled energy-balance, photosynthesis, and stomatal-conductance benchmark.
+That result concerns the implementations, versions, inputs, and hardware used
+in the study. For your scenario, measure initialization, repeated execution,
+structural changes, and saving results separately using the
+[benchmarking guidance](../developers.md). A public parallel or distributed
+executor remains [planned work](../planned_features.md).
 
-### Automatic Model Coupling
+## AI-assisted model development
 
-**Seamless Integration:** PlantSimEngine leverages Julia's multiple-dispatch capabilities to automatically compute the dependency graph between models. This allows researchers to effortlessly couple models without writing complex connection code or manually managing dependencies.
+An AI coding agent is software that can read and edit code and run tests with
+your development tools. Small process models, explicit inputs and outputs,
+declared units, and reports on model connections give it concrete information
+to read and check. An agent can help draft a model, compare declared
+interfaces, assemble a scenario, inspect its connections, and run tests with
+the tools available in your development environment.
 
-**Intuitive Multi-Scale Support:** The framework naturally handles models operating at different scales—from organelle to ecosystem—connecting them with minimal effort and maintaining consistency across scales.
+PlantSimEngine provides a versioned [AI agent skill](../agent_skill.md), a
+[catalog of available models](../API/model_catalog.md), and the same authoring tools
+used by people. You supply the coding agent and its execution environment.
+Model assumptions, physical conversions, supporting references, and scientific
+validation remain the responsibility of the researcher. Begin with
+[Implement a basic model](../journeys/modelers/basic_model.md) to see the
+complete model, an independent equation test, and its use in a simulation.
 
-### Flexibility with Precision Control
+## How this fits among plant-modelling tools
 
-**Effortless Model Switching:** Researchers can switch between different component models using a simple syntax without rewriting the underlying model code. This enables rapid comparison between different hypotheses and model versions, accelerating the scientific discovery process.
+Modularity and multiscale modelling have a substantial history.
+[APSIM](https://docs.apsim.info/docs/development/software/interfaces) supports
+replaceable model interfaces;
+[DSSAT](https://dssat.net/frontpage/) combines crop models with data and
+experimental workflows;
+[OpenAlea](https://openalea.readthedocs.io/en/latest/packages/modelling.html)
+provides components, multiscale structures, and plant-geometry tools; and
+[GroIMP](https://grogra.de/) integrates FSPM modelling and visualisation.
+[Cropbox](https://doi.org/10.1093/insilicoplants/diac021) also uses Julia and
+dependency analysis for declarative crop modelling.
 
-**Fine-Grained Model Control:** PlantSimEngine allows users to fix parameters, force variables to match observed values, or select simpler models for specific processes. This flexibility helps reduce overall system complexity while maintaining precision where it matters most.
-
-**Adaptive Scalability:** The same framework efficiently supports both simple prototypes for single-plant studies and complex ecosystem simulations, scaling computational resources appropriately to the problem at hand.
-
-### Outstanding Performance
-
-**High-Speed Computation:** Benchmarks demonstrate operations completing in hundreds of nanoseconds, making PlantSimEngine suitable for computationally intensive applications. For example, the [PlantBiophysics.jl implementation is over 38,000 times faster](https://vezy.github.io/PlantBiophysics-paper/notebooks_performance_Fig5_PlantBiophysics_performance/) than equivalent implementations in R.
-
-**Computational Efficiency:** Julia's just-ahead-of-time compilation and native support for parallelism ensure that optimizations made during prototyping directly transfer to larger-scale applications, eliminating the need for reimplementation in a different language for performance gains.
-
-### Developer Efficiency
-
-**Reduced Implementation Time:** PlantSimEngine leverages Julia's dynamic language features while maintaining the performance of statically-compiled languages. This significantly reduces the time researchers spend implementing and optimizing models.
-
-**Modular Building Blocks:** The component-based architecture allows models to be built as unit components that can be stacked like building blocks to create complex systems. This modularity dramatically increases code reuse and reduces redundant implementation efforts.
-
-**No Engineering Overhead:** Unlike monolithic systems that require dedicated engineering teams or distributed platforms that need backend optimization, PlantSimEngine enables domain scientists to independently develop high-performance models without specialized programming expertise.
-
-**Rapid Prototyping to Production:** The same code used for quick prototyping can transition directly to production-scale simulations without rewriting, eliminating the traditional gap between exploratory research and application.
-
-## Key Innovations
-
-PlantSimEngine's approach to plant modeling represents a paradigm shift in how scientists can build and use models:
-
-- **Uniform API:** Standardized interfaces make it easy to define new processes and component models, reducing the cognitive load on researchers.
-
-- **Automatic Dependency Resolution:** The system automatically determines the relationships between different models and processes, eliminating the need for manual coupling.
-
-- **Concrete Batched Execution:** The model compiler groups compatible object
-  targets into concrete execution batches. A public parallel or distributed
-  executor is not currently provided; parallel execution remains planned work
-  that requires explicit correctness and independence guarantees.
-
-- **Flexible Model Integration:** The ability to easily combine models from different sources and at different scales facilitates more comprehensive and realistic simulations.
-
-- **User-Centric Design:** Emphasizing usability ensures that researchers with varied programming backgrounds can effectively engage with the system.
-
-By offering solutions to the various tradeoffs present in existing modeling approaches, PlantSimEngine enables researchers to focus more on scientific questions and less on technical implementation details, accelerating the pace of discovery in plant science, agronomy, and related fields.
-
-[^1]: Holzworth, D. P. et al. APSIM – Evolution towards a new generation of agricultural systems simulation. Environmental Modelling & Software 62, 327-350 (2014).
-
-[^2]: Hemmerling, R., Kniemeyer, O., Lanwert, D., Kurth, W. & Buck-Sorlin, G. The rule-based language XL and the modelling environment GroIMP illustrated with simulated tree competition. Funct. Plant Biol. 35, 739 (2008).
-
-[^3]: Griffon, S., and de Coligny, F. AMAPstudio: An editing and simulation software suite for plants architecture modelling. Ecological Modelling 290 (2014): 3‑10. <https://doi.org/10.1016/j.ecolmodel.2013.10.037>.
-
-[^4]: Bailey, R. Spatial Modeling Environment for Enhancing Conifer Crown Management. Front. For. Glob. Change 3, 106 (2020).
-
-[^5]: Schnepf, A., Leitner, D., Landl, M., Lobet, G., Mai, T. H., Morandage, S., Sheng, C., Zörner, M., Vanderborght, J., & Vereecken, H. CPlantBox: A whole-plant modelling framework for the simulation of water- and carbon-related processes. in silico Plants, 63 (2018).
-
-[^6]: Pradal, C. et al. OpenAlea: A visual programming and component-based software platform for plant modeling. Funct. Plant Biol. 35, 751-760 (2008).
-
-[^7]: Marshall-Colon, A. et al. Crops In Silico: Generating Virtual Crops Using an Integrative and Multi-Scale Modeling Platform. Frontiers in Plant Science 8 (2017). <https://doi.org/10.3389/fpls.2017.00786>.
-
-[^8]: Barczi, J.-F., Rey, H., Caraglio, Y., Reffye, P. de, Barthélémy, D., Dong, Q. X., & Fourcaud, T. AmapSim: A Structural Whole-plant Simulator Based on Botanical Knowledge and Designed to Host External Functional Models. Annals of botany, 101(8), 1125-1138 (2008).
+PlantSimEngine's contribution is the combination described here: readable
+process equations, explicit inputs and outputs, a choice of how to represent
+plants, different time steps, controlled iteration, changing structures, and
+calculations you can inspect. It is a useful fit when you want to develop or assemble
+that scientific model combination yourself, while keeping its choices visible
+and its components independently testable.

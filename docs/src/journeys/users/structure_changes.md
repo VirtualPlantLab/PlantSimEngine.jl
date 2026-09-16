@@ -1,11 +1,10 @@
 # Modify Plant Structure
 
-## New concept: lifecycle changes refresh compiled targets
-
 Start with one plant, one branch, and two leaves. Each leaf computes carbon
-demand, then treats that fully met demand as accepted carbon allocation for
-`ToyCBiomassModel`. This small chain gives us a conserved quantity to check
-while topology changes.
+demand. We assume enough carbon is available to meet that demand and pass the
+full amount to `ToyCBiomassModel`, which calculates growth and respiration.
+We will add a leaf, move it to the branch, and remove another leaf. After
+each change, we can check that the carbon balance still holds.
 
 ```@example journey_structure
 using PlantSimEngine, DataFrames
@@ -61,9 +60,10 @@ initial_targets = only(
 
 ## Add one leaf
 
-Registering an object mutates the live model and marks affected compiled state
-dirty. Because this call happens between simulation steps, the new leaf is
-compiled before the next step:
+Use `register_object!` to add a leaf with its initial thermal time. The
+simulation then needs to update which leaves its models run on. Here we add
+the leaf between steps, so PlantSimEngine makes that update before running
+the next step with `continue!`:
 
 ```@example journey_structure
 register_object!(
@@ -101,16 +101,18 @@ targets_after_refresh = only(
 )
 ```
 
-When a lifecycle operation occurs *inside* a model kernel, PlantSimEngine
-refreshes after that application. A newly registered object may therefore run
-applications that remain later in the same timestep. It runs an application
-that already completed only through an explicit `Initializer` binding and
-`run_initializer!` call from its creator.
+You can also create organs inside a model's `run!` function, for example in
+a growth model. In that case, PlantSimEngine updates the simulation after
+that model finishes. The new organ can take part in calculations scheduled
+later in the same timestep. Calculations that already ran are not repeated
+automatically: to run one of them on the new organ, the growth model must
+declare an `Initializer` and call `run_initializer!`. See
+[Manual Calls Across Objects](../../guides/multiscale/manual_calls.md).
 
 ## Reparent, then remove
 
-Creation now works, so make two further changes in order. First move the new
-leaf under the branch and advance:
+First change the new leaf's parent from the plant to the branch, then advance
+the simulation:
 
 ```@example journey_structure
 reparent_object!(model, :leaf_3, :branch)
@@ -145,8 +147,9 @@ continue!(simulation)
 
 ## Check conservation and history
 
-For every retained leaf sample, accepted carbon allocation equals demand. The
-biomass model partitions it into biomass increment plus growth respiration:
+In this example, each leaf receives all the carbon it demands. For every
+saved timestep, check that this carbon equals the increase in biomass plus
+the carbon used in growth respiration:
 
 ```@example journey_structure
 rows = collect_outputs(simulation; sink=nothing)
@@ -176,8 +179,7 @@ all(
 )
 ```
 
-Removed-object history remains queryable even though the object is no longer
-in the registry:
+You can still read a removed leaf's earlier results:
 
 ```@example journey_structure
 history_counts = Dict(
@@ -191,20 +193,10 @@ history_counts = Dict(
 )
 ```
 
-`:leaf_2` keeps the three samples published before removal; `:leaf_3` begins at
-step 2, after registration, and also has three samples.
+`:leaf_2` keeps the three samples saved before removal. Results for `:leaf_3`
+begin at step 2, after it was added, and also contain three samples.
 
 `ToyCAllocationModel` is useful when supply is limiting and a plant controller
-must divide carbon among many organ demands. This journey deliberately assumes
-all demand is accepted so lifecycle timing and conservation stay visible
-without introducing a controller or hard calls.
-
-## Page recap
-
-- **You added:** one leaf, then one reparenting operation, then one removal.
-- **PlantSimEngine inferred:** the affected application targets, status views,
-  reference binding, execution batch extension, and retained stream keys.
-- **You keep explicit:** initialized status for a new object, its parent,
-  conservation assumptions, and when removal or reparenting occurs.
-- **New API names:** `register_object!`, `reparent_object!`, `remove_object!`,
-  and `Diagnostics.explain_applications(simulation)`.
+must divide carbon among organs. Here we assume there is enough carbon to
+meet every demand, so you can focus on when organs are added or removed and
+how to check their results.

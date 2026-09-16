@@ -1,131 +1,111 @@
 # Implement A Hard Dependency
 
-**New concept:** a process-level hard dependency, used only when the parent
-kernel must control another model's execution. Value dependencies should stay
-in `inputs_`.
+Use a **hard dependency** when one model must decide when or how often another
+model runs. For example, an energy-balance calculation may evaluate gas
+exchange at several trial temperatures before accepting a solution.
 
-Simulation users wire and inspect advanced calls in
-[Control Advanced Execution](@ref).
+When a model only needs another model's result, use an ordinary input instead.
+[Coupling models](@ref) explains the difference, and
+[Control Advanced Execution](@ref) covers scenario configuration.
 
-The examples below execute the shipped, tested
-`ToySelectiveCallControllerModel`.
+## Declare the model you need to call
 
-## Model 8: declare and execute the call
+The teaching model below acts as a **controller**: it chooses when to run
+another model. It selects one leaf, tries two prescribed temperatures, and
+finally accepts a third. This shows how to run trials; it does not solve an
+energy-balance equation.
 
-`ToySelectiveCallControllerModel` declares a reusable default by process,
-scale, and relative scope. It cannot know future application names:
+Its declaration asks for temperature-reading models on the current plant's leaves.
+These definitions are extracted from `examples/ToyAdvancedControl.jl`:
+
+```@eval
+Main.DocsSources.section(
+    "examples/ToyAdvancedControl.jl",
+    "PlantSimEngine.dep(::ToySelectiveCallControllerModel)",
+    "function PlantSimEngine.outputs_",
+)
+```
+
+`Call` declares which models the controller needs. The controller chooses
+when to run them. Asking for a process on the current plant's leaves lets
+you reuse it without knowing the names a future simulation will give those
+model applications.
+
+## Run trials and accept one result
+
+Here is the actual controller calculation:
+
+```@eval
+Main.DocsSources.section(
+    "examples/ToyAdvancedControl.jl",
+    "function PlantSimEngine.run!(\n    model::ToySelectiveCallControllerModel,",
+    "\"\"\"\n    ToyStockWriterModel",
+)
+```
+
+`call_targets` lists the models and objects that match the `Call` declaration.
+Each match is called a **target**. Here the controller chooses the target for
+one leaf. Each trial uses `publish=false`, so its result is not saved as an
+accepted output sample. The final call uses `publish=true` to save the
+accepted result for output history and time-based connections.
+
+For a real solver, you must decide how to calculate each trial and when a
+solution is close enough. You must also handle any values changed by a
+rejected trial: `publish=false` does not restore them automatically.
+
+## Compose a small scenario
 
 ```@example modeler_hard_dependency
-using PlantSimEngine, DataFrames
+using Test, PlantSimEngine
 using PlantSimEngine.Examples
 
 controller = ToySelectiveCallControllerModel(
-    (28.0, 31.0),
-    22.0;
-    selected_object=:sun_leaf,
+    (28.0, 31.0), 22.0; selected_object=:sun_leaf,
 )
-PlantSimEngine.dep(controller)
-```
-
-Inside `run!`, the controller inspects the vector-like target collection,
-restricts the declared call by object id, runs trials with `publish=false`, and
-publishes one accepted execution with `publish=true`. The complete scenario
-below executes that real kernel, so this page does not duplicate an untested
-source excerpt.
-
-The shipped model is exercised by the example-model contract suite. Build a
-scenario without a `calls` keyword to use that model default:
-
-```@example modeler_hard_dependency
 environment = ToySpatialEnvironment(
-    Dict(
-        :sun => (T=26.0,),
-        :shade => (T=18.0,),
-    );
+    Dict(:sun => (T=26.0,), :shade => (T=18.0,));
     step_seconds=3600.0,
 )
 model = CompositeModel(
     Object(:plant; scale=:Plant),
-    Object(
-        :sun_leaf;
-        scale=:Leaf,
-        parent=:plant,
-        geometry=(cell=:sun,),
-    ),
-    Object(
-        :shade_leaf;
-        scale=:Leaf,
-        parent=:plant,
-        geometry=(cell=:shade,),
-    );
+    Object(:sun_leaf; scale=:Leaf, parent=:plant, geometry=(cell=:sun,)),
+    Object(:shade_leaf; scale=:Leaf, parent=:plant, geometry=(cell=:shade,));
     applications=(
         ModelSpec(
             ToyEnvironmentReaderModel();
-            name=:reader,
-            on=Many(scale=:Leaf),
+            name=:reader, on=Many(scale=:Leaf),
             environment=Environment(backend=environment),
         ),
-        ModelSpec(
-            controller;
-            name=:controller,
-            on=One(scale=:Plant),
-        ),
+        ModelSpec(controller; name=:controller, on=One(scale=:Plant)),
     ),
 )
-
-DataFrame(Diagnostics.explain_calls(model))
-```
-
-```@example modeler_hard_dependency
 simulation = run!(model; outputs=:all)
+accepted = final_state(simulation, :plant)
+@test accepted.trial_temperature_seen == 31.0
+@test accepted.accepted_temperature_seen == 22.0
 (
-    controller=final_state(simulation, :plant),
-    leaves=final_state(simulation, Many(scale=:Leaf)),
-    publications=filter(
-        row -> row.application_id == :reader,
-        DataFrame(Diagnostics.explain_outputs(simulation)),
-    ),
+    last_trial=accepted.trial_temperature_seen,
+    accepted=accepted.accepted_temperature_seen,
 )
 ```
 
-`origin=:model_default` identifies the `dep(model)` contract. A concrete
-scenario can replace it with `ModelSpec(...; calls=...)` when application
-identity or target selection differs.
+The controller's `dep` declaration describes the models it calls by default.
+To choose different models or objects in a simulation, set
+`ModelSpec(...; calls=...)`. Use `Diagnostics.explain_calls(model)` to check
+which models and objects were selected.
 
-## Keep the common path bulk and concrete
+## Choose the simplest call operation
 
-The selective example above intentionally materializes one public target
-because it chooses an object and gives each trial its own sampled value. If the
-algorithm executes every resolved target with the same already-sampled
-environment, use the bulk `run_call!` path with `context`, `:readers`,
-`sampled_environment=environment`, and `publish=false`.
+| Your algorithm needs… | Use |
+|---|---|
+| To run all selected models and objects | `run_call!(context, :readers)` |
+| To read one called model's parameters or type | `call_model(context, :reader)` |
+| To choose objects, read their current values, or give them different trial values | `call_targets(context, :readers)`, then call the selected target |
 
-This executes the compiler's cached typed batches directly. It avoids creating
-or indexing `CallTarget` wrappers inside a timestep loop.
+`call_model` requires exactly one match. If you have already prepared the
+environmental values that all selected objects should use, pass them as
+`sampled_environment=value` to `run_call!`.
 
-Some iterative algorithms must inspect a singular dependency model before
-executing it. Keep that dispatch concrete with
-`reader_model = call_model(context, :reader)`, let the application build its
-own scientifically meaningful trial state from that concrete model, then
-execute the same declared call in bulk. PlantSimEngine does not define or infer
-that application-specific trial builder.
-
-`call_model` requires exactly one resolved target. Use `call_targets` when the
-algorithm also needs target status, object selection, a custom order, or
-several distinct sampled environments.
-
-The dependency definition is immutable after compilation, while its selected
-objects are not. Growth, removal, and reparenting refresh the affected target
-buffers once at the lifecycle barrier; normal timesteps continue through the
-same compiled plan.
-
-## Model-author recap
-
-- **You implemented:** a process-level `Call` requirement and explicit
-  execution inside the parent kernel.
-- **PlantSimEngine inferred:** call-only scheduling, resolved targets, nested
-  context, and publication boundaries.
-- **The scenario author keeps explicit:** application overrides and any
-  architecture-specific target choice.
-- **New API names:** `dep`, `Call`, `call_model`, `call_targets`,
-  `CallTargets`, `run_call!`, `sampled_environment`, and `publish`.
+When objects are added, removed, or moved to a different parent through the
+PlantSimEngine functions, the selection is updated. Use the call functions
+above so your controller uses that updated selection.

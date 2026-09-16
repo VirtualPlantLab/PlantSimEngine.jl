@@ -1,11 +1,16 @@
 # Migrating To The CompositeModel/Object API
 
+Use this page when updating code written for an older PlantSimEngine API.
+It shows how earlier model mappings, input connections, and output requests
+are written with `CompositeModel` and `Object`. If you are starting a new
+simulation, follow [the first tutorial](journeys/users/one_object.md).
+
 ## Refining early CompositeModel/Object code
 
-The stabilized public surface makes several early CompositeModel/Object behaviors
-explicit:
+Some names and defaults changed during development of the CompositeModel/Object
+API. Update early examples as follows:
 
-| Early spelling or behavior | Stabilized API |
+| Early spelling or behavior | Current API |
 | --- | --- |
 | `Self()` searched self and descendants | `Self()` selects only the current object; use `Subtree()` for self plus descendants |
 | omitted `tracked_outputs` retained everything | use explicit `outputs=:all`; the safe default is `outputs=:none` |
@@ -18,7 +23,7 @@ explicit:
 `tracked_outputs` has been removed. Use `outputs=:all`, `outputs=:none`, or
 `outputs=requests` directly. Singular scenario `inputs` and `calls`,
 `OutputRequest`, object overrides, and `Updates(...; after=...)` now identify
-the target by canonical `application=...` or application ID. Model-authored
+the model application with `application=...` or its application ID. Model-authored
 `Input`/`Call` defaults may still discover a process because they cannot know
 scenario application names, and `Many(process=...)` remains an explicit
 multi-application discovery query.
@@ -35,8 +40,8 @@ step!(simulation)
 @assert current_step(simulation) == 49
 ```
 
-The composite-model/object API replaces the historical multiscale mapping system with
-one object-address graph.
+The new API stores the simulated objects and their model applications in one
+`CompositeModel`, replacing the earlier multiscale mappings.
 
 New scenario code should be organized around:
 
@@ -48,8 +53,8 @@ Updates
 Environment
 ```
 
-Process-model implementations do not need to know about composite models, plants, objects, or
-timesteps. They keep the existing kernel contract:
+The equations stay in a model's `run!` function. Models that only calculate
+values can be reused without referring to the simulation's plant structure:
 
 ```julia
 inputs_(model)
@@ -64,8 +69,8 @@ equivalents.
 
 ## Explicit Input Initialization
 
-Input literals no longer double as ambiguous placeholder values. Declare
-whether each model input is required or genuinely has a fallback:
+For each input, say whether a value must be supplied or whether the model
+can use a default:
 
 ```julia
 # Old, ambiguous
@@ -113,8 +118,8 @@ model = CompositeModel(
 )
 ```
 
-`Object` labels describe runtime entities. They do not prescribe plant
-topology. A plant may use any hierarchy of plants, axes, internodes, segments,
+`Object` labels describe the parts of the simulated system. You choose how
+these parts are connected. A plant may use any hierarchy of plants, axes, internodes, segments,
 leaves, roots, fruits, or application-specific objects.
 
 ### Status type conversion
@@ -169,10 +174,9 @@ model = CompositeModel(
 `objects_from_mtg(mtg; ...)` exposes the intermediate object list when it is
 useful to inspect or modify labels before constructing the model. By default,
 the adapter uses MTG node ids and scales. Runtime `Status` values belong to the
-`CompositeModel` registry and are never stored in MTG attributes. A deliberate
-import boundary may provide `status=node -> import_status(node)` explicitly;
-maintained workflows should initialize scientific state through model objects or
-model applications instead.
+`CompositeModel` registry and are never stored in MTG attributes. To import values from node attributes, supply a function such as
+`status=node -> import_status(node)` explicitly. Set the starting values used
+in the simulation on its objects or through its model applications.
 
 ## Multiscale Inputs
 
@@ -225,8 +229,9 @@ ModelSpec(
 )
 ```
 
-Same-rate bindings use shared references or reference vectors when possible.
-Cross-rate bindings use typed temporal streams.
+When models run at the same rate, their inputs can read the source objects'
+current values through shared references. When rates differ, PlantSimEngine
+uses saved output histories and your chosen rule for reading them.
 
 ## CompositeModel-Wide Values
 
@@ -242,8 +247,8 @@ ModelSpec(SceneWaterBalance(); name=:scene_water, on=One(scale=:Scene), inputs=(
         ),))
 ```
 
-The compiler chooses the carrier. Scenario authors declare the source objects,
-source variable, and temporal policy rather than a route implementation.
+Specify which objects supply the value, the source variable's name, and how
+to read it over time. PlantSimEngine chooses how to store the connection.
 
 ## Manual Hard Calls
 
@@ -282,10 +287,10 @@ function PlantSimEngine.run!(model::SceneEnergyBalance, status, environment,
 end
 ```
 
-`run_call!` defaults to `publish=false`. Trial calls mutate target status but
-do not publish temporal samples or commit mutable environment updates.
-do not append temporal samples or write environment outputs. The accepted
-state must use `publish=true`.
+`run_call!` uses `publish=false` by default. A trial changes the called
+objects' current values, but does not add samples to their output histories
+or save updates to the shared environment. Use `publish=true` to record the
+accepted result, and `commit_environment!` to save accepted environment changes.
 
 ## Multiple Plants And Species
 
@@ -450,24 +455,25 @@ model object together and, by default, reuses the status initialization policy f
 `CompositeModel(mtg; status=...)`. Use `register_object!` when adapting another topology
 backend or when a complete `Object` already exists.
 
-Structural changes refresh application targets, input carriers, call targets,
-writer validation, and schedules after the application that made the change.
-New objects can therefore run applications that remain later in the current
-timestep, but never applications that already ran. Geometry-only changes
-refresh environment bindings without rebuilding unrelated structural bindings.
+After the application that adds or removes objects finishes, PlantSimEngine
+updates which models run, where they get their inputs, and which other models
+they can call. It also checks for conflicting outputs and updates the schedule.
+New objects can run applications that are still due later in the same step.
+An application that already ran is only repeated for a new object through
+an explicit `Initializer` call; see [manual calls](guides/multiscale/manual_calls.md).
+Changing geometry alone updates the affected environment connections.
 
-The refreshed runtime also rebuilds homogeneous execution batches. Use
-`Diagnostics.explain_execution_plan(scene_or_simulation)` to inspect the concrete
-model/status/carrier types and the objects grouped into each specialized inner
-loop. Exceptional per-object model overrides appear as separate ordered
-batches.
+PlantSimEngine also updates the groups of similar objects it runs together.
+`Diagnostics.explain_execution_plan(scene_or_simulation)` lists those groups
+and their model and value types. An object using a replacement model appears
+in a separate group.
 
 ## Output Collection
 
 `run!(model; steps=...)` returns a `Simulation`. Use `final_state(sim)` for the
-latest one-object state, `outputs(sim)` for retained typed streams,
-`Diagnostics.explain_outputs(sim)` for structured diagnostics, and
-`collect_outputs(sim)` for tabular rows.
+latest values of a single object, `outputs(sim)` for saved output histories,
+`Diagnostics.explain_outputs(sim)` for a report about those outputs, and
+`collect_outputs(sim)` to gather them into a table.
 
 ```julia
 request = OutputRequest(
@@ -483,8 +489,7 @@ sim = run!(model; steps=48, outputs=request)
 daily = collect_outputs(sim, :leaf_transpiration_daily)
 ```
 
-CompositeModel output requests are materialized from retained temporal streams after
-the run. They use the same temporal policies as multirate inputs and export
+Output requests collect saved results after the run. They use the same temporal policies as multirate inputs and export
 dynamic objects only over the interval where that object published samples.
 If several model applications implement the same process, add
 `application=:application_name` to select one explicitly. This is also the
@@ -492,9 +497,9 @@ way to request a named `:stream_only` publisher.
 `outputs=:none` retains no user streams. Passing explicit requests retains only
 their application/variable streams plus streams needed by temporal
 `ModelSpec(...; inputs=...)`. Use `Diagnostics.explain_output_retention(sim)`
-to inspect why each retained stream was kept. Dependency-only streams retain a
-bounded policy-specific horizon, while requested streams keep complete
-histories for post-run export. Export is not yet a fully online path.
+to inspect why each retained stream was kept. For results needed only as inputs to other models, PlantSimEngine keeps
+just enough history for the chosen time rule. Results you explicitly request
+keep their full history so you can collect them after the run.
 
 ## Inspecting The Compiled Scenario
 
@@ -512,9 +517,9 @@ Diagnostics.explain_schedule(model)
 Diagnostics.explain_writers(model)
 ```
 
-These functions return structured rows with concrete object ids, application
-ids, processes, variables, temporal policies, carrier semantics, and resolved
-targets. They are intended for both users and coding agents.
+These reports identify the objects and models used by the simulation, where
+their values come from, and how they exchange values over time. People and
+coding agents can inspect the same reports.
 
 ## Migration Table
 

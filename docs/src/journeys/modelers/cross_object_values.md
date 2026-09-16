@@ -1,21 +1,34 @@
 # Implement Cross-Object Values
 
-**New concept:** scalar and vector-like inputs use the same one-step kernel
-contract. Object selection and topology remain scenario concerns.
+A model reads its inputs from `status`, whether the values came from the
+same object, another object, or several objects. The scenario chooses those
+sources. This page shows what the model author writes in each case.
 
-See [Build One Multiscale Plant](@ref) for the simulation-user construction
-journey.
+The equations and numbers below are teaching examples. For the corresponding
+scenario walkthrough, see [Build One Multiscale Plant](@ref).
 
-Every block below executes during the documentation build using the tested,
-shipped example models.
+## Read one value from another object
 
-## Model 4: consume one scalar from another object
+The development example calculates:
 
-`ToyDevelopmentModel` already declares `stress=Default(1.0)`. A scenario may
-replace that fallback with one live scalar from a soil object:
+**growth increment = efficiency × thermal time × stress factor**
+
+Here is its actual input declaration and calculation, extracted from
+`examples/ToyModelDeveloper.jl`:
+
+```@eval
+Main.DocsSources.section(
+    "examples/ToyModelDeveloper.jl",
+    "PlantSimEngine.inputs_(::ToyDevelopmentModel)",
+    "\"\"\"\n    ToyDailyDevelopmentModel",
+)
+```
+
+`stress=Default(1.0)` means the model can run without stress reduction when
+that is appropriate. A scenario can instead supply a soil object's value:
 
 ```@example modeler_cross_object
-using Dates, PlantMeteo, PlantSimEngine, DataFrames
+using Dates, Test, PlantSimEngine
 using PlantSimEngine.Examples
 
 cross_object = CompositeModel(
@@ -27,131 +40,92 @@ cross_object = CompositeModel(
             name=:development,
             on=One(scale=:Leaf),
             inputs=(
-                :stress => One(
-                    scale=:Soil,
-                    within=SceneScope(),
-                    var=:stress,
-                    from_status=true,
+                stress=One(
+                    scale=:Soil, within=SceneScope(),
+                    var=:stress, from_status=true,
                 ),
             ),
         ),
     ),
 )
 
-cross_simulation = run!(cross_object)
-(
-    leaf=final_state(cross_simulation, :leaf),
-    binding=only(Diagnostics.explain_bindings(cross_object)),
+simulation = run!(cross_object)
+growth = final_state(simulation, :leaf).growth
+@test growth == 2.0
+growth
+```
+
+`from_status=true` reads the value we stored in the soil object's `Status`.
+When a soil model calculates that value instead, select that model as described in
+[Coupling models](@ref). The development equation itself stays unchanged.
+
+## Read several values and combine them
+
+Suppose leaf respiration amounts are available for the same interval. A
+plant-level model can add them:
+
+**plant respiration = sum of leaf respiration**
+
+The model asks for a vector of real values and sums it. It does not need to
+know how many leaves exist:
+
+```@eval
+Main.DocsSources.section(
+    "examples/ToyMaintenanceRespirationModel.jl",
+    "struct ToyPlantRmModel",
 )
 ```
 
-The model kernel still reads only `status.stress`. It does not search for soil,
-know object ids, or copy the scalar each step. The scenario's `One` selector
-resolves a shared `Ref`.
-
-## Model 5: consume a vector-like multiscale value
-
-`ToyMaintenanceRespirationModel` runs once per leaf and publishes `Rm`.
-`ToyPlantRmModel` declares one vector-like input and reduces it:
+Test the equation with an ordinary vector first:
 
 ```@example modeler_cross_object
 plant_respiration = ToyPlantRmModel()
-plant_status = Status(Rm_organs=[0.2, 0.3], Rm=-Inf)
-PlantSimEngine.run!(
-    plant_respiration,
-    plant_status,
-    NamedTuple(),
-    nothing,
-    nothing,
-)
-(
-    inputs=PlantSimEngine.inputs_(plant_respiration),
-    outputs=PlantSimEngine.outputs_(plant_respiration),
-    total=plant_status.Rm,
-)
+sample = Status(Rm_organs=[0.2, 0.3], Rm=0.0)
+PlantSimEngine.run!(plant_respiration, sample, nothing, nothing, nothing)
+@test sample.Rm == 0.5
+sample.Rm
 ```
 
-The scenario decides that `Rm_organs` means all descendant leaf outputs:
+## Choose which leaves contribute
+
+This scenario supplies two illustrative leaf amounts, then selects only the
+leaves belonging to the plant:
 
 ```@example modeler_cross_object
-respiration = ToyMaintenanceRespirationModel(
-    2.0,
-    0.06,
-    25.0,
-    0.5,
-    0.02,
-)
-
-multiscale = CompositeModel(
+plant = CompositeModel(
     Object(:plant; scale=:Plant),
-    Object(
-        :leaf_1;
-        scale=:Leaf,
-        parent=:plant,
-        status=Status(carbon_biomass=10.0),
-    ),
-    Object(
-        :leaf_2;
-        scale=:Leaf,
-        parent=:plant,
-        status=Status(carbon_biomass=20.0),
-    );
+    Object(:leaf_1; scale=:Leaf, parent=:plant, status=Status(Rm=0.2)),
+    Object(:leaf_2; scale=:Leaf, parent=:plant, status=Status(Rm=0.3));
     applications=(
         ModelSpec(
-            respiration;
-            name=:maintenance,
-            on=Many(scale=:Leaf),
-        ),
-        ModelSpec(
-            ToyPlantRmModel();
-            name=:plant_maintenance,
+            plant_respiration;
+            name=:plant_respiration,
             on=One(scale=:Plant),
             inputs=(
-                :Rm_organs => Many(
-                    scale=:Leaf,
-                    within=Subtree(),
-                    application=:maintenance,
-                    var=:Rm,
+                Rm_organs=Many(
+                    scale=:Leaf, within=Subtree(),
+                    var=:Rm, from_status=true,
                 ),
             ),
         ),
     ),
-    environment=Atmosphere(
-        T=25.0,
-        Wind=1.0,
-        Rh=0.7,
-        duration=Hour(1),
-    ),
+    environment=(duration=Day(1),),
 )
-
-multiscale_simulation = run!(multiscale)
-(
-    plant=final_state(multiscale_simulation, :plant),
-    leaves=final_state(multiscale_simulation, Many(scale=:Leaf)),
-)
+plant_result = final_state(run!(plant), :plant).Rm
+@test plant_result == 0.5
+plant_result
 ```
 
-```@example modeler_cross_object
-select(
-    DataFrame(Diagnostics.explain_bindings(multiscale)),
-    :application_id,
-    :input,
-    :source_ids,
-    :carrier_kind,
-    :copy_semantics,
-)
-```
+`Many` gathers the selected values so the model can read them like a vector.
+`Subtree()` searches this plant and its descendants. With `scale=:Leaf`,
+only its leaves contribute, so another plant's leaves are not included.
 
-The `Many` carrier is a live `RefVector`; the aggregation kernel operates on an
-`AbstractVector` and stays independent of object count and identity.
+Before adding real leaf values, check that they use the same units and time
+interval. Also check whether they describe a whole leaf or one square metre
+of leaf area. For values per square metre, multiply each value by its leaf's
+area before adding them to obtain a plant total.
 
-## Model-author recap
-
-- **You implemented:** scalar or vector-compatible input schemas and ordinary
-  one-step arithmetic.
-- **PlantSimEngine inferred:** shared `Ref` and `RefVector` carriers plus
-  producer-before-consumer order.
-- **The scenario author keeps explicit:** cross-object scope, multiplicity,
-  source application, and variable remapping.
-- **New API names:** `One`, `Many`, `SceneScope`, `Subtree`, `from_status`,
-  `RefVector`, and `input_carrier`.
+Use `Diagnostics.explain_bindings(plant)` to check which leaves supply the
+values. PlantSimEngine keeps the inputs connected to those leaves' current
+results. The equation only needs to add the values; it does not need to look
+up individual leaves or count them.

@@ -1,84 +1,89 @@
 # Instantiate Several Plants
 
-## New concept: templates, instances, and overrides
+Two plants can use different equations for the same process in one
+simulation. Here both plants receive the same amount of carbon, but use
+different rules to divide it between leaves, wood, and reserves. This lets
+you compare the rules while keeping the inputs the same.
 
-The previous journey configured one plant explicitly. Its three applications
-can become a `CompositeModelTemplate`, then be mounted on several independent
-object topologies without duplicating that model configuration.
+We represent each whole plant as one object. For an example with individual
+leaves, see [one multiscale plant](one_plant.md).
+
+## Choose two allocation rules
+
+Both models describe **carbon allocation**: deciding where available carbon
+goes. They read the same inputs and produce the same outputs, so either can
+fill the `:allocation` application in our plant template. Their equations
+differ:
+
+- `FixedFractionAllocation(0.5, 0.3)` assigns up to 50% of the available
+  carbon to leaves and up to 30% to wood. Neither receives more than its
+  demand. Carbon left over goes into reserves.
+- `DemandAllocation()` divides carbon in proportion to leaf and wood demand.
+  When there is enough carbon, both demands are met. Any excess goes into
+  reserves.
+
+You can see the difference in the equations. Let `C` be available carbon,
+`L` leaf demand, and `W` wood demand. `min(a, b)` means the smaller of the
+two amounts:
+
+| Carbon sent to | Fixed fractions | Proportional to demand |
+|---|---|---|
+| Leaves | `min(0.5 * C, L)` | `min(C, L + W) * L / (L + W)` |
+| Wood | `min(0.3 * C, W)` | `min(C, L + W) * W / (L + W)` |
+| Reserves | What remains after leaf and wood allocation | What remains after leaf and wood allocation |
+
+If both demands are zero, both models put all available carbon into reserves.
+
+These are teaching rules, not calibrated models of particular species.
+All amounts are grams of elemental carbon (g C) per plant. The example does
+not convert carbon into dry biomass or subtract respiration losses, and
+neither rule withdraws carbon from reserves.
+The carbon offer is the amount available after any respiration costs. Offers
+and demands must be finite and nonnegative.
+
+Load the models from the example source included with PlantSimEngine:
 
 ```@example journey_several_plants
-using PlantSimEngine, DataFrames
-using PlantSimEngine.Examples
+using PlantSimEngine, Dates, DataFrames
 
-plant_template = CompositeModelTemplate((
-    ModelSpec(
-        ToyLeafSurfaceModel(0.02);
-        name=:leaf_surface,
-        on=Many(scale=:Leaf),
-    ),
-    ModelSpec(
-        ToyPlantLeafSurfaceModel();
-        name=:plant_surface,
-        on=One(scale=:Plant),
-        inputs=(
-            :leaf_surfaces => Many(
-                scale=:Leaf,
-                within=Subtree(),
-                application=:leaf_surface,
-                var=:surface,
-            ),
-        ),
-    ),
-    ModelSpec(
-        ToyLightPartitioningModel();
-        name=:leaf_light,
-        on=Many(scale=:Leaf),
-        inputs=(
-            :aPPFD_larger_scale => One(
-                scale=:Plant,
-                within=SelfPlant(),
-                var=:aPPFD,
-            ),
-            :total_surface => One(
-                scale=:Plant,
-                within=SelfPlant(),
-                application=:plant_surface,
-                var=:surface,
-            ),
-        ),
-    ),
-))
+include(joinpath(pkgdir(PlantSimEngine), "examples", "two_plant_allocation.jl"))
+using .TwoPlantAllocationExample
 ```
 
-An `ObjectInstance` supplies the concrete root and organs. These two instances
-reuse the same template while keeping different initial plant radiation and
-leaf biomasses:
+## Make a template and two plants
+
+A `CompositeModelTemplate` stores models and their configuration for reuse.
+Our template uses the fixed-fraction rule by default. The application name
+`:allocation` identifies the calculation we will replace on the second plant.
+
+```@example journey_several_plants
+plant_template = CompositeModelTemplate((
+    ModelSpec(
+        FixedFractionAllocation(0.5, 0.3);
+        name=:allocation,
+        on=One(scale=:Plant),
+    ),
+))
+nothing # hide
+```
+
+Each `ObjectInstance` supplies a plant and its initial values. Here `root`
+means the object at the top of the plant's structure, not a botanical root.
+Both plants have 10 g C available today, a leaf demand of 8 g C, and a wood
+demand of 2 g C.
+
+Plant A keeps the template's model. Plant B uses `overrides` to replace that
+model with `DemandAllocation()`:
 
 ```@example journey_several_plants
 plant_a = ObjectInstance(
     :plant_a,
     plant_template;
     root=Object(
-        :plant_a_root;
+        :plant_a;
         scale=:Plant,
         kind=:plant,
-        status=Status(aPPFD=120.0),
-    ),
-    objects=(
-        Object(
-            :plant_a_leaf_1;
-            scale=:Leaf,
-            kind=:leaf,
-            parent=:plant_a_root,
-            status=Status(carbon_biomass=50.0),
-        ),
-        Object(
-            :plant_a_leaf_2;
-            scale=:Leaf,
-            kind=:leaf,
-            parent=:plant_a_root,
-            status=Status(carbon_biomass=100.0),
-        ),
+        status=Status(carbon_offer=10.0, leaf_demand=8.0, wood_demand=2.0),
     ),
 )
 
@@ -86,119 +91,69 @@ plant_b = ObjectInstance(
     :plant_b,
     plant_template;
     root=Object(
-        :plant_b_root;
+        :plant_b;
         scale=:Plant,
         kind=:plant,
-        status=Status(aPPFD=200.0),
+        status=Status(carbon_offer=10.0, leaf_demand=8.0, wood_demand=2.0),
     ),
-    objects=(
-        Object(
-            :plant_b_leaf_1;
-            scale=:Leaf,
-            kind=:leaf,
-            parent=:plant_b_root,
-            status=Status(carbon_biomass=50.0),
-        ),
-        Object(
-            :plant_b_leaf_2;
-            scale=:Leaf,
-            kind=:leaf,
-            parent=:plant_b_root,
-            status=Status(carbon_biomass=50.0),
-        ),
-    ),
+    overrides=(allocation=DemandAllocation(),),
 )
-
-model = CompositeModel(plant_a, plant_b)
-simulation = run!(model; outputs=:all)
-plant_states = final_state(simulation, Many(scale=:Plant))
-Dict(id => (surface=state.surface, aPPFD=state.aPPFD) for (id, state) in plant_states)
+nothing # hide
 ```
 
-Plant A aggregates surfaces `1 + 2 = 3`; plant B aggregates `1 + 1 = 2`.
-Those totals prove that `Subtree()` did not mix leaves between instances.
-Likewise, each pair of leaf-level light outputs sums to its own plant's
-supplied light:
+The process is the same on both plants: `:carbon_allocation`. The model used
+for that process is different. Each plant keeps its own inputs and carbon
+pools; replacing Plant B's model does not change Plant A's model.
+
+## Run both plants together
+
+Put both plants in one `CompositeModel`. One step lasts one day here:
 
 ```@example journey_several_plants
-leaf_states = final_state(simulation, Many(scale=:Leaf))
-(
-    plant_a_light=sum(
-        leaf_states[id].aPPFD
-        for id in (:plant_a_leaf_1, :plant_a_leaf_2)
-    ),
-    plant_b_light=sum(
-        leaf_states[id].aPPFD
-        for id in (:plant_b_leaf_1, :plant_b_leaf_2)
-    ),
+model = CompositeModel(plant_a, plant_b; environment=(duration=Day(1),))
+simulation = run!(model; steps=1, outputs=:all)
+results = collect_outputs(simulation; sink=DataFrame)
+
+allocation_rows = filter(
+    :variable => v -> v in (:leaf_growth, :wood_growth, :reserve_change),
+    results,
 )
+comparison = unstack(allocation_rows, :object_id, :variable, :value)
+select(comparison, :object_id, :leaf_growth, :wood_growth, :reserve_change)
 ```
 
-The instance diagnostic shows the mounted object and application ids. Template
-application names are prefixed automatically, so the two mounted graphs remain
-unambiguous:
+`collect_outputs` returns a table with one row per variable. We select the
+three daily allocations, then use `unstack` to give each variable its own
+column. Each row of the displayed table now describes one plant.
+
+Plant A sends **5 g C to leaves, 2 to wood, and 3 to reserves**. Its wood
+fraction would give 3 g C, but wood only demands 2. The unused carbon stays
+in reserves rather than being reassigned to leaves.
+
+Plant B sends **8 g C to leaves, 2 to wood, and 0 to reserves**. The available
+10 g C is enough to meet both demands. In both cases, the three amounts add
+up to the 10 g C supplied.
+
+The models also keep cumulative `leaf_carbon`, `wood_carbon`, and
+`reserve_carbon` values. These pools start at zero here, so after one day
+they equal the amounts just allocated. They record allocated carbon, not
+predicted organ biomass.
 
 ```@example journey_several_plants
-select(
-    DataFrame(Diagnostics.explain_instances(model)),
-    :name,
-    :root_id,
-    :object_ids,
-    :application_ids,
-)
+fixed = final_state(simulation, :plant_a) # hide
+demand = final_state(simulation, :plant_b) # hide
+@assert (fixed.leaf_growth, fixed.wood_growth, fixed.reserve_change) == (5.0, 2.0, 3.0) # hide
+@assert (demand.leaf_growth, demand.wood_growth, demand.reserve_change) == (8.0, 2.0, 0.0) # hide
+@assert fixed.leaf_carbon + fixed.wood_carbon + fixed.reserve_carbon == 10.0 # hide
+@assert demand.leaf_carbon + demand.wood_carbon + demand.reserve_carbon == 10.0 # hide
+nothing # hide
 ```
 
-## Override one instance
-
-Only after the two unchanged instances work, override one application for a
-new instance. This plant uses a larger specific leaf area while retaining the
-same logical `:leaf_surface` application and all other template wiring:
-
-```@example journey_several_plants
-plant_c = ObjectInstance(
-    :plant_c,
-    plant_template;
-    root=Object(
-        :plant_c_root;
-        scale=:Plant,
-        kind=:plant,
-        status=Status(aPPFD=120.0),
-    ),
-    objects=(
-        Object(
-            :plant_c_leaf_1;
-            scale=:Leaf,
-            kind=:leaf,
-            parent=:plant_c_root,
-            status=Status(carbon_biomass=50.0),
-        ),
-        Object(
-            :plant_c_leaf_2;
-            scale=:Leaf,
-            kind=:leaf,
-            parent=:plant_c_root,
-            status=Status(carbon_biomass=100.0),
-        ),
-    ),
-    overrides=(leaf_surface=ToyLeafSurfaceModel(0.04),),
-)
-
-override_simulation = run!(CompositeModel(plant_c))
-override_state = final_state(override_simulation, One(scale=:Plant))
-override_state.surface
-```
-
-There is no `SceneScope()` in this example because nothing is deliberately
-shared between plants. Introduce scene-wide scope only when adding a real
-shared source, such as a soil object or scene-level forcing controller.
-
-## Page recap
-
-- **You added:** one reusable `CompositeModelTemplate`, two independent
-  `ObjectInstance`s, and then one application override.
-- **PlantSimEngine inferred:** instance-local selector scopes, prefixed mounted
-  application ids, and the same compiled coupling graph for each plant.
-- **You keep explicit:** each instance's objects and initial values, plus the
-  exact application replaced by an override.
-- **New API names:** `CompositeModelTemplate`, `ObjectInstance`, `overrides`,
-  and `Diagnostics.explain_instances`.
+To compare other conditions, change `carbon_offer`, `leaf_demand`, or
+`wood_demand` when constructing the plants. These supplied values stay fixed
+in this example: each new day supplies another 10 g C to each plant and
+renews the demands. The carbon pools accumulate over those days. A longer
+simulation could obtain changing daily values from
+photosynthesis and organ-demand models. See
+[Collect and plot results](../../guides/data/outputs_plotting.md) for comparing
+the resulting time series.

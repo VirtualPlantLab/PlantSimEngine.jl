@@ -1,14 +1,21 @@
 # Modify The Environment
 
-## New concept: trial state versus accepted state
+## Try a value before keeping it
 
-The previous environment journey sampled read-only global and spatial values.
-Now a controller evaluates one typed trial state, accepts a different state,
-and commits it explicitly.
+Some models need to try several temperatures before choosing a solution.
+For example, a model might adjust canopy air temperature until its heat
+balance is close enough to zero. A **controller** is a model that manages
+these repeated calculations.
 
-Start with one cell. `ToyEnvironmentReaderModel` declares `T` as an environment
-input. The controller declares `T` as an environment output: this is permission
-to commit that variable, not an ordinary object-status output.
+This teaching example shows how to try one temperature, then keep a different
+one. It does not solve a heat balance: the trial and final temperatures are
+chosen in advance. **Committing** the final value means writing it back to
+the environment so that later calculations can use it.
+
+Start with one spatial cell. `ToyEnvironmentReaderModel` reads temperature
+`T` from the environment. The controller declares `T` with
+`environment_outputs_` to say that it may change this environment variable.
+This declaration does not add `T` to the leaf's stored status.
 
 ```@example journey_mutable_environment
 using PlantSimEngine, DataFrames
@@ -24,9 +31,10 @@ using PlantSimEngine.Examples
 )
 ```
 
-The controller's kernel uses the current typed trial-state path. A trial call
-changes the callee status for inspection but does not publish output history or
-commit backend state:
+The first function asks the reader to calculate a result using a trial
+environment. You can inspect that result in the reader's status.
+`publish=false` prevents it from being added to the output history, and this
+call does not change the stored environment:
 
 ```@example journey_mutable_environment
 function run_trial!(context, trial_environment)
@@ -39,7 +47,9 @@ function run_trial!(context, trial_environment)
 end
 ```
 
-Accepted state is explicit and separate:
+After choosing a final value, save it in the environment with
+`commit_environment!`. Then run the reader with `publish=true` to record
+its accepted result:
 
 ```@example journey_mutable_environment
 function commit_and_publish!(context, accepted_environment)
@@ -53,9 +63,10 @@ function commit_and_publish!(context, accepted_environment)
 end
 ```
 
-`ToyEnvironmentControllerModel` applies those two operations in its kernel.
-Configure the reader as its one hard-call target and give only the controller a
-commit sink:
+`ToyEnvironmentControllerModel` performs these two operations in its `run!`
+function. The `calls` setting below lets it run the reader. Only the controller
+has `sink=:cells`, which tells the environment where to save the accepted
+temperature:
 
 ```@example journey_mutable_environment
 environment = ToySpatialEnvironment(
@@ -104,8 +115,9 @@ state = final_state(simulation)
 )
 ```
 
-The trial was `30`, but the accepted and committed temperature is `22`.
-Only the accepted reader call published:
+The reader tried 30 °C, then used the accepted value of 22 °C. The environment
+now stores 22 °C. The table below shows that the reader recorded only its
+accepted result:
 
 ```@example journey_mutable_environment
 select(
@@ -116,10 +128,11 @@ select(
 )
 ```
 
-## Preserve distinct handles under `Many`
+## Give each leaf its own local conditions
 
-Extend the same backend to two spatial cells. One `Many` application samples
-both, while each target retains its own compiled handle:
+Now give one leaf a sunny cell and the other a shaded cell. `Many(scale=:Leaf)`
+runs the same reader on both leaves, but each leaf reads its own cell's
+temperature:
 
 ```@example journey_mutable_environment
 spatial_environment = ToySpatialEnvironment(
@@ -156,6 +169,9 @@ spatial_states = final_state(spatial_simulation, Many(scale=:Leaf))
 Dict(id => state.temperature_seen for (id, state) in spatial_states)
 ```
 
+The sun leaf reads 26 °C and the shade leaf reads 18 °C. A **handle** stores
+the cell used by each leaf. You can check that the two handles are different:
+
 ```@example journey_mutable_environment
 select(
     DataFrame(Diagnostics.explain_environment_bindings(spatial_model)),
@@ -164,18 +180,7 @@ select(
 )
 ```
 
-This ordinary user page does not require the backend implementation protocol.
-Framework builders can follow [Environment Backend Extensions](@ref); the
-complete MAESPA-style synthesis later combines mutable microclimate, several
-plants, and iterative leaf calls.
-
-## Page recap
-
-- **You added:** one typed trial, one explicit accepted commit, one accepted
-  publication, and then two spatial cells.
-- **PlantSimEngine inferred:** the reader call target, publication boundary,
-  commit permission check, and distinct `Many` handles.
-- **You keep explicit:** trial and acceptance logic, `publish`, the committed
-  variables, controller sink, and backend state type.
-- **New API names:** `environment_outputs_`, `run_call!`,
-  `commit_environment!`, `publish`, and `calls`.
+For a larger example that adjusts canopy air conditions and repeats leaf
+calculations across several plants, see [MAESPA-Style Synthesis](@ref).
+To connect your own source of environmental data, see
+[Environment Backend Extensions](@ref).

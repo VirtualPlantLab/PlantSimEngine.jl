@@ -1,24 +1,35 @@
 # Build One Multiscale Plant
 
-## New concept: topology and cross-object values
+Share an absorbed-light supply between two leaves, then compute how their
+areas contribute to the plant total. This teaching example represents the
+plant and its two leaves as three objects. Each leaf names the plant as its
+`parent`, which records that the leaf belongs to that plant. The leaf areas
+and radiation values are illustrative.
 
-The previous journey used independent objects at one scale. A multiscale plant
-adds parent/child topology: one plant object owns two leaf objects.
+The structure is:
 
-The scope picture for this page is:
+> `:plant`<br>
+> ├─ `:leaf_1`<br>
+> └─ `:leaf_2`
 
-> `:plant` — `Subtree()` from here contains `:plant`, `:leaf_1`, and `:leaf_2`<br>
-> ├─ `:leaf_1` — `Self()` is `:leaf_1`; `SelfPlant()` resolves to `:plant`<br>
-> └─ `:leaf_2` — `Self()` is `:leaf_2`; `SelfPlant()` resolves to `:plant`
+To choose objects for a calculation, use a **selector** such as
+`Many(scale=:Leaf)`. The `within` option limits where to look. For a model
+running on `:plant`, `Subtree()` includes that plant and everything below it,
+so `Many(scale=:Leaf, within=Subtree())` selects its two leaves. For a model
+running on a leaf, `Self()` means that leaf, and `SelfPlant()` means its plant.
 
-Selectors still filter that scope. For example,
-`Many(scale=:Leaf, within=Subtree())` selects the two leaves when evaluated for
-the plant application.
+## First pass: share light between leaves
 
-## First pass: one scalar value from plant to leaves
+Start by supplying the leaf areas and their total in `Status`, where each
+object stores its values. Each leaf model will read the plant's absorbed
+light and total leaf area to calculate its own share.
 
-Start with leaf surfaces and total plant surface supplied as status. The only
-new value connection sends the plant-level absorbed light to each leaf.
+We use one **common reference ground area** for the whole plant. Its supplied
+`aPPFD` is 120 μmol m⁻² of reference ground s⁻¹. Each leaf receives a share in
+proportion to its area: `120 × 1/3 = 40` and `120 × 2/3 = 80`, on that same
+ground-area basis. These contributions can be added to recover 120. They are
+not photon flux densities per unit leaf area. This deliberately simple share
+does not calculate shading or 3D light interception.
 
 ```@example journey_one_plant
 using PlantSimEngine, DataFrames
@@ -75,8 +86,17 @@ scalar_states = final_state(scalar_simulation, Many(scale=:Leaf))
 Dict(id => state.aPPFD for (id, state) in scalar_states)
 ```
 
-The leaf model reads its own `surface` directly from each leaf status.
-`SelfPlant()` makes the other two scalar sources plant-local:
+The areas stored in `surface` are in m² of leaves. A leaf photosynthesis model
+may instead need light per m² of leaf. To make that conversion, multiply a
+leaf's contribution by the plant's reference ground area, then divide by
+that leaf's area. Write this conversion as a model so the units are clear
+when connecting the two calculations; see [Coupling models](../../guides/coupling.md).
+
+Each leaf model reads `surface` from that leaf and uses `SelfPlant()` to find
+the plant's `aPPFD` and total `surface`. In the table below, `consumer_id`
+identifies the object reading a value, and `source_ids` identifies where the
+value comes from. `carrier_kind` describes how PlantSimEngine shares it;
+`ref` means the model reads the source's current value directly.
 
 ```@example journey_one_plant
 select(
@@ -88,15 +108,20 @@ select(
 )
 ```
 
-## Second pass: compute and aggregate leaf surfaces
+## Second pass: calculate leaf areas and their total
 
 Now replace the supplied surfaces with two existing models:
 
 - `ToyLeafSurfaceModel` computes each leaf surface from its carbon biomass;
 - `ToyPlantLeafSurfaceModel` sums those leaf surfaces on the plant.
 
-This is the first vector-like cross-object input. It comes after the scalar
-connection above, and differs only in the new `:leaf_surfaces` binding.
+Here the leaf carbon biomasses are 50 and 100 g C, and the specific leaf area
+is 0.02 m² g C⁻¹. Their calculated areas are therefore 1 and 2 m², preserving
+the light shares from the first pass.
+
+The plant model now needs a collection of values: one area from each leaf.
+The `Many(...)` selector for `:leaf_surfaces` provides that collection, which
+`ToyPlantLeafSurfaceModel` adds together.
 
 ```@example journey_one_plant
 computed_objects = (
@@ -174,8 +199,14 @@ leaf_states = final_state(computed_simulation, Many(scale=:Leaf))
 )
 ```
 
-The plant aggregation uses a live `RefVector`; the scalar connections remain
-single references:
+The resulting plant surface should be 3 m² and the light contributions should
+still be 40 and 80 μmol m⁻² of reference ground s⁻¹. You can now
+[use different models on two plants in the same simulation](several_plants.md).
+
+The optional table below lets you check the connections. For
+`:leaf_surfaces`, the plant should read from both leaves. Its `RefVector`
+holds references to their current areas, so the plant sees the new values
+after the leaf models update them. Inputs with just one source use `ref`.
 
 ```@example journey_one_plant
 select(
@@ -187,14 +218,3 @@ select(
     :carrier_kind,
 )
 ```
-
-## Page recap
-
-- **You added:** parent/child topology, plant-to-leaf scalar connections, and
-  one plant-local vector aggregation.
-- **PlantSimEngine inferred:** same-leaf `surface` coupling, application order,
-  and live scalar/vector reference carriers.
-- **You keep explicit:** object parentage, the scope of cross-object searches,
-  and the source application when selecting a produced value.
-- **New API names:** `parent`, `Self`, `SelfPlant`, `Subtree`, and the
-  `application` and `var` selector fields.

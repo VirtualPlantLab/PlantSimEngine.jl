@@ -1,10 +1,11 @@
 # Model Execution
 
-This page describes how the native composite-model/object runtime executes model
-applications. Use this path for new multi-object, multi-plant, soil,
-microclimate, and multirate simulations.
+This reference explains how PlantSimEngine prepares and runs a simulation.
+Start with [your first simulation](journeys/users/one_object.md) if you are
+new to the package.
 
-The public configuration surface has one application constructor:
+A **model application** says where to run a model and how to supply its
+inputs. Use `ModelSpec` to describe one:
 
 ```julia
 ModelSpec(
@@ -20,30 +21,33 @@ ModelSpec(
 )
 ```
 
-Scenarios start from `CompositeModel` and model applications.
+Put these applications and the objects they describe into a `CompositeModel`.
 
 ## Model Kernels And Applications
 
-A model kernel is still an ordinary PlantSimEngine model:
+A **kernel** is the `run!` function that evaluates a model's equations.
+The model also declares what those equations need and produce:
 
 - `inputs_(model)` declares each status input as `Required(T)` or
   `Default(value)`;
 - `outputs_(model)` declares variables the model computes and their initial
   output-state values;
 - `environment_inputs_(model)` declares environment variables it reads;
+- `environment_outputs_(model)` declares which environmental variables it
+  may update, such as the temperature controlled by a canopy model;
 - `commit_environment!(context, state)` commits accepted mutable environment
   state when the model intentionally controls microclimate;
 - `dep(model)` may declare model-author defaults;
 - `run!(model, status, environment, constants, context)` contains the model
 equations.
 
-`Required(T)` has no initialization value: object state or a producer
-application must satisfy it. `Default(value)` is installed only when the target
-does not already have the input. Plain input literals are rejected because
-they are ambiguous.
+`Required(T)` means you must supply the input on the object, or connect it
+to another model's output. `Default(value)` supplies a starting value only
+when that input is absent. A plain number is not a valid input declaration:
+it would not say whether the model requires a value or can use a default.
 
-The composite-model/object layer does not change that kernel contract. It adds a
-scenario-specific application around the kernel:
+The equations stay in the model. Use `ModelSpec` to configure their use in
+this particular simulation:
 
 ```julia
 ModelSpec(
@@ -59,29 +63,29 @@ ModelSpec(
 
 `ModelSpec` decides where the model runs, where its inputs come from, which
 models it may call manually, which timestep it uses, and which environment
-provider is bound to it. The model implementation stays reusable.
+source supplies its growing conditions. You can reuse the same model in
+other simulations with different choices.
 
 ## Compilation Before Runtime
 
-Before the timestep loop, PlantSimEngine compiles the model into concrete
-runtime carriers:
+Before the first time step, PlantSimEngine prepares the simulation. This
+preparation is called **compilation**. It:
 
-1. `ModelSpec(...; on=...)` selectors are resolved to stable object ids.
-2. `ModelSpec(...; inputs=...)` selectors are resolved to source object/application ids.
-3. Same-rate inputs are wired as shared `Ref`s, `RefVector`s, or
-   heterogeneous object-reference vectors.
-4. Temporal inputs are compiled as stream lookups with a policy such as
-   `HoldLast`, `Interpolate`, `Integrate`, or `Aggregate`.
-5. `ModelSpec(...; calls=...)` declarations are compiled to callable target lists.
-6. `Environment(...)` is bound to backend cells, layers, voxels, or global
-   weather providers.
-7. The root application order is topologically sorted from value inputs and
-   `Updates(...)` ordering.
-8. Root execution batches are grouped by concrete model/status/environment
-   types where possible.
+1. finds the objects selected by each application's `on` rule;
+2. finds where each input value will come from;
+3. connects values updated at the same rate through shared references, which
+   let one model read another object's current value without copying it;
+4. prepares any output history and rules needed to exchange values between
+   models that run at different time steps;
+5. lists the models that each controller can call through `calls`;
+6. finds the weather source, cell, or layer that supplies each object;
+7. puts applications in order so their inputs are available when needed,
+   including any order specified by `Updates`;
+8. groups objects with matching model, status, and environment types so Julia
+   can run them efficiently.
 
-Selectors are not resolved in the hot loop. Runtime execution uses the
-compiled indexes and carriers.
+The time loop reuses this work instead of searching for every connection
+again at each step.
 
 Useful inspection helpers:
 
@@ -95,9 +99,9 @@ Diagnostics.explain_execution_plan(model)
 Diagnostics.explain_writers(model)
 ```
 
-These explanations are intended for both users and agents. They report the
-compiled object ids, applications, carriers, clocks, environment bindings, and
-manual-call targets that the runtime will use.
+These reports show which objects and models were selected, where their
+inputs come from, when they run, and which growing conditions they receive.
+Both people and coding agents can inspect the reports.
 
 ### Readable source views
 
@@ -120,17 +124,16 @@ source = Authoring.compiled_model_source(model)
 Authoring.write_compiled_model_source("compiled_model.jl", model)
 ```
 
-The generated source spells out application order, selected targets, input
-provenance, hard calls, and the kernel bodies invoked through normal
-PlantSimEngine status, environment, output, and lifecycle machinery. It is
-optimized for explanation and review, not as an alternative scheduler. It
-represents the resolved plan; `scenario_source` reconstructs the scenario that
-an author can edit and compile again.
+The generated code shows which models run on which objects, where their
+inputs come from, and which equations and manual calls are used. It runs
+through the normal PlantSimEngine machinery. Use this view to inspect
+execution; use `scenario_source` when you want to edit the simulation setup.
 
 ## Soft Dependencies With Inputs
 
-Soft dependencies are value dependencies. A consumer model reads a variable
-produced by another model through `ModelSpec(...; inputs=...)`.
+A **soft dependency** means that one model needs a value calculated by
+another. The model supplying the value is called the **producer**; the model
+reading it is the **consumer**. Connect them with `ModelSpec(...; inputs=...)`:
 
 ```julia
 ModelSpec(SceneLAI(ground_area); name=:scene_lai, on=One(scale=:Scene), inputs=(:leaf_areas => Many(
@@ -142,24 +145,28 @@ ModelSpec(SceneLAI(ground_area); name=:scene_lai, on=One(scale=:Scene), inputs=(
         ),))
 ```
 
-For same-rate inputs, the runtime installs a reference carrier into the
-consumer status during compilation. A model-scale model reading all leaf areas
-therefore sees a `RefVector`-like object: reading pulls current values from
-source leaf statuses, and writing through the carrier mutates source refs when
-the carrier supports it.
+When the models run at the same rate, the input refers to the source
+object's current value. A plant model reading several leaf areas receives
+a reference vector such as `RefVector`: a list that reads the current value
+from each leaf. This shared storage is called a **reference carrier** in
+the diagnostic reports. Where it supports writing, changing an entry also
+changes the source object's value.
 
-If an input is not explicitly declared with `ModelSpec(...; inputs=...)`, the compiler can
-infer simple same-object bindings when exactly one producer on the same object
-outputs the same variable. Ambiguous producers are errors and should be
-disambiguated with `application=...` and, when names differ, `var=...`.
+You can omit an input connection when exactly one other model on the same
+object provides an output with the same name. PlantSimEngine connects it
+automatically. If several models provide that output, choose one with
+`application=...`. Use `var=...` when the source variable has a different name.
 
-Use `PreviousTimeStep(:x) => selector` when a feedback dependency should read
-the previous sample instead of creating a same-timestep scheduling edge.
+Use `PreviousTimeStep(:x) => selector` when a feedback calculation should
+read the previous step's value of `x`. The receiving model then does not
+need to wait for the current step's calculation of `x`.
 
 ## Hard Calls With Calls
 
-Hard dependencies are manual calls. Use `ModelSpec(...; calls=...)` when a parent model must
-control the call stack, for example during an iterative energy-balance solve.
+A **hard dependency** means that one model decides when to run another.
+Declare it with `ModelSpec(...; calls=...)`. For example, an energy-balance
+model may need to run photosynthesis repeatedly while adjusting leaf
+temperature.
 
 ```julia
 ModelSpec(SceneEnergyBalance(); name=:scene_energy, on=One(scale=:Scene), calls=(:leaf_energy => Many(
@@ -202,20 +209,22 @@ function PlantSimEngine.run!(model::SceneEnergyBalance, status, environment,
 end
 ```
 
-`run_call!` defaults to `publish=false`. Trial calls mutate target statuses but
-do not publish temporal samples or commit mutable environment updates. Use
-`environment=trial_state` when hard-called descendants should sample temporary
-state through their compiled environment handles. Call `commit_environment!` and
-`run_call!(...; publish=true)` once for the accepted state.
+`run_call!` uses `publish=false` by default. Each trial updates the called
+objects' current values, but does not add results to their time histories or
+save changes to the shared environment. Pass `environment=trial_state` to
+try temporary growing conditions; each called model still gets the conditions
+for its own location. Once the result is accepted, save the environment
+with `commit_environment!` and run once with `publish=true` to record it.
 
-Applications selected only by `ModelSpec(...; calls=...)` are marked manual-call-only in
-`Diagnostics.explain_schedule(model)` and are skipped by the root `run!(model)` loop.
+Applications used only through `ModelSpec(...; calls=...)` run when their
+controller calls them. They do not also run independently from the normal
+schedule. `Diagnostics.explain_schedule(model)` marks them as manual-call-only.
 
 ## Duplicate Writers With Updates
 
-By default, one application owns each `(object, output variable)` canonical
-writer. If a scenario intentionally lets several models update the same
-variable, later writers must declare that order explicitly:
+Normally, only one model application may calculate a given output variable
+on an object. If you want several models to update that variable, state
+which should run first:
 
 ```julia
 ModelSpec(CarbonAllocation(); name=:carbon_allocation, on=Many(scale=:Leaf))
@@ -226,12 +235,14 @@ ModelSpec(LeafPruning(); name=:leaf_pruning, on=Many(scale=:Leaf), updates=Updat
 This keeps ordinary duplicate outputs as errors while allowing cases such as
 allocation followed by pruning. `Diagnostics.explain_writers(model)` reports writer
 groups and the `Updates(...)` declarations that validate them.
-The `after` value is the canonical application identifier shown by
-`Diagnostics.explain_applications(model)`, not the process name.
+For `after`, use the application ID shown by
+`Diagnostics.explain_applications(model)`. A process name does not identify
+a particular application when several models use that process.
 
 ## Multirate Execution
 
-Use `ModelSpec(...; every=...)` with `Dates.Period` values for model application clocks:
+**Multirate** means that models run at different time steps. Set how often
+a model runs with `ModelSpec(...; every=...)` and a duration such as `Hour(1)`:
 
 The duration must be a positive integer multiple of the simulation base step.
 Choose a finer common base step when needed; the scheduler does not insert
@@ -274,8 +285,10 @@ Supported policies are:
   duration weighting;
 - `Aggregate()`: reduce values over a window, defaulting to `MeanReducer()`.
 
-Policies resample numeric values but do not transform `VariableContract`
-metadata. A contracted rate-to-amount conversion needs an explicit adapter;
+These rules combine numeric values but do not change the units or physical
+meaning recorded in `VariableContract`. If you declare a rate on one side
+and an amount on the other, use a conversion model with the appropriate
+units and meaning declared for each side;
 see [Coupling models](@ref).
 
 `Integrate(...)` and `Aggregate(...)` accept reducer objects or callables that
@@ -289,9 +302,9 @@ producer execution and weighted by the portion of that interval overlapping
 the consumer window. This includes the last value published before the window
 when it remains active inside the window.
 
-Temporal windows are duration-based rolling windows. Calendar-aligned civil
-days and "previous complete period" selection are not part of the public API;
-there is no `CalendarWindow` compatibility type.
+Time windows cover a duration relative to the current simulation time.
+They do not automatically align with calendar days or select the previous
+complete day, week, or month.
 
 ## Environment Sampling
 
@@ -301,9 +314,10 @@ there is no `CalendarWindow` compatibility type.
 ModelSpec(CO2Probe(); name=:co2_probe, on=Many(scale=:Leaf), environment=Environment(provider=:canopy, sources=(CO2=:Ca,)))
 ```
 
-The compiler binds each application/object pair to the selected backend before
-runtime. Constant weather, global tabular meteorology, grid, layer, voxel, or
-octree-style microclimate backends all use the same contract:
+Before running, PlantSimEngine finds the environment source for each model
+and object. An environment **backend** is the code that supplies those
+conditions, from a weather table or a spatial representation such as soil
+layers or canopy cells. All backends use the same model-facing functions:
 
 - `environment_inputs_(model)` says what the model reads;
 - `environment_outputs_(model)` says what the model may commit;
@@ -315,7 +329,9 @@ octree-style microclimate backends all use the same contract:
 - geometry and position are used by spatial backends when available;
 - object-to-environment links are cached and refreshed when objects move.
 
-Backend authors implement an opaque-handle protocol:
+A backend first locates the data needed by an object and saves that location
+in a **handle**. The model does not need to interpret this handle; the backend
+uses it to retrieve values efficiently. Backend authors implement:
 
 ```julia
 handle = EnvironmentAPI.bind_environment(backend, object, context, config)
@@ -325,12 +341,13 @@ EnvironmentAPI.sample(backend, handle, trial_state, variable, time)  # transient
 commit_environment!(backend, handle, accepted_state, time)
 ```
 
-`EnvironmentAPI.EnvironmentContext` identifies the application, object, scale, and process
-while the handle is compiled. Runtime status and geometry are not passed to
-sampling: a spatial backend resolves them once in `EnvironmentAPI.bind_environment` and stores
-the resulting provider, layer, voxel, or other routing data in its concrete
-handle. A controller that reads from one provider and commits to another should
-encode both routes in the handle, for example
+`EnvironmentAPI.EnvironmentContext` identifies the model application, object,
+scale, and process when the backend prepares the handle. A spatial backend
+uses `EnvironmentAPI.bind_environment` to locate the object's layer, cell, or
+other data source and stores that location in the handle. Later requests for
+environment values use this handle; they do not receive the object's full
+status and geometry again. If a controller reads from one source and saves
+updates to another, the handle must record both, for example
 `Environment(provider=:forcing, sink=:canopy)`.
 
 Model-level `environment_hint(...)` can provide default source bindings and
@@ -346,8 +363,8 @@ Run a model with:
 sim = run!(model; steps=30)
 ```
 
-The returned `Simulation` contains the mutated model, compiled bindings,
-environment bindings, execution plan, and retained temporal output streams.
+The returned `Simulation` keeps the current model values, the prepared
+connections and schedule, and any saved output histories.
 
 By default, model runs retain no user output streams. Pass `outputs=:all` to
 retain every published stream, or pass `OutputRequest` values to retain only
@@ -417,36 +434,39 @@ move_object!(model, :leaf_4, new_geometry)
 update_geometry!(model, :leaf_5, new_geometry)
 ```
 
-Use `add_organ!` for an MTG-backed model. It creates the MTG node, initializes
-and attaches its `Status`, registers the model object, and invalidates the
-affected bindings. By default, status initialization reuses the model's MTG
-policy. A framework that already supplies the complete creation attributes and
-initial status may set `use_status_adapter=false`; doing so is an explicit
-assertion that the configured status accessor contributes no additional fields
-or side effects for that node. `register_object!` is the low-level operation
-for callers that already own a complete `Object`.
+Use `add_organ!` when the plant structure comes from an MTG. It creates the
+node, prepares its starting values, adds the object to the simulation, and
+marks its connections for updating. By default, it reuses the function you
+provided to initialize values from MTG nodes.
 
-Structural changes invalidate compiled object/model bindings. Movement and
-geometry changes invalidate environment bindings without rebuilding structural
-input carriers. Scenario-level application, dependency, selector, cadence,
-environment-sampling, and output-retention plans remain immutable; only the
-affected object targets and buffers are refreshed.
+Set `use_status_adapter=false` only if you supply all the new organ's
+attributes and values yourself, and that initialization function has no
+additional work to do. Use `register_object!` when you already have a fully
+prepared `Object` to add.
 
-Do not mutate `Object` topology, labels, or geometry fields directly. Direct
-field mutation bypasses registry indexes and cache invalidation and is
-unsupported. Use the lifecycle functions above. They validate prerequisites
-before mutating; in particular, `reparent_object!` rejects self-parenting and
-descendant cycles without changing existing links. `ObjectInstance` roots are
-immutable lifecycle anchors: removing or reparenting a root, or an ancestor
-whose subtree contains one, is rejected atomically. Ordinary descendants may
-still be added, removed, or reparented.
+Adding or removing objects can change which models run and where their
+inputs come from, so PlantSimEngine updates the affected connections. Moving
+an object or changing its shape updates its environment connection without
+rebuilding unrelated model connections. The rules you supplied in the
+simulation setup stay the same.
 
-Inside a lifecycle-capable model kernel, use `runtime_model(context)` to obtain
-the live model. Objects created during a kernel call do not recursively execute
-inside that call. At the safe barrier after the mutating application,
-PlantSimEngine refreshes affected structural targets, value carriers, hard-call
-targets, writer validation, temporal storage, execution groups, output-request
-matches, and environment handles. A new object can therefore run an application
+Use the functions above to change objects; assigning directly to their
+structure, label, or geometry fields would leave PlantSimEngine's stored
+connections out of date. The functions check each change before applying it.
+For example, `reparent_object!` prevents an object from becoming its own
+parent or a descendant of itself.
+
+The root of an `ObjectInstance` must stay in place. You cannot remove or
+reparent that root, or an ancestor whose descendants contain it. Rejected
+operations leave the existing structure unchanged. You can still add,
+remove, or reparent ordinary descendants of the instance root.
+
+Inside a model's `run!` function, use `runtime_model(context)` to access the
+simulation model when creating or changing objects. Creating an object does
+not immediately run its models. After the application that made the change
+finishes, PlantSimEngine updates the affected model selections, input and
+environment connections, manual calls, output histories, and execution order.
+It also checks that output variables still have valid sources. A new object can therefore run an application
 that remains later in the same timestep. It does not retroactively run an
 application that already completed unless its creator declares that application
 as an [`Initializer`](@ref) and explicitly calls [`run_initializer!`](@ref) on

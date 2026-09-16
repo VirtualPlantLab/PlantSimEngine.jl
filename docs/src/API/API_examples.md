@@ -1,10 +1,14 @@
 # Example models
 
-PlantSimEngine provides example processes and models to users. They are available from a sub-module called `Examples`. To get access to these models in a working environment with PlantSimEngine, you can simply use this sub-module:
+PlantSimEngine includes models for learning and testing. Load them with:
 
 ```julia
 using PlantSimEngine.Examples
 ```
+
+These examples show how to write equations and connect models. Check their
+assumptions before using them in a scientific study. Start with
+[your first simulation](../journeys/users/one_object.md) for a guided example.
 
 ## List
 

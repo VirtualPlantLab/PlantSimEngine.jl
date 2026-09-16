@@ -49,6 +49,7 @@ include("component_models/TimeStepTable.jl")
 
 # Model application configuration:
 include("ModelSpec.jl")
+include("composite_model/display.jl")
 
 # Model evaluation (statistics):
 include("evaluation/statistics.jl")

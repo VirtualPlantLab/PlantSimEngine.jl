@@ -25,6 +25,25 @@ end
 ObjectId(id::ObjectId) = id
 ObjectId(id::AbstractString) = ObjectId(Symbol(id))
 
+"""
+    Object(id; scale=nothing, kind=nothing, species=nothing, name=nothing,
+           parent=nothing, children=ObjectId[], geometry=nothing,
+           status=nothing, applications=())
+
+One simulated entity, such as a canopy, plant, leaf, or soil volume. `id` is
+its stable [`ObjectId`](@ref). Labels such as `scale`, `kind`, and `name` let
+selectors choose where models run; parent and child IDs describe topology.
+The scenario chooses these labels and relationships.
+
+Supply initial model values with [`Status`](@ref). Models can share fixed
+parameters while each object owns its changing state. `geometry` may hold
+the spatial information needed by an environment provider or visualization.
+
+Pass objects to [`CompositeModel`](@ref) with their model applications. For
+changes during a simulation, use [`register_object!`](@ref),
+`remove_object!`, and `reparent_object!` so the runtime can
+refresh affected connections.
+"""
 mutable struct Object
     id::ObjectId
     scale::Union{Nothing,Symbol}

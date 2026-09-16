@@ -1,11 +1,13 @@
 # Parameter Fitting
 
-`PlantSimEngine.Evaluation.fit` is the shared interface for model-specific
-calibration.
-Model packages implement a method whose first argument is the model type and
-whose second argument is Tables.jl-compatible observations.
+Parameter fitting means finding parameter values that make a model agree
+with observations. PlantSimEngine provides `Evaluation.fit` as a common
+function name; each model package supplies the fitting method for its own
+models. Pass the model type first and a table of observations second.
+The table can be a DataFrame or another format supported by Tables.jl.
 
-The mathematical core of the Beer fit is:
+For the `Beer` model, we can calculate the light-extinction coefficient `k`
+from LAI, incoming light, and absorbed light:
 
 ```julia
 J_to_umol = PlantMeteo.Constants().J_to_umol
@@ -14,16 +16,16 @@ f_abs = data.aPPFD ./ incident_ppfd
 k = Statistics.mean(-log1p.(-f_abs) ./ data.LAI)
 ```
 
-This snippet shows the inversion only. The implementation in
+This snippet only shows how to rearrange Beer's equation to find `k`. The implementation in
 `examples/Beer.jl` validates every observation and returns `(k=k,)`; do not use
 the snippet alone as an unchecked fitting method.
 
-The result should be a `NamedTuple` of fitted parameters.
+A fitting method returns named parameter values, for example `(k=0.6,)`.
 
-In this Beer example, `Ri_PAR_f` is an incident flux per unit ground area and
-`aPPFD` is the flux absorbed by the whole canopy, also per unit ground area.
+In this Beer example, `Ri_PAR_f` measures incoming light per unit ground area
+and `aPPFD` measures light absorbed by the whole canopy per unit ground area.
 `LAI` is leaf area per unit ground area. Do not use a PPFD expressed per unit
-leaf area in this inversion. The fit rejects empty data, non-finite or
+leaf area in this calculation. The fit rejects empty data, non-finite or
 non-positive `LAI` and incident PAR, and absorbed fractions outside `[0, 1)`.
 
 ```@example fitting

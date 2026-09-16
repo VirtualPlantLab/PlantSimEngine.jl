@@ -1,53 +1,66 @@
 # Getting started with Julia
 
-PlantSimEngine (as well as its related packages) is written in Julia. The reasons why Julia was chosen are briefly discussed here : [The choice of using Julia](@ref).
-
-Julia is a language that is gaining traction, but it isn't the most widely used in research and data science. 
-
-Many elements will be familiar to those with an R, Python or Matlab background, but there are some noteworthy differences, and if you are new to the language, there will be a few hurdles you might have to overcome to be comfortable using the language.
-
-This page is here to list to the parts of Julia that are most relevant regarding usage of PlantSimEngine, and point to resources that can help you grasp those basics.
+You can run the PlantSimEngine tutorials without knowing all of Julia. Start
+by copying a complete example, then change one parameter and compare the
+result. This page explains a few patterns you will see along the way.
 
 ## New to programming
 
-It is not meant as a full-fledged from-scratch Julia tutorial. If you are completely new to programming, you may wish to check some other resources first, such as ones found [here](https://docs.julialang.org/en/v1/manual/getting-started/). The video course [Julia Programming for Nervous Beginners](https://www.youtube.com/playlist?list=PLP8iPy9hna6Qpx0MgGyElJ5qFlaIXYf1R) is tailored for people with no programming experience.
+The [Julia getting-started guide](https://docs.julialang.org/en/v1/manual/getting-started/)
+explains how to start Julia and enter commands. If you prefer a video course,
+[Julia Programming for Nervous Beginners](https://www.youtube.com/playlist?list=PLP8iPy9hna6Qpx0MgGyElJ5qFlaIXYf1R)
+is aimed at people with no programming experience.
 
-## Installing packages and setting up and environment
+## Installing packages and setting up an environment
 
-For PlantSimEngine, you can check our documentation page on the topic: 
-[Installing PlantSimEngine](installing_plantsimengine.md).
-
-## Cheatsheets
-
-You can also find a few cheatsheets [here](https://palmstudio.github.io/Biophysics_database_palm/cheatsheets/) as well as a [short introductory notebook](https://palmstudio.github.io/Biophysics_database_palm/basic_syntax/) along with its [install instructions](https://palmstudio.github.io/Biophysics_database_palm/installation/).
-
-## Troubleshooting
-
-For more Julia learning-related difficulties, you will find quick responses on the Discourse forum: [https://discourse.julialang.org](https://discourse.julialang.org).
-
-### Noteworthy differences with other languages: 
-
-If you wish to compare Julia to a specific language, [the noteworthy differences section](https://docs.julialang.org/en/v1/manual/noteworthy-differences/#Noteworthy-differences-from-Python) will provide you with a quick overview of the differences.
-
-(Array indexing starts at 1, for example)
+Follow [Installing PlantSimEngine](installing_plantsimengine.md) to create a
+project folder and install the tutorial packages. A project environment
+records which packages and versions your simulation uses.
 
 ## Essential Julia concepts for PlantSimEngine
 
-Here's a list of the main aspects of the Julia language required (beyond package management) to understand how to use PlantSimEngine to its potential:
+The first tutorials mainly use these patterns:
 
-Standard notions and constructs:
+| Code | Meaning |
+|---|---|
+| `lai = 2.0` | Store a value under the name `lai` |
+| `Beer(0.6)` | Create a Beer model with an extinction coefficient of 0.6 |
+| `run!(model; steps=30)` | Run a function, with the named option `steps=30` |
+| `(LAI=2.0, TT=12.0)` | Group named values in a **named tuple** |
+| `[1.0, 2.0, 3.0]` | Create an array of three values |
+| `values[1]` | Read the first array entry; Julia indexing starts at 1 |
+| `state.LAI` | Read the value named `LAI` from `state` |
+| `values .* 2` | Multiply every array entry by 2 |
 
-- Standard concepts of a variable, arrays, functions, function arguments
-- The typing system and custom types
-- Dictionaries and NamedTuple objects are used throughout the codebase
+Options such as `steps=30` are called **keyword arguments**. The semicolon
+separates these named options from the other arguments. A dot before an
+operator, as in `.*`, applies the operation to each array entry. Julia calls
+this **broadcasting**.
 
-The Julia manual goes more in-depth than lighter introductions to some of these topics, so might be more useful as a reference than a starting point. You might find other guides or courses, such as the first section in [https://julia.quantecon.org/intro.html](https://julia.quantecon.org/intro.html), chapters 0-4 and 7 of the [Learn Julia the Hard Way](https://scls.gitbooks.io/ljthw/content/) draft or the interactive [Mathigon course](https://mathigon.org/course/programming-in-julia/introduction).
+A function name ending in `!`, such as `run!` or `step!`, usually means that
+the function changes something it was given. Here, running a simulation
+updates its objects' values.
 
-Also of importance:
+When you start writing models, you will also meet **types** and **methods**.
+A type describes a kind of value; a model type can store its parameters.
+A method is a version of a function for particular types of arguments.
+The [first model tutorial](../journeys/modelers/basic_model.md) introduces
+these ideas with a complete equation and its parameters.
 
-- [Keyword arguments](https://docs.julialang.org/en/v1/manual/functions/#Keyword-Arguments) (kwargs) are present in many API functions
-- [Type promotion](https://docs.julialang.org/en/v1/manual/conversion-and-promotion/#Promotion), [splatting](https://docs.julialang.org/en/v1/base/base/#...), [broadcasting](https://docs.julialang.org/en/v1/manual/functions/#man-vectorized), and [comprehensions](https://docs.julialang.org/en/v1/manual/arrays/#man-comprehensions) are also very useful, but not compulsory to get started
+## Cheatsheets
 
-Many of these are also briefly presented in [this Julia Data Science](https://juliadatascience.io/julia_basics) guide, which also happens to focus on the DataFrames.jl package.
+The [Julia Data Science basics](https://juliadatascience.io/julia_basics)
+cover common syntax and working with tables. There are also
+[cheatsheets](https://palmstudio.github.io/Biophysics_database_palm/cheatsheets/)
+and a [short introductory notebook](https://palmstudio.github.io/Biophysics_database_palm/basic_syntax/).
 
-Understanding more about methods, parametric types and the typing system is usually worthwhile, when working with Julia packages.
+## Troubleshooting
+
+Ask Julia language questions on [Julia Discourse](https://discourse.julialang.org).
+For errors from PlantSimEngine, use the
+[common errors guide](../troubleshooting/common_errors.md).
+
+If you know R, Python, or MATLAB, Julia's
+[comparison with other languages](https://docs.julialang.org/en/v1/manual/noteworthy-differences/)
+explains differences you may encounter. You can read about more advanced
+features, such as type promotion and parametric types, when a model needs them.

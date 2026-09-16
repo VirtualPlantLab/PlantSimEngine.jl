@@ -1,32 +1,39 @@
 # How Multiscale Composite Models Execute
 
-One application executes once for every object selected by its
-`ModelSpec(...; on=...)` selector. State belongs to the object, while topology
-and labels belong to the scenario.
-`Self()` is the current object, `SelfPlant()` is its plant-instance root, and
-`SceneScope()` is model-wide. Cardinality wrappers decide whether zero, one,
-or many matches are valid.
+An **application** is a model configured with `ModelSpec`: it says where the
+model runs and where its inputs come from. For example,
+`ModelSpec(model; on=Many(scale=:Leaf))` runs that model once on each leaf.
+Each leaf keeps its own values in `Status`. You define the objects, their
+labels, and their parent relationships when building the simulation.
 
-More objects mean more qualified streams. Removing an object stops future
-execution but preserves its accepted historical samples.
+Selectors choose objects by these labels and relationships. `Self()` means
+the object whose model is currently running. `SelfPlant()` limits a search
+to that object's plant, starting from the top of its structure.
+`SceneScope()` allows the search to include the whole simulation. Wrap a
+selection in `One`, `OptionalOne`, or `Many` to require exactly one match,
+allow zero or one, or accept a collection.
 
-Canonical selector patterns are:
+Common choices are:
 
 | Relationship | Pattern |
 | --- | --- |
 | application targets every leaf | `ModelSpec(model; on=Many(scale=:Leaf))` |
-| input from this same object | omit `inputs` when the producer is unique |
+| input from this same object | omit `inputs` when exactly one model supplies the matching output |
 | input from one ancestor | `One(Ancestor(scale=:Plant))` |
 | input from this plant's leaves | `Many(scale=:Leaf, within=SelfPlant())` |
 | input from shared soil | `One(scale=:Soil, within=SceneScope())` |
 | optional named organ | `OptionalOne(name=:fruit, within=SelfPlant())` |
 
-`Self()` always means the current target object. It never implicitly means the
-model, process, species, or plant. Prefer object IDs and labels for identity,
-and use `Scope(name)` only when the model explicitly defines that scope.
+For a model running on a leaf, `Self()` means that leaf, not its plant or its
+species. Use object IDs and labels to select specific objects or groups.
+`Scope(name)` refers to a named search area that you must define in the
+simulation before using it.
 
-One application produces a separate stream for every selected object and
-output variable. Stream keys also include application identity, so repeated
-applications of the same process cannot overwrite each other. Use
-`Diagnostics.explain_applications`, `Diagnostics.explain_objects`, and `Diagnostics.explain_bindings` to
-verify target and source multiplicities before a long run.
+Saved results identify the application, object, and variable. Each leaf's
+history therefore stays separate, including when you use the same process
+more than once. Removing an organ stops its future calculations but keeps
+the results already saved for it.
+
+Before a long run, use `Diagnostics.explain_objects` to check the plant
+structure, `Diagnostics.explain_applications` to check where models run, and
+`Diagnostics.explain_bindings` to check where they read their inputs.
