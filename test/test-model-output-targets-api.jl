@@ -160,6 +160,14 @@ function output_targets_api_wide_columns(names)
     )
 end
 
+function output_targets_api_assignment_allocations(targets, ids, columns)
+    # Measure with concrete argument types. The scenario closure captures
+    # different column widths; on Julia 1.10 an inline measurement can include
+    # boxing at that dynamic call site.
+    assign_outputs!(targets, ids, columns)
+    return @allocated assign_outputs!(targets, ids, columns)
+end
+
 @testset "public OutputTargets view and Tables column assignment" begin
     table = (
         object_id=ObjectId[ObjectId(:leaf_b), ObjectId(:leaf_a)],
@@ -240,15 +248,13 @@ end
         writer = OutputTargetsApiActionModel() do context
             targets = output_targets(context, names)
 
-            assign_outputs!(targets, exact_ids, exact_columns)
-            exact_allocations[] = @allocated assign_outputs!(
+            exact_allocations[] = output_targets_api_assignment_allocations(
                 targets,
                 exact_ids,
                 exact_columns,
             )
 
-            assign_outputs!(targets, permuted_ids, permuted_columns)
-            permuted_allocations[] = @allocated assign_outputs!(
+            permuted_allocations[] = output_targets_api_assignment_allocations(
                 targets,
                 permuted_ids,
                 permuted_columns,
