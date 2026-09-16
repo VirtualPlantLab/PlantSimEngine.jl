@@ -315,7 +315,12 @@ can also be read by tools such as an AI coding agent:
   environmental variables;
 - `Authoring.validate_scenario(model; strict=false)` checks the simulation
   setup. If it is incomplete, the result still includes a partial report
-  and diagnostic information;
+  and diagnostic information. Displaying the result shows whether validation
+  passed, how many model applications and connections were checked, and the
+  error and warning counts. Up to five diagnostics are shown, with errors
+  first. Assign the result to `report` to read all messages, affected objects,
+  and suggestions in `report.diagnostics`. The underlying compilation report
+  remains available in `report.compilation`;
 - `Authoring.to_dict(report)` and `Authoring.to_json(report)` convert reports
   to dictionaries or JSON using a versioned format. They do not include
   internal compiler objects;

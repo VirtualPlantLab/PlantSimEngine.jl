@@ -6,7 +6,6 @@ This teaching example describes daily biomass production as:
 
 For an efficiency of 1.5 g dry matter per mol of photons and 10 mol of
 intercepted photons per plant, the result is 15 g dry matter per plant.
-These values show how to write a model; they are not a calibrated crop model.
 
 We will give that equation a name, declare its variables and units, test it,
 and run it on two plants. Before adding your own model, use

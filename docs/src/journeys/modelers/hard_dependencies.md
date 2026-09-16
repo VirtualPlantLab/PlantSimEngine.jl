@@ -10,13 +10,14 @@ When a model only needs another model's result, use an ordinary input instead.
 
 ## Declare the model you need to call
 
-The teaching model below acts as a **controller**: it chooses when to run
+The example model below acts as a **controller**: it chooses when to run
 another model. It selects one leaf, tries two prescribed temperatures, and
-finally accepts a third. This shows how to run trials; it does not solve an
-energy-balance equation.
+finally accepts a third. This model is calling a **hard dependency** because
+it controls the execution of another model. Each selected model and object pair is a **target**, and the controller's
+`dep` function declaration describes what kind of models it needs (i.e. the kind of process it should simulate).
 
-Its declaration asks for temperature-reading models on the current plant's leaves.
-These definitions are extracted from `examples/ToyAdvancedControl.jl`:
+This example model declaration asks for temperature-reading models on the current plant's leaves. Its definition
+is extracted from `examples/ToyAdvancedControl.jl`:
 
 ```@eval
 Main.DocsSources.section(
@@ -26,14 +27,16 @@ Main.DocsSources.section(
 )
 ```
 
-`Call` declares which models the controller needs. The controller chooses
-when to run them. Asking for a process on the current plant's leaves lets
-you reuse it without knowing the names a future simulation will give those
-model applications.
+What we are doing here is declaring a dependency on a process that reads temperature. The `dep` function returns a named tuple whose `readers` entry is a `Call` describing the models the controller needs. The `scale=:Leaf` argument says it wants models applied to leaves, the `process=:toy_environment_reader` defines
+the kind of process it needs, and the `within=Subtree()` argument says it wants models on leaves anywhere below the current object onto which the `ToySelectiveCallControllerModel` is applied (e.g. all leaves from a plant if the controller is applied to a plant). The `Call` declaration identifies targets by their process and location, without naming a particular application or object. PlantSimEngine resolves these targets when it prepares the scenario. The controller then chooses which of those targets to call at runtime.
+
+This approach may seem complex at first, but it allows the controller to be used in many different scenarios with different models and objects. The controller does not need to know the details of the models it calls, it just needs to know that they implement the required process. This is a key feature of PlantSimEngine's design: it allows for flexible model composition and reuse.
 
 ## Run trials and accept one result
 
-Here is the actual controller calculation:
+Now let's define our controller model implementation. It is implemented like any other model, except that it calls other models during its calculation. This model runs a temperature model twice with trial temperatures (in a for loop), and then runs it a third time with an accepted temperature.
+
+The model uses `call_targets` to get the list of models and objects that match its `dep` declaration. Each match is called a **target**. The model then counts the number of targets, and selects one target based on its object ID. This target is then used to run the temperature model with different trial temperatures used as environment inputs using `run_call!`. The controller decides which result to accept. It uses `publish=false` for trial calls and `publish=true` for the accepted call, so only the accepted result is published to output history and time-based connections. Trial calls still change the target's current values; `publish=false` does not hide those changes from direct references. The model implementation is extracted from `examples/ToyAdvancedControl.jl`:
 
 ```@eval
 Main.DocsSources.section(
@@ -42,12 +45,6 @@ Main.DocsSources.section(
     "\"\"\"\n    ToyStockWriterModel",
 )
 ```
-
-`call_targets` lists the models and objects that match the `Call` declaration.
-Each match is called a **target**. Here the controller chooses the target for
-one leaf. Each trial uses `publish=false`, so its result is not saved as an
-accepted output sample. The final call uses `publish=true` to save the
-accepted result for output history and time-based connections.
 
 For a real solver, you must decide how to calculate each trial and when a
 solution is close enough. You must also handle any values changed by a

@@ -1,64 +1,42 @@
 # Visualize Plant Structure
 
-A structure diagram helps check which organs belong to which plant. A model
-dependency diagram answers a different question: which calculation supplies
-which input. Use the [graph viewer](../graph_visualizer_editor.md) for model
-dependencies, and object parent links for plant structure.
+[PlantGeom.jl](https://vezy.github.io/PlantGeom.jl/stable/) provides diagrams
+and 3D views of plants stored in a MultiScaleTreeGraph (MTG). An MTG records
+the organs and their relationships. Geometry can be added to describe their
+shapes, orientations and positions.
 
-## Draw the parent links
+## Inspect connections between organs
 
-This small example needs `DataFrames` and `CairoMakie` in your project. It
-draws one plant with two leaves. `Diagnostics.explain_objects` lists the
-objects and their parents so we can draw the connections:
+Use PlantGeom's `diagram` to see how organs are connected and which organs
+belong to each plant. It draws a schematic layout from the MTG: you do not
+need meshes or measured positions. The positions in this diagram are chosen
+for readability and do not show the plant's physical shape.
 
-```@example structure_plot
-using PlantSimEngine, DataFrames, CairoMakie
+See [PlantGeom's diagram guide](https://vezy.github.io/PlantGeom.jl/stable/plot_diagram/makie_diagram.html)
+for examples and colour options.
 
-model = CompositeModel(
-    Object(:plant; scale=:Plant, kind=:plant),
-    Object(:leaf_1; scale=:Leaf, parent=:plant),
-    Object(:leaf_2; scale=:Leaf, parent=:plant),
-)
-rows = Diagnostics.explain_objects(model)
-select(DataFrame(rows), :id, :scale, :parent)
-```
+## View the plant in 3D
 
-The coordinates below are chosen for a readable diagram. They are not organ
-positions or a reconstructed 3D plant.
+Use PlantGeom's `plantviz` when you want to see organ shapes and positions.
+This view needs geometry attached to the MTG nodes, such as meshes and the
+transformations that place them in the plant. You can import geometry from a
+file or build it from organ attributes and reference shapes using PlantGeom.
+The MTG's connections alone are not enough to reconstruct a 3D plant.
 
-```@example structure_plot
-positions = Dict(:plant => (0.0, 0.0),
-                 :leaf_1 => (-1.0, 1.0), :leaf_2 => (1.0, 1.0))
-fig = Figure(size=(620, 320))
-ax = Axis(fig[1, 1]; title="One plant, two leaves", aspect=DataAspect())
+Start with the [3D plotting tutorial](https://vezy.github.io/PlantGeom.jl/stable/getting_started/showcase.html).
+If your MTG does not yet have geometry, follow the
+[geometry construction workflows](https://vezy.github.io/PlantGeom.jl/stable/build_and_simulate_3d_plants/choose_a_workflow).
 
-for row in rows
-    x, y = positions[row.id]
-    if !isnothing(row.parent)
-        px, py = positions[row.parent]
-        lines!(ax, [px, x], [py, y]; color=:gray55, linewidth=2)
-    end
-    color = row.scale == :Plant ? :sienna : :seagreen
-    scatter!(ax, [x], [y]; color, markersize=22)
-    text!(ax, x, y; text=string(row.id), offset=(0, 16), align=(:center, :bottom))
-end
-limits!(ax, -1.6, 1.6, -0.3, 1.6)
-hidedecorations!(ax)
-hidespines!(ax)
-save("plant-structure.svg", fig) # hide
-nothing # hide
-```
+## Use the same structure for simulation
 
-![](plant-structure.svg)
+The same MTG can be used for visualization and passed to `CompositeModel`.
+The [MTG import guide](import_mtg.md) explains how to use its nodes as
+simulation objects and initialize their values. Use the node and object IDs
+to match organs with their simulation results.
 
-For a larger structure, choose a tree-layout algorithm or positions from your
-geometry data. Keep object IDs as the link between results, geometry, and
-labels. After growth or pruning, call `Diagnostics.explain_objects(model)`
-again to draw the current structure. Saved simulation results still include
-the history of removed organs.
-
-When using plant templates, `Diagnostics.explain_instances(model)` identifies
-the object at the top of each plant's structure. Use
-`Diagnostics.explain_scopes(model)` to check the search areas used to select
-objects. The drawing code is separate from the process models, so you can
-run the same simulation with or without a visualization.
+If you built a simulation directly from `Object`s, you do not need to create
+an MTG just to inspect it. The **Objects** tab in PlantSimEngine's
+[graph viewer](../graph_visualizer_editor.md) shows their parent links.
+Its **Applications** and **Executions** tabs show the models and their
+connections. These help you check which calculations run on each object
+and where their inputs come from.

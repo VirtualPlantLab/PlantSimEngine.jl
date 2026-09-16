@@ -86,9 +86,25 @@ biophysical processes, and [XPalm](https://github.com/PalmStudio/XPalm.jl), for
 oil-palm growth. Their documentation describes the models, assumptions and
 supported package versions.
 
+## Bridging the gap between crop and functional–structural modelling
+
+PlantSimEngine helps bridge the gap between crop and functional–structural
+modelling by letting you develop a common core of process models and choose
+the level of structural detail your question needs. Represent a canopy as a
+whole, describe individual organs, or include their positions in 3D. Reuse
+the shared models and adapt the processes and connections that depend on
+that detail.
+
+XPalm illustrates this approach: its core growth and development models can
+run with or without a 3D representation of the palm. This provides a
+foundation for investigating questions about spatial differences in light
+or local carbon allocation, by adding the appropriate models while
+retaining the shared core.
+
 ## See what you can build
 
-These examples show two ways to represent a plant system. A crop-scale simulation like in crop models, and an 3D organ-scale structure like in frunctional-structural models.
+These examples illustrate two levels of detail: a whole crop canopy and a
+plant described by individual organs.
 
 ```@raw html
 <div class="pse-home-examples">

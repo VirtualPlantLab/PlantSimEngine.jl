@@ -723,6 +723,103 @@ end
     @test !isempty(partial_report.diagnostics)
     @test JSON.parse(to_json(partial_report))["schemaVersion"] == SCHEMA_VERSION
 
+    @testset "scenario validation display summarizes usable evidence" begin
+        for report in (valid_report, unresolved_report, partial_report)
+            before = to_json(report)
+            compact = repr(report)
+            display = repr(MIME"text/plain"(), report)
+
+            @test startswith(compact, "ScenarioValidationReport")
+            @test !occursin('\n', compact)
+            @test occursin(report.valid ? r"\bvalid\b" : r"\binvalid\b", lowercase(compact))
+            @test occursin("strict=$(report.strict)", compact)
+            @test occursin("Applications: $(report.summary.application_count)", display)
+            @test occursin("Connections: $(report.summary.input_binding_count) inputs, " *
+                           "$(report.summary.call_binding_count) model calls", display)
+            @test !occursin("CompositeModelCompilationReport", compact)
+            @test !occursin("CompositeModelCompilationReport", display)
+            @test repr(MIME"text/plain"(), report; context=:compact => true) == compact
+            @test count(compact, repr([report, report])) == 2
+            @test !occursin('\n', repr([report, report]))
+            @test to_json(report) == before
+        end
+
+        valid_display = repr(MIME"text/plain"(), valid_report)
+        @test occursin(r"\bvalid\b", lowercase(valid_display))
+        @test occursin("(strict)", valid_display)
+        @test occursin("Compilation: complete; cycles: 0", valid_display)
+
+        unresolved_display = repr(MIME"text/plain"(), unresolved_report)
+        @test occursin(r"\binvalid\b", lowercase(unresolved_display))
+        @test occursin("Compilation: complete; cycles: 0", unresolved_display)
+        @test occursin("unresolved_required_input", unresolved_display)
+        @test occursin("linear", unresolved_display)
+        @test occursin("leaf", unresolved_display)
+        @test occursin(r"\bx\b", unresolved_display)
+        @test occursin("report.diagnostics", unresolved_display)
+        @test occursin("Diagnostics: 1 error,", unresolved_display)
+        @test !occursin("Try: Provide", unresolved_display)
+
+        partial_display = repr(MIME"text/plain"(), partial_report)
+        @test occursin(r"\binvalid\b", lowercase(partial_display))
+        @test occursin("Compilation: incomplete", partial_display)
+        partial_error = first(diagnostic for diagnostic in partial_report.diagnostics
+                              if diagnostic.severity == :error)
+        @test occursin(string(partial_error.code), partial_display)
+        @test occursin("report.diagnostics", partial_display)
+
+        diagnostics = ValidationDiagnostic[
+            ValidationDiagnostic(:display_warning, :warning, "DISPLAY_HIDDEN_WARNING",
+                                 Dict{String,Any}(), String[]),
+            ValidationDiagnostic(:display_info, :info, "DISPLAY_HIDDEN_INFO",
+                                 Dict{String,Any}(), String[]),
+        ]
+        for index in 1:5
+            push!(diagnostics, ValidationDiagnostic(
+                Symbol("display_error_", index),
+                :error,
+                index == 1 ? "DISPLAY_ERROR_1\nsecond line" : "DISPLAY_ERROR_$index",
+                Dict{String,Any}("applicationIds" => ["canopy"],
+                                "objectIds" => ["palm"], "variable" => "par"),
+                ["DISPLAY_FIRST_SUGGESTION_$index", "DISPLAY_HIDDEN_SUGGESTION_$index"],
+            ))
+        end
+        push!(diagnostics, ValidationDiagnostic(
+            :another_display_warning, :warning, "DISPLAY_HIDDEN_WARNING_2",
+            Dict{String,Any}(), String[],
+        ))
+        crowded_report = ScenarioValidationReport(
+            valid_report.schema_version, false, false, valid_report.summary,
+            diagnostics, valid_report.compilation,
+        )
+        before = to_json(crowded_report)
+        crowded_display = repr(MIME"text/plain"(), crowded_report)
+        for index in 1:5
+            @test occursin("DISPLAY_ERROR_$index", crowded_display)
+            @test occursin("DISPLAY_FIRST_SUGGESTION_$index", crowded_display)
+        end
+        @test !occursin("DISPLAY_HIDDEN", crowded_display)
+        @test occursin("Diagnostics: 5 errors, 2 warnings, 1 info", crowded_display)
+        @test occursin("3 more diagnostics", crowded_display)
+        @test occursin("DISPLAY_ERROR_1 second line", crowded_display)
+        @test occursin("canopy", crowded_display)
+        @test occursin("palm", crowded_display)
+        @test occursin(r"\bpar\b", crowded_display)
+        @test occursin("report.diagnostics", crowded_display)
+        @test to_json(crowded_report) == before
+
+        small_display = sprint(show, MIME"text/plain"(), crowded_report;
+                               context=(:limit => true, :displaysize => (12, 40)))
+        @test length(split(small_display, '\n')) <= 12
+        @test all(line -> textwidth(line) <= 40, split(small_display, '\n'))
+        @test occursin("DISPLAY_ERROR_1 second line", small_display)
+        @test !occursin("DISPLAY_ERROR_2", small_display)
+        @test occursin("7 more diagnostics", small_display)
+        @test occursin("report.diagnostics", small_display)
+        @test occursin("Variable: par", small_display)
+        @test to_json(crowded_report) == before
+    end
+
     override_template = CompositeModelTemplate((
         ModelSpec(model; name=:linear, on=Many(scale=:Leaf)),
     ))

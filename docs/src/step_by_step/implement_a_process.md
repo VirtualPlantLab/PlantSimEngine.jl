@@ -68,6 +68,9 @@ end
 process(DocsLinearExudation(0.1))
 ```
 
+!!! note "Naming convention for processes"
+    Processes names are defined in `snake_case`, and should define a biological or physical question as generally as possible. For example `"root_exudation"` is a better name than `"linear_root_exudation"` because it allows for future models that implement different equations for the same process. You may see that our teaching example uses `"docs_root_exudation"` which does not follow this convention, but we use that for demonstration purposes, to avoid any clash with future existing processes.
+
 `@process` creates the abstract type that concrete models inherit from:
 
 | Declaration | Generated abstract type |

@@ -166,6 +166,10 @@ Typed, versioned validation result for a `CompositeModel`. `compilation`
 retains the existing best-effort compilation report for Julia consumers;
 [`Authoring.to_dict`](@ref) and [`Authoring.to_json`](@ref) serialize its stable summary and
 diagnostics rather than compiler internals.
+
+Displaying a report shows the validation outcome, connection counts, and up to
+five diagnostics, with errors first. The full details remain available in
+`report.diagnostics` and `report.compilation`.
 """
 struct ScenarioValidationReport
     schema_version::Int
@@ -174,6 +178,105 @@ struct ScenarioValidationReport
     summary::NamedTuple
     diagnostics::Vector{ValidationDiagnostic}
     compilation::CompositeModelCompilationReport
+end
+
+function _scenario_diagnostic_counts(report::ScenarioValidationReport)
+    return (
+        errors=count(d -> d.severity == :error, report.diagnostics),
+        warnings=count(d -> d.severity == :warning, report.diagnostics),
+        info=count(d -> d.severity == :info, report.diagnostics),
+    )
+end
+
+function Base.show(io::IO, report::ScenarioValidationReport)
+    counts = _scenario_diagnostic_counts(report)
+    print(io, "ScenarioValidationReport(", report.valid ? "valid" : "invalid",
+        ", strict=", report.strict,
+        ", applications=", report.summary.application_count,
+        ", errors=", counts.errors, ", warnings=", counts.warnings,
+        ", info=", counts.info, ")")
+end
+
+# Keep diagnostic text on one line; compiler errors may contain multiline
+# explanations. The full messages and all suggestions remain in the report.
+_scenario_display_text(value) = join(split(string(value)), " ")
+_scenario_display_count(n, label) = string(n, " ", label, n == 1 ? "" : "s")
+
+function _scenario_diagnostic_context(diagnostic::ValidationDiagnostic)
+    parts = String[]
+    for (key, label) in (("variable", "Variable"), ("field", "Field"),
+                         ("objectIds", "Object"), ("applicationIds", "Application"))
+        value = get(diagnostic.context, key, nothing)
+        isnothing(value) && continue
+        if value isa AbstractVector
+            isempty(value) && continue
+            labels = _scenario_display_text.(Iterators.take(value, 3))
+            text = join(labels, ", ")
+            length(value) > 3 && (text *= string(", … (+", length(value) - 3, ")"))
+        else
+            text = _scenario_display_text(value)
+        end
+        isempty(text) || push!(parts, string(label, ": ", text))
+    end
+    return join(parts, "; ")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", report::ScenarioValidationReport)
+    if get(io, :compact, false)
+        show(io, report)
+        return
+    end
+    counts = _scenario_diagnostic_counts(report)
+    summary = report.summary
+    _model_display_line(io, string("ScenarioValidationReport: ",
+        report.valid ? "valid" : "invalid", report.strict ? " (strict)" : ""))
+    for line in (
+        string("  Applications: ", summary.application_count),
+        string("  Connections: ", _scenario_display_count(summary.input_binding_count, "input"),
+            ", ", _scenario_display_count(summary.call_binding_count, "model call")),
+        string("  Compilation: ", summary.compiled ? "complete" : "incomplete",
+            "; cycles: ", summary.cycle_count),
+        string("  Diagnostics: ", _scenario_display_count(counts.errors, "error"),
+            ", ", _scenario_display_count(counts.warnings, "warning"), ", ", counts.info, " info"),
+    )
+        print(io, '\n')
+        _model_display_line(io, line)
+    end
+    isempty(report.diagnostics) && return
+
+    # Sorting indices preserves the report and its machine-readable exports.
+    priority(d) = d.severity == :error ? 1 : d.severity == :warning ? 2 : 3
+    order = sortperm(report.diagnostics; by=priority)
+    available = get(io, :limit, false) ? max(0, (displaysize(io)[1] - 7) ÷ 4) : 5
+    shown = min(length(order), 5, available)
+    for index in Iterators.take(order, shown)
+        diagnostic = report.diagnostics[index]
+        print(io, '\n')
+        _model_display_line(io, string("  ", uppercase(string(diagnostic.severity)),
+            " [", _scenario_display_text(diagnostic.code), "]"))
+        print(io, '\n')
+        message = _scenario_display_text(diagnostic.message)
+        _model_display_line(io, string("    ", message))
+        context = _scenario_diagnostic_context(diagnostic)
+        if !isempty(context)
+            print(io, '\n')
+            _model_display_line(io, string("    ", context))
+        end
+        if !isempty(diagnostic.suggestions)
+            suggestion = _scenario_display_text(first(diagnostic.suggestions))
+            if !isempty(suggestion) && suggestion != message
+                print(io, '\n')
+                _model_display_line(io, string("    Try: ", suggestion))
+            end
+        end
+    end
+    remaining = length(order) - shown
+    if remaining > 0
+        print(io, '\n')
+        _model_display_line(io, string("  … ", _scenario_display_count(remaining, "more diagnostic")))
+    end
+    print(io, '\n')
+    _model_display_line(io, "  Full details: report.diagnostics")
 end
 
 """

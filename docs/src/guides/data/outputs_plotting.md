@@ -1,16 +1,15 @@
 # Collecting And Plotting Outputs
 
-Plot absorbed light through a day, then compare two canopies with different
-leaf area indices. This page uses the existing `Beer` model, so you can focus
-on running a simulation and analysing its results. The radiation values are
-illustrative, not observations from an experiment.
+Let's plot absorbed light through a day, then compare two canopies with different
+leaf area indices. We'll use the existing `Beer` model, so we can focus
+on running a simulation and analysing its results.
 
 The [tutorial installation](../../prerequisites/installing_plantsimengine.md)
-includes DataFrames for tables and CairoMakie for plots.
+includes DataFrames for tables and CairoMakie for plots, go there to set it up if you need it.
 
 ## Run and plot one canopy
 
-Supply thirteen hourly PAR fluxes, from 06:00 to 18:00, in W m⁻² of ground.
+We'll use thirteen hourly PAR fluxes, from 06:00 to 18:00, in W m⁻² of ground.
 The canopy has 2 m² of leaves per m² of ground throughout this example.
 
 ```@example collect-output
@@ -99,8 +98,7 @@ figure_two
 
 The denser canopy absorbs more PAR per unit ground area under the same
 incoming light. Grouping by application and object keeps the two curves
-separate. Filtering only by variable and drawing one line would incorrectly
-join different objects.
+separate.
 
 ## Retain only the outputs you need
 
