@@ -24,7 +24,7 @@ HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
 PlantSimEngineGraphEditorExt = "HTTP"
 
 [compat]
-CSV = "0.10"
+CSV = "0.10, 1.0"
 DataFrames = "1"
 Dates = "1.10"
 HTTP = "1, 2.0"
