@@ -62,26 +62,26 @@ jobs:
       PSE_PLANTBIOPHYSICS_FANOUT_SCENES: "100"
     steps:
       - name: Check out PlantSimEngine
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Check out XPalm
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: PalmStudio/XPalm.jl
           ref: ${{ inputs.xpalm_ref || 'main' }}
           path: downstream/XPalm
 
       - name: Check out PlantBiophysics
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: VEZY/PlantBiophysics.jl
           ref: ${{ inputs.plantbiophysics_ref || 'master' }}
           path: downstream/PlantBiophysics
 
       - name: Check out PlantGeom
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: VEZY/PlantGeom.jl
           ref: ${{ inputs.plantgeom_ref || 'plantsimengine-multi-plant' }}
