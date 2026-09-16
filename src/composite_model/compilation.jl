@@ -1819,8 +1819,9 @@ function _compile_scene(
     )
     many_input_binding_cache =
         _share_many_input_bindings!(model, input_bindings)
-    _prepare_model_input_defaults!(model, applications)
-    _wire_model_input_carriers!(model, input_bindings)
+    # Materialize each final status once, rather than compiling a progressively
+    # wider NamedTuple for every default and resolved input reference.
+    _prepare_model_input_statuses_batched!(model, applications, input_bindings)
     validate_required_inputs &&
         _validate_model_required_inputs!(model, applications, input_bindings)
     _runtime_performance_finish!(
@@ -2060,7 +2061,7 @@ function _insert_sorted_object_ids!(ids, added_ids)
     return ids
 end
 
-function _compile_added_consumer_bindings!(
+Base.@nospecializeinfer function _compile_added_consumer_bindings!(
     bindings,
     model,
     application,
@@ -2073,6 +2074,8 @@ function _compile_added_consumer_bindings!(
     many_binding_cache=nothing,
     performance=nothing,
 )
+    # Cold assembly must not specialize on each application × input-plan tuple.
+    @nospecialize application input_plans
     for plan in input_plans
         plan.origin == :inferred_same_object && continue
         if !isnothing(many_binding_cache)
@@ -5085,7 +5088,7 @@ mutable struct _CanonicalStatusRecipe
     original::Union{Nothing,Status}
     names::Vector{Symbol}
     references::Union{Vector{Base.RefValue},Vector{Ref}}
-    positions::Dict{Symbol,Int}
+    positions::Union{Nothing,Dict{Symbol,Int}}
     changed::Bool
     field_changes::Int
 end
@@ -5101,10 +5104,15 @@ function _CanonicalStatusRecipe(status::Union{Nothing,Status})
     else
         _status_recipe_references(refvalues(status))
     end
-    positions = Dict{Symbol,Int}()
-    sizehint!(positions, length(names))
-    for (index, name) in pairs(names)
-        positions[name] = index
+    positions = if length(names) > 1
+        index = Dict{Symbol,Int}()
+        sizehint!(index, length(names))
+        for (position, name) in pairs(names)
+            index[name] = position
+        end
+        index
+    else
+        nothing
     end
     return _CanonicalStatusRecipe(
         status,
@@ -5116,14 +5124,22 @@ function _CanonicalStatusRecipe(status::Union{Nothing,Status})
     )
 end
 
+@inline function _status_recipe_position(recipe::_CanonicalStatusRecipe, variable::Symbol)
+    positions = recipe.positions
+    isnothing(positions) || return get(positions, variable, 0)
+    return !isempty(recipe.names) && first(recipe.names) === variable ? 1 : 0
+end
+
 @inline _status_recipe_has_variable(recipe::_CanonicalStatusRecipe, variable::Symbol) =
-    haskey(recipe.positions, variable)
+    !iszero(_status_recipe_position(recipe, variable))
 
 function _status_recipe_reference(
     recipe::_CanonicalStatusRecipe,
     variable::Symbol,
 )
-    return recipe.references[recipe.positions[variable]]
+    position = _status_recipe_position(recipe, variable)
+    iszero(position) && throw(KeyError(variable))
+    return recipe.references[position]
 end
 
 function _status_recipe_set_reference!(
@@ -5131,11 +5147,19 @@ function _status_recipe_set_reference!(
     variable::Symbol,
     reference::Ref,
 )
-    position = get(recipe.positions, variable, 0)
+    position = _status_recipe_position(recipe, variable)
     if iszero(position)
         push!(recipe.names, variable)
         push!(recipe.references, reference)
-        recipe.positions[variable] = length(recipe.names)
+        if isnothing(recipe.positions)
+            # Zero/one-field recipes need no lookup table. Once a second field
+            # is added, use the same indexed path as wider status schemas.
+            if length(recipe.names) == 2
+                recipe.positions = Dict(first(recipe.names) => 1, variable => 2)
+            end
+        else
+            recipe.positions[variable] = length(recipe.names)
+        end
     elseif recipe.references[position] === reference
         return false
     else
@@ -5177,6 +5201,18 @@ function _finish_status_recipe(recipe::_CanonicalStatusRecipe)
     return Status(NamedTuple{names}(references))
 end
 
+function _model_object_status_for_preparation(
+    model::CompositeModel,
+    object_id::ObjectId,
+)
+    status = _model_object(model, object_id).status
+    (isnothing(status) || status isa Status) || error(
+        "Model object `$(object_id.value)` uses model applications but its status has type " *
+        "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
+    )
+    return status
+end
+
 function _status_recipe_for_object!(
     recipes::Dict{ObjectId,_CanonicalStatusRecipe},
     recipe_order::Vector{ObjectId},
@@ -5184,15 +5220,25 @@ function _status_recipe_for_object!(
     object_id::ObjectId,
 )
     return get!(recipes, object_id) do
-        object = _model_object(model, object_id)
-        status = object.status
-        (isnothing(status) || status isa Status) || error(
-            "Model object `$(object_id.value)` uses model applications but its status has type " *
-            "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
-        )
+        status = _model_object_status_for_preparation(model, object_id)
         push!(recipe_order, object_id)
         _CanonicalStatusRecipe(status)
     end
+end
+
+function _status_preparation_for_object!(
+    recipes::Dict{ObjectId,_CanonicalStatusRecipe},
+    recipe_order::Vector{ObjectId},
+    model::CompositeModel,
+    object_id::ObjectId,
+)
+    recipe = get(recipes, object_id, nothing)
+    isnothing(recipe) || return recipe
+    status = _model_object_status_for_preparation(model, object_id)
+    # Existing fields can be checked without copying their names and references.
+    # A missing status still needs a staged, distinct Status even with no ports.
+    isnothing(status) || return status
+    return _status_recipe_for_object!(recipes, recipe_order, model, object_id)
 end
 
 function _apply_status_recipes!(
@@ -5313,7 +5359,7 @@ function _prepare_model_output_statuses_batched!(
     for application in applications
         defaults = _local_output_schema(application.spec)
         for object_id in application.target_ids
-            recipe = _status_recipe_for_object!(
+            preparation = _status_preparation_for_object!(
                 recipes,
                 recipe_order,
                 model,
@@ -5322,9 +5368,18 @@ function _prepare_model_output_statuses_batched!(
             for (variable, value) in pairs(defaults)
                 _publish_mode_for_output(application.spec, variable) ==
                     :canonical || continue
+                if preparation isa Status
+                    variable in propertynames(preparation) && continue
+                    preparation = _status_recipe_for_object!(
+                        recipes,
+                        recipe_order,
+                        model,
+                        object_id,
+                    )
+                end
                 _status_recipe_add_default!(
                     model,
-                    recipe,
+                    preparation,
                     object_id,
                     variable,
                     value;
@@ -5424,7 +5479,7 @@ function _prepare_model_output_destination_statuses!(
     try
         for resolved in resolved_destinations
             for destination_id in resolved.destination_ids
-                recipe = _status_recipe_for_object!(
+                preparation = _status_preparation_for_object!(
                     recipes,
                     recipe_order,
                     model,
@@ -5433,9 +5488,18 @@ function _prepare_model_output_destination_statuses!(
                 for (variable_, declaration) in pairs(resolved.plan.declarations)
                     declaration isa Default || continue
                     variable = Symbol(variable_)
+                    if preparation isa Status
+                        variable in propertynames(preparation) && continue
+                        preparation = _status_recipe_for_object!(
+                            recipes,
+                            recipe_order,
+                            model,
+                            destination_id,
+                        )
+                    end
                     _status_recipe_add_default!(
                         model,
-                        recipe,
+                        preparation,
                         destination_id,
                         variable,
                         _input_default(declaration);
@@ -5569,7 +5633,7 @@ function _compile_model_distributed_outputs(
     _validate_model_writer_groups!(
         _model_writer_groups(applications, manual_application_ids),
     )
-    _prepare_model_output_statuses!(model, applications)
+    _prepare_model_output_statuses_batched!(model, applications)
     return NoCompiledDistributedOutputs()
 end
 
@@ -5598,7 +5662,7 @@ function _compile_model_distributed_outputs(
     # destination state behind.
     _validate_model_output_destination_statuses!(model, resolved)
     _validate_required_model_output_destinations!(model, resolved)
-    _prepare_model_output_statuses!(model, applications)
+    _prepare_model_output_statuses_batched!(model, applications)
     _prepare_model_output_destination_statuses!(model, resolved)
     bindings, by_execution_target =
         _compile_model_output_destination_bindings(model, resolved)
@@ -6013,7 +6077,7 @@ function _prepare_model_input_statuses_batched!(
         schema = _input_schema(application.spec)
         defaults = _input_default_values(schema)
         for object_id in application.target_ids
-            recipe = _status_recipe_for_object!(
+            preparation = _status_preparation_for_object!(
                 recipes,
                 recipe_order,
                 model,
@@ -6021,7 +6085,17 @@ function _prepare_model_input_statuses_batched!(
             )
             for (variable_, value) in pairs(defaults)
                 variable = Symbol(variable_)
-                _status_recipe_has_variable(recipe, variable) && continue
+                if preparation isa Status
+                    variable in propertynames(preparation) && continue
+                    preparation = _status_recipe_for_object!(
+                        recipes,
+                        recipe_order,
+                        model,
+                        object_id,
+                    )
+                else
+                    _status_recipe_has_variable(preparation, variable) && continue
+                end
                 reference = isnothing(final_references) ?
                             nothing :
                             get(
@@ -6044,7 +6118,7 @@ function _prepare_model_input_statuses_batched!(
                             conversion_records=conversion_records,
                         )
                     _status_recipe_set_reference!(
-                        recipe,
+                        preparation,
                         variable,
                         reference,
                     )
@@ -6053,7 +6127,7 @@ function _prepare_model_input_statuses_batched!(
                 end
                 _status_recipe_add_default!(
                     model,
-                    recipe,
+                    preparation,
                     object_id,
                     variable,
                     value;
@@ -6073,12 +6147,6 @@ function _prepare_model_input_statuses_batched!(
         if isnothing(recipe)
             status = _model_object(model, binding.consumer_id).status
             status isa Status || continue
-            recipe = _status_recipe_for_object!(
-                recipes,
-                recipe_order,
-                model,
-                binding.consumer_id,
-            )
         end
         reference = if isnothing(final_references)
             _model_input_status_reference(binding)
@@ -6095,8 +6163,20 @@ function _prepare_model_input_statuses_batched!(
         end
         isnothing(reference) &&
             (reference = _model_input_status_reference(binding))
-        if _status_recipe_has_variable(recipe, binding.input) &&
-           _status_recipe_reference(recipe, binding.input) === reference
+        if isnothing(recipe)
+            if binding.input in propertynames(status) &&
+               refvalue(status, binding.input) === reference
+                default_status_updates[(binding.consumer_id, binding.input)] = false
+                continue
+            end
+            recipe = _status_recipe_for_object!(
+                recipes,
+                recipe_order,
+                model,
+                binding.consumer_id,
+            )
+        elseif _status_recipe_has_variable(recipe, binding.input) &&
+               _status_recipe_reference(recipe, binding.input) === reference
             default_status_updates[(binding.consumer_id, binding.input)] = false
             continue
         end
@@ -6263,6 +6343,7 @@ function _validate_temporal_input_output_overlap!(
     application::CompiledModelApplication,
     temporal_bindings,
 )
+    isempty(temporal_bindings) && return nothing
     output_names = Set(Symbol.(keys(_local_output_schema(application.spec))))
     for binding in temporal_bindings
         binding.input in output_names || continue
@@ -6278,7 +6359,7 @@ function _validate_temporal_input_output_overlap!(
     return nothing
 end
 
-function _compile_model_status_view(
+Base.@nospecializeinfer function _compile_model_status_view(
     model::CompositeModel,
     application::CompiledModelApplication,
     object_id::ObjectId,
@@ -6287,18 +6368,40 @@ function _compile_model_status_view(
     application_positions,
     distributed_outputs=NoCompiledDistributedOutputs(),
 )
+    # This is cold assembly, not a kernel: avoid inferring the whole view
+    # constructor for every application and heterogeneous binding tuple.
+    # The assembled Status and CompiledModelStatusView still have concrete types.
+    @nospecialize application input_bindings
     canonical_status = _ensure_model_object_status!(model, object_id)
-    temporal_bindings = Tuple(
-        binding for binding in input_bindings
+    has_temporal_inputs = false
+    for binding in input_bindings
         if binding.carrier_hint == :temporal_stream
-    )
+            has_temporal_inputs = true
+            break
+        end
+    end
+    # Ordinary applications use the canonical status directly. Avoid preparing
+    # temporal/private scratch storage and validating a nonexistent overlap.
+    if !has_temporal_inputs && isempty(output_routing(application.spec))
+        return CompiledModelStatusView(
+            canonical_status,
+            canonical_status,
+            (),
+            NamedTuple(),
+            _compiled_bound_many_inputs(input_bindings, canonical_status),
+        )
+    end
+    temporal_bindings = CompiledModelInputBinding[]
+    for binding in input_bindings
+        binding.carrier_hint == :temporal_stream && push!(temporal_bindings, binding)
+    end
     _validate_temporal_input_output_overlap!(application, temporal_bindings)
     output_defaults = _local_output_schema(application.spec)
-    private_output_names = Tuple(
-        Symbol(variable) for variable in keys(output_defaults)
-        if _publish_mode_for_output(application.spec, variable) ==
-           :stream_only
-    )
+    private_output_names = Symbol[]
+    for variable in keys(output_defaults)
+        _publish_mode_for_output(application.spec, variable) == :stream_only &&
+            push!(private_output_names, Symbol(variable))
+    end
     if isempty(temporal_bindings) && isempty(private_output_names)
         return CompiledModelStatusView(
             canonical_status,
@@ -6308,29 +6411,29 @@ function _compile_model_status_view(
             _compiled_bound_many_inputs(input_bindings, canonical_status),
         )
     end
-    temporal_inputs = Tuple(begin
+    # Use storage-neutral scratch vectors during assembly. Generators capturing
+    # heterogeneous binding tuples specialize again even across the cold boundary.
+    temporal_inputs = CompiledTemporalInput[]
+    for binding in temporal_bindings
         initial = _temporal_input_initial(binding, canonical_status)
-        CompiledTemporalInput(
-            binding,
-            Union{Nothing,Symbol}[
-                _temporal_source_application(
-                    binding,
-                    source_id,
-                    applications_by_id,
-                    application_positions,
-                    distributed_outputs,
-                )
-                for source_id in binding.source_ids
-            ],
-            initial,
+        source_applications = Union{Nothing,Symbol}[]
+        for source_id in binding.source_ids
+            push!(source_applications, _temporal_source_application(
+                binding, source_id, applications_by_id, application_positions,
+                distributed_outputs,
+            ))
+        end
+        push!(temporal_inputs, CompiledTemporalInput(
+            binding, source_applications, initial,
             Ref(_private_temporal_storage(binding, initial)),
-        )
-    end for binding in temporal_bindings)
+        ))
+    end
     temporal_by_name = Dict(
         temporal_input.binding.input => temporal_input
         for temporal_input in temporal_inputs
     )
-    private_outputs = NamedTuple{private_output_names}(Tuple(begin
+    private_references = Ref[]
+    for name in private_output_names
         initial, _, _ = _materialize_status_value(
             model,
             name,
@@ -6341,33 +6444,34 @@ function _compile_model_status_view(
             private_copy=true,
             reuse=true,
         )
-        Ref(initial)
-    end for name in private_output_names))
-    canonical_names = propertynames(canonical_status)
-    private_names = Tuple(
-        name for name in private_output_names
-        if !(name in canonical_names)
-    )
-    temporal_names = Tuple(
-        input.binding.input
-        for input in temporal_inputs
-        if !(input.binding.input in canonical_names) &&
-           !(input.binding.input in private_output_names)
-    )
-    names = (canonical_names..., private_names..., temporal_names...)
-    references = ntuple(length(names)) do index
-        name = names[index]
-        temporal_input = get(temporal_by_name, name, nothing)
-        isnothing(temporal_input) || return temporal_input.reference
-        hasproperty(private_outputs, name) &&
-            return getproperty(private_outputs, name)
-        return refvalue(canonical_status, name)
+        push!(private_references, Ref(initial))
     end
-    status = Status(NamedTuple{names}(references))
+    private_outputs = NamedTuple{Tuple(private_output_names)}(Tuple(private_references))
+    names = collect(Symbol, propertynames(canonical_status))
+    for name in private_output_names
+        name in names || push!(names, name)
+    end
+    for input in temporal_inputs
+        name = input.binding.input
+        name in names || push!(names, name)
+    end
+    references = Ref[]
+    for name in names
+        temporal_input = get(temporal_by_name, name, nothing)
+        reference = if !isnothing(temporal_input)
+            temporal_input.reference
+        elseif hasproperty(private_outputs, name)
+            getproperty(private_outputs, name)
+        else
+            refvalue(canonical_status, name)
+        end
+        push!(references, reference)
+    end
+    status = Status(NamedTuple{Tuple(names)}(Tuple(references)))
     return CompiledModelStatusView(
         status,
         canonical_status,
-        temporal_inputs,
+        Tuple(temporal_inputs),
         private_outputs,
         _compiled_bound_many_inputs(input_bindings, status),
     )
@@ -6654,12 +6758,13 @@ function _application_declares_distributed_output(
     )
 end
 
-function _potential_call_application_ids(
+Base.@nospecializeinfer function _potential_call_application_ids(
     applications,
     selector,
     process_filter,
     application_filter,
 )
+    @nospecialize selector
     return Tuple(
         application.id for application in applications
         if (isnothing(process_filter) || application.process == process_filter) &&
@@ -6668,7 +6773,7 @@ function _potential_call_application_ids(
     )
 end
 
-function _compiled_model_input_plan(
+Base.@nospecializeinfer function _compiled_model_input_plan(
     plans,
     model,
     applications,
@@ -6679,6 +6784,8 @@ function _compiled_model_input_plan(
     applications_by_id,
     distributed_output_plans,
 )
+    # Selector and application values still determine the concrete final plan.
+    @nospecialize application selector
     source_var = _selector_var(selector, input)
     process_filter = _criteria_get(criteria(selector), :process, nothing)
     application_filter = _selector_application(selector)
@@ -7008,7 +7115,7 @@ function _compile_model_input_bindings(
     return bindings
 end
 
-function _push_model_input_binding!(
+Base.@nospecializeinfer function _push_model_input_binding!(
     bindings,
     model::CompositeModel,
     application::CompiledModelApplication,
@@ -7019,6 +7126,7 @@ function _push_model_input_binding!(
     source_ids_override=nothing,
     distributed_outputs=NoCompiledDistributedOutputs(),
 )
+    @nospecialize application plan
     input_sym = plan.input
     selector = plan.selector
     source_var = plan.source_var
@@ -7249,7 +7357,7 @@ function _filter_many_input_sources_by_writer!(
             (source_id, source_var),
             (),
         )
-        any(owners) do owner
+        owned = any(owners) do owner
             source_application = get(
                 applications_by_id,
                 owner.application_id,
@@ -7261,6 +7369,17 @@ function _filter_many_input_sources_by_writer!(
             isnothing(application_filter) ||
                 source_application.id == application_filter || return false
             return true
+        end
+        owned && return true
+        # Manual callees (and stream-only local outputs) are not scheduled
+        # canonical owners. They remain valid explicitly selected producers;
+        # unrelated distributed outputs must not hide their local targets.
+        return any(values(applications_by_id)) do application
+            isnothing(process_filter) || application.process == process_filter || return false
+            isnothing(application_filter) || application.id == application_filter || return false
+            return _application_writes_object_variable(
+                NoCompiledDistributedOutputs(), application, source_id, source_var,
+            )
         end
     end
     return source_ids

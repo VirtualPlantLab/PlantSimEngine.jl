@@ -512,7 +512,7 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C,BT} <: AbstractVector{CallTarget}
     execution_batches::BT
 end
 
-function CallTargets(
+Base.@nospecializeinfer function CallTargets(
     compiled,
     environment_bindings,
     binding,
@@ -525,6 +525,9 @@ function CallTargets(
     ;
     tracks_full_membership::Bool=true,
 )
+    # Cold construction returns concrete targets without specializing the
+    # assembly method on the entire compiled scene for every call binding.
+    @nospecialize compiled environment_bindings binding
     execution_batches = if _compiled_call_mode(binding) === :initializer
         ()
     elseif binding.multiplicity === :many
@@ -789,7 +792,7 @@ Base.eltype(::Type{<:CallTargets}) = CallTarget
 
 _runtime_call_targets(compiled, environment_bindings, ::Tuple{}, args...) = ()
 
-function _runtime_call_targets(
+Base.@nospecializeinfer function _runtime_call_targets(
     compiled,
     environment_bindings,
     bindings::Tuple,
@@ -800,31 +803,24 @@ function _runtime_call_targets(
     publication_allowed,
     environment,
 )
-    target = CallTargets(
-        compiled,
-        environment_bindings,
-        first(bindings),
-        temporal_streams,
-        output_retention,
-        float(time),
-        constants,
-        publication_allowed,
-        environment,
-    )
-    return (
-        target,
-        _runtime_call_targets(
+    @nospecialize compiled environment_bindings bindings
+    # Assemble once instead of specializing recursively on each tuple suffix.
+    # The final tuple retains each target's concrete type and original order.
+    targets = CallTargets[]
+    for binding in bindings
+        push!(targets, CallTargets(
             compiled,
             environment_bindings,
-            Base.tail(bindings),
+            binding,
             temporal_streams,
             output_retention,
-            time,
+            float(time),
             constants,
             publication_allowed,
             environment,
-        )...,
-    )
+        ))
+    end
+    return Tuple(targets)
 end
 
 @inline _prepare_runtime_call_targets!(
@@ -3128,7 +3124,7 @@ _runtime_model_output_streams(
     ::OutputRetentionPlan,
 ) = ()
 
-function _runtime_model_output_streams(
+Base.@nospecializeinfer function _runtime_model_output_streams(
     status,
     application,
     object_id,
@@ -3136,16 +3132,19 @@ function _runtime_model_output_streams(
     output_retention::OutputRetentionPlan,
     initialize_missing::Bool=false,
 )
+    @nospecialize status application
     variables = get(
         output_retention.retained_outputs_by_application,
         application.id,
         (),
     )
-    variables = Tuple(
-        variable for variable in variables
-        if variable in keys(_local_output_schema(application.spec))
-    )
-    return Tuple(begin
+    isempty(variables) && return ()
+    # Assemble once without specializing a generator on the entire model/status.
+    # The returned tuple still has concrete stream and reference types.
+    declared_outputs = keys(_local_output_schema(application.spec))
+    runtime_streams = RuntimeOutputStream[]
+    for variable in variables
+        variable in declared_outputs || continue
         key = _model_stream_key(application.id, object_id, variable)
         stream = get(streams, key, nothing)
         if isnothing(stream)
@@ -3163,7 +3162,7 @@ function _runtime_model_output_streams(
             streams[key] = stream
         end
         reference = refvalue(status, variable)
-        RuntimeOutputStream{
+        runtime_stream = RuntimeOutputStream{
             variable,
             typeof(stream),
             typeof(reference),
@@ -3176,7 +3175,9 @@ function _runtime_model_output_streams(
                 0.0,
             ),
         )
-    end for variable in variables)
+        push!(runtime_streams, runtime_stream)
+    end
+    return Tuple(runtime_streams)
 end
 
 function _runtime_model_output_streams(

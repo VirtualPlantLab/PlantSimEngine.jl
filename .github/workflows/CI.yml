@@ -15,7 +15,8 @@ jobs:
   test:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # The full suite with coverage can exceed one hour on the latest Julia.
+    timeout-minutes: 120
     permissions:
       # needed to allow julia-actions/cache to proactively delete old caches that it has created
       actions: write
