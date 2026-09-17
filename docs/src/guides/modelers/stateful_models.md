@@ -1,10 +1,9 @@
 # State, History, And Repeated Updates
 
 A model may need yesterday's value or a short memory of earlier values.
-Keep that changing memory in each object's `Status`. The model itself holds
-fixed parameters and may be shared by many objects.
+We can store that changing memory in each object's `Status`.
 
-These are different needs:
+First, you'll have to understand the different ways to manage state in a simulation:
 
 | Need | Where it belongs |
 |---|---|
@@ -75,10 +74,11 @@ function PlantSimEngine.run!(
 end
 ```
 
-Calculate the mean before shifting the memory: reversing that order would
-use today's observation twice.
+Note that you must calculate the mean before shifting the memory to the other fields, otherwise the order of operations will cause the current value to be used twice in the calculation.
 
-## Check the calculation directly
+## Checking the calculation
+
+We can check that our model works now:
 
 ```@example object_memory
 model = DocsThreeDayMean()
@@ -93,10 +93,10 @@ PlantSimEngine.run!(model, sample, nothing, nothing, nothing)
 sample.mean_fraction
 ```
 
-## Keep two objects' histories independent
+## Checking that two objects' histories are independent
 
-Here the observations stay constant during the example. A real simulation
-would read each day's value from a dataset or another model.
+It is important to store such memory as variables, because they will be stored in each object's own `Status`. Using the model's fields would mix the two objects' histories, unless you explicitly manage the link between the objects and their state (e.g. using the object's Id), but this is advanced usage.
+Let's create a simulation with two soil objects, each with its own initial state. The model will update each object's state independently, and we can check that the mean is calculated correctly for each object:
 
 ```@example object_memory
 dry = Object(
@@ -146,11 +146,9 @@ this input. If several models deliberately update the same variable, use
 `Updates` to set their order; see [Control Advanced Execution](@ref).
 
 A trial call with `publish=false` does not save its result as an accepted
-output sample. It can still change values in `status`, and those changes
-are not automatically undone. A model that tries several solutions must
-decide which changes to keep. Update a history like the one above once per
-accepted observation, so rejected trials do not enter the mean.
+output sample. In other words, the results are not published for the user to see, but it can still change values in `status`, 
+and those changes are not automatically undone. So a model that tries several solutions must
+decide which changes to keep, which often means re-setting the values at the end of all trials to keep only the desired values.
 
 Use [Collecting And Plotting Outputs](@ref) to retain and analyse a result
-series. Keeping outputs and maintaining a model's own short memory serve
-different purposes.
+series.
