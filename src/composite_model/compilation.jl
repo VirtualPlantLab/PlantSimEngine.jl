@@ -2185,7 +2185,7 @@ function _many_binding_scope_anchor(
     consumer_id::ObjectId,
 )
     selector_criteria = criteria(selector)
-    !isnothing(_criteria_get(selector_criteria, :relation, nothing)) &&
+    !isnothing(_criteria_value(selector_criteria, :relation, Relation)) &&
         return (:consumer, consumer_id)
     explicit_scope = _criteria_scope(selector_criteria)
     scope = isnothing(explicit_scope) ?
@@ -2457,6 +2457,7 @@ function _append_added_many_sources!(
         binding.application,
         applications_by_id,
         distributed_outputs,
+        applications_by_object,
     )
     isempty(new_source_ids) && return true
 
@@ -2541,6 +2542,9 @@ function _update_structural_many_sources!(
     model::CompositeModel,
     binding::CompiledModelInputBinding,
     dirty_ids,
+    applications_by_object,
+    applications_by_id,
+    distributed_outputs,
 )
     binding.multiplicity == :many || return :fallback
     binding.carrier_hint == :ref_vector || return :fallback
@@ -2559,6 +2563,14 @@ function _update_structural_many_sources!(
             context=binding.consumer_id,
             default_to_context=true,
             default_scope=default_scope,
+        ) && _matches_input_source_writer(
+            object_id,
+            binding.source_var,
+            binding.process,
+            binding.application,
+            applications_by_id,
+            distributed_outputs,
+            applications_by_object,
         )
         was_source == is_source && continue
         source_reference = nothing
@@ -3602,6 +3614,9 @@ function _extend_compiled_scene(
                 model,
                 binding,
                 structural_dirty_ids,
+                applications_by_object,
+                applications_by_id,
+                distributed_outputs,
             )
             if structural_update != :fallback
                 processed_many_sources[binding.source_ids] = nothing
@@ -7147,6 +7162,7 @@ Base.@nospecializeinfer function _push_model_input_binding!(
         application_filter,
         applications_by_id,
         distributed_outputs,
+        applications_by_object,
     )
     selector isa Many && sizehint!(source_ids, length(source_ids) + 1)
     source_application_ids = if _selector_from_status(selector)
@@ -7328,16 +7344,6 @@ function _final_many_source_applications(
     return isempty(canonical_ids) ? source_application_ids : canonical_ids
 end
 
-_filter_many_input_sources_by_writer!(
-    source_ids,
-    selector,
-    source_var,
-    process_filter,
-    application_filter,
-    applications_by_id,
-    ::NoCompiledDistributedOutputs,
-) = source_ids
-
 function _filter_many_input_sources_by_writer!(
     source_ids,
     selector,
@@ -7345,44 +7351,75 @@ function _filter_many_input_sources_by_writer!(
     process_filter,
     application_filter,
     applications_by_id,
-    distributed_outputs::CompiledDistributedOutputs,
+    distributed_outputs,
+    applications_by_object,
 )
     selector isa Many || return source_ids
     _selector_from_status(selector) && return source_ids
     isnothing(process_filter) && isnothing(application_filter) &&
         return source_ids
     filter!(source_ids) do source_id
-        owners = get(
-            distributed_outputs.writer_ownership,
-            (source_id, source_var),
-            (),
+        return _matches_input_source_writer(
+            source_id,
+            source_var,
+            process_filter,
+            application_filter,
+            applications_by_id,
+            distributed_outputs,
+            applications_by_object,
         )
-        owned = any(owners) do owner
-            source_application = get(
-                applications_by_id,
-                owner.application_id,
-                nothing,
-            )
-            isnothing(source_application) && return false
-            isnothing(process_filter) ||
-                source_application.process == process_filter || return false
-            isnothing(application_filter) ||
-                source_application.id == application_filter || return false
-            return true
-        end
-        owned && return true
-        # Manual callees (and stream-only local outputs) are not scheduled
-        # canonical owners. They remain valid explicitly selected producers;
-        # unrelated distributed outputs must not hide their local targets.
-        return any(values(applications_by_id)) do application
-            isnothing(process_filter) || application.process == process_filter || return false
-            isnothing(application_filter) || application.id == application_filter || return false
-            return _application_writes_object_variable(
-                NoCompiledDistributedOutputs(), application, source_id, source_var,
-            )
-        end
     end
     return source_ids
+end
+
+function _matches_input_source_writer(
+    source_id,
+    source_var,
+    process_filter,
+    application_filter,
+    applications_by_id,
+    distributed_outputs,
+    applications_by_object,
+)
+    # This index also contains manual/stream-only writers and the targeted
+    # initializer overlay, whose newborns are not in compiled target_ids yet.
+    local_writer = any(get(applications_by_object, source_id, ())) do application
+        isnothing(process_filter) || application.process == process_filter || return false
+        isnothing(application_filter) || application.id == application_filter || return false
+        return haskey(_local_output_schema(application.spec), source_var)
+    end
+    local_writer && return true
+    return _has_matching_distributed_input_writer(
+        distributed_outputs,
+        source_id,
+        source_var,
+        process_filter,
+        application_filter,
+        applications_by_id,
+    )
+end
+
+_has_matching_distributed_input_writer(
+    ::NoCompiledDistributedOutputs,
+    args...,
+) = false
+
+function _has_matching_distributed_input_writer(
+    distributed_outputs::CompiledDistributedOutputs,
+    source_id,
+    source_var,
+    process_filter,
+    application_filter,
+    applications_by_id,
+)
+    owners = get(distributed_outputs.writer_ownership, (source_id, source_var), ())
+    return any(owners) do owner
+        application = get(applications_by_id, owner.application_id, nothing)
+        isnothing(application) && return false
+        isnothing(process_filter) || application.process == process_filter || return false
+        isnothing(application_filter) || application.id == application_filter || return false
+        return true
+    end
 end
 
 function _model_input_names(application::CompiledModelApplication)

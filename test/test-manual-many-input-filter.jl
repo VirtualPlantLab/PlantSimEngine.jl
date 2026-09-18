@@ -204,3 +204,62 @@ end
         end
     end
 end
+
+@testset "Many filters local producers before wiring source objects" begin
+    for filter_kind in (:application, :process), distributed_output in (false, true)
+        @testset "$filter_kind filter, distributed_output=$distributed_output" begin
+            source_filter = filter_kind == :application ?
+                (application=:selected_source,) : (process=:private_many_filter_source,)
+            selector = Many(; scale=:Leaf, within=Subtree(), var=:potential,
+                source_filter...)
+            unrelated = distributed_output ? (
+                ModelSpec(ManualManyFilterUnrelatedWriter(); name=:unrelated_writer,
+                    on=One(scale=:Scene),
+                    outputs_to=(OutputTo(Many(scale=:Marker, within=Subtree());
+                        vars=(:marker_value,)),)),
+            ) : ()
+            model = CompositeModel(
+                Object(:scene; scale=:Scene),
+                Object(:leaf_a; scale=:Leaf, kind=:selected, parent=:scene),
+                Object(:leaf_unrelated; scale=:Leaf, kind=:unrelated, parent=:scene),
+                Object(:leaf_supplied; scale=:Leaf, kind=:supplied, parent=:scene,
+                    status=Status(potential=10_000.0)),
+                Object(:leaf_outside; scale=:Leaf, kind=:supplied,
+                    status=Status(potential=30_000.0)),
+                Object(:marker; scale=:Marker, parent=:scene);
+                applications=(
+                    ModelSpec(PrivateManyFilterSource(); name=:selected_source,
+                        on=Many(scale=:Leaf, kind=:selected)),
+                    ModelSpec(PrivateManyFilterCanonicalSource(); name=:other_source,
+                        on=Many(scale=:Leaf, kind=:unrelated)),
+                    ModelSpec(PrivateManyFilterReader(selector); name=:reader,
+                        on=One(scale=:Scene)),
+                    unrelated...,
+                ),
+            )
+            simulation = run!(model; steps=1, outputs=:none)
+            binding = only(Diagnostics.explain_bindings(model))
+            @test binding.source_ids == [:leaf_a]
+            @test binding.source_application_ids == [:selected_source]
+            @test model_status(model, :scene).observed_private_potential == -2.0
+            @test model_status(model, :leaf_supplied).potential == 10_000.0
+            register_object!(model, Object(:leaf_b; scale=:Leaf, kind=:selected,
+                parent=:scene))
+            register_object!(model, Object(:leaf_z; scale=:Leaf, kind=:unrelated,
+                parent=:scene))
+            register_object!(model, Object(:leaf_zz_supplied; scale=:Leaf, kind=:supplied,
+                parent=:scene, status=Status(potential=20_000.0)))
+            continue!(simulation; steps=1)
+            binding = only(Diagnostics.explain_bindings(model))
+            @test binding.source_ids == [:leaf_a, :leaf_b]
+            @test model_status(model, :scene).observed_private_potential == -5.0
+            @test model_status(model, :leaf_zz_supplied).potential == 20_000.0
+            reparent_object!(model, :leaf_outside, :scene)
+            continue!(simulation; steps=1)
+            binding = only(Diagnostics.explain_bindings(model))
+            @test binding.source_ids == [:leaf_a, :leaf_b]
+            @test model_status(model, :scene).observed_private_potential == -7.0
+            @test model_status(model, :leaf_outside).potential == 30_000.0
+        end
+    end
+end

@@ -39,6 +39,23 @@ function TemporalDependencyBuffer{T}(capacity::Integer) where {T}
     )
 end
 
+function _grow_temporal_dependency_buffer!(
+    buffer::TemporalDependencyBuffer{T},
+    capacity::Int,
+) where {T}
+    capacity <= length(buffer.times) && return buffer
+    times = Vector{Float64}(undef, capacity)
+    values = Vector{T}(undef, capacity)
+    for index in eachindex(buffer)
+        times[index], values[index] = buffer[index]
+    end
+    # Keep the buffer itself: compiled consumers and publishers share it.
+    buffer.times = times
+    buffer.values = values
+    buffer.first_slot = 1
+    return buffer
+end
+
 Base.IndexStyle(::Type{<:TemporalDependencyBuffer}) = IndexLinear()
 Base.size(buffer::TemporalDependencyBuffer) = (buffer.sample_count,)
 
@@ -1520,7 +1537,16 @@ function _initialize_model_output_stream!(
     sizehint_steps::Integer,
 )
     key = _model_stream_key(application.id, object_id, variable)
-    haskey(streams, key) && return streams
+    if haskey(streams, key)
+        stream = streams[key]
+        if stream isa TemporalDependencyBuffer
+            _grow_temporal_dependency_buffer!(
+                stream,
+                _model_dependency_capacity(retention, application.id, variable),
+            )
+        end
+        return streams
+    end
     reference = _model_output_reference(
         compiled,
         application,
@@ -1710,7 +1736,10 @@ end
         cutoff = output.dependency_horizon <= 0.0 ?
                  float(time) :
                  float(time) - output.dependency_horizon + 1.0
-        while !isempty(stream) &&
+        # The preceding publication is needed by PreviousTimeStep and linear
+        # extrapolation even when fractional clocks or manual calls leave a
+        # larger gap than the nominal cadence. Capacity still bounds storage.
+        while length(stream) > 2 &&
               first(stream)[1] < cutoff - 1.0e-8
             _temporal_dependency_popfirst!(stream)
         end
@@ -5610,6 +5639,7 @@ mutable struct _TargetedTopologyRuntime{CS,MA} <:
         ObjectId,
         Vector{CompiledModelApplication},
     }
+    indexed_addition_count::Int
     manual_application_ids::MA
     application_positions::Dict{Symbol,Int}
 end
@@ -5644,6 +5674,7 @@ function _targeted_topology_runtime!(
             Union{Nothing,_TargetedApplicationSet},
         }(),
         Dict{ObjectId,Vector{CompiledModelApplication}}(),
+        0,
         compiled.scenario_plan.manual_application_ids,
         Dict(
             application_id => index
@@ -5698,7 +5729,7 @@ function _targeted_application_set!(
     requested_ids,
 )
     key = Tuple(requested_ids)
-    return get!(runtime.application_sets, key) do
+    application_set = get!(runtime.application_sets, key) do
         applications = _new_object_applications(
             model,
             runtime.compiled,
@@ -5706,9 +5737,6 @@ function _targeted_application_set!(
         )
         isnothing(applications) && return nothing
         output_applications, added_applications_by_object = applications
-        # Keep applications for every object targeted earlier in this same
-        # lifecycle delta. A later newborn can then bind an input to an earlier
-        # newborn without refreshing the whole scene at a mid-kernel barrier.
         merge!(
             runtime.added_applications_by_object,
             added_applications_by_object,
@@ -5722,6 +5750,31 @@ function _targeted_application_set!(
             false,
         )
     end
+    isnothing(application_set) && return nothing
+
+    # A fully initialized source can be registered without an explicit call.
+    # Include its application membership before resolving newborn inputs. The
+    # append-only delta cursor visits each addition once across a chain of calls;
+    # targets prepared above already have membership and need no extra lookup.
+    added = lifecycle_delta(model).added
+    unindexed_ids = nothing
+    for index in (runtime.indexed_addition_count + 1):length(added)
+        object_id = added[index].id
+        haskey(runtime.added_applications_by_object, object_id) && continue
+        isnothing(unindexed_ids) && (unindexed_ids = ObjectId[])
+        push!(unindexed_ids, object_id)
+    end
+    if !isnothing(unindexed_ids)
+        applications = _new_object_applications(
+            model,
+            runtime.compiled,
+            unindexed_ids,
+        )
+        isnothing(applications) && return nothing
+        merge!(runtime.added_applications_by_object, last(applications))
+    end
+    runtime.indexed_addition_count = length(added)
+    return application_set
 end
 
 function _targeted_callee_applications(
@@ -7225,7 +7278,7 @@ function _output_request_target(
             OutputRequestMembership(
                 float(start_time),
                 nothing,
-                initial,
+                deepcopy(initial),
             ),
         ],
     )
@@ -7381,7 +7434,7 @@ function _refresh_output_request_targets!(
                     OutputRequestMembership(
                         start_time,
                         nothing,
-                        initial,
+                        deepcopy(initial),
                     ),
                 )
                 continue

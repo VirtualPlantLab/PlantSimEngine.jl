@@ -478,8 +478,13 @@ end
 function _object_id_isless(left::ObjectId, right::ObjectId)
     left_value = left.value
     right_value = right.value
-    if typeof(left_value) === typeof(right_value) &&
-       hasmethod(isless, Tuple{typeof(left_value),typeof(right_value)})
+    # Keep each identity type in one ordered group. Mixing natural ordering
+    # within a type with string ordering between types is not transitive, and
+    # distinct identities such as `1` and `Symbol("1")` otherwise compare equal.
+    if typeof(left_value) !== typeof(right_value)
+        return isless(string(typeof(left_value)), string(typeof(right_value)))
+    end
+    if hasmethod(isless, Tuple{typeof(left_value),typeof(right_value)})
         return isless(left_value, right_value)
     end
     return isless(string(left_value), string(right_value))

@@ -218,6 +218,32 @@ end
     @test MultiScaleTreeGraph.node_id(detached) == 3
 end
 
+@testset "mixed identity types remain distinct in ordered input views" begin
+    entries = (
+        1 => 1.0,
+        Symbol("1") => 101.0,
+        Int32(1) => 201.0,
+        2 => 2.0,
+        10 => 10.0,
+        Symbol("15") => 115.0,
+    )
+    model = CompositeModel((
+        Object(id; scale=:Leaf, status=Status(signal=value))
+        for (id, value) in entries
+    )...)
+    ids = resolve_object_ids(model, Many(scale=:Leaf))
+    @test length(ids) == length(entries)
+    @test length(unique(ids)) == length(entries)
+    values = BoundMany(ids, [model_status(model, id).signal for id in ids])
+    for (id, value) in entries
+        @test values[ObjectId(id)] == value
+    end
+    values[ObjectId(Symbol("1"))] = -1.0
+    @test values[ObjectId(1)] == 1.0
+    @test values[ObjectId(Int32(1))] == 201.0
+    @test values[ObjectId(Symbol("1"))] == -1.0
+end
+
 @testset "MTG identities remain stable after source mutation" begin
     root = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
     plant = Node(root, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
@@ -438,7 +464,7 @@ end
     @test Set(object_ids(model; id=[101, compound])) == Set([ObjectId(101), compound])
     @test resolve_object_ids(model, OptionalOne(id=999)) == ObjectId[]
     @test_throws ErrorException resolve_object_ids(model, One(id=999))
-    @test resolve_object_ids(model, Many(within=Scope(101))) == [compound, ObjectId(101)]
+    @test Set(resolve_object_ids(model, Many(within=Scope(101)))) == Set([compound, ObjectId(101)])
     @test resolve_object_ids(model, One(within=Scope(compound))) == [compound]
     @test_throws ErrorException resolve_object_ids(model, One(within=Scope(:upper_leaf)))
     @test_throws "Unsupported object selector keyword" One(name=:upper_leaf)
