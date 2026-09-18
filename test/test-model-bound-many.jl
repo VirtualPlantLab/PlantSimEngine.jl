@@ -578,3 +578,39 @@ end
 @testset "bound_input errors name the compiled context" begin
     @test_throws ArgumentError bound_input(nothing, :signals)
 end
+
+@testset "relative Many inputs retain each newborn consumer's children" begin
+    for positional in (false, true)
+        @testset "positional=$positional" begin
+            selector = positional ?
+                Many(Relation(:children); within=SceneScope(), scale=:Leaf,
+                    var=:signal, from_status=true) :
+                Many(; relation=:children, within=SceneScope(), scale=:Leaf,
+                    var=:signal, from_status=true)
+            model = CompositeModel(
+                Object(:plant_a; scale=:Plant),
+                Object(:leaf_a; scale=:Leaf, parent=:plant_a,
+                    status=Status(signal=1.0));
+                applications=(ModelSpec(BoundManySignalProbeModel();
+                    name=:bound_probe, on=Many(scale=:Plant),
+                    inputs=(:signals => selector,)),),
+            )
+            simulation = run!(model; steps=1, outputs=:none)
+            register_object!(model, Object(:plant_b; scale=:Plant))
+            register_object!(model, Object(:leaf_b; scale=:Leaf, parent=:plant_b,
+                status=Status(signal=100.0)))
+            continue!(simulation; steps=1)
+            @test model_status(model, :plant_a).seen_ids == [ObjectId(:leaf_a)]
+            @test model_status(model, :plant_a).total == 1.0
+            @test model_status(model, :plant_b).seen_ids == [ObjectId(:leaf_b)]
+            @test model_status(model, :plant_b).total == 100.0
+            register_object!(model, Object(:leaf_c; scale=:Leaf, parent=:plant_b,
+                status=Status(signal=20.0)))
+            continue!(simulation; steps=1)
+            @test model_status(model, :plant_a).total == 1.0
+            @test model_status(model, :plant_b).seen_ids ==
+                  ObjectId[ObjectId(:leaf_b), ObjectId(:leaf_c)]
+            @test model_status(model, :plant_b).total == 120.0
+        end
+    end
+end

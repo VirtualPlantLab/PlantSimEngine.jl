@@ -379,7 +379,11 @@ function PlantSimEngine.run!(
 end
 
 struct InitializerChainCreatorModel <:
-       AbstractInitializer_Chain_CreatorModel end
+       AbstractInitializer_Chain_CreatorModel
+    initialize_source::Bool
+end
+
+InitializerChainCreatorModel() = InitializerChainCreatorModel(true)
 
 PlantSimEngine.inputs_(::InitializerChainCreatorModel) = NamedTuple()
 PlantSimEngine.outputs_(::InitializerChainCreatorModel) = (
@@ -388,7 +392,7 @@ PlantSimEngine.outputs_(::InitializerChainCreatorModel) = (
 )
 
 function PlantSimEngine.run!(
-    ::InitializerChainCreatorModel,
+    model::InitializerChainCreatorModel,
     status,
     environment,
     constants,
@@ -403,10 +407,10 @@ function PlantSimEngine.run!(
             scale=:Leaf,
             kind=:ChainSource,
             parent=:plant,
-            status=Status(signal=0.0),
+            status=Status(signal=model.initialize_source ? 0.0 : 7.0),
         ),
     )
-    run_initializer!(context, :source, source)
+    model.initialize_source && run_initializer!(context, :source, source)
     sink = register_object!(
         runtime,
         Object(
@@ -419,6 +423,25 @@ function PlantSimEngine.run!(
     )
     status.sink_seen = run_initializer!(context, :sink, sink).seen
     status.created = true
+    return nothing
+end
+
+struct InitializerChainManySinkModel <:
+       AbstractInitializer_Chain_SinkModel end
+
+PlantSimEngine.inputs_(::InitializerChainManySinkModel) = (
+    source_signal=Required(Vector{Float64}),
+)
+PlantSimEngine.outputs_(::InitializerChainManySinkModel) = (seen=-1.0,)
+
+function PlantSimEngine.run!(
+    ::InitializerChainManySinkModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    status.seen = sum(status.source_signal; init=0.0)
     return nothing
 end
 
@@ -1194,6 +1217,76 @@ end
     @test model_status(model, :chain_source_object).signal == 7.0
     @test model_status(model, :chain_sink_object).seen == 7.0
     @test model_status(model, :scene).sink_seen == 7.0
+end
+
+@testset "newborn inputs include every registered source application" begin
+    for initialize_source in (false, true),
+        many in (false, true),
+        unrelated_distributed in (false, true)
+
+        @testset "initialized=$initialize_source many=$many distributed=$unrelated_distributed" begin
+            multiplicity = many ? Many : One
+            sink_model = many ?
+                         InitializerChainManySinkModel() :
+                         InitializerChainSinkModel()
+            applications = (
+                ModelSpec(
+                    InitializerChainSourceModel();
+                    name=:chain_source,
+                    on=Many(scale=:Leaf, kind=:ChainSource),
+                ),
+                ModelSpec(
+                    sink_model;
+                    name=:chain_sink,
+                    on=Many(scale=:Leaf, kind=:ChainSink),
+                    inputs=(
+                        source_signal=multiplicity(
+                            scale=:Leaf,
+                            kind=:ChainSource,
+                            within=SceneScope(),
+                            application=:chain_source,
+                            var=:signal,
+                        ),
+                    ),
+                ),
+                ModelSpec(
+                    InitializerChainCreatorModel(initialize_source);
+                    name=:chain_creator,
+                    on=One(scale=:Scene),
+                    calls=(
+                        source=Initializer(
+                            One(kind=:ChainSource, application=:chain_source),
+                        ),
+                        sink=Initializer(
+                            One(kind=:ChainSink, application=:chain_sink),
+                        ),
+                    ),
+                ),
+            )
+            if unrelated_distributed
+                applications = (
+                    applications...,
+                    ModelSpec(
+                        InitializerDistributedWriterModel(1.0);
+                        name=:unrelated_distributed,
+                        on=One(scale=:Scene),
+                        outputs_to=(OutputTo(One(scale=:Scene)),),
+                    ),
+                )
+            end
+            model = CompositeModel(
+                Object(:scene; scale=:Scene),
+                Object(:plant; scale=:Plant, parent=:scene);
+                applications=applications,
+                environment=(duration=Hour(1),),
+            )
+
+            run!(model; steps=1, outputs=:none)
+            @test model_status(model, :chain_source_object).signal == 7.0
+            @test model_status(model, :chain_sink_object).seen == 7.0
+            @test model_status(model, :scene).sink_seen == 7.0
+        end
+    end
 end
 
 @testset "newborn overlay spans creator targets before the barrier" begin

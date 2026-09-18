@@ -94,6 +94,48 @@ end
     end
 end
 
+@testset "requested mutable initial values survive continuation and reentry" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant_1; scale=:Plant, parent=:scene),
+        Object(:plant_2; scale=:Plant, parent=:scene),
+        Object(:leaf; scale=:Leaf, parent=:plant_1);
+        applications=(ModelSpec(
+            BoundaryMutableSourceModel(); name=:source, on=Many(scale=:Leaf),
+            every=ClockSpec(2.0, 0.0),
+        ),),
+    )
+    requests = [
+        OutputRequest(
+            Many(scale=:Leaf, within=Subtree()), variable;
+            application=:source, context=:plant_1,
+        ) for variable in (:values, :nested)
+    ]
+    simulation = run!(model; steps=2, outputs=requests)
+    first_rows = collect_outputs(simulation; sink=nothing)
+    @test getproperty.(first_rows[:values], :value) == [[0.0], [1.0]]
+    @test [row.value.values for row in first_rows[:nested]] == [[0.0], [10.0]]
+
+    reparent_object!(model, :leaf, :plant_2)
+    continue!(simulation; steps=2)
+    reparent_object!(model, :leaf, :plant_1)
+    continue!(simulation; steps=2)
+    reentry_rows = collect_outputs(simulation; sink=nothing)
+    @test getproperty.(reentry_rows[:values], :timestep) == [1, 2, 5, 6]
+    @test getproperty.(reentry_rows[:values], :value) == [[0.0], [1.0], [2.0], [3.0]]
+    @test [row.value.values for row in reentry_rows[:nested]] ==
+          [[0.0], [10.0], [20.0], [30.0]]
+
+    continue!(simulation; steps=2)
+    final_rows = collect_outputs(simulation; sink=nothing)
+    @test getproperty.(first_rows[:values], :value) == [[0.0], [1.0]]
+    @test getproperty.(reentry_rows[:values], :value) == [[0.0], [1.0], [2.0], [3.0]]
+    @test getproperty.(final_rows[:values], :value) ==
+          [[0.0], [1.0], [2.0], [3.0], [3.0], [4.0]]
+    @test [row.value.values for row in final_rows[:nested]] ==
+          [[0.0], [10.0], [20.0], [30.0], [30.0], [40.0]]
+end
+
 @testset "temporal consumers cannot mutate source snapshots through private inputs" begin
     for variant in (:nested, :many)
         initial = variant === :nested ? (values=[0.0],) : [[0.0]]

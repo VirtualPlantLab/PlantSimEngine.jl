@@ -211,7 +211,19 @@ assembly and coupling.
 ### Fixed
 
 - Retained outputs and temporal dependency streams snapshot mutable values, so
-  later in-place model updates do not overwrite historical samples.
+  later in-place model updates do not overwrite historical samples. This also
+  covers the initial values of output requests, including selector reentry.
+- Temporal history buffers grow when newly added consumers need longer windows.
+  `PreviousTimeStep` retains the preceding publication even when fractional
+  clocks or manual calls leave gaps between publications.
+- `Many` inputs respect application and process filters for local producers.
+  Positional `Relation(...)` selectors keep separate bindings for each consumer
+  after objects are added.
+- Newborn initializers can read fully initialized sources registered in the same
+  lifecycle event. Unrelated distributed outputs no longer hide newborn sources
+  from `Many` inputs.
+- Mixed-type object IDs with the same text remain distinct during sorting and
+  identity-based lookup.
 - Temporal inputs and `final_state` snapshots no longer alias nested mutable
   producer values. Explicitly declared environment durations also survive
   forcing-source remapping without duplicate fields or replacement.

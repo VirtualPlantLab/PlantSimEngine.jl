@@ -2176,7 +2176,8 @@ end
                     :previous_signals => Many(
                         scale=:Leaf,
                         within=Subtree(),
-                        application=:source,
+                        # Include modeled and supplied values; discover writers
+                        # without restricting the selected objects to one producer.
                         var=:signal,
                     ),
                 ),
@@ -2217,6 +2218,16 @@ end
     @test refreshed_binding.source_ids == ObjectId.([:leaf_1, :leaf_2])
     @test refreshed_binding.source_application_ids == [:source]
     @test plant.lagged_total == 12.0
+
+    reparent_object!(model, :leaf_2, :scene)
+    continue!(simulation)
+    @test only(Diagnostics.explain_bindings(model)).source_ids == [:leaf_1]
+    @test plant.lagged_total == 3.0
+
+    reparent_object!(model, :leaf_2, :plant)
+    continue!(simulation)
+    @test only(Diagnostics.explain_bindings(model)).source_ids == [:leaf_1, :leaf_2]
+    @test plant.lagged_total == 14.0
 end
 
 @testset "new consumers reuse an updated plant-wide Many carrier" begin

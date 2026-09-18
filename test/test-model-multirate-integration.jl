@@ -96,6 +96,115 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+PlantSimEngine.@process "temporal_retention_source" verbose = false
+PlantSimEngine.@process "temporal_retention_probe" verbose = false
+struct TemporalRetentionSourceModel <: AbstractTemporal_Retention_SourceModel end
+struct TemporalRetentionProbeModel <: AbstractTemporal_Retention_ProbeModel
+    history::Vector{Float64}
+end
+PlantSimEngine.inputs_(::TemporalRetentionSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::TemporalRetentionSourceModel) = (signal=0.0,)
+function PlantSimEngine.run!(::TemporalRetentionSourceModel, status, environment, constants, context)
+    status.signal += 1.0
+    return nothing
+end
+PlantSimEngine.inputs_(::TemporalRetentionProbeModel) =
+    (current=Required(Float64), sample=Required(Float64))
+PlantSimEngine.outputs_(::TemporalRetentionProbeModel) = (observed=0.0,)
+function PlantSimEngine.run!(model::TemporalRetentionProbeModel, status, environment, constants, context)
+    status.observed = status.sample
+    push!(model.history, status.observed)
+    return nothing
+end
+
+@testset "sparse clocks preserve preceding publications with bounded retention" begin
+    for policy in (PreviousTimeStep(:sample), Interpolate())
+        previous = policy isa PreviousTimeStep
+        histories = Vector{Float64}[]
+        for retention in (:none, :all)
+            history = Float64[]
+            temporal_input = previous ?
+                policy => One(scale=:Cell, application=:source, var=:signal) :
+                :sample => One(scale=:Cell, application=:source, var=:signal, policy=policy)
+            model = CompositeModel(Object(:cell; scale=:Cell, status=Status(sample=0.0)); applications=(
+                ModelSpec(
+                    TemporalRetentionSourceModel(); name=:source, on=One(scale=:Cell),
+                    every=ClockSpec(2.5, previous ? 0.5 : 1.0),
+                ),
+                ModelSpec(
+                    TemporalRetentionProbeModel(history); name=:probe, on=One(scale=:Cell),
+                    inputs=(
+                        :current => One(scale=:Cell, application=:source, var=:signal),
+                        temporal_input,
+                    ),
+                ),
+            ))
+            simulation = run!(model; steps=8, outputs=retention)
+            continue!(simulation; steps=10)
+            push!(histories, history)
+            if retention === :none
+                stream = outputs(simulation)[(:source, ObjectId(:cell), :signal)]
+                @test stream isa PlantSimEngine.TemporalDependencyBuffer
+                @test length(stream) == 2
+                @test length(stream.times) == 4
+            end
+        end
+        expected = previous ?
+            Float64[count(sample_time -> sample_time < time, 3:5:18) for time in 1:18] :
+            [time < 6 ? 1.0 : 1.0 + (time - 1) / 5 for time in 1:18]
+        @test histories[1] ≈ expected
+        @test histories[2] ≈ expected
+    end
+end
+
+@testset "new consumers expand wrapped temporal buffers without replacing them" begin
+    totals = Float64[]
+    for retention in (:none, :all)
+        short_history, long_history = Float64[], Float64[]
+        consumer_spec(name, scale, window, history) = ModelSpec(
+            TemporalRetentionProbeModel(history); name=name, on=Many(scale=scale),
+            inputs=(
+                :current => One(scale=:Source, within=SceneScope(), application=:source, var=:signal),
+                :sample => One(
+                    scale=:Source, within=SceneScope(), application=:source, var=:signal,
+                    policy=Integrate(), window=window,
+                ),
+            ),
+        )
+        model = CompositeModel(
+            Object(:source; scale=:Source), Object(:short; scale=:Short);
+            applications=(
+                ModelSpec(TemporalRetentionSourceModel(); name=:source, on=One(scale=:Source)),
+                consumer_spec(:short, :Short, 2.0, short_history),
+                consumer_spec(:long, :Long, 5.0, long_history),
+            ),
+        )
+        simulation = run!(model; steps=5, outputs=retention)
+        key = (:source, ObjectId(:source), :signal)
+        stream = outputs(simulation)[key]
+        if retention === :none
+            @test stream.first_slot != 1
+            @test collect(stream) == [(4.0, 4.0), (5.0, 5.0)]
+        end
+        register_object!(model, Object(:long; scale=:Long))
+        continue!(simulation; steps=0)
+        @test outputs(simulation)[key] === stream
+        if retention === :none
+            @test length(stream.times) == 5
+            @test collect(stream) == [(4.0, 4.0), (5.0, 5.0)]
+        end
+        continue!(simulation; steps=5)
+        @test last(short_history) == 19.0
+        @test last(long_history) == 40.0
+        push!(totals, final_state(simulation, :long).observed)
+        if retention === :none
+            @test collect(stream) == [(Float64(time), Float64(time)) for time in 6:10]
+            @test length(stream.times) == 5
+        end
+    end
+    @test totals == [40.0, 40.0]
+end
+
 @testset "48-hour hourly/daily stack and plant isolation" begin
     model = CompositeModel(
         Object(:scene; scale=:Scene),
