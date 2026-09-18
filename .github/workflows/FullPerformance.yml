@@ -21,7 +21,7 @@ on:
       plantgeom_ref:
         description: PlantGeom branch, tag, or commit
         required: true
-        default: plantsimengine-multi-plant
+        default: main
         type: string
   workflow_call:
     inputs:
@@ -38,7 +38,7 @@ on:
       plantgeom_ref:
         description: PlantGeom branch, tag, or commit
         required: false
-        default: plantsimengine-multi-plant
+        default: main
         type: string
 
 permissions:
@@ -84,7 +84,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: VEZY/PlantGeom.jl
-          ref: ${{ inputs.plantgeom_ref || 'plantsimengine-multi-plant' }}
+          ref: ${{ inputs.plantgeom_ref || 'main' }}
           path: downstream/PlantGeom
 
       - name: Set up Julia

@@ -20,7 +20,7 @@ const SUITE = BenchmarkGroup()
 const INCLUDE_DOWNSTREAM_BENCHMARKS = get(
     ENV,
     "PSE_BENCHMARK_INCLUDE_DOWNSTREAM",
-    get(ENV, "GITHUB_ACTIONS", "false") == "true" ? "false" : "true",
+    "false",
 ) == "true"
 _supports_composite_object_benchmarks(engine) =
     isdefined(engine, :CompositeModel) &&

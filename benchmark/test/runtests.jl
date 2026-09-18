@@ -13,9 +13,13 @@ using TOML
 
 const BENCHMARK_TEST_PATTERN =
     isempty(ARGS) ? nothing : Regex(only(ARGS), "i")
-benchmark_test_enabled(name) =
-    isnothing(BENCHMARK_TEST_PATTERN) ||
-    occursin(BENCHMARK_TEST_PATTERN, name)
+function benchmark_test_enabled(name)
+    if !isnothing(BENCHMARK_TEST_PATTERN)
+        return occursin(BENCHMARK_TEST_PATTERN, name)
+    end
+    downstream = startswith(name, "XPalm") || startswith(name, "PlantBiophysics")
+    return !downstream || get(ENV, "PSE_BENCHMARK_INCLUDE_DOWNSTREAM", "false") == "true"
+end
 
 if benchmark_test_enabled("full-performance project bootstrap smoke")
     @testset "full-performance project bootstrap smoke" begin
@@ -856,7 +860,7 @@ if benchmark_test_enabled("internal-only benchmark suite assembly smoke")
         Core.eval(benchmark_module, :(const Object = Nothing))
         include_error = try
             withenv(
-                "GITHUB_ACTIONS" => "true",
+                "GITHUB_ACTIONS" => nothing,
                 "PSE_BENCHMARK_INCLUDE_DOWNSTREAM" => nothing,
                 "PSE_BENCHMARK_FORCE_LEGACY_BASELINE" => nothing,
             ) do
