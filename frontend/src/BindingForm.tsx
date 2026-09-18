@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ObjectChoice, objectChoiceId, objectChoiceValue } from "./ObjectChoice";
 import { Eye, Link2, X } from "lucide-react";
 import type { ApplicationGraphNode, ApplicationOwner, GraphPort, ObjectGraphNode, PeriodDescriptor, SelectorDescriptor, SelectorPreview } from "./types";
 
@@ -34,7 +35,7 @@ export function BindingForm({ endpoints, objects, preview, onPreview, onSubmit, 
   const [scale, setScale] = useState(onlyOrEmpty(endpoints.sourceApplication.targetScales));
   const [kind, setKind] = useState(onlyOrEmpty(endpoints.sourceApplication.targetKinds));
   const [species, setSpecies] = useState(onlyOrEmpty(endpoints.sourceApplication.targetSpecies));
-  const [sourceName, setSourceName] = useState("");
+  const [sourceId, setSourceId] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"application" | "process">("application");
   const [policy, setPolicy] = useState("automatic");
   const [windowValue, setWindowValue] = useState("");
@@ -42,7 +43,6 @@ export function BindingForm({ endpoints, objects, preview, onPreview, onSubmit, 
   const scales = unique(objects.map((object) => object.scale));
   const kinds = unique(objects.map((object) => object.kind));
   const speciesOptions = unique(objects.map((object) => object.species));
-  const names = unique(objects.map((object) => object.name));
 
   const value = (): BindingFormValue => {
     const criteria: Record<string, unknown> = {
@@ -58,7 +58,7 @@ export function BindingForm({ endpoints, objects, preview, onPreview, onSubmit, 
     if (scale) criteria.scale = scale;
     if (kind) criteria.kind = kind;
     if (species) criteria.species = species;
-    if (sourceName) criteria.name = sourceName;
+    if (sourceId) criteria.id = objectChoiceId(sourceId);
     if (policy !== "automatic") criteria.policy = { type: policyType(policy) };
     if (windowValue.trim()) {
       const window = bindingWindowDescriptor(windowValue, windowUnit);
@@ -78,15 +78,15 @@ export function BindingForm({ endpoints, objects, preview, onPreview, onSubmit, 
         <div className="binding-route"><div><small>Producer</small><strong>{endpoints.sourceApplication.applicationId}</strong><code>{endpoints.sourcePort.name}</code></div><Link2 size={22} /><div><small>Consumer</small><strong>{endpoints.targetApplication.applicationId}</strong><code>{endpoints.targetPort.name}</code></div></div>
         <fieldset><legend>Source object selector</legend><div className="form-grid">
           <label>Multiplicity<select value={multiplicity} onChange={(event) => setMultiplicity(event.target.value as SelectorDescriptor["multiplicity"])}><option value="one">One</option><option value="optional_one">Optional one</option><option value="many">Many</option></select></label>
-          <label>Scope<select value={scope} onChange={(event) => setScope(event.target.value)}><option value="local">Default / instance local</option><option value="scene">Explicit whole scene</option><option value="self">Consumer object</option><option value="subtree">Consumer subtree</option><option value="self_plant">Consumer plant</option><option value="ancestor">Ancestor subtree</option><option value="named_scope">Named object subtree</option></select></label>
+          <label>Scope<select value={scope} onChange={(event) => setScope(event.target.value)}><option value="local">Default / instance local</option><option value="scene">Explicit whole scene</option><option value="self">Consumer object</option><option value="subtree">Consumer subtree</option><option value="self_plant">Consumer plant</option><option value="ancestor">Ancestor subtree</option><option value="named_scope">Object subtree</option></select></label>
           {scope === "ancestor" && <Criterion label="Ancestor scale" value={ancestorScale} options={scales} onChange={setAncestorScale} />}
-          {scope === "named_scope" && <Criterion label="Scope root" value={scopeName} options={names} onChange={setScopeName} />}
+          {scope === "named_scope" && <ObjectChoice label="Scope root" value={scopeName} objects={objects} onChange={setScopeName} emptyLabel="Choose an object" />}
           <label>Relation<select value={relation} onChange={(event) => setRelation(event.target.value)}><option value="">Any relation</option><option value="self">Same object</option><option value="parent">Parent</option><option value="children">Children</option><option value="ancestors">Ancestors</option><option value="descendants">Descendants</option><option value="siblings">Siblings</option></select></label>
           <label>Producer filter<select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as "application" | "process")}><option value="application">This application</option><option value="process">Any application of this process</option></select></label>
           <Criterion label="Scale" value={scale} options={scales} onChange={setScale} />
           <Criterion label="Kind" value={kind} options={kinds} onChange={setKind} />
           <Criterion label="Species" value={species} options={speciesOptions} onChange={setSpecies} />
-          <Criterion label="Object name" value={sourceName} options={names} onChange={setSourceName} />
+          <ObjectChoice label="Object ID" value={sourceId} objects={objects} onChange={setSourceId} />
           <label>Temporal policy<select value={policy} onChange={(event) => setPolicy(event.target.value)}><option value="automatic">Automatic</option><option value="hold_last">Hold last</option><option value="interpolate">Interpolate</option><option value="integrate">Integrate</option><option value="aggregate">Aggregate</option></select></label>
           <label>Window value<input type="number" min="1" step="1" value={windowValue} onChange={(event) => setWindowValue(event.target.value)} placeholder="Automatic" data-testid="binding-window-value" /></label>
           <label>Window unit<select value={windowUnit} onChange={(event) => setWindowUnit(event.target.value)} disabled={!windowValue.trim()} data-testid="binding-window-unit"><option>Second</option><option>Minute</option><option>Hour</option><option>Day</option></select></label>
@@ -107,7 +107,7 @@ function Criterion({ label, value, options, onChange }: { label: string; value: 
   return <label>{label}<select value={value} onChange={(event) => onChange(event.target.value)}><option value="">Any</option>{options.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>;
 }
 
-function sameValues(left: unknown[], right: unknown[]) { return left.length === right.length && left.every((value) => right.some((other) => String(other) === String(value))); }
+function sameValues(left: unknown[], right: unknown[]) { return left.length === right.length && left.every((value) => right.some((other) => objectChoiceValue(other) === objectChoiceValue(value))); }
 function onlyOrEmpty(values: string[]) { return values.length === 1 ? values[0] : ""; }
 function selectorType(value: SelectorDescriptor["multiplicity"]) { return value === "one" ? "One" : value === "optional_one" ? "OptionalOne" : "Many"; }
 function unique(values: Array<string | null>) { return [...new Set(values.filter((value): value is string => Boolean(value)))].sort(); }
@@ -119,7 +119,7 @@ function scopeDescriptor(scope: string, name: string, scale: string) {
   if (scope === "subtree") return { type: "Subtree" };
   if (scope === "self_plant") return { type: "SelfPlant" };
   if (scope === "ancestor") return { type: "Ancestor", scale: scale || null };
-  if (scope === "named_scope" && name) return { type: "Scope", name };
+  if (scope === "named_scope" && name) return { type: "Scope", id: objectChoiceId(name) };
   return null;
 }
 

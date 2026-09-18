@@ -1,10 +1,11 @@
 module DocsSources
 
 using Markdown
+using Bonito: DOM
 using PlantSimEngine
 
-"""Render an exact source section, failing if its start or end marker moved."""
-function section(relative_path, from, to=nothing)
+"""Read an exact source section, failing if its start or end marker moved."""
+function read_section(relative_path, from, to=nothing)
     path = joinpath(pkgdir(PlantSimEngine), relative_path)
     source = read(path, String)
     starts = findall(from, source)
@@ -16,8 +17,25 @@ function section(relative_path, from, to=nothing)
         isnothing(stop) && error("Missing end marker in $relative_path: $to")
         last_index = prevind(source, first(stop))
     end
-    code = strip(source[first_index:last_index])
-    return Markdown.MD([Markdown.Code("julia", code)])
+    return strip(source[first_index:last_index])
+end
+
+"""Render a source section as a Julia code block."""
+function section(relative_path, from, to=nothing)
+    return Markdown.MD([Markdown.Code("julia", read_section(relative_path, from, to))])
+end
+
+"""Show source code in a closed, natively expandable HTML details element."""
+function details(title, relative_path, from, to=nothing)
+    code = read_section(relative_path, from, to)
+    return DOM.details(
+        DOM.summary(title),
+        DOM.div(
+            DOM.div(DOM.pre(DOM.code(code; class="language-julia")); class="language-julia");
+            class="docstring-body",
+        );
+        class="jldocstring custom-block",
+    )
 end
 
 end

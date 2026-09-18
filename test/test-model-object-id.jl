@@ -369,3 +369,171 @@ end
     @test isnothing(model_status(canonical_mtg, mtg_leaf_a))
     @test source_node(canonical_mtg, mtg_leaf_b) === mtg_leaf_b
 end
+
+PlantSimEngine.@process "identity_signal" verbose = false
+
+struct IdentitySignalModel{T} <: AbstractIdentity_SignalModel
+    increment::T
+end
+
+PlantSimEngine.inputs_(::IdentitySignalModel) = NamedTuple()
+PlantSimEngine.outputs_(::IdentitySignalModel) = (signal=0.0,)
+function PlantSimEngine.run!(model::IdentitySignalModel, status, environment, constants, context)
+    status.signal += model.increment
+    return nothing
+end
+
+PlantSimEngine.@process "identity_total" verbose = false
+
+struct IdentityTotalModel <: AbstractIdentity_TotalModel end
+
+PlantSimEngine.inputs_(::IdentityTotalModel) = (signals=Default([0.0]),)
+PlantSimEngine.outputs_(::IdentityTotalModel) = (total=0.0,)
+function PlantSimEngine.run!(::IdentityTotalModel, status, environment, constants, context)
+    status.total = sum(status.signals)
+    return nothing
+end
+
+@testset "objects need only an identity to run" begin
+    object = Object(17)
+    @test object.id == ObjectId(17)
+    @test isnothing(object.name)
+    @test isnothing(object.scale)
+    @test isnothing(object.kind)
+    @test isnothing(object.species)
+
+    model = CompositeModel(
+        object;
+        applications=(ModelSpec(IdentitySignalModel(2.0); on=One(id=17)),),
+    )
+    simulation = run!(model; steps=1, outputs=:all)
+    @test final_state(simulation).signal == 2.0
+    @test only(explain_applications(simulation.compiled)).application_id == :identity_signal
+    @test haskey(outputs(simulation), (:identity_signal, ObjectId(17), :signal))
+
+    thin = CompositeModel(IdentitySignalModel(3.0); id=17, scale=nothing)
+    @test isnothing(model_object(thin, 17).name)
+    @test final_state(run!(thin; steps=1)).signal == 3.0
+    @test isnothing(model_object(CompositeModel(IdentitySignalModel(1.0)), :scene).name)
+end
+
+@testset "object labels do not participate in identity or selection" begin
+    compound = ObjectId((:plant, 1, :leaf, 2))
+    model = CompositeModel(
+        Object(101; name="Upper leaf", scale=:Leaf),
+        Object("101"; name="Upper leaf", scale=:Leaf),
+        Object(compound; name=:upper_leaf, scale=:Leaf, parent=101),
+    )
+    @test model_object(model, 101).name == "Upper leaf"
+    @test model_object(model, "101").name == "Upper leaf"
+    @test model_object(model, compound).name == "upper_leaf"
+    @test object_ids(model; id=101) == [ObjectId(101)]
+    @test object_ids(model; id="101") == [ObjectId(Symbol("101"))]
+    @test object_ids(model; id=compound) == [compound]
+    @test object_ids(model; id=101, scale=:Plant) == ObjectId[]
+    @test resolve_object_ids(model, One(id=101)) == [ObjectId(101)]
+    @test resolve_object_ids(model, One(id="101")) == [ObjectId(Symbol("101"))]
+    @test resolve_object_ids(model, One(id=compound)) == [compound]
+    @test Set(resolve_object_ids(model, Many(id=(101, compound)))) == Set([ObjectId(101), compound])
+    @test Set(object_ids(model; id=[101, compound])) == Set([ObjectId(101), compound])
+    @test resolve_object_ids(model, OptionalOne(id=999)) == ObjectId[]
+    @test_throws ErrorException resolve_object_ids(model, One(id=999))
+    @test resolve_object_ids(model, Many(within=Scope(101))) == [compound, ObjectId(101)]
+    @test resolve_object_ids(model, One(within=Scope(compound))) == [compound]
+    @test_throws ErrorException resolve_object_ids(model, One(within=Scope(:upper_leaf)))
+    @test_throws "Unsupported object selector keyword" One(name=:upper_leaf)
+    @test_throws MethodError object_ids(model; name="Upper leaf")
+    @test_throws ErrorException register_object!(model, Object(101; name="Another leaf"))
+
+    registered = register_object!(model, Object(102; name="Upper leaf", scale=:Leaf))
+    @test registered.id == ObjectId(102)
+    @test resolve_object_ids(model, One(id=102)) == [registered.id]
+end
+
+@testset "renaming a display label leaves value connections and output identities intact" begin
+    model = CompositeModel(
+        Object(1; name="Plant"),
+        Object(2; name="Plant");
+        applications=(
+            ModelSpec(IdentitySignalModel(2.0); name=:source, on=One(id=1)),
+            ModelSpec(
+                IdentityTotalModel();
+                name=:consumer,
+                on=One(id=2),
+                inputs=(signals=Many(id=1, within=SceneScope(), application=:source, var=:signal),),
+            ),
+        ),
+    )
+    simulation = run!(model; steps=1, outputs=:all)
+    @test model_status(model, 2).total == 2.0
+    binding = only(explain_bindings(simulation.compiled))
+    @test binding.source_ids == [1]
+    @test binding.source_application_ids == [:source]
+
+    model_object(model, 1).name = "Renamed source"
+    model_object(model, 2).name = nothing
+    continue!(simulation; steps=1)
+    @test model_status(model, 2).total == 4.0
+    @test only(explain_bindings(simulation.compiled)).source_ids == [1]
+    @test last.(outputs(simulation)[(:consumer, ObjectId(2), :total)]) == [2.0, 4.0]
+end
+
+@testset "instance scopes use root IDs across display changes and growth" begin
+    template = CompositeModelTemplate((
+        ModelSpec(IdentitySignalModel(1.0); name=:source, on=Many(scale=:Leaf)),
+        ModelSpec(
+            IdentityTotalModel();
+            name=:total,
+            on=One(scale=:Plant),
+            inputs=(signals=Many(scale=:Leaf, within=SelfPlant(), var=:signal),),
+        ),
+    ); kind=:plant)
+    model = CompositeModel(
+        ObjectInstance(
+            :first,
+            template;
+            root=Object(100; scale=:Plant, name="Plant"),
+            objects=(Object(101; scale=:Leaf, name="Leaf", parent=100),),
+        ),
+        ObjectInstance(
+            :second,
+            template;
+            root=Object(200; scale=:Plant, name="Plant"),
+            objects=(Object(201; scale=:Leaf, name="Leaf", parent=200),),
+            overrides=(source=IdentitySignalModel(3.0),),
+        ),
+        # A symbolic object ID may coincide with a separate instance identity.
+        Object(:first; name="Plant"),
+    )
+    @test model_object(model, 100).name == "Plant"
+    @test model_object(model, 200).name == "Plant"
+    @test resolve_object_ids(model, Many(within=Scope(:first))) == ObjectId.([100, 101])
+    @test resolve_object_ids(model, One(within=Scope(ObjectId(:first)))) == [ObjectId(:first)]
+    @test resolve_object_ids(model, Many(within=SelfPlant()); context=101) == ObjectId.([100, 101])
+    instance_scopes = filter(row -> row.scope_type == :instance_scope, explain_scopes(model))
+    @test only(row for row in instance_scopes if row.name == :first).root_id == 100
+    @test only(row for row in instance_scopes if row.name == :second).root_id == 200
+
+    simulation = run!(model; steps=1, outputs=:all)
+    @test model_status(model, 100).total == 1.0
+    @test model_status(model, 200).total == 3.0
+    @test Set(row.application_id for row in explain_applications(simulation.compiled)) ==
+          Set([:first__source, :first__total, :second__source, :second__total])
+
+    model_object(model, 100).name = "Renamed plant"
+    register_object!(model, Object(102; scale=:Leaf, name="Leaf"); parent=100)
+    continue!(simulation; steps=1)
+    @test model_status(model, 100).total == 3.0
+    @test model_status(model, 200).total == 6.0
+    @test resolve_object_ids(model, Many(scale=:Leaf, within=Scope(:first))) == ObjectId.([101, 102])
+    @test resolve_object_ids(model, Many(scale=:Leaf, within=Scope(:second))) == [ObjectId(201)]
+    @test only(row for row in explain_objects(model) if row.id == 102).instance == :first
+    @test haskey(outputs(simulation), (:first__source, ObjectId(102), :signal))
+    @test !haskey(outputs(simulation), (:second__source, ObjectId(102), :signal))
+
+    remove_object!(model, 102)
+    continue!(simulation; steps=1)
+    @test model_status(model, 100).total == 3.0
+    @test model_status(model, 200).total == 9.0
+    @test last.(outputs(simulation)[(:first__source, ObjectId(102), :signal)]) == [1.0]
+end

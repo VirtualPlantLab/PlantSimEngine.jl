@@ -36,7 +36,8 @@ struct DistributedRuntimeAggregatingUpdaterModel <:
        AbstractDistributed_Runtime_Aggregating_UpdaterModel end
 
 PlantSimEngine.inputs_(::DistributedRuntimeSceneWriterModel) = NamedTuple()
-PlantSimEngine.outputs_(::DistributedRuntimeSceneWriterModel) = NamedTuple()
+PlantSimEngine.outputs_(::DistributedRuntimeSceneWriterModel) =
+    (incident_par=Distributed(Default(0.0)),)
 
 PlantSimEngine.inputs_(::DistributedRuntimeLeafConsumerModel) =
     (incident_par=Required(Float64),)
@@ -49,7 +50,7 @@ PlantSimEngine.outputs_(::DistributedRuntimeLeafUpdaterModel) =
 
 PlantSimEngine.inputs_(::DistributedRuntimeStatefulWriterModel) = NamedTuple()
 PlantSimEngine.outputs_(::DistributedRuntimeStatefulWriterModel) =
-    (private_runs=0,)
+    (private_runs=0, incident_par=Distributed(Default(0.0)))
 
 PlantSimEngine.inputs_(::DistributedRuntimePlantIntegratorModel) =
     (integrated_incident_par=Required(Vector{Float64}),)
@@ -63,15 +64,6 @@ PlantSimEngine.outputs_(::DistributedRuntimeAggregatingUpdaterModel) =
 PlantSimEngine.output_policy(
     ::Type{<:DistributedRuntimeAggregatingUpdaterModel},
 ) = (incident_par=Aggregate(),)
-
-# Task 4 intentionally exercises the compiler-owned destination references.
-# Task 5 will replace this test-only lookup with the public OutputTargets API.
-function _distributed_runtime_destination(context, group::Symbol)
-    groups = context.compiled.distributed_outputs.by_execution_target[
-        (context.application.id, context.object_id)
-    ]
-    return getproperty(groups, group)
-end
 
 function _distributed_runtime_value(object_id::ObjectId, time::Real)
     coefficient = if object_id == ObjectId(:leaf_a)
@@ -112,9 +104,9 @@ function PlantSimEngine.run!(
         model.events,
         (Int(context.time), :writer, context.object_id.value, 0.0),
     )
-    destinations = _distributed_runtime_destination(context, :leaves)
-    for index in eachindex(destinations.destination_ids)
-        object_id = destinations.destination_ids[index]
+    destinations = output_targets(context, (:incident_par,))
+    for index in eachindex(object_ids(destinations))
+        object_id = object_ids(destinations)[index]
         destinations.columns.incident_par[index] =
             _distributed_runtime_value(object_id, context.time)
     end
@@ -169,8 +161,8 @@ function PlantSimEngine.run!(
     context,
 )
     status.private_runs += 1
-    destinations = _distributed_runtime_destination(context, :leaves)
-    for index in eachindex(destinations.destination_ids)
+    destinations = output_targets(context, (:incident_par,))
+    for index in eachindex(object_ids(destinations))
         destinations.columns.incident_par[index] =
             100.0 + status.private_runs
     end
@@ -221,9 +213,9 @@ function _distributed_runtime_applications(
             name=:distributed_runtime_writer,
             on=One(scale=:Scene),
             outputs_to=(
-                leaves=OutputTo(
+                OutputTo(
                     Many(scale=:Leaf, within=SceneScope());
-                    vars=(incident_par=Default(0.0),),
+                    vars=(:incident_par,),
                 ),
             ),
             every=writer_every,
@@ -462,9 +454,9 @@ end
                 name=:distributed_runtime_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -603,9 +595,9 @@ end
                 name=:distributed_runtime_stateful_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
                 output_routing=(private_runs=:stream_only,),
@@ -664,13 +656,13 @@ end
                 name=:distributed_runtime_sun_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(
                             scale=:Leaf,
                             kind=:sun,
                             within=SceneScope(),
                         );
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -681,13 +673,13 @@ end
                 name=:distributed_runtime_shade_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(
                             scale=:Leaf,
                             kind=:shade,
                             within=SceneScope(),
                         );
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -727,9 +719,9 @@ end
                 name=:distributed_runtime_lag_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -788,9 +780,9 @@ end
                 name=:distributed_runtime_integrated_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
                 every=Hour(1),
@@ -871,9 +863,9 @@ end
                 name=:distributed_runtime_plant_writer,
                 on=Many(scale=:Plant),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=Subtree());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -903,11 +895,11 @@ end
         simulation.compiled.distributed_outputs.by_execution_target
     @test initial_targets[
         (:distributed_runtime_plant_writer, ObjectId(:plant_a))
-    ].leaves.destination_ids == ObjectId[ObjectId(:moving_leaf)]
+    ].output_1.destination_ids == ObjectId[ObjectId(:moving_leaf)]
     @test isempty(
         initial_targets[
             (:distributed_runtime_plant_writer, ObjectId(:plant_b))
-        ].leaves.destination_ids,
+        ].output_1.destination_ids,
     )
 
     reparent_object!(model, :moving_leaf, :plant_b)
@@ -930,11 +922,11 @@ end
     @test isempty(
         reparented_targets[
             (:distributed_runtime_plant_writer, ObjectId(:plant_a))
-        ].leaves.destination_ids,
+        ].output_1.destination_ids,
     )
     plant_b_binding = reparented_targets[
         (:distributed_runtime_plant_writer, ObjectId(:plant_b))
-    ].leaves
+    ].output_1
     @test plant_b_binding.destination_ids ==
           ObjectId[ObjectId(:moving_leaf)]
     moving_leaf = only(model_objects(model; scale=:Leaf))
@@ -964,7 +956,7 @@ end
         isempty(
             removed_targets[
                 (:distributed_runtime_plant_writer, ObjectId(plant_id))
-            ].leaves.destination_ids,
+            ].output_1.destination_ids,
         )
         for plant_id in (:plant_a, :plant_b)
     )
@@ -990,13 +982,13 @@ end
                 name=:distributed_runtime_sun_only_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(
                             scale=:Leaf,
                             kind=:sun,
                             within=SceneScope(),
                         );
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -1020,13 +1012,13 @@ end
                 name=:distributed_runtime_shade_only_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(
                             scale=:Leaf,
                             kind=:shade,
                             within=SceneScope(),
                         );
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -1095,9 +1087,9 @@ end
                 name=:distributed_runtime_policy_writer,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),

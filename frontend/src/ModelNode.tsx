@@ -165,14 +165,14 @@ function PortColumn({
           className={`port ${required.has(port.id) ? "required-input" : ""} ${previous.has(port.id) ? "previous" : ""}`}
           key={port.id}
           data-testid={`port-${side}-${port.name}`}
-          title={`${port.name}: ${port.defaultJulia}`}
+          title={`${port.name}: ${port.expectedType}${port.storage === "distributed" ? " · stored on destination objects" : ""}${port.declaration === "required" ? (port.storage === "distributed" ? " · requires existing storage" : " · requires a value or producer") : ` · initial ${port.defaultJulia ?? "nothing"}`}`}
           onClick={(event) => {
             event.stopPropagation();
             onPortClick?.(port);
           }}
         >
           {side === "input" && <Handle id={port.id} type="target" position={Position.Left} />}
-          <span>{port.name}</span>
+          <span>{port.name}{port.storage === "distributed" ? " ↗" : ""}</span>
           {candidates.has(port.id) && (
             <button
               className="port-candidate-button nodrag nopan"

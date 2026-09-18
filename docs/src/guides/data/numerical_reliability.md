@@ -100,61 +100,17 @@ the final stored type. It also shows which conversion changed each value.
     calculations work with the input types, and avoid forcing intermediate
     values to `Float64` unless the equations require that precision.
 
-## Propagate uncertainty with particles
+## Represent uncertainty in numeric values
 
-[MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl)
-is an optional package that you install separately. It represents an uncertain
-number as a collection of possible values, called **particles**. Calculations
-on those particles show how uncertainty in an input affects an output.
+Numeric types can also represent uncertainty in weather or model parameters.
+For example, `Particles` from MonteCarloMeasurements.jl represents an uncertain
+number as a collection of possible values. The equations and the storage for
+their results must support this numeric type.
 
-Use `status_transform` to give selected inputs and outputs this representation.
-The `type_promotion` rule can still convert the other floating-point values.
-This small example squares two possible values of `x`, 0.9 and 1.1:
-
-```julia
-using PlantSimEngine
-using MonteCarloMeasurements: Particles, pmean, pstd
-
-@process "uncertain_square" verbose = false
-
-struct UncertainSquare <: AbstractUncertain_SquareModel end
-
-PlantSimEngine.inputs_(::UncertainSquare) = (x=Required(Real),)
-PlantSimEngine.outputs_(::UncertainSquare) = (y=0.0, ordinary=1.0)
-
-function PlantSimEngine.run!(
-    ::UncertainSquare,
-    status,
-    environment,
-    constants,
-    context,
-)
-    status.y = status.x^2
-    return nothing
-end
-
-function particle_status(variable, value)
-    variable === :x && return Particles([value - 0.1, value + 0.1])
-    variable === :y && return Particles(fill(value, 2))
-    return value
-end
-
-model = CompositeModel(
-    UncertainSquare();
-    status=(x=1.0,),
-    status_transform=particle_status,
-    type_promotion=Dict(Float64 => Float32),
-)
-
-simulation = run!(model; outputs=:all)
-uncertain_result = final_state(simulation).y
-(mean=pmean(uncertain_result), standard_deviation=pstd(uncertain_result))
-```
-
-Both `x` and the initial value of `y` use `Particles`, so `y` can store the
-uncertain result. The separate `ordinary` value becomes `Float32`. If you
-also want uncertain model parameters, define the model so its parameter
-fields accept those types.
+Follow [Propagate Uncertainty Through A Simulation](@ref) for a runnable example
+with uncertain radiation and a light-extinction parameter, including plots
+of the resulting uncertainty. It also shows how to prepare output storage
+with `status_transform`.
 
 ## Test the expected tolerance
 

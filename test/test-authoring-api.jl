@@ -62,6 +62,28 @@ struct AuthoringPolicyOrderModel{P} <: AbstractAuthoringLinearModel
     policies::P
 end
 
+struct AuthoringDistributedModel{D} <: AbstractAuthoringLinearModel
+    declarations::D
+end
+PlantSimEngine.outputs_(model::AuthoringDistributedModel) = model.declarations
+PlantSimEngine.run!(::AuthoringDistributedModel, status, environment, constants, context) = nothing
+PlantSimEngine.variable_contracts_(::AuthoringDistributedModel) = (
+    total=AUTHORING_DIMENSIONLESS,
+    received=AUTHORING_DIMENSIONLESS,
+    existing=AUTHORING_DIMENSIONLESS,
+)
+
+struct AuthoringDistributedContractModel{M} <: AbstractAuthoringLinearModel
+    model::M
+end
+PlantSimEngine.outputs_(model::AuthoringDistributedContractModel) = PlantSimEngine.outputs_(model.model)
+PlantSimEngine.variable_contracts_(model::AuthoringDistributedContractModel) =
+    merge(PlantSimEngine.variable_contracts_(model.model), (received=AUTHORING_TEMPERATURE,))
+
+struct AuthoringUnboundContractModel <: AbstractAuthoringLinearModel end
+PlantSimEngine.variable_contracts_(::AuthoringUnboundContractModel) = (unbound=AUTHORING_DIMENSIONLESS,)
+PlantSimEngine.run!(::AuthoringUnboundContractModel, status, environment, constants, context) = nothing
+
 PlantSimEngine.run!(::AuthoringShortKernelModel, status, environment, constants) = nothing
 PlantSimEngine.run!(::AuthoringLongKernelModel, status, environment, constants, context, extra) = nothing
 PlantSimEngine.run!(::AuthoringVariadicKernelModel, status, arguments...) = nothing
@@ -95,6 +117,110 @@ const AUTHORING_TEMPERATURE = VariableContract(
     aggregation=:instantaneous,
     extent=:intensive,
 )
+
+@testset "Distributed model outputs are inspectable without a scenario" begin
+    declarations = (
+        total=Float32[0, 1],
+        received=Distributed(Default(0.0f0)),
+        existing=Distributed(Required(Real)),
+    )
+    model = AuthoringDistributedModel(declarations)
+    description = describe_model(model)
+    @test model_interface(model).outputs == declarations
+    @test validate_model(model; strict=true).valid
+    @test outputs(model) == (:total, :received, :existing)
+    ports = Dict(port.name => port for port in description.ports)
+    @test ports[:total].storage == :local
+    @test ports[:total].expected_type == "Vector{Float32}"
+    @test ports[:total].initial_value == Float32[0, 1]
+    @test ports[:received].role == ports[:existing].role == :output
+    @test ports[:received].storage == ports[:existing].storage == :distributed
+    @test ports[:received].expected_type == "Float32"
+    @test ports[:received].declaration == :defaulted
+    @test ports[:received].initial_value === 0.0f0
+    @test ports[:existing].expected_type == "Real"
+    @test ports[:existing].declaration == :required
+    @test isnothing(ports[:existing].initial_value)
+    @test all(port.variable_contract == AUTHORING_DIMENSIONLESS for port in description.ports)
+
+    serialized = JSON.parse(to_json(description))
+    @test serialized["interface"]["outputs"]["received"]["kind"] == "distributed"
+    @test serialized["interface"]["outputs"]["existing"]["declaration"]["expectedType"] == "Real"
+    @test only(port for port in serialized["ports"] if port["name"] == "received")["storage"] == "distributed"
+
+    compatible = compare_models(model, AuthoringDistributedModel(declarations))
+    @test compatible.override_compatible
+    local_output = compare_models(model, AuthoringDistributedModel(merge(declarations, (received=0.0f0,))))
+    @test !local_output.override_compatible
+    @test local_output.requires_binding_changes
+    @test any(difference.path == "outputs.received" for difference in local_output.differences)
+    changed_policy = compare_models(model, AuthoringDistributedModel(merge(declarations, (existing=Distributed(Default(0.0)),))))
+    @test !changed_policy.override_compatible
+
+    packet = (count=1, values=Float32[1, 2])
+    packet_model = AuthoringDistributedModel(merge(declarations, (total=packet,)))
+    packet_port = only(port for port in describe_model(packet_model).ports if port.name == :total)
+    @test packet_port.storage == :local
+    @test packet_port.expected_type == string(typeof(packet))
+    @test packet_port.initial_value == packet
+
+    array_declarations = merge(declarations, (received=Distributed(Default(Float32[1, 2])),))
+    array_model = AuthoringDistributedModel(array_declarations)
+    copied_array_model = AuthoringDistributedModel(deepcopy(array_declarations))
+    array_comparison = compare_models(array_model, copied_array_model)
+    @test array_comparison.override_compatible
+    @test isempty(array_comparison.differences)
+    @test hash(model_interface(array_model)) == hash(model_interface(copied_array_model))
+    changed_array = AuthoringDistributedModel(merge(array_declarations, (received=Distributed(Default(Float32[1, 3])),)))
+    @test compare_models(array_model, changed_array).override_compatible
+
+    invalid = validate_model(AuthoringDistributedModel([:received => Distributed(Default(0.0))]))
+    @test !invalid.valid
+    @test any(diagnostic.code == :invalid_outputs for diagnostic in invalid.diagnostics)
+    @test_throws "unknown variable" variable_contracts(AuthoringUnboundContractModel())
+    @test !validate_model(AuthoringUnboundContractModel()).valid
+end
+
+@testset "Distributed default compatibility preserves kind, type, and contracts" begin
+    declarations = (total=0.0f0, received=Distributed(Default(1.0f0)),
+        existing=Distributed(Required(Real)))
+    model = AuthoringDistributedModel(declarations)
+    interface = model_interface(model)
+    for (initial, replacement) in ((1.0f0, 9.0f0), (Float32[1, 2], Float32[9, 11]))
+        left = AuthoringDistributedModel(merge(declarations, (received=Distributed(Default(initial)),)))
+        right = AuthoringDistributedModel(merge(declarations, (received=Distributed(Default(replacement)),)))
+        left_interface, right_interface = model_interface(left), model_interface(right)
+        @test left_interface == right_interface
+        @test isequal(left_interface, right_interface)
+        @test hash(left_interface) == hash(right_interface)
+        @test hash(left_interface, UInt(42)) == hash(right_interface, UInt(42))
+        @test length(Set((left_interface, right_interface))) == 1
+        @test right_interface.outputs.received.declaration.value == replacement
+        comparison = compare_models(left, right)
+        @test comparison.override_compatible
+        @test !comparison.requires_binding_changes
+        @test isempty(comparison.differences)
+    end
+
+    for changed in (
+        (total=9.0f0,),
+        (received=9.0f0,),
+        (received=Distributed(Default(1.0)),),
+        (received=Distributed(Required(Float32)),),
+        (existing=Distributed(Required(Float32)),),
+    )
+        replacement = AuthoringDistributedModel(merge(declarations, changed))
+        @test !isequal(interface, model_interface(replacement))
+        comparison = compare_models(model, replacement)
+        @test !comparison.override_compatible
+        @test comparison.requires_binding_changes
+    end
+    changed_contract = AuthoringDistributedContractModel(model)
+    @test !isequal(interface, model_interface(changed_contract))
+    comparison = compare_models(model, changed_contract)
+    @test !comparison.override_compatible
+    @test any(difference.path == "variable_contracts.received" for difference in comparison.differences)
+end
 
 const AUTHORING_DROP_IN_MODELS = Union{
     AuthoringLinearModel,
@@ -596,6 +722,103 @@ end
     @test isnothing(partial_report.compilation.compiled)
     @test !isempty(partial_report.diagnostics)
     @test JSON.parse(to_json(partial_report))["schemaVersion"] == SCHEMA_VERSION
+
+    @testset "scenario validation display summarizes usable evidence" begin
+        for report in (valid_report, unresolved_report, partial_report)
+            before = to_json(report)
+            compact = repr(report)
+            display = repr(MIME"text/plain"(), report)
+
+            @test startswith(compact, "ScenarioValidationReport")
+            @test !occursin('\n', compact)
+            @test occursin(report.valid ? r"\bvalid\b" : r"\binvalid\b", lowercase(compact))
+            @test occursin("strict=$(report.strict)", compact)
+            @test occursin("Applications: $(report.summary.application_count)", display)
+            @test occursin("Connections: $(report.summary.input_binding_count) inputs, " *
+                           "$(report.summary.call_binding_count) model calls", display)
+            @test !occursin("CompositeModelCompilationReport", compact)
+            @test !occursin("CompositeModelCompilationReport", display)
+            @test repr(MIME"text/plain"(), report; context=:compact => true) == compact
+            @test count(compact, repr([report, report])) == 2
+            @test !occursin('\n', repr([report, report]))
+            @test to_json(report) == before
+        end
+
+        valid_display = repr(MIME"text/plain"(), valid_report)
+        @test occursin(r"\bvalid\b", lowercase(valid_display))
+        @test occursin("(strict)", valid_display)
+        @test occursin("Compilation: complete; cycles: 0", valid_display)
+
+        unresolved_display = repr(MIME"text/plain"(), unresolved_report)
+        @test occursin(r"\binvalid\b", lowercase(unresolved_display))
+        @test occursin("Compilation: complete; cycles: 0", unresolved_display)
+        @test occursin("unresolved_required_input", unresolved_display)
+        @test occursin("linear", unresolved_display)
+        @test occursin("leaf", unresolved_display)
+        @test occursin(r"\bx\b", unresolved_display)
+        @test occursin("report.diagnostics", unresolved_display)
+        @test occursin("Diagnostics: 1 error,", unresolved_display)
+        @test !occursin("Try: Provide", unresolved_display)
+
+        partial_display = repr(MIME"text/plain"(), partial_report)
+        @test occursin(r"\binvalid\b", lowercase(partial_display))
+        @test occursin("Compilation: incomplete", partial_display)
+        partial_error = first(diagnostic for diagnostic in partial_report.diagnostics
+                              if diagnostic.severity == :error)
+        @test occursin(string(partial_error.code), partial_display)
+        @test occursin("report.diagnostics", partial_display)
+
+        diagnostics = ValidationDiagnostic[
+            ValidationDiagnostic(:display_warning, :warning, "DISPLAY_HIDDEN_WARNING",
+                                 Dict{String,Any}(), String[]),
+            ValidationDiagnostic(:display_info, :info, "DISPLAY_HIDDEN_INFO",
+                                 Dict{String,Any}(), String[]),
+        ]
+        for index in 1:5
+            push!(diagnostics, ValidationDiagnostic(
+                Symbol("display_error_", index),
+                :error,
+                index == 1 ? "DISPLAY_ERROR_1\nsecond line" : "DISPLAY_ERROR_$index",
+                Dict{String,Any}("applicationIds" => ["canopy"],
+                                "objectIds" => ["palm"], "variable" => "par"),
+                ["DISPLAY_FIRST_SUGGESTION_$index", "DISPLAY_HIDDEN_SUGGESTION_$index"],
+            ))
+        end
+        push!(diagnostics, ValidationDiagnostic(
+            :another_display_warning, :warning, "DISPLAY_HIDDEN_WARNING_2",
+            Dict{String,Any}(), String[],
+        ))
+        crowded_report = ScenarioValidationReport(
+            valid_report.schema_version, false, false, valid_report.summary,
+            diagnostics, valid_report.compilation,
+        )
+        before = to_json(crowded_report)
+        crowded_display = repr(MIME"text/plain"(), crowded_report)
+        for index in 1:5
+            @test occursin("DISPLAY_ERROR_$index", crowded_display)
+            @test occursin("DISPLAY_FIRST_SUGGESTION_$index", crowded_display)
+        end
+        @test !occursin("DISPLAY_HIDDEN", crowded_display)
+        @test occursin("Diagnostics: 5 errors, 2 warnings, 1 info", crowded_display)
+        @test occursin("3 more diagnostics", crowded_display)
+        @test occursin("DISPLAY_ERROR_1 second line", crowded_display)
+        @test occursin("canopy", crowded_display)
+        @test occursin("palm", crowded_display)
+        @test occursin(r"\bpar\b", crowded_display)
+        @test occursin("report.diagnostics", crowded_display)
+        @test to_json(crowded_report) == before
+
+        small_display = sprint(show, MIME"text/plain"(), crowded_report;
+                               context=(:limit => true, :displaysize => (12, 40)))
+        @test length(split(small_display, '\n')) <= 12
+        @test all(line -> textwidth(line) <= 40, split(small_display, '\n'))
+        @test occursin("DISPLAY_ERROR_1 second line", small_display)
+        @test !occursin("DISPLAY_ERROR_2", small_display)
+        @test occursin("7 more diagnostics", small_display)
+        @test occursin("report.diagnostics", small_display)
+        @test occursin("Variable: par", small_display)
+        @test to_json(crowded_report) == before
+    end
 
     override_template = CompositeModelTemplate((
         ModelSpec(model; name=:linear, on=Many(scale=:Leaf)),

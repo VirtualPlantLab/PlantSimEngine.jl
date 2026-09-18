@@ -90,8 +90,12 @@ Rules:
 - `inputs_` contains only `Required(T)` and scientifically meaningful
   `Default(value)` declarations.
 - `Required(T)` is a type requirement, not an initial value.
-- `outputs_` provides actual initial values. Derive them from parameters when
-  that preserves the intended numeric type.
+- `outputs_` provides raw local initial values and wraps destination outputs
+  as `Distributed(Default(value))` or `Distributed(Required(T))`. Derive
+  defaults from parameters when that preserves the intended numeric type.
+  `outputs(model)` lists both kinds without a scenario. The scenario selects
+  destinations with anonymous `OutputTo` entries; see
+  [distributed outputs](dynamic-models.md).
 - Environment schemas provide model-facing initial/default values. Read those
   variables from `environment`, not from `status`.
 - Use `NamedTuple()` for an empty schema.

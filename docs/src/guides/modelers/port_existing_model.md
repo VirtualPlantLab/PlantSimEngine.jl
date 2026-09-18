@@ -1,9 +1,9 @@
 # Port an existing model
 
-Start from a calculation you already understand and test it before moving it.
-Identify its fixed parameters, the values that change during a simulation,
-the environmental data it needs, and the results it calculates. Keep the
-equation unchanged while giving each quantity a clear place.
+If you want to implement an existing model into PlantSimEngine, you should start by writing unit and integration tests so you can validate your model against the reference.
+
+Then, identify its fixed parameters, the values that change during a simulation,
+the environmental data it needs, and the results it calculates.
 
 ## Begin with an existing calculation
 

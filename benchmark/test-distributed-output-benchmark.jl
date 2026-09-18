@@ -9,8 +9,12 @@ struct DistributedOutputBenchmarkBoundInputModel <:
        AbstractDistributed_Output_Benchmark_Bound_InputModel end
 struct DistributedOutputBenchmarkStatusInputModel <:
        AbstractDistributed_Output_Benchmark_Status_InputModel end
-struct DistributedOutputBenchmarkSceneWriterModel <:
-       AbstractDistributed_Output_Benchmark_Scene_WriterModel end
+struct DistributedOutputBenchmarkSceneWriterModel{D} <:
+       AbstractDistributed_Output_Benchmark_Scene_WriterModel
+    declarations::D
+end
+DistributedOutputBenchmarkSceneWriterModel() =
+    DistributedOutputBenchmarkSceneWriterModel(NamedTuple())
 struct DistributedOutputBenchmarkAssignmentModel{T,I,C,M} <:
        AbstractDistributed_Output_Benchmark_AssignmentModel
     table::T
@@ -49,9 +53,12 @@ PlantSimEngine.outputs_(::DistributedOutputBenchmarkStatusInputModel) = (
     total=0.0,
 )
 PlantSimEngine.inputs_(::DistributedOutputBenchmarkSceneWriterModel) = NamedTuple()
-PlantSimEngine.outputs_(::DistributedOutputBenchmarkSceneWriterModel) = NamedTuple()
+PlantSimEngine.outputs_(model::DistributedOutputBenchmarkSceneWriterModel) = model.declarations
 PlantSimEngine.inputs_(::DistributedOutputBenchmarkAssignmentModel) = NamedTuple()
-PlantSimEngine.outputs_(::DistributedOutputBenchmarkAssignmentModel) = NamedTuple()
+PlantSimEngine.outputs_(model::DistributedOutputBenchmarkAssignmentModel) =
+    NamedTuple{keys(model.columns)}(map(values(model.columns)) do column
+        Distributed(Default(zero(eltype(column))))
+    end)
 function PlantSimEngine.run!(
     ::DistributedOutputBenchmarkSceneWriterModel,
     status,
@@ -69,7 +76,7 @@ function PlantSimEngine.run!(
     constants,
     context,
 )
-    targets = PlantSimEngine.output_targets(context, :leaves)
+    targets = PlantSimEngine.output_targets(context, keys(model.columns))
     benchmark_assign_outputs_api!(model.mode, targets, model)
     return nothing
 end
@@ -448,9 +455,6 @@ function setup_distributed_output_public_assignment_benchmark(
            data.column_values.rank :
            reverse(data.column_values.rank)
     table = ncolumns == 1 ? base_table : (; base_table..., rank)
-    output_variables = ncolumns == 1 ?
-                       (incident_par=Default(0.0),) :
-                       (incident_par=Default(0.0), rank=Default(0))
     objects = Object[Object(:scene; scale=:Scene)]
     sizehint!(objects, nobjects + 1)
     for (index, object_id) in enumerate(data.object_ids)
@@ -481,9 +485,8 @@ function setup_distributed_output_public_assignment_benchmark(
                 name=:scene_assignment,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
-                        Many(scale=:Leaf, within=SceneScope());
-                        vars=output_variables,
+                    OutputTo(
+                        Many(scale=:Leaf, within=SceneScope()),
                     ),
                 ),
             ),
@@ -502,9 +505,6 @@ function setup_distributed_output_wide_assignment_benchmark(
     names = ntuple(index -> Symbol(:output_, index), ncolumns)
     columns = NamedTuple{names}(
         ntuple(index -> fill(Float64(index), nobjects), ncolumns),
-    )
-    output_variables = NamedTuple{names}(
-        ntuple(_ -> Default(0.0), ncolumns),
     )
     objects = Object[Object(:scene; scale=:Scene)]
     sizehint!(objects, nobjects + 1)
@@ -532,9 +532,8 @@ function setup_distributed_output_wide_assignment_benchmark(
                 name=:scene_wide_assignment,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
-                        Many(scale=:Leaf, within=SceneScope());
-                        vars=output_variables,
+                    OutputTo(
+                        Many(scale=:Leaf, within=SceneScope()),
                     ),
                 ),
             ),
@@ -625,13 +624,14 @@ function setup_distributed_output_compilation_benchmark(
     end
     application = if distributed
         ModelSpec(
-            DistributedOutputBenchmarkSceneWriterModel();
+            DistributedOutputBenchmarkSceneWriterModel((
+                incident_par=Distributed(Default(0.0)),
+            ));
             name=:scene_writer,
             on=One(scale=:Scene),
             outputs_to=(
-                leaves=OutputTo(
-                    Many(scale=:Leaf, within=SceneScope());
-                    vars=(incident_par=Default(0.0),),
+                OutputTo(
+                    Many(scale=:Leaf, within=SceneScope()),
                 ),
             ),
         )

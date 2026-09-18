@@ -27,11 +27,12 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     await page.getByTestId("object-id").fill("leaf");
     await page.locator(".object-form label", { hasText: "Scale" }).getByRole("textbox").fill("Leaf");
     await page.locator(".object-form label", { hasText: "Kind" }).getByRole("textbox").fill("organ");
-    await page.locator(".object-form label", { hasText: "Name" }).getByRole("textbox").fill("leaf");
     await page.getByTestId("object-submit").click();
 
     state = await waitForState(request, server.url, (value) => value.graph.metadata.objectCount === 1);
     expect(state.graph.objects[0].scale).toBe("Leaf");
+    expect(state.graph.objects[0].name).toBeNull();
+    expect(state.graph.objects[0].objectId).toBe("leaf");
   });
 
   test("adds and updates an application", async ({ page, request }) => {
@@ -71,6 +72,33 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     await expect(page.getByText("Edit application")).toHaveCount(0);
   });
 
+  for (const width of [760, 420]) {
+    test(`static viewer keeps the graph visible in a ${width}px documentation iframe`, async ({ page }) => {
+      const url = new URL(server.url);
+      url.pathname = "/static";
+      await page.setViewportSize({ width: 1200, height: 900 });
+      await page.setContent(`<!doctype html>
+        <html><body style="margin: 0">
+          <iframe title="Embedded model graph" src="${url.toString()}"
+            style="width: ${width}px; height: 720px; border: 0" loading="lazy"></iframe>
+        </body></html>`);
+
+      const viewer = page.frameLocator('iframe[title="Embedded model graph"]');
+      const canvas = viewer.locator(".react-flow");
+      await expect.poll(async () => (await canvas.boundingBox())?.height ?? 0).toBeGreaterThan(200);
+      await expect(viewer.getByTestId("application-node-light")).toBeInViewport({ ratio: 0.9 });
+      await expect(viewer.locator(".react-flow__controls")).toBeInViewport({ ratio: 1 });
+
+      // Toolbar wrapping must leave the canvas within the iframe, with no lost space below it.
+      await expect.poll(async () => {
+        const shellBounds = await viewer.getByTestId("model-graph-viewer").boundingBox();
+        const canvasBounds = await canvas.boundingBox();
+        if (!shellBounds || !canvasBounds) return Infinity;
+        return Math.abs(shellBounds.y + shellBounds.height - canvasBounds.y - canvasBounds.height);
+      }).toBeLessThanOrEqual(1);
+    });
+  }
+
   test("creates and breaks a cycle directly in the graph", async ({ page, request }) => {
     await page.goto(server.url);
     await page.getByTestId("port-input-LAI").getByRole("button").click();
@@ -86,6 +114,8 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     await page.getByTestId("choose-cycle-break").click();
     const scissors = page.locator("[data-testid^='cycle-break-']").first();
     await expect(scissors).toBeVisible();
+    // Adding the second model preserves the previous zoom; fit the expanded graph before editing it.
+    await page.getByRole("button", { name: "Fit View", exact: true }).click();
     await scissors.click();
     await expect(page.getByTestId("cycle-break-dialog")).toBeVisible();
     const initialization = page.getByTestId("cycle-break-dialog").getByRole("textbox");
@@ -154,15 +184,15 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
 
   test("mounts one template twice, configures an override and environment, then reopens with undo and redo", async ({ page, request }, testInfo) => {
     await page.goto(server.url);
-    await addObject(page, "plant_a", "Plant", "plant", "plant_a");
-    await addObject(page, "plant_b", "Plant", "plant", "plant_b");
+    await addObject(page, "plant_a", "Plant", "plant", "Coffee plant");
+    await addObject(page, "plant_b", "Plant", "plant", "Coffee plant");
     await waitForState(request, server.url, (value) => value.graph.objects.some((object) => object.objectId === "plant_b"));
 
     for (const plant of ["plant_a", "plant_b"]) {
       await page.getByTestId("add-instance").click();
       await page.getByTestId("instance-template").selectOption("catalog:plant");
       await page.getByTestId("instance-name").fill(plant);
-      await page.getByTestId("instance-root").selectOption(plant);
+      await page.getByTestId("instance-root").selectOption(JSON.stringify(plant));
       await page.getByTestId("instance-preview-button").click();
       await expect(page.getByTestId("instance-preview")).toContainText("1 claimed object");
       await page.getByTestId("instance-submit").click();
@@ -170,6 +200,7 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     }
 
     let state = await getState(request, server.url);
+    expect(state.graph.objects.filter((object) => object.name === "Coffee plant").map((object) => object.objectId).sort()).toEqual(["plant_a", "plant_b"]);
     expect(findApplication(state, "plant_a__template_source").targetIds).toEqual(["plant_a"]);
     expect(findApplication(state, "plant_b__template_source").targetIds).toEqual(["plant_b"]);
 
@@ -230,7 +261,7 @@ async function addObject(page: Page, id: string, scale: string, kind: string, na
   await page.getByTestId("object-id").fill(id);
   await page.locator(".object-form label", { hasText: "Scale" }).getByRole("textbox").fill(scale);
   await page.locator(".object-form label", { hasText: "Kind" }).getByRole("textbox").fill(kind);
-  await page.locator(".object-form label", { hasText: "Name" }).getByRole("textbox").fill(name);
+  await page.getByLabel("Display name (optional)").fill(name);
   await page.getByTestId("object-submit").click();
 }
 

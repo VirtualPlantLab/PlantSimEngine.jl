@@ -46,10 +46,12 @@ function PlantSimEngine.run!(::ManualManyFilterReader, status, environment, cons
 end
 
 PlantSimEngine.inputs_(::ManualManyFilterUnrelatedWriter) = NamedTuple()
-PlantSimEngine.outputs_(::ManualManyFilterUnrelatedWriter) = NamedTuple()
+PlantSimEngine.outputs_(::ManualManyFilterUnrelatedWriter) = (
+    marker_value=Distributed(Default(0.0)),
+)
 
 function PlantSimEngine.run!(::ManualManyFilterUnrelatedWriter, status, environment, constants, context)
-    targets = output_targets(context, :markers)
+    targets = output_targets(context, (:marker_value,))
     assign_outputs!(targets, collect(object_ids(targets)),
         (marker_value=fill(42.0, length(targets)),))
     return nothing
@@ -59,7 +61,7 @@ function manual_many_filter_scenario(; distributed_output)
     applications = (
         ModelSpec(ManualManyFilterReader(); name=:lagged_reader, on=One(scale=:Scene),
             inputs=(PreviousTimeStep(:previous_potentials) => Many(
-                scale=:SoilLayer, name=(:soil_layer_1,), within=Subtree(),
+                scale=:SoilLayer, id=(:soil_layer_1,), within=Subtree(),
                 application=:manual_source, var=:potential,
             ),)),
         ModelSpec(ManualManyFilterController(); name=:controller, on=One(scale=:Scene),
@@ -70,8 +72,8 @@ function manual_many_filter_scenario(; distributed_output)
     unrelated = distributed_output ? (
         ModelSpec(ManualManyFilterUnrelatedWriter(); name=:unrelated_writer,
             on=One(scale=:Scene),
-            outputs_to=(markers=OutputTo(Many(scale=:Marker, within=Subtree());
-                vars=(marker_value=Default(0.0),)),)),
+            outputs_to=(OutputTo(Many(scale=:Marker, within=Subtree());
+                vars=(:marker_value,)),)),
     ) : ()
     return CompositeModel(
         Object(:scene; scale=:Scene, status=Status(previous_potentials=[-1.0])),
@@ -180,13 +182,13 @@ end
                     ModelSpec(PrivateManyFilterReader(selector);
                         name=:private_reader, on=One(scale=:Scene)),
                     ModelSpec(PrivateManyFilterSource(); name=:private_source,
-                        on=One(name=:private_leaf), output_routing=(potential=:stream_only,)),
+                        on=One(id=:private_leaf), output_routing=(potential=:stream_only,)),
                     ModelSpec(PrivateManyFilterCanonicalSource();
                         name=:canonical_source, on=Many(scale=:Leaf)),
                     ModelSpec(ManualManyFilterUnrelatedWriter(); name=:private_case_distributor,
                         on=One(scale=:Scene),
-                        outputs_to=(markers=OutputTo(Many(scale=:Marker, within=Subtree());
-                            vars=(marker_value=Default(0.0),)),)),
+                        outputs_to=(OutputTo(Many(scale=:Marker, within=Subtree());
+                            vars=(:marker_value,)),)),
                 ),
                 environment=(duration=Hour(1),),
             )

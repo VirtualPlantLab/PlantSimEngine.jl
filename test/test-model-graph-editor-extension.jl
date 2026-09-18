@@ -13,6 +13,13 @@ struct EditorConsumerModel <: AbstractEditorConsumerModel end
 PlantSimEngine.inputs_(::EditorConsumerModel) = (signal=Required(Float64),)
 PlantSimEngine.outputs_(::EditorConsumerModel) = (result=-Inf,)
 
+struct EditorDistributedModel <: AbstractEditorSourceModel end
+PlantSimEngine.outputs_(::EditorDistributedModel) = (
+    signal=Distributed(Default(0.0)),
+    absorbed=Distributed(Default(0.0)),
+    total=0.0,
+)
+
 struct EditorNamedStatusTransform end
 
 function (::EditorNamedStatusTransform)(variable, value)
@@ -67,11 +74,50 @@ editor_template_ref(instance, application_id) = Dict(
     "instance" => string(instance),
 )
 
+@testset "Editor output destinations preserve omission and variable partitions" begin
+    model = CompositeModel(
+        Object(10; scale=:Scene), Object(11; scale=:Leaf, parent=10);
+        applications=(ModelSpec(EditorDistributedModel(); name=:writer, on=One(id=10),
+            outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope())),)),),
+    )
+    session = edit_graph(model; port=0, open_browser=false, autosave=false)
+    extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
+    try
+        selector = Dict("multiplicity" => "one", "criteria" => Dict("id" => 11))
+        command = Dict(
+            "kind" => "set_output_destinations",
+            "applicationRef" => editor_global_ref(:writer),
+            "destinations" => [Dict("selector" => selector, "vars" => nothing)],
+        )
+        inferred = extension._edit_from_command(session, command)
+        @test only(inferred.destinations).vars === nothing
+        command["destinations"] = [Dict("selector" => selector, "vars" => ["absorbed", "signal"])]
+        explicit = extension._edit_from_command(session, command)
+        edited = apply_model_graph_edit(session.model, explicit)
+        @test only(outputs_to(only(edited.applications))).vars == (:absorbed, :signal)
+        @test only(outputs_to(only(session.model.applications))).vars === nothing
+
+        command["destinations"] = [Dict("selector" => selector, "vars" => [name]) for name in ("signal", "absorbed")]
+        partition = extension._edit_from_command(session, command)
+        edited_partition = apply_model_graph_edit(session.model, partition)
+        @test Tuple(entry.vars for entry in outputs_to(only(edited_partition.applications))) == ((:signal,), (:absorbed,))
+        restored = Base.include_string(Main, Authoring.scenario_source(edited_partition), "editor_output_destinations.jl")
+        @test Tuple(entry.vars for entry in outputs_to(only(restored.applications))) == ((:signal,), (:absorbed,))
+
+        command["destinations"] = [Dict("selector" => selector, "vars" => String[])]
+        @test_throws "requires at least one variable name" extension._edit_from_command(session, command)
+        command["destinations"] = [Dict("selector" => selector, "vars" => Dict("signal" => 0.0))]
+        @test_throws "null or an array" extension._edit_from_command(session, command)
+    finally
+        close(session)
+    end
+end
+
 @testset "session lifecycle and edits" begin
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0));
         applications=(
-            ModelSpec(EditorSourceModel(); name=:source, on=One(name=:leaf)),
+            ModelSpec(EditorSourceModel(); name=:source, on=One(id=:leaf)),
         ),
     )
     session = edit_graph(model; port=0, open_browser=false, autosave=false)
@@ -94,7 +140,7 @@ editor_template_ref(instance, application_id) = Dict(
         @test static_view.status == 200
         @test occursin("pse-model-graph-data", String(static_view.body))
 
-        consumer_spec = ModelSpec(EditorConsumerModel(); name=:consumer, on=One(name=:leaf))
+        consumer_spec = ModelSpec(EditorConsumerModel(); name=:consumer, on=One(id=:leaf))
         apply_edit!(session, AddModelApplication(consumer_spec))
         @test length(current_model(session).applications) == 2
         @test !isempty(session.history)
@@ -458,7 +504,7 @@ end
             "parameters" => Dict(),
             "selector" => Dict(
                 "multiplicity" => "one",
-                "criteria" => Dict("selectors" => Any[], "name" => "leaf"),
+                "criteria" => Dict("selectors" => Any[], "id" => "leaf"),
             ),
             "cadence" => Dict("mode" => "period", "value" => 2, "unit" => "Hour"),
         ))
@@ -575,7 +621,7 @@ end
             "parameters" => Dict(),
             "selector" => Dict(
                 "multiplicity" => "one",
-                "criteria" => Dict("selectors" => Any[], "name" => "leaf"),
+                "criteria" => Dict("selectors" => Any[], "id" => "leaf"),
             ),
             "cadence" => Dict("mode" => "default"),
         ))
@@ -712,7 +758,7 @@ end
         scale=:Leaf,
         status=Status(driver=1.0),
         applications=(
-            ModelSpec(EditorSourceModel(); name=:local_source, on=One(name=:local_leaf)),
+            ModelSpec(EditorSourceModel(); name=:local_source, on=One(id=:local_leaf)),
         ),
     ))
     local_session = edit_graph(local_model; port=0, open_browser=false, autosave=false)
@@ -867,4 +913,51 @@ end
     )
     @test registered_closure.status.ordinary isa Float32
     @test registered_closure.status.special isa Float32
+end
+
+@testset "JSON selectors preserve typed object IDs and separate instance names" begin
+    editor_extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
+    model = CompositeModel(Object(42), Object("42"))
+    for raw_id in (42, "42")
+        selector = editor_extension._selector_from_payload(Dict(
+            "multiplicity" => "one",
+            "criteria" => Dict(
+                "selectors" => Any[],
+                "id" => raw_id,
+            ),
+        ))
+        @test resolve_object_ids(model, selector) == [ObjectId(raw_id)]
+        scope = editor_extension._selector_atom_from_payload(Dict("type" => "Scope", "id" => raw_id))
+        @test resolve_object_ids(model, One(within=scope)) == [ObjectId(raw_id)]
+    end
+    instance_scope = editor_extension._selector_atom_from_payload(Dict("type" => "Scope", "name" => "plant"))
+    @test instance_scope.root == :plant
+end
+
+@testset "JSON selector round-trips distinguish compound IDs from ID collections" begin
+    editor_extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
+    compound = ObjectId((:plant, 42, :leaf, 1))
+    nested = ObjectId((:plant, (:segment, 2), "tip"))
+    model = CompositeModel(
+        Object(42),
+        Object("42"),
+        Object(compound),
+        Object(nested; parent=compound),
+    )
+    cases = (
+        (One(id=42), Set([ObjectId(42)])),
+        (One(id="42"), Set([ObjectId("42")])),
+        (One(id=compound), Set([compound])),
+        (One(id=nested), Set([nested])),
+        (Many(id=(42, "42", compound)), Set([ObjectId(42), ObjectId("42"), compound])),
+        (Many(within=Scope(compound)), Set([compound, nested])),
+        (One(within=Scope(nested)), Set([nested])),
+    )
+    for (selector, expected) in cases
+        # Go through actual JSON so tuple/number handling cannot rely on Julia's
+        # in-memory payload types surviving a browser round trip.
+        payload = JSON.parse(JSON.json(PlantSimEngine._model_graph_selector_dict(selector)))
+        restored = editor_extension._selector_from_payload(payload)
+        @test Set(resolve_object_ids(model, restored)) == expected
+    end
 end

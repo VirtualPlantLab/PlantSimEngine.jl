@@ -117,11 +117,15 @@ struct DistributeLeafSignal{T} <: AbstractPedagogical_Distributed_SignalModel
 end
 
 PlantSimEngine.inputs_(::DistributeLeafSignal) = NamedTuple()
-PlantSimEngine.outputs_(::DistributeLeafSignal) = (assigned_count=0,)
+PlantSimEngine.outputs_(model::DistributeLeafSignal) = (
+    assigned_count=0,
+    incident_signal=Distributed(Default(zero(model.base))),
+)
 PlantSimEngine.environment_inputs_(::DistributeLeafSignal) = NamedTuple()
 PlantSimEngine.environment_outputs_(::DistributeLeafSignal) = NamedTuple()
 PlantSimEngine.variable_contracts_(::DistributeLeafSignal) = (
     assigned_count=COUNT_CONTRACT,
+    incident_signal=DISTRIBUTED_SIGNAL_CONTRACT,
 )
 PlantSimEngine.Authoring.model_metadata(::DistributeLeafSignal) = (
     hypothesis="A scene assigns one identity-keyed illustrative signal to every leaf.",
@@ -143,7 +147,7 @@ function PlantSimEngine.run!(
     constants,
     context,
 )
-    targets = output_targets(context, :leaves)
+    targets = output_targets(context, (:incident_signal,))
     result_ids = reverse(collect(object_ids(targets)))
     values = [
         model.base + convert(typeof(model.base), index)
@@ -195,9 +199,9 @@ function distributed_output_scenario(::Type{T}=Float32) where {T<:Real}
                 name=:distributed_signal,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(incident_signal=Default(zero(T)),),
+                        vars=(:incident_signal,),
                     ),
                 ),
             ),

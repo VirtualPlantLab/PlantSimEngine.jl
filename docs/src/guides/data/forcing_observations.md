@@ -24,7 +24,7 @@ final_state(fixed_simulation).aPPFD
 ```
 
 If you add a model that calculates LAI, it will replace this supplied value
-when it runs. To keep the observed LAI fixed, use it without an LAI model.
+when it runs. To keep the observed LAI fixed, use it without an LAI model, or with an LAI model that just outputs the constant value.
 
 ## A sequence of observations
 

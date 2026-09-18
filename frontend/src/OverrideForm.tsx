@@ -1,3 +1,4 @@
+import { objectChoiceValue, objectChoiceId, objectIdLabel } from "./ObjectChoice";
 import { Check, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { modelDescriptorForApplication, ParameterFields, parameterDefaults } from "./ApplicationForm";
@@ -35,7 +36,7 @@ export function OverrideForm({
   const [scope, setScope] = useState<"instance" | "object">("instance");
   const [instanceName, setInstanceName] = useState(application.targetInstances[0] || instances[0]?.name || "");
   const instance = instances.find((item) => item.name === instanceName);
-  const objectIds = (instance?.objectIds || []).filter((id) => application.targetIds.some((target) => String(target) === String(id)));
+  const objectIds = (instance?.objectIds || []).filter((id) => application.targetIds.some((target) => objectChoiceValue(target) === objectChoiceValue(id)));
   const [objectId, setObjectId] = useState<unknown>(objectIds[0] ?? "");
   const [modelType, setModelType] = useState(initialModel?.type || application.modelType);
   const model = matchingModels.find((item) => item.type === modelType) || initialModel;
@@ -44,7 +45,7 @@ export function OverrideForm({
   const hasInstanceOverride = Boolean(instance?.instanceOverrides.includes(baseApplicationId));
   const hasObjectOverride = Boolean(instance?.objectOverrides.some((entry) => {
     const record = entry as Record<string, unknown>;
-    return String(record.object ?? record.objectId ?? "") === String(objectId) &&
+    return objectChoiceValue(record.object ?? record.objectId) === objectChoiceValue(objectId) &&
       String(record.application ?? record.applicationId ?? "") === baseApplicationId;
   }));
   const canRemove = scope === "instance" ? hasInstanceOverride : hasObjectOverride;
@@ -66,15 +67,15 @@ export function OverrideForm({
           <label>Instance<select value={instanceName} onChange={(event) => {
             const nextName = event.target.value;
             const nextInstance = instances.find((item) => item.name === nextName);
-            const nextObject = (nextInstance?.objectIds || []).find((id) => application.targetIds.some((target) => String(target) === String(id)));
+            const nextObject = (nextInstance?.objectIds || []).find((id) => application.targetIds.some((target) => objectChoiceValue(target) === objectChoiceValue(id)));
             setInstanceName(nextName);
             setObjectId(nextObject ?? "");
           }}>{instances.filter((item) => application.targetInstances.includes(item.name)).map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
-          {scope === "object" && <label>Object<select value={String(objectId)} onChange={(event) => setObjectId(event.target.value)}>{objectIds.map((id) => <option value={String(id)} key={String(id)}>{String(id)}</option>)}</select></label>}
+          {scope === "object" && <label>Object<select value={objectChoiceValue(objectId)} onChange={(event) => setObjectId(objectChoiceId(event.target.value))}>{objectIds.map((id) => <option value={objectChoiceValue(id)} key={objectChoiceValue(id)}>{objectIdLabel(id)}</option>)}</select></label>}
           <label>Replacement model<select value={modelType} onChange={(event) => selectModel(event.target.value)}>{matchingModels.map((item) => <option key={item.type} value={item.type}>{item.package ? `${item.package} · ` : ""}{item.name}</option>)}</select></label>
         </div>
         {model && model.constructor.fields.length > 0 && <fieldset><legend>Model parameters</legend><ParameterFields fields={model.constructor.fields} values={parameters} onChange={setParameters} /></fieldset>}
-        <div className="override-warning"><strong>{scope === "instance" ? `Override ${instanceName}` : `Override object ${String(objectId)}`}</strong><span>Julia validates that the replacement keeps the same process and declared variable contract.</span></div>
+        <div className="override-warning"><strong>{scope === "instance" ? `Override ${instanceName}` : `Override object ${objectIdLabel(objectId)}`}</strong><span>Julia validates that the replacement keeps the same process and declared variable contract.</span></div>
       </div>
       <footer><button onClick={onClose}>Cancel</button>{canRemove && <button className="danger" data-testid="remove-override" onClick={() => onRemove({ scope, instance: instanceName, objectId: scope === "object" ? objectId : undefined, applicationRef: application.owner, modelType, parameters })}><Trash2 size={15} /> Remove override</button>}<button className="primary" disabled={!instanceName || !modelType || (scope === "object" && !String(objectId))} onClick={() => onSubmit({ scope, instance: instanceName, objectId: scope === "object" ? objectId : undefined, applicationRef: application.owner, modelType, parameters })}><Check size={15} /> Apply override</button></footer>
     </section>

@@ -166,14 +166,14 @@ function coupling_scenario(::Type{T}=Float32) where {T<:Real}
             :leaf_1;
             scale=:Leaf,
             kind=:leaf,
-            name=:first_leaf,
+            name="First leaf",
             parent=:plant,
         ),
         Object(
             :leaf_2;
             scale=:Leaf,
             kind=:leaf,
-            name=:second_leaf,
+            name="Second leaf",
             parent=:plant,
         );
         applications=(
@@ -189,7 +189,7 @@ function coupling_scenario(::Type{T}=Float32) where {T<:Real}
                 inputs=(
                     selected_signal=One(
                         scale=:Leaf,
-                        name=:first_leaf,
+                        id=:leaf_1,
                         within=Subtree(),
                         application=:leaf_source,
                         var=:leaf_signal,

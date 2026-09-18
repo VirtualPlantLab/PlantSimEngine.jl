@@ -100,7 +100,7 @@ function readout_binding(name, j, width)
         return name => One(within=Self(), var=Symbol("seed_", mod1(j, width)))
     elseif kind == 2
         return PreviousTimeStep(name) => One(
-            scale=:Source, name=:source_1, within=Subtree(),
+            scale=:Source, id=:source_1, within=Subtree(),
             application=:signal_source, var=:signal,
         )
     end

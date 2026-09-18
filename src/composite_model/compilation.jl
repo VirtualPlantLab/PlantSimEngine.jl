@@ -262,12 +262,12 @@ struct CompiledApplicationSchedule{E,A,P,G}
 end
 
 """Reverse candidate index for compiled selector matchers."""
-struct SelectorCandidateIndex{W,S,K,SP,N,A,R,L,C}
+struct SelectorCandidateIndex{W,S,K,SP,I,A,R,L,C}
     wildcard::W
     by_scale::S
     by_kind::K
     by_species::SP
-    by_name::N
+    by_id::I
     by_scope_anchor::A
     scope_roots::R
     template_label_values::L
@@ -280,13 +280,13 @@ function _selector_candidate_index(; application_targets::Bool=false)
         Dict{Symbol,Vector{Int}}(),
         Dict{Symbol,Vector{Int}}(),
         Dict{Symbol,Vector{Int}}(),
-        Dict{Symbol,Vector{Int}}(),
+        Dict{ObjectId,Vector{Int}}(),
         Dict{
-            Union{ObjectId,Tuple{ObjectId,Symbol,Symbol}},
+            Union{ObjectId,Tuple{ObjectId,Symbol,Union{Symbol,ObjectId}}},
             Vector{Int},
         }(),
         Set{ObjectId}(),
-        Dict{Symbol,Set{Symbol}}(),
+        Dict{Symbol,Set{Union{Symbol,ObjectId}}}(),
         application_targets ? Dict{Any,Any}() : nothing,
     )
 end
@@ -298,7 +298,7 @@ function _freeze_selector_candidate_index(index::SelectorCandidateIndex)
         freeze(index.by_scale),
         freeze(index.by_kind),
         freeze(index.by_species),
-        freeze(index.by_name),
+        freeze(index.by_id),
         freeze(index.by_scope_anchor),
         Set(index.scope_roots),
         Dict(
@@ -384,7 +384,7 @@ function _selector_candidate_destination(
     if !isnothing(anchor)
         anchor_id = ObjectId(anchor)
         for (label, value) in (
-            (:name, matcher.name),
+            (:id, matcher.id),
             (:scale, matcher.scale),
             (:kind, matcher.kind),
             (:species, matcher.species),
@@ -400,7 +400,7 @@ function _selector_candidate_destination(
         return (index.by_scope_anchor, (anchor_id,))
     end
     for (groups, value) in (
-        (index.by_name, matcher.name),
+        (index.by_id, matcher.id),
         (index.by_scale, matcher.scale),
         (index.by_kind, matcher.kind),
         (index.by_species, matcher.species),
@@ -422,11 +422,11 @@ function _index_selector_candidate!(
     tracks_application_targets =
         !isnothing(index.application_target_templates)
     if tracks_application_targets
-        for label in (:scale, :kind, :species, :name)
+        for label in (:scale, :kind, :species, :id)
             value = getproperty(matcher, label)
             isnothing(value) && continue
             union!(
-                get!(index.template_label_values, label, Set{Symbol}()),
+                get!(index.template_label_values, label, Set{Union{Symbol,ObjectId}}()),
                 _selector_candidate_values(value),
             )
         end
@@ -464,7 +464,7 @@ function _union_selector_candidates!(
     union!(candidates, index.wildcard)
     object = _model_object(model, object_id)
     for (groups, value) in (
-        (index.by_name, object.name),
+        (index.by_id, object.id),
         (index.by_scale, object.scale),
         (index.by_kind, object.kind),
         (index.by_species, object.species),
@@ -474,7 +474,7 @@ function _union_selector_candidates!(
     for anchor in _object_ancestor_ids(model.registry, object_id)
         union!(candidates, get(index.by_scope_anchor, anchor, ()))
         for (label, value) in (
-            (:name, object.name),
+            (:id, object.id),
             (:scale, object.scale),
             (:kind, object.kind),
             (:species, object.species),
@@ -720,7 +720,7 @@ function _validate_initializer_call_plans!(
             "Targeted newborn initialization supports canonical local outputs only.",
         )
         stream_only = Symbol[
-            Symbol(variable) for variable in keys(outputs_(callee.spec))
+            Symbol(variable) for variable in keys(_local_output_schema(callee.spec))
             if _publish_mode_for_output(callee.spec, Symbol(variable)) === :stream_only
         ]
         isempty(stream_only) || error(
@@ -1933,7 +1933,7 @@ function _application_target_template_key(
         _application_target_template_label(index, :scale, object.scale),
         _application_target_template_label(index, :kind, object.kind),
         _application_target_template_label(index, :species, object.species),
-        _application_target_template_label(index, :name, object.name),
+        _application_target_template_label(index, :id, object.id),
         scope_roots,
     )
 end
@@ -2195,7 +2195,7 @@ function _many_binding_scope_anchor(
     elseif scope isa SelfPlant
         return (:plant, _ancestor_id(model, consumer_id; scale=:Plant))
     elseif scope isa Scope
-        return (:scope, scope.name)
+        return (:scope, _named_scope_root_id(model, scope))
     elseif scope isa Ancestor
         return (
             :ancestor,
@@ -4167,7 +4167,7 @@ function explain_initialization(model::CompositeModel)
 
     rows = NamedTuple[]
     for application in compiled.applications
-        model_outputs = outputs_(application.spec)
+        model_outputs = _local_output_schema(application.spec)
         environment_model_outputs = environment_outputs_(application.spec)
         model_inputs = _input_schema(application.spec)
         environment_inputs = environment_inputs_(application.spec)
@@ -4484,7 +4484,7 @@ function _application_model(application::CompiledModelApplication, object_id::Ob
 end
 
 function _model_output_names(application::CompiledModelApplication)
-    return Symbol[Symbol(var) for var in keys(outputs_(application.spec))]
+    return Symbol[Symbol(var) for var in keys(_local_output_schema(application.spec))]
 end
 
 function _model_canonical_output_names(application::CompiledModelApplication)
@@ -4627,6 +4627,15 @@ function _resolve_model_output_destinations(
     for plan in compiled_plans.plans
         application = applications[plan.application_slot]
         for execution_object_id in application.target_ids
+            effective_model = _application_model(application, execution_object_id)
+            declarations = _distributed_output_schema(effective_model)
+            names = keys(plan.declarations)
+            effective_declarations = NamedTuple{names}(map(name -> declarations[name], names))
+            effective_plan = CompiledModelOutputDestinationPlan(
+                plan.slot, plan.application_slot, plan.application_id, plan.group,
+                plan.selector, plan.matcher, effective_declarations, plan.multiplicity,
+                plan.coverage,
+            )
             destination_ids = _dependency_object_ids(
                 model,
                 plan.selector,
@@ -4637,7 +4646,7 @@ function _resolve_model_output_destinations(
             push!(
                 resolved,
                 ResolvedModelOutputDestination(
-                    plan,
+                    effective_plan,
                     execution_object_id,
                     destination_ids,
                 ),
@@ -4674,7 +4683,7 @@ function _validate_compiled_writer_ownership!(ownership, applications)
                 error(
                     "Application `$(owner.application_id)` declares more than one canonical " *
                     "writer for `$(variable)` on object `$(object_id.value)`. Ensure its " *
-                    "`on=...` targets and named `outputs_to` destinations do not overlap.",
+                    "`on=...` targets and `outputs_to` destinations do not overlap.",
                 )
             end
             push!(seen_application_slots, owner.application_slot)
@@ -4729,23 +4738,6 @@ function _compile_model_writer_ownership(
         for destination_id in resolved.destination_ids
             for variable_ in keys(plan.declarations)
                 variable = Symbol(variable_)
-                if first(
-                       _sorted_object_id_position(
-                           application.target_ids,
-                           destination_id,
-                       ),
-                   ) &&
-                   variable in keys(outputs_(application.spec)) &&
-                   _publish_mode_for_output(application.spec, variable) ==
-                   :stream_only
-                    error(
-                        "Application `$(plan.application_id)` publishes stream-only local " *
-                        "output `$(variable)` and distributes the same variable to its " *
-                        "execution object `$(destination_id.value)`. Both publications " *
-                        "would share one retained stream key; use distinct variable names " *
-                        "or exclude the execution object from `outputs_to`.",
-                    )
-                end
                 _push_compiled_writer_owner!(
                     ownership,
                     destination_id,
@@ -4819,7 +4811,7 @@ end
 function _model_application_hint_scale(model::CompositeModel, target_ids::Vector{ObjectId})
     isempty(target_ids) && return :Scene
     scales = unique!([_model_object(model, object_id).scale for object_id in target_ids])
-    length(scales) == 1 && return only(scales)
+    length(scales) == 1 && return something(only(scales), :Default)
     return :Mixed
 end
 
@@ -5030,7 +5022,7 @@ function _stream_only_initial_reference(
             initial, _, _ = _materialize_status_value(
                 model,
                 source_var,
-                getproperty(outputs_(application.spec), source_var);
+                getproperty(_local_output_schema(application.spec), source_var);
                 object_id=source_id,
                 application_id=application.id,
                 origin=:stream_only_source_default,
@@ -5332,7 +5324,7 @@ end
 
 function _prepare_model_output_statuses!(model::CompositeModel, applications)
     for application in applications
-        defaults = outputs_(application.spec)
+        defaults = _local_output_schema(application.spec)
         for object_id in application.target_ids
             status = _ensure_model_object_status!(model, object_id)
             for (variable, value) in pairs(defaults)
@@ -5365,7 +5357,7 @@ function _prepare_model_output_statuses_batched!(
                          model.status_conversion_records :
                          Dict{Any,Any}()
     for application in applications
-        defaults = outputs_(application.spec)
+        defaults = _local_output_schema(application.spec)
         for object_id in application.target_ids
             preparation = _status_preparation_for_object!(
                 recipes,
@@ -5419,7 +5411,16 @@ function _validate_required_model_output_destinations!(
             for (variable_, declaration) in pairs(resolved.plan.declarations)
                 declaration isa Required || continue
                 variable = Symbol(variable_)
-                _status_has_variable(model, destination_id, variable) && continue
+                if _status_has_variable(model, destination_id, variable)
+                    value = _model_object(model, destination_id).status[variable]
+                    expected_type = _input_expected_type(declaration)
+                    value isa expected_type || throw(ArgumentError(
+                        "Distributed output `$(variable)` on application " *
+                        "`$(resolved.plan.application_id)` requires `$(expected_type)` " *
+                        "on destination `$(destination_id.value)`; got `$(typeof(value))`.",
+                    ))
+                    continue
+                end
                 push!(
                     missing,
                     (
@@ -5446,7 +5447,7 @@ function _validate_required_model_output_destinations!(
         "Missing required distributed-output destination variable(s): ",
         details,
         ". Add the variable to each destination `Status` or declare it with ",
-        "`Default(value)` in `OutputTo(...; vars=...)`.",
+        "`Distributed(Default(value))` in the model's `outputs_`.",
     )
 end
 
@@ -6343,7 +6344,7 @@ function _validate_temporal_input_output_overlap!(
     temporal_bindings,
 )
     isempty(temporal_bindings) && return nothing
-    output_names = Set(Symbol.(keys(outputs_(application.spec))))
+    output_names = Set(Symbol.(keys(_local_output_schema(application.spec))))
     for binding in temporal_bindings
         binding.input in output_names || continue
         error(
@@ -6395,7 +6396,7 @@ Base.@nospecializeinfer function _compile_model_status_view(
         binding.carrier_hint == :temporal_stream && push!(temporal_bindings, binding)
     end
     _validate_temporal_input_output_overlap!(application, temporal_bindings)
-    output_defaults = outputs_(application.spec)
+    output_defaults = _local_output_schema(application.spec)
     private_output_names = Symbol[]
     for variable in keys(output_defaults)
         _publish_mode_for_output(application.spec, variable) == :stream_only &&
@@ -6664,7 +6665,7 @@ _selector_constraint_values(value) =
 # Object-level multiplicity and writer ambiguity are still validated when
 # concrete targets exist.
 function _selector_labels_may_overlap(left, right)
-    for key in (:scale, :kind, :species, :name)
+    for key in (:scale, :kind, :species, :id)
         left_values = _selector_constraint_values(
             _criteria_value(criteria(left), key),
         )
@@ -6966,9 +6967,16 @@ function _compile_model_output_destination_plans(
 )
     plans = CompiledModelOutputDestinationPlan[]
     for application in applications
-        destinations = outputs_to(application.spec)
-        destinations isa NamedTuple || continue
-        for (group_name, destination) in pairs(destinations)
+        destinations = _resolved_output_destinations(application.spec)
+        if !isnothing(application.model_overrides)
+            for replacement in values(application.model_overrides)
+                _resolved_output_destinations(application.spec, replacement)
+                Set(keys(_distributed_output_schema(replacement))) == Set(keys(_distributed_output_schema(application.spec))) ||
+                    error("Object override for application `$(application.id)` has incompatible distributed output names.")
+            end
+        end
+        for (destination_slot, destination) in enumerate(destinations)
+            group_name = Symbol("output_", destination_slot)
             selector = getproperty(destination, :selector)
             selector isa AbstractObjectMultiplicity || error(
                 "Output destination `$(group_name)` on application `$(application.id)` " *
@@ -7019,8 +7027,7 @@ end
 
 function _application_declares_output_name(application, variable::Symbol)
     variable in _model_output_names(application) && return true
-    destinations = outputs_to(application.spec)
-    destinations isa NamedTuple || return false
+    destinations = _resolved_output_destinations(application.spec)
     return any(
         destination -> variable in keys(destination.vars),
         values(destinations),
@@ -7216,7 +7223,7 @@ Base.@nospecializeinfer function _push_model_input_binding!(
         )
     else
         _validate_policy_instance(
-            _model_object(model, consumer_id).scale,
+            something(_model_object(model, consumer_id).scale, :Default),
             application.process,
             input_sym,
             policy,
@@ -7834,7 +7841,9 @@ function explain_applications(compiled::CompiledCompositeModel)
             ]); by=string),
             applies_to=application.applies_to,
             inputs=Tuple(Symbol.(keys(_input_schema(application.spec)))),
-            outputs=Tuple(Symbol.(keys(outputs_(application.spec)))),
+            outputs=Tuple(Symbol.(keys(_output_schema(application.spec)))),
+            local_outputs=Tuple(Symbol.(keys(_local_output_schema(application.spec)))),
+            distributed_outputs=Tuple(Symbol.(keys(_distributed_output_schema(application.spec)))),
             environment_inputs=Tuple(Symbol.(keys(environment_inputs_(application.spec)))),
             environment_outputs=Tuple(Symbol.(keys(environment_outputs_(application.spec)))),
             timestep=application.timestep,
@@ -8007,14 +8016,19 @@ and report declared variables, carrier types, coverage, and lifecycle
 generation.
 """
 function explain_output_bindings(compiled::CompiledCompositeModel)
-    return _explain_output_bindings(compiled.distributed_outputs)
+    return _explain_output_bindings(compiled.distributed_outputs, compiled)
 end
 
-_explain_output_bindings(::NoCompiledDistributedOutputs) = NamedTuple[]
+_explain_output_bindings(::NoCompiledDistributedOutputs, compiled) = NamedTuple[]
 
-function _explain_output_bindings(outputs::CompiledDistributedOutputs)
+function _explain_output_bindings(outputs::CompiledDistributedOutputs, compiled)
     rows = NamedTuple[]
     for binding in outputs.bindings
+        spec = compiled.applications[binding.application_slot].spec
+        destination_index = findfirst(eachindex(outputs_to(spec))) do index
+            Symbol("output_", index) == binding.group
+        end
+        origin = isnothing(outputs_to(spec)[destination_index].vars) ? :inferred : :explicit
         push!(
             rows,
             (
@@ -8023,6 +8037,8 @@ function _explain_output_bindings(outputs::CompiledDistributedOutputs)
                 application_id=binding.application_id,
                 execution_object_id=binding.execution_object_id.value,
                 group=binding.group,
+                destination_index=destination_index,
+                origin=origin,
                 destination_ids=[id.value for id in binding.destination_ids],
                 destination_count=length(binding.destination_ids),
                 variables=Tuple(Symbol.(keys(binding.declarations))),

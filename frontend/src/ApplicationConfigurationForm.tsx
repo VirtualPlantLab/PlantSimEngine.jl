@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Check, Plus, Trash2, X } from "lucide-react";
 import type { ApplicationGraphNode, ApplicationOwner, CallMode, EnvironmentDescriptor, ModelDescriptor, SelectorDescriptor } from "./types";
+import { OutputDestinationsFields } from "./OutputDestinationsFields";
 
 type UpdateRule = { variables: string[]; after: string[] };
 export type ExtraEntry = { key: string; type: string; value: string };
@@ -117,6 +118,8 @@ export function ApplicationConfigurationForm({
           <div className="compact-actions"><button type="button" disabled={environmentMode === "default"} onClick={() => setExtraEntries((current) => [...current, { key: "", type: "string", value: "" }])}><Plus size={14} /> Backend option</button><button type="button" data-testid="apply-environment" onClick={applyEnvironment}><Check size={14} /> Apply environment</button></div>
           <div className="effective-environment"><strong>Effective bindings</strong><code>{JSON.stringify(application.environmentBindings || {}, null, 2)}</code>{application.environmentWindow !== null && application.environmentWindow !== undefined ? <code>{JSON.stringify(application.environmentWindow)}</code> : null}</div>
         </fieldset>
+
+        <OutputDestinationsFields application={application} onCommand={onCommand} />
 
         <fieldset><legend>Output routing</legend>
           <div className="configuration-list">{application.outputs.map((output) => <label key={output.name}><code>{output.name}</code><select data-testid={`output-routing-${output.name}`} value={application.outputRouting[output.name] || "canonical"} onChange={(event) => onCommand({ action: "edit", kind: "set_output_routing", applicationRef: application.owner, output: output.name, route: event.target.value })}><option value="canonical">Canonical status owner</option><option value="stream_only">Stream only</option></select></label>)}</div>

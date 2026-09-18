@@ -111,6 +111,20 @@ struct SetModelOutputRouting <: AbstractModelGraphEdit
     route::Symbol
 end
 
+"""
+    GraphEditor.SetModelOutputDestinations(application, destinations)
+
+Replace an application's distributed output destinations with an anonymous
+tuple of `OutputTo` declarations. `application` is a `GlobalApplicationRef`
+or `TemplateApplicationRef`. Omitted `vars` remains omitted in the edited
+scenario; the model's distributed schema validates the complete destination
+partition before the edit is applied.
+"""
+struct SetModelOutputDestinations{T<:Tuple} <: AbstractModelGraphEdit
+    application::ModelApplicationRef
+    destinations::T
+end
+
 struct SetModelUpdateOrdering{U} <: AbstractModelGraphEdit
     application::ModelApplicationRef
     updates::U
@@ -691,7 +705,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelOutputRou
         "Output route must be `:canonical` or `:stream_only`.",
     )
     spec = _model_edit_spec(model, edit.application)
-    edit.output in Symbol.(keys(outputs_(spec))) || error(
+    edit.output in keys(_output_schema(spec)) || error(
         "Application `$(edit.application.application_id)` model has no output `$(edit.output)`.",
     )
     routing = _model_edit_namedtuple_set(spec.output_routing, edit.output, edit.route)
@@ -700,6 +714,13 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelOutputRou
         edit.application,
         _replace_model_spec(spec; output_routing=routing),
     )
+end
+
+function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelOutputDestinations)
+    spec = _model_edit_spec(model, edit.application)
+    replacement = _replace_model_spec(spec; outputs_to=edit.destinations)
+    _resolved_output_destinations(replacement)
+    return _replace_model_edit_spec!(model, edit.application, replacement)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelUpdateOrdering)
@@ -738,7 +759,7 @@ function _model_edit_unmount_selector(
     for (key_, value_) in selector_criteria
         key = Symbol(key_)
         value = value_
-        key == :within && value isa Scope && value.name == instance.name && continue
+        key == :within && value isa Scope && value.root == instance.name && continue
         if key == :application && startswith(string(value), prefix)
             value = Symbol(chopprefix(string(value), prefix))
         end
@@ -935,18 +956,6 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectMet
     allowed = Set((:scale, :kind, :species, :name, :geometry, :parent))
     unknown = setdiff(Set(Symbol.(keys(edit.configuration))), allowed)
     isempty(unknown) || error("Unsupported object metadata fields: $(sort!(collect(unknown); by=string)).")
-    if haskey(edit.configuration, :name)
-        instance = findfirst(
-            item -> _instance_root_id(item) == object.id,
-            model.instances,
-        )
-        if !isnothing(instance)
-            required_name = model.instances[instance].name
-            edit.configuration.name == required_name || error(
-                "Instance root `$(object.id.value)` must keep the instance name `$(required_name)`.",
-            )
-        end
-    end
     _deindex_object!(model.registry, object)
     for (key_, value) in pairs(edit.configuration)
         key = Symbol(key_)
@@ -954,6 +963,8 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectMet
             continue
         elseif key == :geometry
             object.geometry = value
+        elseif key == :name
+            object.name = isnothing(value) ? nothing : String(value)
         else
             setfield!(object, key, isnothing(value) ? nothing : Symbol(value))
         end
@@ -1125,10 +1136,6 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::AddModelInstance)
     end
     haskey(model.registry.objects, edit.root_id) || error(
         "Object instance `$(edit.name)` refers to missing root `$(edit.root_id.value)`.",
-    )
-    root = _model_object(model, edit.root_id)
-    !isnothing(root.name) && root.name != edit.name && error(
-        "Instance name `$(edit.name)` conflicts with root name `$(root.name)`.",
     )
     instance = ObjectInstance(edit.name, edit.template; root=edit.root_id)
     return _model_edit_rebuild_instances(model, (model.instances..., instance))

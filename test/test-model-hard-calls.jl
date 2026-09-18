@@ -214,9 +214,9 @@ end
         Object(:middle; scale=:Plant, name=:middle, parent=:scene),
         Object(:leaf; scale=:Leaf, name=:leaf, parent=:middle);
         applications=(
-            ModelSpec(NestedCallRootModel(); name=:root, on=One(name=:scene), calls=(:middle => One(name=:middle, within=Subtree(), application=:middle)), every=Hour(1)),
-            ModelSpec(NestedCallMiddleModel(); name=:middle, on=One(name=:middle), calls=(:leaf => One(name=:leaf, within=Subtree(), application=:leaf)), every=Hour(1)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf, on=One(name=:leaf), every=Hour(1)),
+            ModelSpec(NestedCallRootModel(); name=:root, on=One(id=:scene), calls=(:middle => One(id=:middle, within=Subtree(), application=:middle)), every=Hour(1)),
+            ModelSpec(NestedCallMiddleModel(); name=:middle, on=One(id=:middle), calls=(:leaf => One(id=:leaf, within=Subtree(), application=:leaf)), every=Hour(1)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf, on=One(id=:leaf), every=Hour(1)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -274,10 +274,10 @@ end
             ModelSpec(
                 NestedManyRootModel();
                 name=:root,
-                on=One(name=:scene),
+                on=One(id=:scene),
                 calls=(
                     :middle => One(
-                        name=:middle,
+                        id=:middle,
                         within=Subtree(),
                         application=:middle,
                     ),
@@ -286,7 +286,7 @@ end
             ModelSpec(
                 NestedManyMiddleModel();
                 name=:middle,
-                on=One(name=:middle),
+                on=One(id=:middle),
                 calls=(
                     :leaves => Many(
                         scale=:Leaf,
@@ -298,10 +298,10 @@ end
             ModelSpec(
                 NestedCallMiddleModel();
                 name=:unrelated_middle,
-                on=One(name=:unrelated_middle),
+                on=One(id=:unrelated_middle),
                 calls=(
                     :leaf => One(
-                        name=:unrelated_leaf,
+                        id=:unrelated_leaf,
                         within=Subtree(),
                         application=:leaf,
                     ),
@@ -317,7 +317,7 @@ end
     )
 
     simulation = run!(model; outputs=:none, performance=true)
-    root = only(model_objects(model; name=:scene)).status
+    root = only(model_objects(model; id=:scene)).status
     scenario_plan = simulation.compiled.scenario_plan
     @test root.ncalls == 1
     @test root.total == 1.0
@@ -357,10 +357,10 @@ end
             ModelSpec(
                 NestedCallRootModel();
                 name=:root,
-                on=One(name=:scene),
+                on=One(id=:scene),
                 calls=(
                     :middle => One(
-                        name=:middle,
+                        id=:middle,
                         application=:middle,
                     ),
                 ),
@@ -368,10 +368,10 @@ end
             ModelSpec(
                 NestedCallMiddleModel();
                 name=:middle,
-                on=One(name=:middle),
+                on=One(id=:middle),
                 calls=(
                     :leaf => One(
-                        name=:scene,
+                        id=:scene,
                         application=:root,
                     ),
                 ),
@@ -390,9 +390,9 @@ end
         Object(:leaf_b; scale=:Leaf, name=:leaf_b, parent=:scene),
         Object(:leaf_a; scale=:Leaf, name=:leaf_a, parent=:scene);
         applications=(
-            ModelSpec(CallReturnShapeModel(); name=:controller, on=One(name=:scene), calls=(:one => One(name=:leaf_a, application=:leaf_calls),
+            ModelSpec(CallReturnShapeModel(); name=:controller, on=One(id=:scene), calls=(:one => One(id=:leaf_a, application=:leaf_calls),
                     :optional => OptionalOne(
-                        name=:missing,
+                        id=:missing,
                         application=:leaf_calls,
                     ),
                     :many => Many(scale=:Leaf, application=:leaf_calls),)),
@@ -586,7 +586,7 @@ end
         Object(:leaf_b; scale=:Leaf, parent=:scene),
         Object(:leaf_a; scale=:Leaf, parent=:scene);
         applications=(
-            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(name=:scene), calls=(:children => Many(
+            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(id=:scene), calls=(:children => Many(
                         scale=:Leaf,
                         within=SceneScope(),
                         application=:leaf_calls,
@@ -770,7 +770,7 @@ end
             ModelSpec(
                 ManyCallControllerModel();
                 name=:controller,
-                on=One(name=:scene),
+                on=One(id=:scene),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -845,7 +845,7 @@ end
                 on=Many(scale=:Plant),
                 calls=(
                     :children => Many(
-                        name=:shared_leaf,
+                        id=:shared_leaf,
                         within=SceneScope(),
                         application=:leaf_calls,
                     ),
@@ -854,7 +854,7 @@ end
             ModelSpec(
                 NestedCallLeafModel();
                 name=:leaf_calls,
-                on=Many(name=:shared_leaf),
+                on=Many(id=:shared_leaf),
             ),
         ),
         environment=(duration=Hour(1),),
@@ -926,7 +926,7 @@ end
             ModelSpec(
                 ManyCallControllerModel();
                 name=:controller,
-                on=One(name=:scene),
+                on=One(id=:scene),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -1016,7 +1016,7 @@ end
             ModelSpec(
                 SelectiveManyCallControllerModel(selected_leaf_ids);
                 name=:selective_controller,
-                on=One(name=:scene),
+                on=One(id=:scene),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -1089,7 +1089,7 @@ end
             ModelSpec(
                 SelectiveManyCallControllerModel((:leaf_keep,));
                 name=:selective_controller,
-                on=One(name=:plant_a),
+                on=One(id=:plant_a),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -1142,8 +1142,12 @@ end
            edge["projection"] == "resolved"
     ]
     @test length(call_edges) == 1
-    @test only(call_edges)["target"] ==
-          "execution:selective_leaf_calls:leaf_keep"
+    target_execution = only(
+        execution for execution in resolved_view.executions
+        if execution["id"] == only(call_edges)["target"]
+    )
+    @test target_execution["applicationId"] == "selective_leaf_calls"
+    @test target_execution["objectId"] == "leaf_keep"
     @test !PlantSimEngine._compiled_call_membership_is_observed(call_binding)
     @test get(
         Advanced.runtime_performance(simulation).counts,
@@ -1229,7 +1233,7 @@ end
             ModelSpec(
                 SelectiveManyCallControllerModel((:leaf_keep,));
                 name=:slow_selective_controller,
-                on=One(name=:plant_a),
+                on=One(id=:plant_a),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -1292,7 +1296,7 @@ end
             ModelSpec(
                 SelectiveManyCallControllerModel((:leaf_keep,));
                 name=:prebarrier_controller,
-                on=One(name=:plant_a),
+                on=One(id=:plant_a),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -1340,7 +1344,7 @@ end
             ModelSpec(
                 SelectiveManyCallControllerModel((:leaf_keep,));
                 name=:detached_controller,
-                on=One(name=:plant_a),
+                on=One(id=:plant_a),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -1399,7 +1403,7 @@ end
             ModelSpec(
                 SelectiveManyCallControllerModel((:leaf_keep,));
                 name=:environment_controller,
-                on=One(name=:plant_a),
+                on=One(id=:plant_a),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -1453,7 +1457,7 @@ end
             ModelSpec(
                 SelectiveManyCallControllerModel((:callable_leaf,));
                 name=:selective_controller,
-                on=One(name=:scene),
+                on=One(id=:scene),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -1488,8 +1492,12 @@ end
            edge["projection"] == "resolved"
     ]
     @test length(call_edges) == 1
-    @test only(call_edges)["target"] ==
-          "execution:selective_leaf_calls:callable_leaf"
+    target_execution = only(
+        execution for execution in resolved_view.executions
+        if execution["id"] == only(call_edges)["target"]
+    )
+    @test target_execution["applicationId"] == "selective_leaf_calls"
+    @test target_execution["objectId"] == "callable_leaf"
     @test !any(
         edge -> occursin("uncallable_leaf", edge["target"]),
         call_edges,
@@ -1522,7 +1530,7 @@ end
             ModelSpec(
                 SelectiveManyCallControllerModel((:existing_leaf,));
                 name=:singular_controller,
-                on=One(name=:scene),
+                on=One(id=:scene),
                 calls=(
                     :children => One(
                         scale=:Leaf,
@@ -1575,7 +1583,7 @@ end
             ModelSpec(
                 ManyCallControllerModel();
                 name=:controller,
-                on=One(name=:scene),
+                on=One(id=:scene),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -1627,7 +1635,7 @@ end
             ModelSpec(
                 ManyCallControllerModel();
                 name=:controller,
-                on=One(name=:scene),
+                on=One(id=:scene),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -1679,7 +1687,7 @@ end
         Object(:plant_b; scale=:Plant, name=:plant_b, parent=:scene),
         Object(:leaf; scale=:Leaf, parent=:plant_b);
         applications=(
-            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(name=:plant_a), calls=(:children => Many(
+            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(id=:plant_a), calls=(:children => Many(
                         scale=:Leaf,
                         within=Subtree(),
                         application=:leaf_calls,
@@ -1693,7 +1701,7 @@ end
     scenario_plan = simulation.compiled.scenario_plan
     application_children = simulation.compiled.application_children
     application_order = simulation.compiled.application_order
-    controller = only(model_objects(model; name=:plant_a)).status
+    controller = only(model_objects(model; id=:plant_a)).status
     schedule = Dict(row.application_id => row for row in explain_schedule(simulation.compiled))
     @test schedule[:leaf_calls].manual_call_only
     @test !schedule[:leaf_calls].root_scheduled
@@ -1747,8 +1755,8 @@ end
         Object(:scene; scale=:Scene, name=:scene),
         Object(:leaf; scale=:Leaf, name=:leaf, parent=:scene);
         applications=(
-            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(name=:scene), calls=(:children => One(name=:leaf, application=:leaf_calls)), every=Day(1)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls, on=One(name=:leaf), every=Hour(1)),
+            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(id=:scene), calls=(:children => One(id=:leaf, application=:leaf_calls)), every=Day(1)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls, on=One(id=:leaf), every=Hour(1)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -1760,7 +1768,7 @@ end
             ModelSpec(
                 ManyCallControllerModel();
                 name=:controller,
-                on=One(name=:scene),
+                on=One(id=:scene),
                 calls=(
                     :children => Many(
                         scale=:Leaf,
@@ -1786,8 +1794,8 @@ end
         Object(:scene; scale=:Scene, name=:scene),
         Object(:leaf; scale=:Leaf, name=:leaf, parent=:scene);
         applications=(
-            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(name=:scene), calls=(:children => One(name=:leaf, application=:leaf_calls)), every=Day(1)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls, on=One(name=:leaf)),
+            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(id=:scene), calls=(:children => One(id=:leaf, application=:leaf_calls)), every=Day(1)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls, on=One(id=:leaf)),
         ),
         environment=(duration=Hour(1),),
     )

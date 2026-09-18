@@ -3,44 +3,54 @@ PlantSimEngine.@process "toy_stock_writer" verbose = false
 
 """
     ToySelectiveCallControllerModel(
-        trial_temperatures,
-        accepted_temperature;
+        ;
+        increment=1.0,
+        threshold=22.0,
+        max_iterations=100,
         selected_object,
     )
 
-Resolve several hard-call targets, run `selected_object` for several
-unpublished trials, then publish one accepted result.
+Start from the controller's environmental temperature, run `selected_object`,
+and increase the temperature by `increment` until the reader reports a value
+strictly above `threshold`. Publish only that accepted calculation.
+
+This deliberately artificial iteration illustrates selective hard calls,
+not a physical temperature solver. A fixed increment keeps it reproducible;
+`max_iterations` bounds the number of trial evaluations.
 """
 struct ToySelectiveCallControllerModel{T} <:
        AbstractToy_Selective_Call_ControllerModel
-    trial_temperatures::NTuple{2,T}
-    accepted_temperature::T
+    increment::T
+    threshold::T
+    max_iterations::Int
     selected_object::Symbol
 end
 
 function ToySelectiveCallControllerModel(
-    trial_temperatures::Tuple,
-    accepted_temperature,
     ;
+    increment=1.0,
+    threshold=22.0,
+    max_iterations::Integer=100,
     selected_object,
 )
-    length(trial_temperatures) == 2 || error(
-        "ToySelectiveCallControllerModel needs exactly two trial temperatures.",
-    )
-    values = promote(
-        float(trial_temperatures[1]),
-        float(trial_temperatures[2]),
-        float(accepted_temperature),
-    )
-    T = typeof(values[1])
+    increment, threshold = promote(float(increment), float(threshold))
+    isfinite(increment) && increment > zero(increment) || throw(ArgumentError(
+        "increment must be finite and positive.",
+    ))
+    isfinite(threshold) || throw(ArgumentError("threshold must be finite."))
+    max_iterations > 0 || throw(ArgumentError("max_iterations must be positive."))
+    T = typeof(increment)
     return ToySelectiveCallControllerModel{T}(
-        (values[1], values[2]),
-        values[3],
+        increment,
+        threshold,
+        Int(max_iterations),
         Symbol(selected_object),
     )
 end
 
 PlantSimEngine.inputs_(::ToySelectiveCallControllerModel) = NamedTuple()
+PlantSimEngine.environment_inputs_(model::ToySelectiveCallControllerModel) =
+    (T=zero(model.threshold),)
 PlantSimEngine.dep(::ToySelectiveCallControllerModel) = (
     readers=Call(Many(
         scale=:Leaf,
@@ -49,10 +59,11 @@ PlantSimEngine.dep(::ToySelectiveCallControllerModel) = (
     )),
 )
 function PlantSimEngine.outputs_(model::ToySelectiveCallControllerModel)
-    initial = zero(model.accepted_temperature)
+    initial = zero(model.threshold)
     return (
         target_count=0,
-        trial_temperature_seen=initial,
+        initial_temperature=initial,
+        iterations=0,
         accepted_temperature_seen=initial,
     )
 end
@@ -72,22 +83,31 @@ function PlantSimEngine.run!(
         objects=(ObjectId(model.selected_object),),
     ))
 
-    for temperature in model.trial_temperatures
+    temperature = environment.T
+    status.initial_temperature = temperature
+    status.iterations = 0
+    for iteration in 1:model.max_iterations
         run_call!(
             selected;
             sampled_environment=(T=temperature,),
             publish=false,
         )
+        status.iterations = iteration
+        if selected.status.temperature_seen > model.threshold
+            run_call!(
+                selected;
+                sampled_environment=(T=temperature,),
+                publish=true,
+            )
+            status.accepted_temperature_seen = selected.status.temperature_seen
+            return nothing
+        end
+        temperature = selected.status.temperature_seen + model.increment
     end
-    status.trial_temperature_seen = selected.status.temperature_seen
-
-    run_call!(
-        selected;
-        sampled_environment=(T=model.accepted_temperature,),
-        publish=true,
+    error(
+        "Toy temperature iteration did not exceed $(model.threshold) " *
+        "after $(model.max_iterations) iterations.",
     )
-    status.accepted_temperature_seen = selected.status.temperature_seen
-    return nothing
 end
 
 """

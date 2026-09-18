@@ -12,6 +12,10 @@ API. Update early examples as follows:
 
 | Early spelling or behavior | Current API |
 | --- | --- |
+| object selectors used `name=:leaf_1` | select the object's actual ID with `id=:leaf_1`; `Object.name` is optional display text |
+| object names had to be unique | only object IDs must be unique; objects may share a display name |
+| `Scope(:name)` could find an object by display name | use `Scope(:instance_name)` for an instance or `Scope(ObjectId(root_id))` for an object root |
+| applying a template changed the root object's name | instance names identify model applications; root IDs and display names stay unchanged |
 | `Self()` searched self and descendants | `Self()` selects only the current object; use `Subtree()` for self plus descendants |
 | omitted `tracked_outputs` retained everything | use explicit `outputs=:all`; the safe default is `outputs=:none` |
 | `tracked_outputs=requests` | `outputs=requests` |
@@ -19,6 +23,11 @@ API. Update early examples as follows:
 | repeated unnamed applications gained numbered IDs | name every repeated application with `ModelSpec(...; name=...)` |
 | calling `run!(model)` again implicitly looked like continuation | use `continue!(simulation)` or `step!(simulation)` |
 | compiler/cache types imported from the default namespace | qualify them through `PlantSimEngine.Advanced` |
+
+If an old object name differed from its ID, use the ID in the new selector.
+For example, `Object(:leaf_1; name="Sunlit leaf")` is selected with
+`One(id=:leaf_1)`. The display label does not connect models or identify output
+rows. You can omit `name`, `scale`, and `kind` when they are not needed.
 
 `tracked_outputs` has been removed. Use `outputs=:all`, `outputs=:none`, or
 `outputs=requests` directly. Singular scenario `inputs` and `calls`,

@@ -20,8 +20,13 @@ time-based inputs can instead read saved results.
 - `CompositeModel(model, models...; status=..., timestep=...,
   type_promotion=..., status_transform=...)` is the concise one-object form and
   creates one object and its model applications.
-- `Object` represents one entity, such as a plant or organ, with an identifier
-  that stays the same and its own status.
+- `Object(id; name=nothing, scale=nothing, kind=nothing, species=nothing, ...)`
+  represents one entity, such as a plant or organ, with a unique ID that stays
+  the same and its own status. The optional `name` is display text and does
+  not need to be unique. The graph viewer shows the ID when no name is given.
+- Use `One(id=:leaf_1)` to select a particular object, or
+  `object_ids(model; id=:leaf_1)` to query its ID. Labels such as `scale=:Leaf`
+  select groups. IDs can also be numbers, including IDs imported from an MTG.
 - `object_id(model, source)` finds an object's identifier in the model's
   registry, the collection of registered objects. `source` can be an
   `ObjectId`, registered `Object` or `Status`, MTG node, or raw identifier.
@@ -30,10 +35,14 @@ time-based inputs can instead read saved results.
   that function again, and rejects copied nodes or nodes from another model.
   The same methods accept a `RunContext` or `Simulation`.
 - `CompositeModelTemplate` and `ObjectInstance` reuse a set of model
-  definitions for several plants or other repeated objects.
+  definitions for several plants or other repeated objects. An instance name
+  identifies that use of the template; it does not change the root object's
+  ID or display name.
 - `ModelSpec(model; name=..., on=..., inputs=..., calls=..., outputs_to=...,
   every=..., environment=..., output_routing=..., updates=...)` configures a
-  model application.
+  model application. When `name` is omitted, the process name identifies the
+  application. Separate applications of the same process need explicit,
+  distinct names.
 
 ### Coupling
 
@@ -44,15 +53,19 @@ time-based inputs can instead read saved results.
   values, without copying them.
 - `ModelSpec(...; calls=...)` declares models that this model can run from
   inside its own calculation.
-- `ModelSpec(...; outputs_to=(name=OutputTo(selector; vars=...),))`
-  declares variables that this application writes into other selected objects'
-  statuses. Each variable uses `Required(T)` or `Default(value)`. Before
-  initializing the statuses, PlantSimEngine finds the destination objects and
-  checks that competing applications do not write the same value.
-- `output_targets(context, :name)` returns an [`OutputTargets`](@ref) view
-  for one named `outputs_to` group. Read or write a variable's destination
-  values through `targets.columns.<variable>`. `object_ids(targets)` returns
-  their identifiers in the same order; those identifiers are read-only.
+- `outputs_(model)` declares local output values and distributed outputs
+  wrapped as `Distributed(Default(value))` or `Distributed(Required(T))`.
+- `ModelSpec(...; outputs_to=(OutputTo(selector; vars=(:x, :y)),))`
+  binds declared distributed outputs to selected objects. One `OutputTo` may
+  omit `vars` to select all distributed variables. Multiple declarations
+  require explicit variable tuples, with each distributed variable bound
+  exactly once. Types and defaults come from the model's `outputs_`.
+  Destinations, storage, and writer ownership are checked before initialization.
+- `output_targets(context, (:x, :y))` returns an [`OutputTargets`](@ref) view
+  with exactly the requested columns. Combined variables must have identical
+  ordered destination IDs, including when bound by separate declarations.
+  Read or write values through `targets.columns.<variable>`.
+  `object_ids(targets)` returns their read-only identifiers in the same order.
 - `assign_outputs!(targets, table; id=:object_id)` assigns a
   Tables.jl-compatible result to objects using their identifiers. The
   `assign_outputs!(targets, ids, columns)` overload accepts an ID vector and a
@@ -142,8 +155,12 @@ complete examples.
 
 - Number of matches: `One(...)`, `OptionalOne(...)`, and `Many(...)`.
 - Where to look: `SceneScope()`, `Self()`, `Subtree()`, `SelfPlant()`,
-  `Ancestor(...)`, and `Scope(name)`.
-- Label criteria: `kind=...`, `species=...`, `scale=...`, and `name=...`.
+  `Ancestor(...)`, and `Scope(...)`. Use `Scope(:instance_name)` for an
+  instance's root and descendants, or `Scope(ObjectId(root_id))` for a root
+  chosen directly by ID.
+- Object identity: `id=...`.
+- Group labels: `kind=...`, `species=...`, and `scale=...`. Object display
+  names do not select objects.
 - Connections between objects: `Relation(...)`.
 
 `Self()` always means the current object: the object on which the model
@@ -154,7 +171,7 @@ Selector fields are checked where the selector is used:
 
 | Context | Accepted criteria |
 |---|---|
-| `ModelSpec(...; on=...)` | `kind`, `species`, `scale`, `name`, and a scene or named scope |
+| `ModelSpec(...; on=...)` | `id`, `kind`, `species`, `scale`, and a scene or explicit root/instance scope |
 | `ModelSpec(...; inputs=...)` | object criteria plus `process`, `application`, `var`, `policy`, `window`, `from_status`, and `after` |
 | `ModelSpec(...; calls=...)` | object criteria plus `process` and `application` |
 | `OutputTo(...)` in `ModelSpec(...; outputs_to=...)` | object criteria only |
@@ -298,7 +315,12 @@ can also be read by tools such as an AI coding agent:
   environmental variables;
 - `Authoring.validate_scenario(model; strict=false)` checks the simulation
   setup. If it is incomplete, the result still includes a partial report
-  and diagnostic information;
+  and diagnostic information. Displaying the result shows whether validation
+  passed, how many model applications and connections were checked, and the
+  error and warning counts. Up to five diagnostics are shown, with errors
+  first. Assign the result to `report` to read all messages, affected objects,
+  and suggestions in `report.diagnostics`. The underlying compilation report
+  remains available in `report.compilation`;
 - `Authoring.to_dict(report)` and `Authoring.to_json(report)` convert reports
   to dictionaries or JSON using a versioned format. They do not include
   internal compiler objects;

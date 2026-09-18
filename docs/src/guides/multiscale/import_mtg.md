@@ -30,8 +30,8 @@ this reduced architecture omits stems and petioles. For an existing MTG file, re
 PlantSimEngine imports each node's ID and parent automatically. By default,
 it uses the MTG symbol, such as `:Leaf`, as the object's `scale` label.
 It does **not** automatically copy numerical attributes into `Status`,
-where models read and store their values. The function below chooses the
-initial values to import: each leaf's carbon biomass in this example.
+where models read and store their values. To do that, you can supply a function that returns a `Status` for each node. The function can read any attributes you have stored in the MTG, and it can supply default values for missing attributes. The function is called for each node when you create the `CompositeModel` or when you add a new organ with `add_organ!`. The function can return an empty `Status()` if you do not want to import any attributes for a node.
+In our example below, this function initializes carbon biomass only for leaves. The plant-scale model reads the leaf areas calculated from that biomass, so it does not need its own carbon biomass value.
 
 ```@example import_mtg
 initial_status(node) = MultiScaleTreeGraph.symbol(node) == :Leaf ?

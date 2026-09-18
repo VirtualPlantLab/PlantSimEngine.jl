@@ -31,6 +31,7 @@ include("variables_wrappers.jl")
 # Models:
 include("Abstract_model_structs.jl")
 include("input_schema.jl")
+include("output_schema.jl")
 include("variable_contracts.jl")
 include("authoring_interface.jl")
 
@@ -267,6 +268,7 @@ import ..PlantSimEngine:
     SetModelApplicationCadence,
     SetModelApplicationEnvironment,
     SetModelOutputRouting,
+    SetModelOutputDestinations,
     SetModelUpdateOrdering,
     MarkModelPreviousTimeStep,
     UnmarkModelPreviousTimeStep,
@@ -304,7 +306,7 @@ export RenameModelApplication, SetModelApplicationTargets
 export SetModelInputBinding, RemoveModelInputBinding
 export SetModelCallBinding, RemoveModelCallBinding
 export SetModelApplicationCadence, SetModelApplicationEnvironment
-export SetModelOutputRouting, SetModelUpdateOrdering
+export SetModelOutputRouting, SetModelOutputDestinations, SetModelUpdateOrdering
 export MarkModelPreviousTimeStep, UnmarkModelPreviousTimeStep, BreakModelCycle
 export AddModelObject, RemoveModelObject, ReparentModelObject
 export SetModelObjectStatus, SetModelObjectStatuses, RemoveModelObjectStatus
@@ -378,7 +380,7 @@ export ModelSpec, OutputTo, Updates
 export call_targets, call_model, run_call!, run_initializer!, commit_environment!
 export bound_input, output_targets, assign_outputs!
 export Status
-export Required, Default
+export Required, Default, Distributed
 export VariableContract, variable_contracts
 export @process, process
 export init_variables, dep

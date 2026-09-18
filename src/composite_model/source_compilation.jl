@@ -748,7 +748,7 @@ function _compiled_source_output_destinations_description(spec)
     destinations = outputs_to(spec)
     isempty(destinations) && return "none"
     return join(
-        ("$(key)=>$(repr(getproperty(destinations, key)))" for key in keys(destinations)),
+        (repr(destination) for destination in destinations),
         ", ",
     )
 end

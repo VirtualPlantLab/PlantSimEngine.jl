@@ -22,6 +22,31 @@ You decide how much detail to represent. A canopy can be one object, or it
 can contain several plants with individual leaves. PlantSimEngine does not
 require a particular plant structure.
 
+## An ID identifies an object; a name labels it
+
+Each object needs an **ID** that is unique in the simulation. You use that ID
+to connect objects and find their results. A `name` is optional text for
+display; when you leave it out, the graph viewer shows the ID.
+
+```@example object_identity
+using PlantSimEngine
+
+plant_a = Object(:plant_a; name="Oil palm")
+plant_b = Object(:plant_b; name="Oil palm")
+
+(plant_a.id, plant_b.id)
+```
+
+These plants share a display name but have different IDs. `One(id=:plant_a)`
+selects the first plant. Changing its display name does not change that
+selection or its saved results. `Object(:plant_a)` also works: you do not
+need to repeat the ID as a name.
+
+The optional labels `scale`, `kind`, and `species` let you select groups.
+For example, `Many(scale=:Leaf)` selects every object labelled `:Leaf`.
+Add the labels your models use; PlantSimEngine does not require you to fill
+them all in.
+
 ## An application says where and how to use a model
 
 A **model application** combines a model with instructions about where to run
@@ -35,6 +60,17 @@ can also apply different models to different groups of leaves or plants.
 In the [first simulation](one_object.md), all models describe the same canopy,
 so `CompositeModel` creates these applications for you. Later guides use
 `ModelSpec` to choose objects and connections explicitly.
+
+`ModelSpec.name` identifies an application, so other models can refer to it.
+You can omit it when the process occurs only once: PlantSimEngine uses the
+process name. Give each application a different name when you apply the same
+process in separate `ModelSpec` entries. Applying one `ModelSpec` to many
+objects does not require separate application names for those objects.
+
+Similarly, an `ObjectInstance` name identifies a particular use of a template,
+such as one plant among several. It keeps that plant's model applications
+separate from the others. It does not replace the root object's ID or display
+name. See [several plants](several_plants.md) for an example.
 
 ## Inputs come from object values or the environment
 

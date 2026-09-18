@@ -89,6 +89,7 @@ function application(applicationId: string, process: string, modelName: string, 
     environmentBindings: {},
     environmentWindow: { mode: "default", value: null, unit: null, julia: "nothing" },
     outputRouting: {},
+    outputsTo: [],
     updates: [],
     modelStorage: "shared_application",
     objectOverrides: [],
@@ -96,7 +97,7 @@ function application(applicationId: string, process: string, modelName: string, 
 }
 
 function port(applicationId: string, role: "input" | "output", name: string): GraphPort {
-  return { id: `application:${applicationId}:${role}:${name}`, name, role, default: "-Inf", defaultJulia: "-Inf", expectedType: "Float64" };
+  return { id: `application:${applicationId}:${role}:${name}`, name, role, storage: "local", default: "-Inf", defaultJulia: "-Inf", expectedType: "Float64" };
 }
 
 function edge(sourceApplication: ApplicationGraphNode, sourceVariable: string, targetApplication: ApplicationGraphNode, targetVariable: string): ModelGraphEdge {

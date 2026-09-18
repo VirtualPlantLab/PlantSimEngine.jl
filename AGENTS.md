@@ -10,6 +10,8 @@ API.
 - `@process` defines the abstract process type.
 - `process(model)` identifies the process.
 - `inputs_(model)` and `outputs_(model)` declare status variables.
+- In `outputs_`, `Distributed(Default(value))` or `Distributed(Required(T))`
+  declares an output on selected destination objects. Ordinary values stay local.
 - `environment_inputs_(model)` and `environment_outputs_(model)` declare environment
   variables.
 - `dep(model)` optionally returns model-author defaults using `Input(...)` and
@@ -27,8 +29,9 @@ Read the current model's parameters directly from `model`. `context` is a
 
 - `CompositeModel` owns a `ObjectRegistry`, model applications, instances, and an
   environment.
-- `Object` is one runtime entity with stable `ObjectId`, labels, parent,
-  geometry, and `Status`.
+- `Object` is one runtime entity with a unique, stable `ObjectId`, optional
+  display `name`, group labels, parent, geometry, and `Status`. Display names
+  need not be unique and never select objects; the UI shows the ID by default.
 - Plant architecture is not prescribed. Users choose scales and topology.
 - `CompositeModelTemplate` and `ObjectInstance` reuse the same model definitions across
   several plants or objects.
@@ -47,6 +50,10 @@ ModelSpec(model; name=:application, on=selector, inputs=(...), calls=(...), ever
 
 - `on` selects where the model runs.
 - `inputs` declares value dependencies.
+- `outputs_to` is a tuple of anonymous `OutputTo(selector; vars=...)` entries.
+  One entry can omit `vars` to bind all distributed outputs; several entries
+  must explicitly partition their names. Kernels request columns with
+  `output_targets(context, (:variable,))`.
 - `calls` declares manually executable hard dependencies.
 - `Updates(:x; after=:producer)` orders intentional duplicate writers.
 - `output_routing=(x=:stream_only,)` excludes an output from canonical
@@ -67,11 +74,15 @@ Scope and topology:
 - `Subtree()`: the current object and its descendants
 - `SelfPlant()`: the current plant instance/root
 - `Ancestor(...)`
-- `Scope(name)`
+- `Scope(:instance_name)`: an instance's root and descendants
+- `Scope(ObjectId(root_id))`: a root chosen directly by object ID and its descendants
 - `Relation(...)`
 
-Use keyword criteria for object labels: `kind=:plant`, `species=:oil_palm`,
-`scale=:Leaf`, and `name=:leaf_1`.
+Use `id=:leaf_1` to select a particular object. Preserve the ID's value type,
+including numeric MTG IDs. Use keyword criteria for group labels:
+`kind=:plant`, `species=:oil_palm`, and `scale=:Leaf`.
+`ModelSpec.name` and `ObjectInstance.name` remain identifiers for applications
+and instances; do not treat them as object display names.
 
 `Self()` never means the model, species, or plant unless the current object is
 itself that plant.

@@ -27,6 +27,7 @@ end
 struct ModelPortDescription
     name::Symbol
     role::Symbol
+    storage::Symbol
     declaration::Symbol
     expected_type::String
     initial_value::Any
@@ -165,6 +166,10 @@ Typed, versioned validation result for a `CompositeModel`. `compilation`
 retains the existing best-effort compilation report for Julia consumers;
 [`Authoring.to_dict`](@ref) and [`Authoring.to_json`](@ref) serialize its stable summary and
 diagnostics rather than compiler internals.
+
+Displaying a report shows the validation outcome, connection counts, and up to
+five diagnostics, with errors first. The full details remain available in
+`report.diagnostics` and `report.compilation`.
 """
 struct ScenarioValidationReport
     schema_version::Int
@@ -173,6 +178,105 @@ struct ScenarioValidationReport
     summary::NamedTuple
     diagnostics::Vector{ValidationDiagnostic}
     compilation::CompositeModelCompilationReport
+end
+
+function _scenario_diagnostic_counts(report::ScenarioValidationReport)
+    return (
+        errors=count(d -> d.severity == :error, report.diagnostics),
+        warnings=count(d -> d.severity == :warning, report.diagnostics),
+        info=count(d -> d.severity == :info, report.diagnostics),
+    )
+end
+
+function Base.show(io::IO, report::ScenarioValidationReport)
+    counts = _scenario_diagnostic_counts(report)
+    print(io, "ScenarioValidationReport(", report.valid ? "valid" : "invalid",
+        ", strict=", report.strict,
+        ", applications=", report.summary.application_count,
+        ", errors=", counts.errors, ", warnings=", counts.warnings,
+        ", info=", counts.info, ")")
+end
+
+# Keep diagnostic text on one line; compiler errors may contain multiline
+# explanations. The full messages and all suggestions remain in the report.
+_scenario_display_text(value) = join(split(string(value)), " ")
+_scenario_display_count(n, label) = string(n, " ", label, n == 1 ? "" : "s")
+
+function _scenario_diagnostic_context(diagnostic::ValidationDiagnostic)
+    parts = String[]
+    for (key, label) in (("variable", "Variable"), ("field", "Field"),
+                         ("objectIds", "Object"), ("applicationIds", "Application"))
+        value = get(diagnostic.context, key, nothing)
+        isnothing(value) && continue
+        if value isa AbstractVector
+            isempty(value) && continue
+            labels = _scenario_display_text.(Iterators.take(value, 3))
+            text = join(labels, ", ")
+            length(value) > 3 && (text *= string(", … (+", length(value) - 3, ")"))
+        else
+            text = _scenario_display_text(value)
+        end
+        isempty(text) || push!(parts, string(label, ": ", text))
+    end
+    return join(parts, "; ")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", report::ScenarioValidationReport)
+    if get(io, :compact, false)
+        show(io, report)
+        return
+    end
+    counts = _scenario_diagnostic_counts(report)
+    summary = report.summary
+    _model_display_line(io, string("ScenarioValidationReport: ",
+        report.valid ? "valid" : "invalid", report.strict ? " (strict)" : ""))
+    for line in (
+        string("  Applications: ", summary.application_count),
+        string("  Connections: ", _scenario_display_count(summary.input_binding_count, "input"),
+            ", ", _scenario_display_count(summary.call_binding_count, "model call")),
+        string("  Compilation: ", summary.compiled ? "complete" : "incomplete",
+            "; cycles: ", summary.cycle_count),
+        string("  Diagnostics: ", _scenario_display_count(counts.errors, "error"),
+            ", ", _scenario_display_count(counts.warnings, "warning"), ", ", counts.info, " info"),
+    )
+        print(io, '\n')
+        _model_display_line(io, line)
+    end
+    isempty(report.diagnostics) && return
+
+    # Sorting indices preserves the report and its machine-readable exports.
+    priority(d) = d.severity == :error ? 1 : d.severity == :warning ? 2 : 3
+    order = sortperm(report.diagnostics; by=priority)
+    available = get(io, :limit, false) ? max(0, (displaysize(io)[1] - 7) ÷ 4) : 5
+    shown = min(length(order), 5, available)
+    for index in Iterators.take(order, shown)
+        diagnostic = report.diagnostics[index]
+        print(io, '\n')
+        _model_display_line(io, string("  ", uppercase(string(diagnostic.severity)),
+            " [", _scenario_display_text(diagnostic.code), "]"))
+        print(io, '\n')
+        message = _scenario_display_text(diagnostic.message)
+        _model_display_line(io, string("    ", message))
+        context = _scenario_diagnostic_context(diagnostic)
+        if !isempty(context)
+            print(io, '\n')
+            _model_display_line(io, string("    ", context))
+        end
+        if !isempty(diagnostic.suggestions)
+            suggestion = _scenario_display_text(first(diagnostic.suggestions))
+            if !isempty(suggestion) && suggestion != message
+                print(io, '\n')
+                _model_display_line(io, string("    Try: ", suggestion))
+            end
+        end
+    end
+    remaining = length(order) - shown
+    if remaining > 0
+        print(io, '\n')
+        _model_display_line(io, string("  … ", _scenario_display_count(remaining, "more diagnostic")))
+    end
+    print(io, '\n')
+    _model_display_line(io, "  Full details: report.diagnostics")
 end
 
 """
@@ -308,6 +412,7 @@ function _model_ports(model::AbstractModel)
         push!(ports, ModelPortDescription(
             name,
             :input,
+            :local,
             declaration isa Required ? :required : :defaulted,
             string(_input_expected_type(declaration)),
             initial_value,
@@ -315,7 +420,7 @@ function _model_ports(model::AbstractModel)
         ))
     end
     for (role, declarations) in (
-        :output => outputs_(model),
+        :output => _output_schema(model),
         :environment_input => environment_inputs_(model),
         :environment_output => environment_outputs_(model),
     )
@@ -323,13 +428,18 @@ function _model_ports(model::AbstractModel)
             "`$(role)_($(typeof(model)))` must return a NamedTuple; got " *
             "`$(typeof(declarations))`.",
         )
-        for (name_, initial_value) in pairs(declarations)
+        for (name_, value) in pairs(declarations)
             name = Symbol(name_)
+            distributed = role == :output && value isa Distributed
+            declaration = distributed ? value.declaration : value
+            initial_value = distributed ?
+                            (declaration isa Default ? declaration.value : nothing) : value
             push!(ports, ModelPortDescription(
                 name,
                 role,
-                :initial,
-                string(typeof(initial_value)),
+                distributed ? :distributed : role == :output ? :local : :environment,
+                distributed ? (declaration isa Required ? :required : :defaulted) : :initial,
+                string(distributed ? _output_value_type(value) : typeof(value)),
                 initial_value,
                 haskey(contracts, name) ? contracts[name] : nothing,
             ))
@@ -537,7 +647,7 @@ function _push_schema_differences!(
         ))
     end
     for name in sort!(collect(intersect(left_set, right_set)); by=string)
-        isequal(left[name], right[name]) && continue
+        isequal(_model_declaration_semantics(left[name]), _model_declaration_semantics(right[name])) && continue
         push!(differences, ModelDifference(
             string(field, ".", name),
             :changed,
@@ -746,7 +856,7 @@ function validate_model(model::AbstractModel; strict::Bool=false)
         field=:inputs,
     )
     outputs = _capture_validation!(
-        () -> _validate_named_model_declaration(model, :outputs_, outputs_),
+        () -> _output_schema(model),
         diagnostics,
         :invalid_outputs;
         field=:outputs,
@@ -795,10 +905,9 @@ function validate_model(model::AbstractModel; strict::Bool=false)
         unbound = sort!(Symbol[name for name in keys(contracts) if name ∉ declared]; by=string)
         isempty(unbound) || push!(diagnostics, _validation_diagnostic(
             :unbound_variable_contract,
-            "Variable contract(s) `$(Tuple(unbound))` are not model ports. They are valid only when a ModelSpec declares matching distributed outputs.";
+            "Variable contract(s) `$(Tuple(unbound))` are not declared model ports.";
             field=:variable_contracts,
-            severity=:warning,
-            suggestions=["Declare matching outputs_to variables in every ModelSpec using this model."],
+            suggestions=["Declare distributed outputs in outputs_ using Distributed(Default(value)) or Distributed(Required(T))."],
         ))
         if strict
             missing = sort!(collect(setdiff(declared, Set(Symbol.(keys(contracts))))); by=string)
@@ -1082,6 +1191,11 @@ function _authoring_json_value(value)
     value isa Type && return string(value)
     value isa Module && return string(value)
     value isa ObjectId && return _authoring_json_value(value.value)
+    value isa Distributed && return Dict{String,Any}(
+        "kind" => "distributed",
+        "declaration" => _authoring_json_value(value.declaration),
+        "valueType" => string(_output_value_type(value)),
+    )
     value isa Required && return Dict{String,Any}(
         "kind" => "required",
         "expectedType" => string(_input_expected_type(value)),
@@ -1182,6 +1296,7 @@ function to_dict(port::ModelPortDescription)
     return Dict{String,Any}(
         "name" => string(port.name),
         "role" => string(port.role),
+        "storage" => string(port.storage),
         "declaration" => string(port.declaration),
         "expectedType" => port.expected_type,
         "initialValue" => _authoring_json_value(port.initial_value),

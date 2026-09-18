@@ -1,7 +1,7 @@
 # Model repository layout and tests
 
-Organize a model package so a colleague can find the equation, its alternative
-hypotheses, and the evidence used to test it. A small package can start with
+If you happen to develop several processes or models, we recommend to organize those into a package so it's easier to find equations, their alternative
+hypotheses, and the evidence used to test them. A small package can start with
 one model file and one test file, then grow as needed.
 
 ## Group alternatives by scientific process
@@ -31,13 +31,12 @@ docs/src/models/
 
 Use `process.jl` only when this package declares a new process. If another
 package already declares it, import that package's abstract process type.
-Keep one readable file per hypothesis. List the files to include and the
+Keep one clean and easy to read file per hypothesis. List the files to include and the
 names users can import in `MyModels.jl`.
 
 A process page should compare the alternatives: equations, assumptions,
 required data, units, parameters, references, and the conditions under which
-each model has been tested. Label teaching models and unfinished experiments
-clearly.
+each model has been tested.
 
 ## Test from the equation outward
 
@@ -50,7 +49,7 @@ Each level answers a different question:
 | Small simulation | Can the model obtain its inputs and run on the intended object? |
 | Coupled scenario | Does it interact correctly with the other models used in this study? |
 
-Start with the biomass example from
+Let's take the biomass example from
 [Implement a basic model](@ref):
 
 ```@example repository-tests

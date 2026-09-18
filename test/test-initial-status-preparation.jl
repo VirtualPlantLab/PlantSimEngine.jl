@@ -337,11 +337,15 @@ end
             Object(:leaf; scale=:Leaf, parent=:scene, status=leaf_status);
             applications=(
                 ModelSpec(
-                    InitialStatusPreparationProbe(NamedTuple(), (local_default=1.0,));
+                    InitialStatusPreparationProbe(NamedTuple(), (
+                        local_default=1.0,
+                        distributed_buffer=Distributed(Default([1.0])),
+                        required_value=Distributed(Required(Real)),
+                    ));
                     name=:distributor, on=One(scale=:Scene),
                     outputs_to=(
-                        leaves=OutputTo(Many(scale=:Leaf, within=SceneScope());
-                            vars=(distributed_buffer=Default([1.0]), required_value=Required(Real))),
+                        OutputTo(Many(scale=:Leaf, within=SceneScope());
+                            vars=(:distributed_buffer, :required_value)),
                     ),
                 ),
             ),

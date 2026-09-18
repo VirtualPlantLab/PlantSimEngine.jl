@@ -15,10 +15,18 @@ struct Ancestor <: AbstractObjectSelector
 end
 Ancestor(; scale=nothing) = Ancestor(_maybe_symbol(scale))
 
-struct Scope <: AbstractObjectSelector
-    name::Symbol
+"""
+    Scope(root)
+
+Select the subtree rooted at an object ID or at an `ObjectInstance` name.
+A symbolic root first identifies an instance, then an object ID. Use
+`Scope(ObjectId(id))` to select an object explicitly when the two identifiers
+coincide. Object display names do not define scopes.
+"""
+struct Scope{R} <: AbstractObjectSelector
+    root::R
 end
-Scope(name::Union{Symbol,AbstractString}) = Scope(Symbol(name))
+Scope(root::AbstractString) = Scope(Symbol(root))
 
 struct Relation <: AbstractObjectSelector
     relation::Symbol
@@ -39,7 +47,7 @@ const _OBJECT_SELECTOR_KEYWORD_FIELDS = (
     :kind,
     :species,
     :scale,
-    :name,
+    :id,
     :relation,
     :process,
     :application,
@@ -49,12 +57,12 @@ const _OBJECT_SELECTOR_KEYWORD_FIELDS = (
     :from_status,
     :after,
 )
-const _OBJECT_LABEL_SYMBOL_FIELDS = (:kind, :species, :scale, :name)
+const _OBJECT_LABEL_SYMBOL_FIELDS = (:kind, :species, :scale)
 const _OBJECT_ROUTING_SYMBOL_FIELDS = (:process, :var, :application)
 const _OBJECT_SELECTOR_POSITIONAL_TYPES =
     Union{SceneScope,Self,Subtree,SelfPlant,Ancestor,Scope,Relation}
-const _OBJECT_SELECTOR_FIELDS = (:within, :kind, :species, :scale, :name, :relation)
-const _APPLICATION_TARGET_SELECTOR_FIELDS = (:within, :kind, :species, :scale, :name)
+const _OBJECT_SELECTOR_FIELDS = (:within, :kind, :species, :scale, :id, :relation)
+const _APPLICATION_TARGET_SELECTOR_FIELDS = (:within, :kind, :species, :scale, :id)
 const _INPUT_SELECTOR_FIELDS = (
     _OBJECT_SELECTOR_FIELDS...,
     :process,
@@ -96,7 +104,14 @@ function _maybe_symbol_collection(value)
     return _maybe_symbol(value)
 end
 
+function _normalize_object_id_criterion(value)
+    isnothing(value) && return nothing
+    value isa Union{Tuple,AbstractVector} && return Tuple(ObjectId(id) for id in value)
+    return ObjectId(value)
+end
+
 function _normalize_object_selector_value(key::Symbol, value)
+    key == :id && return _normalize_object_id_criterion(value)
     key == :within && begin
         value isa Union{SceneScope,Self,Subtree,SelfPlant,Ancestor,Scope} || error(
             "Selector keyword `within` must be a topology scope such as `Self()`, ",
@@ -170,8 +185,8 @@ multiplicity(::OptionalOne) = :optional_one
 multiplicity(::Many) = :many
 
 """A named topology scope resolved once while the scenario plan is compiled."""
-struct CompiledNamedScope{I<:ObjectId}
-    name::Symbol
+struct CompiledNamedScope{R,I<:ObjectId}
+    reference::R
     root_id::I
 end
 
@@ -179,13 +194,13 @@ end
 Normalized selector criteria used by lifecycle membership checks without
 reinterpreting the authored selector at every structural refresh.
 """
-struct CompiledSelectorMatcher{S,R,SC,K,SP,N}
+struct CompiledSelectorMatcher{S,R,SC,K,SP,I}
     scope::S
     relation::R
     scale::SC
     kind::K
     species::SP
-    name::N
+    id::I
     defaults_to_context::Bool
 end
 
@@ -710,28 +725,33 @@ function _criteria_scope(criteria)
 end
 
 function _named_scope_root_id(model::CompositeModel, scope::Scope)
-    root_id = get(model.registry.by_name, scope.name, nothing)
-    if isnothing(root_id)
-        candidate = ObjectId(scope.name)
-        root_id = haskey(model.registry.objects, candidate) ? candidate : nothing
+    if scope.root isa Symbol
+        for instance in model.instances
+            instance.name == scope.root || continue
+            root_id = _instance_root_id(instance)
+            haskey(model.registry.objects, root_id) || error(
+                "Object instance `$(instance.name)` has no current root object `$(root_id.value)`.",
+            )
+            return root_id
+        end
     end
-    if isnothing(root_id)
-        available = sort!(unique(Symbol[
-            keys(model.registry.by_name)...,
-            (id.value for id in keys(model.registry.objects))...,
-        ]); by=string)
-        suggestions = _near_symbol_matches(scope.name, available)
-        error(
-            "No named scope or object `$(scope.name)` found in the model registry. ",
-            "available=$(available), suggestions=$(suggestions).",
-        )
-    end
-    return root_id
+    root_id = ObjectId(scope.root)
+    haskey(model.registry.objects, root_id) && return root_id
+    available_ids = [id.value for id in object_ids(model)]
+    available_instances = sort!(Symbol[instance.name for instance in model.instances]; by=string)
+    symbolic_ids = Symbol[id for id in available_ids if id isa Symbol]
+    suggestions = root_id.value isa Symbol ?
+                  _near_symbol_matches(root_id.value, unique!([available_instances; symbolic_ids])) : Symbol[]
+    error(
+        "No instance or object ID `$(root_id.value)` found in the model registry. ",
+        "available_ids=$(available_ids), available_instances=$(available_instances), ",
+        "suggestions=$(suggestions).",
+    )
 end
 
 _compile_selector_scope(::CompositeModel, scope) = scope
 _compile_selector_scope(model::CompositeModel, scope::Scope) =
-    CompiledNamedScope(scope.name, _named_scope_root_id(model, scope))
+    CompiledNamedScope(scope.root, _named_scope_root_id(model, scope))
 
 _compile_selector_relation(::Nothing) = nothing
 _compile_selector_relation(relation::Symbol) = Val(relation)
@@ -746,20 +766,20 @@ function _compile_selector_matcher(
     scale = _criteria_value(criteria_, :scale)
     kind = _criteria_value(criteria_, :kind)
     species = _criteria_value(criteria_, :species)
-    name = haskey(criteria_, :name) ? criteria_.name : nothing
+    id = _criteria_value(criteria_, :id)
     defaults_to_context = isnothing(scope) &&
                           isnothing(relation) &&
                           isnothing(scale) &&
                           isnothing(kind) &&
                           isnothing(species) &&
-                          isnothing(name)
+                          isnothing(id)
     return CompiledSelectorMatcher(
         scope,
         _compile_selector_relation(relation),
         scale,
         kind,
         species,
-        name,
+        id,
         defaults_to_context,
     )
 end
@@ -819,7 +839,7 @@ function _registry_selector_ids(index, requested)
     return ids
 end
 
-function _indexed_object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, name=nothing)
+function _indexed_object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, id=nothing)
     candidate_sets = Set{ObjectId}[]
     for ids in (
         _registry_selector_ids(model.registry.by_scale, scale),
@@ -828,16 +848,12 @@ function _indexed_object_ids(model::CompositeModel; scale=nothing, kind=nothing,
     )
         isnothing(ids) || push!(candidate_sets, ids)
     end
-    if !isnothing(name)
-        names = name isa Tuple ? name : (name,)
-        push!(
-            candidate_sets,
-            Set{ObjectId}(
-                id for candidate_name in names
-                for id in (get(model.registry.by_name, Symbol(candidate_name), nothing),)
-                if !isnothing(id)
-            ),
-        )
+    if !isnothing(id)
+        requested_ids = id isa Tuple ? id : (id,)
+        push!(candidate_sets, Set{ObjectId}(
+            candidate for candidate in requested_ids
+            if haskey(model.registry.objects, candidate)
+        ))
     end
     isempty(candidate_sets) && return nothing
     sort!(candidate_sets; by=length)
@@ -996,18 +1012,18 @@ function _available_selector_labels(model::CompositeModel, candidate_ids)
     scales = Symbol[]
     kinds = Symbol[]
     species = Symbol[]
-    names = Symbol[]
+    ids = ObjectId[]
     for object in objects
         isnothing(object.scale) || push!(scales, object.scale)
         isnothing(object.kind) || push!(kinds, object.kind)
         isnothing(object.species) || push!(species, object.species)
-        isnothing(object.name) || push!(names, object.name)
+        push!(ids, object.id)
     end
     return (
         scales=sort!(unique!(scales); by=string),
         kinds=sort!(unique!(kinds); by=string),
         species=sort!(unique!(species); by=string),
-        names=sort!(unique!(names); by=string),
+        ids=[id.value for id in _sort_object_ids!(unique!(ids))],
     )
 end
 
@@ -1020,14 +1036,13 @@ function _selector_resolution_error(
     scale=nothing,
     kind=nothing,
     species=nothing,
-    name=nothing,
+    id=nothing,
 )
     available = _available_selector_labels(model, candidate_ids)
     suggestions = (
         scale=_near_symbol_matches(scale, available.scales),
         kind=_near_symbol_matches(kind, available.kinds),
         species=_near_symbol_matches(species, available.species),
-        name=_near_symbol_matches(name, available.names),
     )
     expected = selector isa One ? "exactly one" : "zero or one"
     context_id = _object_id_from_context(context)
@@ -1035,16 +1050,16 @@ function _selector_resolution_error(
         "Expected $(expected) object for selector `$(selector)`, got $(length(matched_ids)). ",
         "context=$(isnothing(context_id) ? nothing : context_id.value), ",
         "matched_ids=$([id.value for id in matched_ids]), ",
-        "requested=(scale=$(scale), kind=$(kind), species=$(species), name=$(name)), ",
+        "requested=(scale=$(scale), kind=$(kind), species=$(species), id=$(id)), ",
         "available=$(available), suggestions=$(suggestions)."
     )
 end
 
-function _matches_object_criteria(object::Object; scale=nothing, kind=nothing, species=nothing, name=nothing)
+function _matches_object_criteria(object::Object; scale=nothing, kind=nothing, species=nothing, id=nothing)
     _object_matches_selector_value(object.scale, scale) || return false
     _object_matches_selector_value(object.kind, kind) || return false
     _object_matches_selector_value(object.species, species) || return false
-    _object_matches_selector_value(object.name, name) || return false
+    _object_matches_selector_value(object.id, id) || return false
     return true
 end
 
@@ -1067,7 +1082,7 @@ function _selector_matches_object_id(
         scale=matcher.scale,
         kind=matcher.kind,
         species=matcher.species,
-        name=matcher.name,
+        id=matcher.id,
     ) || return false
     scope = isnothing(matcher.scope) ? default_scope : matcher.scope
     if isnothing(matcher.relation)
@@ -1202,7 +1217,7 @@ function _resolve_object_ids(
     scale = matcher.scale
     kind = matcher.kind
     species = matcher.species
-    name = matcher.name
+    requested_id = matcher.id
 
     if default_to_context &&
        matcher.defaults_to_context &&
@@ -1213,7 +1228,7 @@ function _resolve_object_ids(
     has_indexed_criteria = !isnothing(scale) ||
                            !isnothing(kind) ||
                            !isnothing(species) ||
-                           !isnothing(name)
+                           !isnothing(requested_id)
     scope_candidate_ids = if isnothing(relation) && has_indexed_criteria
         if scope isa Self
             _scope_object_ids(model, scope, context)
@@ -1239,7 +1254,7 @@ function _resolve_object_ids(
             scale=scale,
             kind=kind,
             species=species,
-            name=name,
+            id=requested_id,
         )
     else
         nothing
@@ -1288,7 +1303,7 @@ function _resolve_object_ids(
             scale=scale,
             kind=kind,
             species=species,
-            name=name,
+            id=requested_id,
         )
     ]
     _sort_object_ids!(ids)
@@ -1324,7 +1339,7 @@ function _resolve_object_ids(
             scale=scale,
             kind=kind,
             species=species,
-            name=name,
+            id=requested_id,
         )
     elseif selector isa OptionalOne && length(ids) > 1
         _selector_resolution_error(
@@ -1336,7 +1351,7 @@ function _resolve_object_ids(
             scale=scale,
             kind=kind,
             species=species,
-            name=name,
+            id=requested_id,
         )
     end
     return ids

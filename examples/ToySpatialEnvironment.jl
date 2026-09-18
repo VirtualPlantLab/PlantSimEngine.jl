@@ -133,23 +133,33 @@ function PlantSimEngine.run!(
 end
 
 """
-    ToyEnvironmentControllerModel(trial_temperature, accepted_temperature)
+    ToyEnvironmentControllerModel(; increment=1.0, threshold=22.0, max_iterations=100)
 
-Demonstrate a typed trial environment followed by one accepted environment
-commit and publication.
+Start from the environment temperature and repeatedly add `increment` until
+the reader returns a temperature strictly above `threshold`. Commit that
+temperature and publish the reader's result only after the loop succeeds.
+This arbitrary rule teaches iteration and environment updates; it is not a
+physical temperature model. `max_iterations` limits the number of trial calls.
 """
 struct ToyEnvironmentControllerModel{T} <:
        AbstractToy_Environment_ControllerModel
-    trial_temperature::T
-    accepted_temperature::T
+    increment::T
+    threshold::T
+    max_iterations::Int
 end
 
-function ToyEnvironmentControllerModel(trial_temperature, accepted_temperature)
-    parameters = promote(
-        float(trial_temperature),
-        float(accepted_temperature),
+function ToyEnvironmentControllerModel(;
+    increment=1.0,
+    threshold=22.0,
+    max_iterations::Integer=100,
+)
+    increment, threshold = promote(float(increment), float(threshold))
+    isfinite(increment) && increment > zero(increment) || throw(
+        ArgumentError("increment must be finite and positive."),
     )
-    return ToyEnvironmentControllerModel(parameters...)
+    isfinite(threshold) || throw(ArgumentError("threshold must be finite."))
+    max_iterations > 0 || throw(ArgumentError("max_iterations must be positive."))
+    return ToyEnvironmentControllerModel(increment, threshold, Int(max_iterations))
 end
 
 PlantSimEngine.inputs_(::ToyEnvironmentControllerModel) = NamedTuple()
@@ -157,14 +167,18 @@ PlantSimEngine.dep(::ToyEnvironmentControllerModel) = (
     reader=Call(One(process=:toy_environment_reader)),
 )
 function PlantSimEngine.outputs_(model::ToyEnvironmentControllerModel)
-    initial = zero(model.accepted_temperature)
+    initial = zero(model.threshold)
     return (
-        trial_temperature_seen=initial,
+        initial_temperature=initial,
+        iterations=0,
         accepted_temperature_seen=initial,
     )
 end
+PlantSimEngine.environment_inputs_(model::ToyEnvironmentControllerModel) = (
+    T=zero(model.threshold),
+)
 PlantSimEngine.environment_outputs_(model::ToyEnvironmentControllerModel) = (
-    T=zero(model.accepted_temperature),
+    T=zero(model.threshold),
 )
 
 function PlantSimEngine.run!(
@@ -174,24 +188,32 @@ function PlantSimEngine.run!(
     constants,
     context,
 )
-    trial_environment = (T=model.trial_temperature,)
-    trial_target = only(run_call!(
-        context,
-        :reader;
-        environment=trial_environment,
-        publish=false,
-    ))
-    status.trial_temperature_seen = trial_target.status.temperature_seen
+    temperature = environment.T
+    status.initial_temperature = temperature
+    status.iterations = 0
 
-    accepted_environment = (T=model.accepted_temperature,)
-    commit_environment!(context, accepted_environment)
-    accepted_target = only(run_call!(
-        context,
-        :reader;
-        environment=accepted_environment,
-        publish=true,
-    ))
-    status.accepted_temperature_seen =
-        accepted_target.status.temperature_seen
-    return nothing
+    for iteration in 1:model.max_iterations
+        trial_target = only(run_call!(
+            context,
+            :reader;
+            environment=(T=temperature,),
+            publish=false,
+        ))
+        status.iterations = iteration
+
+        if trial_target.status.temperature_seen > model.threshold
+            commit_environment!(context, (T=temperature,))
+            accepted_target = only(run_call!(
+                context, :reader; environment=(T=temperature,), publish=true,
+            ))
+            status.accepted_temperature_seen =
+                accepted_target.status.temperature_seen
+            return nothing
+        end
+
+        # A real solver would calculate its next estimate from model results.
+        temperature = trial_target.status.temperature_seen + model.increment
+    end
+
+    error("Temperature did not exceed the threshold within $(model.max_iterations) iterations.")
 end

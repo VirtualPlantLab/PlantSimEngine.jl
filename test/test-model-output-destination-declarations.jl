@@ -5,12 +5,15 @@ PlantSimEngine.@process "output_destination_probe" verbose = false
 PlantSimEngine.@process "output_destination_local" verbose = false
 PlantSimEngine.@process "output_destination_caller" verbose = false
 
-struct OutputDestinationProbeModel <: AbstractOutput_Destination_ProbeModel end
+struct OutputDestinationProbeModel{O} <: AbstractOutput_Destination_ProbeModel
+    declarations::O
+end
+OutputDestinationProbeModel() = OutputDestinationProbeModel((incident_par=Distributed(Default(0.0)),))
 struct OutputDestinationLocalModel <: AbstractOutput_Destination_LocalModel end
 struct OutputDestinationCallerModel <: AbstractOutput_Destination_CallerModel end
 
 PlantSimEngine.inputs_(::OutputDestinationProbeModel) = NamedTuple()
-PlantSimEngine.outputs_(::OutputDestinationProbeModel) = NamedTuple()
+PlantSimEngine.outputs_(model::OutputDestinationProbeModel) = model.declarations
 PlantSimEngine.inputs_(::OutputDestinationLocalModel) = NamedTuple()
 PlantSimEngine.outputs_(::OutputDestinationLocalModel) = (incident_par=0.0,)
 PlantSimEngine.inputs_(::OutputDestinationCallerModel) = NamedTuple()
@@ -21,75 +24,33 @@ PlantSimEngine.run!(::OutputDestinationCallerModel, status, environment, constan
     nothing
 
 @testset "OutputTo declarations" begin
-    selector = Many(
-        scale=(:Leaf, :Internode),
-        within=SceneScope(),
-    )
-    destination = OutputTo(
-        selector;
-        vars=(
-            incident_par=Default(0.0),
-            absorbed_par=Required(Float64),
-        ),
-    )
-
+    selector = Many(scale=(:Leaf, :Internode), within=SceneScope())
+    destination = OutputTo(selector; vars=(:incident_par, :absorbed_par))
     @test destination.selector === selector
-    @test destination.vars.incident_par isa Default{Float64}
-    @test destination.vars.incident_par.value == 0.0
-    @test destination.vars.absorbed_par isa Required{Float64}
+    @test destination.vars === (:incident_par, :absorbed_par)
     @test destination.coverage === :exact
+    @test OutputTo(selector).vars === nothing
+    @test OutputTo(Many(scale=:Leaf, within=Self()); vars=(:area,)).selector isa Many
 
-    relative_destination = OutputTo(
-        Many(scale=:Leaf, within=Self());
-        vars=(area=Required(Real),),
-    )
-    @test relative_destination.selector isa Many
-    @test relative_destination.vars.area isa Required{Real}
-
-    declarations = (organs=destination,)
-    spec = ModelSpec(
-        OutputDestinationProbeModel();
-        name=:scene_probe,
-        on=One(scale=:Scene),
-        outputs_to=declarations,
-    )
+    declarations = (destination,)
+    spec = ModelSpec(OutputDestinationProbeModel(); name=:scene_probe,
+        on=One(scale=:Scene), outputs_to=declarations)
     @test outputs_to(spec) === declarations
-
     replacement = PlantSimEngine._replace_model_spec(spec; name=:renamed_scene_probe)
     @test replacement.name === :renamed_scene_probe
     @test outputs_to(replacement) === declarations
-
-    default_spec = ModelSpec(OutputDestinationProbeModel())
-    @test outputs_to(default_spec) === NamedTuple()
-    @test typeof(outputs_to(default_spec)) === typeof(NamedTuple())
+    @test outputs_to(ModelSpec(OutputDestinationProbeModel())) === ()
 end
 
 @testset "OutputTo validation" begin
     selector = Many(scale=:Leaf, within=SceneScope())
-    valid_vars = (incident_par=Default(0.0),)
-
-    @test_throws "requires at least one destination variable" OutputTo(
-        selector;
-        vars=NamedTuple(),
-    )
-    @test_throws "requires a non-empty `NamedTuple`" OutputTo(
-        selector;
-        vars=(:incident_par => Default(0.0),),
-    )
-    @test_throws "Invalid declaration(s)" OutputTo(
-        selector;
-        vars=(incident_par=0.0,),
-    )
-    @test_throws "Only `coverage=:exact`" OutputTo(
-        selector;
-        vars=valid_vars,
-        coverage=:subset,
-    )
-    @test_throws "output-destination selectors must use" OutputTo(
-        :leaves;
-        vars=valid_vars,
-    )
-
+    valid_vars = (:incident_par,)
+    for invalid_vars in ((), NamedTuple(), (:incident_par => Default(0.0),),
+        (incident_par=Default(0.0),), (:incident_par, :incident_par), ("incident_par",))
+        @test_throws ArgumentError OutputTo(selector; vars=invalid_vars)
+    end
+    @test_throws "Only `coverage=:exact`" OutputTo(selector; vars=valid_vars, coverage=:subset)
+    @test_throws "output-destination selectors must use" OutputTo(:leaves; vars=valid_vars)
     invalid_selectors = (
         Many(scale=:Leaf, process=:photosynthesis),
         Many(scale=:Leaf, application=:leaf_model),
@@ -101,21 +62,13 @@ end
     )
     for invalid_selector in invalid_selectors
         @test_throws "not valid in output-destination selectors" OutputTo(
-            invalid_selector;
-            vars=valid_vars,
-        )
+            invalid_selector; vars=valid_vars)
     end
-
-    model = OutputDestinationProbeModel()
     destination = OutputTo(selector; vars=valid_vars)
-    @test_throws "Use a `NamedTuple` of named `OutputTo(...)` declarations" ModelSpec(
-        model;
-        outputs_to=(destination,),
-    )
-    @test_throws "must be an `OutputTo(...)` declaration" ModelSpec(
-        model;
-        outputs_to=(organs=selector,),
-    )
+    @test_throws ArgumentError ModelSpec(OutputDestinationProbeModel();
+        outputs_to=(organs=destination,))
+    @test_throws ArgumentError ModelSpec(OutputDestinationProbeModel();
+        outputs_to=(selector,))
 end
 
 @testset "compiled output destinations" begin
@@ -135,16 +88,16 @@ end
         );
         applications=(
             ModelSpec(
-                OutputDestinationProbeModel();
+                OutputDestinationProbeModel((
+                    incident_par=Distributed(Default(0.0)),
+                    absorbed_par=Distributed(Required(Float64)),
+                ));
                 name=:scene_probe,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    organs=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(
-                            incident_par=Default(0.0),
-                            absorbed_par=Required(Float64),
-                        ),
+                        vars=(:incident_par, :absorbed_par),
                     ),
                 ),
             ),
@@ -159,7 +112,7 @@ end
     binding = only(compiled.distributed_outputs.bindings)
     @test binding.application_id == :scene_probe
     @test binding.execution_object_id == ObjectId(:scene)
-    @test binding.group == :organs
+    @test binding.group == :output_1
     @test binding.destination_ids == ObjectId[ObjectId(:leaf_1), ObjectId(:leaf_2)]
     @test propertynames(binding.columns) == (:incident_par, :absorbed_par)
     @test collect(binding.columns.incident_par) == [7.0, 0.0]
@@ -174,14 +127,14 @@ end
           :scene_probe
     diagnostic = only(Diagnostics.explain_output_bindings(compiled))
     @test diagnostic.application_id == :scene_probe
-    @test diagnostic.group == :organs
+    @test diagnostic.variables == (:incident_par, :absorbed_par)
     @test diagnostic.destination_ids == [:leaf_1, :leaf_2]
     writer = only(
         row for row in Diagnostics.explain_writers(compiled)
         if row.object_id == :leaf_1 && row.variable == :incident_par
     )
     @test writer.owner_kinds == [:output_destination]
-    @test writer.output_groups == [:organs]
+    @test writer.output_groups == [:output_1]
 end
 
 @testset "output destination initialization is atomic" begin
@@ -190,16 +143,16 @@ end
         Object(:leaf; scale=:Leaf, parent=:scene);
         applications=(
             ModelSpec(
-                OutputDestinationProbeModel();
+                OutputDestinationProbeModel((
+                    incident_par=Distributed(Default(0.0)),
+                    absorbed_par=Distributed(Required(Float64)),
+                ));
                 name=:scene_probe,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    organs=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(
-                            incident_par=Default(0.0),
-                            absorbed_par=Required(Float64),
-                        ),
+                        vars=(:incident_par, :absorbed_par),
                     ),
                 ),
             ),
@@ -232,9 +185,9 @@ end
                 name=:scene_probe,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -258,9 +211,9 @@ end
                 name=:scene_probe,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -320,9 +273,9 @@ end
             name=:scene_probe,
             on=One(scale=:Scene),
             outputs_to=(
-                leaves=OutputTo(
+                OutputTo(
                     Many(scale=:Leaf, within=SceneScope());
-                    vars=(incident_par=Default(0.0),),
+                    vars=(:incident_par,),
                 ),
             ),
         ),
@@ -335,9 +288,9 @@ end
             name=:scene_probe,
             on=One(scale=:Scene),
             outputs_to=(
-                leaves=OutputTo(
+                OutputTo(
                     Many(scale=:Leaf, within=SceneScope());
-                    vars=(incident_par=Default(0.0),),
+                    vars=(:incident_par,),
                 ),
             ),
             updates=Updates(:incident_par; after=:leaf_source),
@@ -358,19 +311,19 @@ end
                 name=:scene_probe,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    first=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
-                    second=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
         ),
     )
-    @test_throws "declares more than one canonical writer" Advanced.refresh_bindings!(
+    @test_throws ArgumentError Advanced.refresh_bindings!(
         overlapping,
     )
 
@@ -382,16 +335,16 @@ end
                 name=:stream_only_self_writer,
                 on=One(scale=:Leaf),
                 outputs_to=(
-                    self=OutputTo(
+                    OutputTo(
                         One(within=Self());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
                 output_routing=(incident_par=:stream_only,),
             ),
         ),
     )
-    @test_throws "publishes stream-only local output `incident_par`" Advanced.refresh_bindings!(
+    @test_throws ArgumentError Advanced.refresh_bindings!(
         stream_only_self_collision,
     )
 end
@@ -409,9 +362,9 @@ end
                 name=:plant_probe,
                 on=Many(scale=:Plant),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=Subtree());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -420,9 +373,9 @@ end
     compiled = Advanced.refresh_bindings!(model)
     @test length(compiled.distributed_outputs.bindings) == 2
     by_target = compiled.distributed_outputs.by_execution_target
-    @test by_target[(:plant_probe, ObjectId(:plant_a))].leaves.destination_ids ==
+    @test by_target[(:plant_probe, ObjectId(:plant_a))].output_1.destination_ids ==
           ObjectId[ObjectId(:leaf_a)]
-    @test by_target[(:plant_probe, ObjectId(:plant_b))].leaves.destination_ids ==
+    @test by_target[(:plant_probe, ObjectId(:plant_b))].output_1.destination_ids ==
           ObjectId[ObjectId(:leaf_b)]
     @test Set(keys(compiled.distributed_outputs.writer_ownership)) == Set([
         (ObjectId(:leaf_a), :incident_par),
@@ -431,7 +384,7 @@ end
     @test compiled.distributed_outputs.destination_ids_by_application_variable[
         (:plant_probe, :incident_par)
     ] == ObjectId[ObjectId(:leaf_a), ObjectId(:leaf_b)]
-    @test by_target[(:plant_probe, ObjectId(:plant_a))].leaves.destination_ids ==
+    @test by_target[(:plant_probe, ObjectId(:plant_a))].output_1.destination_ids ==
           ObjectId[ObjectId(:leaf_a)]
 
     dynamic_model = CompositeModel(
@@ -477,9 +430,9 @@ end
                 name=:manual_probe,
                 on=Many(scale=:Leaf),
                 outputs_to=(
-                    leaves=OutputTo(
+                    OutputTo(
                         Many(scale=:Leaf, within=SceneScope());
-                        vars=(incident_par=Default(0.0),),
+                        vars=(:incident_par,),
                     ),
                 ),
             ),
@@ -493,7 +446,7 @@ end
         Object(:scene; scale=:Scene);
         applications=(
             ModelSpec(
-                OutputDestinationProbeModel();
+                OutputDestinationCallerModel();
                 name=:plain_probe,
                 on=One(scale=:Scene),
             ),
@@ -505,4 +458,204 @@ end
     @test compiled.distributed_outputs isa
           PlantSimEngine.NoCompiledDistributedOutputs
     @test isempty(Diagnostics.explain_output_bindings(compiled))
+end
+
+struct OutputDestinationLocalPayload
+    coefficient::Float32
+end
+
+function output_destination_schema_scene(model, destinations; leaf_status=nothing)
+    return CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf; scale=:Leaf, parent=:scene, status=leaf_status);
+        applications=(ModelSpec(model; name=:schema_probe, on=One(scale=:Scene),
+            outputs_to=destinations),),
+    )
+end
+
+@testset "model-owned distributed schemas and inferred variables" begin
+    payload = OutputDestinationLocalPayload(3.0f0)
+    model = OutputDestinationProbeModel((
+        incident_par=Distributed(Default(1.0f0)),
+        local_array=Float32[2, 3],
+        local_tuple=(4, 5),
+        local_payload=payload,
+        absorbed_par=Distributed(Default(2.0f0)),
+        local_total=0.0f0,
+    ))
+    @test outputs(model) == (:incident_par, :local_array, :local_tuple,
+        :local_payload, :absorbed_par, :local_total)
+    types = PlantSimEngine.variables_typed(model)
+    @test types.incident_par === Float32
+    @test types.absorbed_par === Float32
+    @test types.local_array === Vector{Float32}
+    @test types.local_payload === OutputDestinationLocalPayload
+
+    inferred = output_destination_schema_scene(model,
+        (OutputTo(Many(scale=:Leaf)),))
+    explicit = output_destination_schema_scene(model,
+        (OutputTo(Many(scale=:Leaf); vars=(:incident_par, :absorbed_par)),))
+    for scenario in (inferred, explicit)
+        compiled = Advanced.refresh_bindings!(scenario)
+        leaf = model_object(scenario, :leaf).status
+        scene = model_object(scenario, :scene).status
+        @test leaf.incident_par === 1.0f0
+        @test leaf.absorbed_par === 2.0f0
+        @test !(:local_total in propertynames(leaf))
+        @test !(:incident_par in propertynames(scene))
+        @test !(:absorbed_par in propertynames(scene))
+        @test scene.local_array == Float32[2, 3]
+        @test scene.local_tuple == (4, 5)
+        @test scene.local_payload == payload
+        @test scene.local_total === 0.0f0
+        diagnostic = only(Diagnostics.explain_output_bindings(compiled))
+        @test diagnostic.variables == (:incident_par, :absorbed_par)
+        @test diagnostic.destination_index == 1
+        @test diagnostic.origin == (scenario === inferred ? :inferred : :explicit)
+        application = only(Diagnostics.explain_applications(compiled))
+        @test application.outputs == outputs(model)
+        @test application.local_outputs == (:local_array, :local_tuple, :local_payload, :local_total)
+        @test application.distributed_outputs == (:incident_par, :absorbed_par)
+    end
+    inferred_binding = only(Advanced.refresh_bindings!(inferred).distributed_outputs.bindings)
+    explicit_binding = only(Advanced.refresh_bindings!(explicit).distributed_outputs.bindings)
+    @test inferred_binding.destination_ids == explicit_binding.destination_ids
+    @test collect(inferred_binding.columns.incident_par) ==
+        collect(explicit_binding.columns.incident_par)
+end
+
+@testset "invalid distributed partitions fail before destination mutation" begin
+    probe = OutputDestinationProbeModel((
+        incident_par=Distributed(Default(1.0)),
+        absorbed_par=Distributed(Default(2.0)),
+        local_total=0.0,
+    ))
+    selector = Many(scale=:Leaf)
+    incident = OutputTo(selector; vars=(:incident_par,))
+    absorbed = OutputTo(selector; vars=(:absorbed_par,))
+    inferred = OutputTo(selector)
+    invalid_partitions = (
+        missing_all=(),
+        missing_one=(incident,),
+        unknown=(OutputTo(selector; vars=(:incident_par, :absorbed_par, :typo)),),
+        local_variable=(OutputTo(selector; vars=(:incident_par, :absorbed_par, :local_total)),),
+        duplicate=(incident, absorbed, incident),
+        inferred_first=(inferred, absorbed),
+        inferred_last=(incident, inferred),
+        both_inferred=(inferred, inferred),
+    )
+    for (case, destinations) in pairs(invalid_partitions)
+        @testset "$case" begin
+            scenario = output_destination_schema_scene(probe, destinations;
+                leaf_status=Status(existing=7.0))
+            @test_throws ArgumentError Advanced.refresh_bindings!(scenario)
+            leaf = model_object(scenario, :leaf).status
+            @test propertynames(leaf) == (:existing,)
+            @test leaf.existing == 7.0
+        end
+    end
+    for destinations in ((inferred,), (incident,))
+        scenario = output_destination_schema_scene(OutputDestinationLocalModel(), destinations)
+        @test_throws ArgumentError Advanced.refresh_bindings!(scenario)
+        @test isnothing(model_object(scenario, :leaf).status)
+    end
+    # Explicit partitions are independent of entry order.
+    for destinations in ((incident, absorbed), (absorbed, incident))
+        scenario = output_destination_schema_scene(probe, destinations)
+        Advanced.refresh_bindings!(scenario)
+        @test model_object(scenario, :leaf).status.incident_par == 1.0
+        @test model_object(scenario, :leaf).status.absorbed_par == 2.0
+    end
+end
+
+@testset "Required distributed values preserve compatible destination types" begin
+    probe = OutputDestinationProbeModel((incident_par=Distributed(Required(Real)),))
+    for initial in (1.0f0, 1.0, big"1.0")
+        scenario = output_destination_schema_scene(probe, (OutputTo(One(scale=:Leaf)),);
+            leaf_status=Status(incident_par=initial))
+        Advanced.refresh_bindings!(scenario)
+        @test model_object(scenario, :leaf).status.incident_par == initial
+        @test typeof(model_object(scenario, :leaf).status.incident_par) === typeof(initial)
+    end
+    invalid = output_destination_schema_scene(probe, (OutputTo(Many(scale=:Leaf)),);
+        leaf_status=Status(incident_par="invalid"))
+    @test_throws Exception Advanced.refresh_bindings!(invalid)
+    @test model_object(invalid, :leaf).status.incident_par == "invalid"
+    @test_throws ArgumentError Distributed(0.0)
+    @test_throws ArgumentError Distributed(Distributed(Default(0.0)))
+end
+
+@testset "distributed defaults follow template and effective override models" begin
+    probe(value) = OutputDestinationProbeModel((
+        incident_par=Distributed(Default(value)),
+        absorbed_par=Distributed(Default(2 * value)),
+    ))
+    reversed_probe = OutputDestinationProbeModel((
+        absorbed_par=Distributed(Default(22.0f0)),
+        incident_par=Distributed(Default(11.0f0)),
+    ))
+    template = CompositeModelTemplate((
+        ModelSpec(probe(1.0f0); name=:probe, on=Many(scale=:Plant),
+            outputs_to=(OutputTo(Many(scale=:Leaf, within=Subtree())),)),
+    ))
+    function instance(name; overrides=NamedTuple(), object_overrides=())
+        root_id = Symbol(:plant_, name)
+        leaf_id = Symbol(:leaf_, name)
+        return ObjectInstance(name, template;
+            root=Object(root_id; scale=:Plant),
+            objects=(Object(leaf_id; scale=:Leaf, parent=root_id),),
+            overrides=overrides, object_overrides=object_overrides)
+    end
+    scenario = CompositeModel(
+        instance(:a),
+        instance(:b; overrides=(probe=probe(9.0f0),)),
+        instance(:c; object_overrides=(Override(object=:plant_c,
+            application=:probe, model=reversed_probe),)),
+    )
+    compiled = Advanced.refresh_bindings!(scenario)
+    @test model_object(scenario, :leaf_a).status.incident_par === 1.0f0
+    @test model_object(scenario, :leaf_b).status.incident_par === 9.0f0
+    @test model_object(scenario, :leaf_c).status.incident_par === 11.0f0
+    @test model_object(scenario, :leaf_a).status.absorbed_par === 2.0f0
+    @test model_object(scenario, :leaf_b).status.absorbed_par === 18.0f0
+    @test model_object(scenario, :leaf_c).status.absorbed_par === 22.0f0
+    @test length(Diagnostics.explain_output_bindings(compiled)) == 3
+    for root_id in (:plant_a, :plant_b, :plant_c)
+        @test !(:incident_par in propertynames(model_object(scenario, root_id).status))
+    end
+
+    for replacement in (
+        OutputDestinationProbeModel((
+            incident_par=0.0f0, absorbed_par=Distributed(Default(0.0f0)),
+        )),
+        OutputDestinationProbeModel((
+            unknown=Distributed(Default(0.0f0)), absorbed_par=Distributed(Default(0.0f0)),
+        )),
+        OutputDestinationProbeModel((
+            incident_par=Distributed(Default("invalid")), absorbed_par=Distributed(Default(0.0f0)),
+        )),
+    )
+        @test_throws "incompatible" CompositeModel(
+            instance(:invalid; overrides=(probe=replacement,)))
+        @test_throws "incompatible" CompositeModel(
+            instance(:invalid; object_overrides=(Override(object=:plant_invalid,
+                application=:probe, model=replacement),)))
+    end
+end
+
+@testset "distributed outputs reject stream-only routing before mutation" begin
+    for selector in (One(within=Self()), Many(scale=:Leaf))
+        scenario = CompositeModel(
+            Object(:scene; scale=:Scene, status=Status(existing=1.0)),
+            Object(:leaf; scale=:Leaf, parent=:scene, status=Status(existing=2.0));
+            applications=(ModelSpec(OutputDestinationProbeModel(); name=:private_distributed,
+                on=One(scale=:Scene), outputs_to=(OutputTo(selector),),
+                output_routing=(incident_par=:stream_only,)),),
+        )
+        @test_throws "stream_only" Advanced.refresh_bindings!(scenario)
+        @test propertynames(model_object(scenario, :scene).status) == (:existing,)
+        @test propertynames(model_object(scenario, :leaf).status) == (:existing,)
+        @test model_object(scenario, :scene).status.existing == 1.0
+        @test model_object(scenario, :leaf).status.existing == 2.0
+    end
 end

@@ -1,7 +1,7 @@
 # Implement Environment And Cadence Traits
 
 A model may need air temperature or may be intended to run once a day.
-Describe these requirements alongside the model's equation. The simulation
+We describe these requirements alongside the model's equation. The simulation
 setup then chooses where the temperature comes from and how often the model
 runs. This update frequency is also called its **cadence**.
 
@@ -24,22 +24,28 @@ Main.DocsSources.section(
 
 `environment_inputs_` declares `T`, and `run!` reads it from
 `environment.T`. The model does not need to know whether the temperature
-comes from a weather file or varies with position in the canopy.
+comes from a weather file or varies with position in the canopy, this is handled by the simulation setup.
 
-Test that read directly:
+!!! note
+    You may need to declare the process before defining the model:
+    ```julia
+    PlantSimEngine.@process "toy_environment_reader" verbose = false
+    ```
+
+Now we can manually test that the model reads temperature correctly:
 
 ```@example modeler_environment_time
 using Dates, Test, PlantSimEngine
 using PlantSimEngine.Examples
 
 reader = ToyEnvironmentReaderModel()
-sample = Status(temperature_seen=0.0)
+sample = Status(temperature_seen=0.0) # initialising `temperature_seen` to 0.0
 PlantSimEngine.run!(reader, sample, (T=25.0,), nothing, nothing)
 @test sample.temperature_seen == 25.0
 sample.temperature_seen
 ```
 
-Then supply an environment through the simulation:
+But calling `PlantSimEngine.run!` directly on a model is only for testing. In a true simulation setup, we would first define a scenario with an environment and a model application, then run the scenario. The following example shows how to do this:
 
 ```@example modeler_environment_time
 model = CompositeModel(

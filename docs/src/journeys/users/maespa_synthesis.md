@@ -1,27 +1,37 @@
 # MAESPA-Style Synthesis
 
-Bring the earlier tutorials together in a small MAESPA-style stand with two
-species and five leaves. Canopy and soil exchange run hourly; carbon
-allocation and LAI run daily. Within each hour, a controller repeatedly runs
-the leaf models to find a consistent canopy air temperature and humidity.
-This is an advanced example; start with the individual tutorials if these
-steps are unfamiliar.
+Let's combine the earlier tutorials together to calculate CO₂ uptake and water loss
+by leaves, and their interactions with soil water availability. The example
+is inspired by [MAESPA](https://doi.org/10.1016/j.agrformet.2018.02.005), which couples
+photosynthesis, transpiration and soil–plant water relations. Here, a small
+stand contains two species and five leaves. Leaf and canopy fluxes and soil
+water are calculated **hourly**. Within each hour, a controller repeatedly
+runs the leaf models to find a consistent canopy air temperature and humidity.
+
+The original MAESPA model does not include carbon allocation. We deliberately
+add **daily carbon allocation** and a separate **leaf area index (LAI) model**
+to show how PlantSimEngine lets you extend a simulation by connecting
+additional models, each with its own time step. Allocation distributes the
+carbon assimilated by each plant among leaf, wood and reserve pools; the
+daily LAI calculation sums leaf areas per unit ground area. Leaf areas stay
+fixed in this example, so allocation does not change LAI.
 
 This is an uncalibrated teaching example inspired by MAESPA's process
 structure. It is not a validated MAESPA implementation. Leaf illumination is
 uniform with complete absorption, the canopy has one air layer, and the soil
-water model uses prescribed withdrawals and bounds rather than a complete
-soil hydraulic balance. The example tests coupling and carbon accounting;
+water model uses prescribed withdrawal fractions and bounds rather than a
+complete soil hydraulic balance. The example tests coupling and carbon accounting;
 its results should not be used to predict a real stand's behaviour.
 
-The table in [How the pieces compose](@ref) links each part of this example
-to the tutorial that explains it.
+This is an advanced example; start with the individual tutorials if these
+steps are unfamiliar. The table in [How the pieces compose](@ref) links each
+part of this example to the tutorial that explains it.
 
 ## Run the reference case
 
 The complete, tested source is in `examples/maespa_model_example.jl`. Run it
-with 25 hourly weather records. The daily models run on the first step and
-again 24 hours later, so this is long enough to see two calls:
+with 73 hourly weather records to show three daily cycles. The daily models
+run on the first step and again every 24 hours, giving four calls:
 
 ```@example journey_maespa_synthesis
 using PlantSimEngine, DataFrames
@@ -32,7 +42,7 @@ include(joinpath(
     "maespa_model_example.jl",
 ))
 
-result = run_maespa_example(; nhours=25, check=true)
+result = run_maespa_example(; nhours=73, check=true)
 simulation = result.simulation
 model = result.model
 nothing
@@ -51,6 +61,77 @@ species parameters, and number of leaves:
     species_B=length(model_objects(model; scale=:Leaf, species=:B)),
 )
 ```
+
+## Plot dynamics at three scales
+
+Use the same simulation to compare scene transpiration, carbon allocated by
+each plant, and water content in the two soil layers. CairoMakie is already
+part of the documentation environment. Separate panels keep the different
+units readable, while a shared time axis shows the hourly and daily changes.
+
+```@example journey_maespa_synthesis
+using CairoMakie
+
+function history(object, variable)
+    sort!(collect_outputs(simulation, object, variable; sink=DataFrame), :timestep)
+end
+
+transpiration = history(:model, :scene_transpiration)
+plant_carbon = [history(id, :accounted_carbon) for id in (:plant_A, :plant_B)]
+soil_water = [history(:soil, variable) for variable in (:theta1, :theta2)]
+
+figure = Figure(size=(840, 780), fontsize=16)
+scene_axis = Axis(figure[1, 1];
+    title="Scene · transpiration",
+    ylabel="Water loss\n(mm per hourly interval)",
+    xticks=[1, 25, 49, 73],
+)
+plant_axis = Axis(figure[2, 1];
+    title="Plants · cumulative allocated carbon",
+    ylabel="Allocated carbon\n(g C per plant)",
+    xticks=[1, 25, 49, 73],
+)
+soil_axis = Axis(figure[3, 1];
+    title="Soil · water content",
+    xlabel="Hourly simulation step",
+    ylabel="Water content\n(m³ m⁻³)",
+    xticks=[1, 25, 49, 73],
+)
+
+lines!(scene_axis, transpiration.timestep, Float64.(transpiration.value);
+    color=:steelblue, linewidth=2.5)
+for (series, label, color) in zip(plant_carbon, ("Plant A", "Plant B"),
+                                (:seagreen, :darkorange))
+    stairs!(plant_axis, series.timestep, Float64.(series.value);
+        step=:post, color, label, linewidth=2.5)
+    scatter!(plant_axis, series.timestep, Float64.(series.value);
+        color, markersize=8)
+end
+for (series, label, color) in zip(soil_water, ("Upper layer", "Lower layer"),
+                                (:sienna, :mediumpurple))
+    lines!(soil_axis, series.timestep, Float64.(series.value);
+        color, label, linewidth=2.5)
+end
+axislegend(plant_axis; position=:lt, framevisible=false)
+axislegend(soil_axis; position=:rt, framevisible=false)
+linkxaxes!(scene_axis, plant_axis, soil_axis)
+hidexdecorations!(scene_axis; grid=false)
+hidexdecorations!(plant_axis; grid=false)
+xlims!(scene_axis, 0, 74)
+figure
+```
+
+Transpiration follows the daily weather cycle. The plant curves change only
+when allocation runs, at steps 1, 25, 49 and 73; markers show those saved
+values, and the steps show the value held between calls. This is allocated
+elemental carbon, not biomass. The first allocation covers only the starting
+hour. Soil water decreases as transpiration draws on the two layers; this
+example supplies no rain or infiltration.
+
+The horizontal positions come from the saved `timestep` column, including
+for the daily models. These are global simulation steps, not row numbers
+within each output series. The plot uses hourly steps because this example's
+environment provider does not attach calendar dates to the saved outputs.
 
 ## Check when models run and where their inputs come from
 
@@ -169,7 +250,7 @@ whole canopy. It keeps the above-canopy weather separate from the canopy
 conditions that the controller changes. You could replace it with an
 environment that represents several layers or 3D cells, while keeping the
 same variables available to the process models. See the two-cell example in
-[Modify The Environment](@ref) and the implementation guide in
+[Understand Environments](@ref) and the implementation guide in
 [Environment Backend Extensions](@ref).
 
 ## Check units and carbon accounting
@@ -236,7 +317,7 @@ biomass, construction respiration, dry-matter conversion, or limits on
 withdrawing reserves, so the pools are not predictions of organ mass.
 
 Count the saved values to check how often the models ran. Hourly scene and
-leaf variables have 25 samples; daily LAI and allocation variables have two:
+leaf variables have 73 samples; daily LAI and allocation variables have four:
 
 ```@example journey_maespa_synthesis
 output_summary = DataFrame(Diagnostics.explain_outputs(simulation))
@@ -271,10 +352,10 @@ select(
 | Hourly and daily models with `HoldLast` | Keep using the last daily value between daily calculations | [Give Models Different Cadences](@ref) |
 | Above-canopy weather and canopy conditions | Supply each model with the environment it needs | [Understand Environments](@ref) |
 | Trial air conditions and an accepted result | Find consistent canopy conditions, then save the accepted result | [Modify The Environment](@ref) |
-| Hard calls | Let scene energy balance decide when leaf and soil models run | [Control Advanced Execution](@ref) |
+| Hard calls | Let scene energy balance decide when leaf and soil models run | [Implement A Hard Dependency](@ref) |
 | `Simulation`, `final_state`, and saved outputs | Read current values and analyse changes over time | [Couple Models On One Object](@ref) |
 
-Plant structure stays fixed during this 25-hour example. To add or remove
+Plant structure stays fixed during this 73-hour example. To add or remove
 organs with a growth model, follow [Modify Plant Structure](@ref).
 
 ## What the tests check
@@ -287,6 +368,7 @@ The automated tests check that the parts work together as intended:
 - hourly and daily output counts match their scheduled intervals;
 - accepting new canopy conditions does not replace the above-canopy weather;
 - leaf fluxes are finite and their totals agree with the scene results;
+- hourly transpiration agrees with latent heat loss and the change in soil water storage;
 - PAR energy is bounded by shortwave energy and converted to photon units;
 - a longer run with 73 hourly samples covers three daily intervals plus the
   initial call, with no carbon added by rejected trial calculations;

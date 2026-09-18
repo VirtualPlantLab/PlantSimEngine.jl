@@ -34,13 +34,13 @@ using PlantSimEngine, Dates, DataFrames
 using PlantSimEngine.Examples
 
 model = CompositeModel(
-    Object(:hourly; scale=:Sensor, name=:hourly),
-    Object(:ninety_minutes; scale=:Sensor, name=:ninety_minutes);
+    Object(:hourly; scale=:Sensor),
+    Object(:ninety_minutes; scale=:Sensor);
     applications=(
         ModelSpec(ToyEnvironmentReaderModel(); name=:hourly,
-            on=One(name=:hourly), every=Hour(1)),
+            on=One(id=:hourly), every=Hour(1)),
         ModelSpec(ToyEnvironmentReaderModel(); name=:ninety_minutes,
-            on=One(name=:ninety_minutes), every=Minute(90)),
+            on=One(id=:ninety_minutes), every=Minute(90)),
     ),
     environment=(T=20.0, duration=Minute(30)),
 )

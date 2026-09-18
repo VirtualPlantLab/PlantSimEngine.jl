@@ -25,6 +25,7 @@ function port(role: GraphPort["role"], name: string): GraphPort {
     id: `application:test:${role}:${name}`,
     name,
     role,
+    storage: role.startsWith("environment_") ? "environment" : "local",
     default: null,
     defaultJulia: "nothing",
     expectedType: "Any",

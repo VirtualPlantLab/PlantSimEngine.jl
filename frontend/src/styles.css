@@ -19,11 +19,15 @@
 .model-editor-shell {
   height: 100vh;
   min-height: 560px;
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   color: #302923;
   background: #f3eee5;
 }
+.model-toolbar,
+.cycle-callout,
+.editor-feedback,
+.graph-scope-filter { flex-shrink: 0; }
 .frontend-error { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; color: #743128; background: #fff5ef; text-align: center; }
 .frontend-error h1,.frontend-error p { margin: 0; }
 .frontend-error p { max-width: 620px; color: #655850; }
@@ -151,7 +155,7 @@
   padding: 5px 8px;
 }
 
-.model-workspace { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 310px; }
+.model-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 310px; }
 .flow-wrap { min-width: 0; min-height: 0; position: relative; }
 .model-inspector { overflow: auto; padding: 16px; background: #fffaf2; border-left: 1px solid #d9cdbd; }
 .model-inspector > header { display: grid; gap: 2px; margin-bottom: 14px; }

@@ -31,9 +31,10 @@ ObjectId(id::AbstractString) = ObjectId(Symbol(id))
            status=nothing, applications=())
 
 One simulated entity, such as a canopy, plant, leaf, or soil volume. `id` is
-its stable [`ObjectId`](@ref). Labels such as `scale`, `kind`, and `name` let
-selectors choose where models run; parent and child IDs describe topology.
-The scenario chooses these labels and relationships.
+its stable [`ObjectId`](@ref). Select one object with `id=...`, or a group with
+labels such as `scale`, `kind`, and `species`. Parent and child IDs describe
+topology. The optional `name` is display text: it need not be unique and never
+changes which object a selector matches. Displays use the ID when no name is given.
 
 Supply initial model values with [`Status`](@ref). Models can share fixed
 parameters while each object owns its changing state. `geometry` may hold
@@ -49,7 +50,7 @@ mutable struct Object
     scale::Union{Nothing,Symbol}
     kind::Union{Nothing,Symbol}
     species::Union{Nothing,Symbol}
-    name::Union{Nothing,Symbol}
+    name::Union{Nothing,String}
     parent::Union{Nothing,ObjectId}
     children::Vector{ObjectId}
     geometry::Any
@@ -198,7 +199,7 @@ function Object(
         _maybe_symbol(scale),
         _maybe_symbol(kind),
         _maybe_symbol(species),
-        _maybe_symbol(name),
+        isnothing(name) ? nothing : String(name),
         isnothing(parent) ? nothing : ObjectId(parent),
         ObjectId[ObjectId(child) for child in children],
         geometry,
@@ -213,7 +214,6 @@ mutable struct ObjectRegistry
     by_scale::Dict{Symbol,Set{ObjectId}}
     by_kind::Dict{Symbol,Set{ObjectId}}
     by_species::Dict{Symbol,Set{ObjectId}}
-    by_name::Dict{Symbol,ObjectId}
     ancestor_ids_by_object::Dict{ObjectId,Vector{ObjectId}}
 end
 
@@ -223,7 +223,6 @@ ObjectRegistry() = ObjectRegistry(
     Dict{Symbol,Set{ObjectId}}(),
     Dict{Symbol,Set{ObjectId}}(),
     Dict{Symbol,Set{ObjectId}}(),
-    Dict{Symbol,ObjectId}(),
     Dict{ObjectId,Vector{ObjectId}}(),
 )
 
@@ -305,7 +304,7 @@ struct LifecycleObjectSnapshot{G}
     scale::Union{Nothing,Symbol}
     kind::Union{Nothing,Symbol}
     species::Union{Nothing,Symbol}
-    name::Union{Nothing,Symbol}
+    name::Union{Nothing,String}
     parent::Union{Nothing,ObjectId}
     children::Tuple
     ancestors::Tuple
@@ -468,13 +467,6 @@ function _prepare_object_instances!(objects, instances)
             isnothing(object.kind) && (object.kind = instance.template.kind)
             isnothing(object.species) && (object.species = instance.template.species)
         end
-        root = objects_by_id[root_id]
-        if !isnothing(root.name) && root.name != instance.name
-            error(
-                "Object instance `$(instance.name)` root `$(root_id.value)` already has the conflicting name `$(root.name)`."
-            )
-        end
-        root.name = instance.name
         instance_ids[instance.name] = ids
     end
     length(instance_ids) == length(instances) || error("Object instance names must be unique within a model.")
@@ -598,7 +590,7 @@ end
 Build an executable composite model from a reusable template mounted on one
 concrete object subtree. `root` may be the owned root `Object`, or its id when
 the root is included in `objects`. When `name` is omitted, it is inferred from
-the root object's name or id.
+the root object's ID. Its display name is kept unchanged.
 
 This constructor is syntax lowering for an [`ObjectInstance`](@ref) passed to
 the regular [`CompositeModel`](@ref) constructor. Use explicit
@@ -620,12 +612,10 @@ function CompositeModel(
 )
     inferred_name = if !isnothing(name)
         Symbol(name)
-    elseif root isa Object && !isnothing(root.name)
-        root.name
     elseif root isa Object
-        Symbol(root.id.value)
+        Symbol(string(root.id.value))
     else
-        Symbol(ObjectId(root).value)
+        Symbol(string(ObjectId(root).value))
     end
     instance = ObjectInstance(
         inferred_name,
@@ -648,7 +638,7 @@ end
 """
     CompositeModel(model::AbstractModel, models::AbstractModel...;
           status=NamedTuple(), id=:scene, scale=:Scene, kind=nothing,
-          name=id, environment=nothing, timestep=nothing,
+          name=nothing, environment=nothing, timestep=nothing,
           type_promotion=nothing, status_transform=nothing)
 
 Construct a concise one-object simulation. This is syntax lowering only: it
@@ -668,13 +658,12 @@ function CompositeModel(
     id=:scene,
     scale=:Scene,
     kind=nothing,
-    name=id,
+    name=nothing,
     environment=nothing,
     timestep=nothing,
     type_promotion=nothing,
     status_transform=nothing,
 )
-    object_name = isnothing(name) ? nothing : Symbol(string(name))
     object_status = if status isa Status || isnothing(status)
         status
     elseif status isa Union{NamedTuple,AbstractDict,Base.Pairs}
@@ -685,7 +674,7 @@ function CompositeModel(
             "`AbstractDict`, `Base.Pairs`, or `nothing`, got `$(typeof(status))`."
         )
     end
-    selector = isnothing(object_name) ? One(scale=scale) : One(name=object_name)
+    selector = One(id=id)
     applications = map((model, models...)) do application_model
         ModelSpec(application_model; on=selector, every=timestep)
     end
@@ -694,7 +683,7 @@ function CompositeModel(
             id;
             scale=scale,
             kind=kind,
-            name=object_name,
+            name=name,
             status=object_status,
         );
         applications=applications,
@@ -966,15 +955,6 @@ function _index_object!(registry::ObjectRegistry, object::Object)
     _push_index!(registry.by_scale, object.scale, object.id)
     _push_index!(registry.by_kind, object.kind, object.id)
     _push_index!(registry.by_species, object.species, object.id)
-    if !isnothing(object.name)
-        existing = get(registry.by_name, object.name, nothing)
-        if !isnothing(existing) && existing != object.id
-            error(
-                "CompositeModel object name `$(object.name)` is already used by object `$(existing.value)`."
-            )
-        end
-        registry.by_name[object.name] = object.id
-    end
     object.status isa Status &&
         (registry.object_ids_by_status[_status_identity(object.status)] = object.id)
     return nothing
@@ -984,9 +964,6 @@ function _deindex_object!(registry::ObjectRegistry, object::Object)
     _delete_index!(registry.by_scale, object.scale, object.id)
     _delete_index!(registry.by_kind, object.kind, object.id)
     _delete_index!(registry.by_species, object.species, object.id)
-    if !isnothing(object.name) && get(registry.by_name, object.name, nothing) == object.id
-        delete!(registry.by_name, object.name)
-    end
     if object.status isa Status &&
        get(
            registry.object_ids_by_status,
@@ -1314,12 +1291,6 @@ function _register_object_without_lifecycle!(
     parent_id = isnothing(parent) ? nothing : ObjectId(parent)
     if !isnothing(parent_id) && !haskey(registry.objects, parent_id)
         error("No model object with id `$(parent_id.value)`.")
-    end
-    if !isnothing(object.name)
-        existing = get(registry.by_name, object.name, nothing)
-        isnothing(existing) || error(
-            "CompositeModel object name `$(object.name)` is already used by object `$(existing.value)`."
-        )
     end
     source_status = object.status
     _validate_status_source_identity_available!(model, source_status, object.id)
@@ -1826,19 +1797,16 @@ function refresh_environment_bindings!(model::CompositeModel, compiled=refresh_b
     return model.environment_binding_cache
 end
 
-function object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, name=nothing)
-    registry = model.registry
-    sets = Set{ObjectId}[]
-    isnothing(scale) || push!(sets, copy(get(registry.by_scale, Symbol(scale), Set{ObjectId}())))
-    isnothing(kind) || push!(sets, copy(get(registry.by_kind, Symbol(kind), Set{ObjectId}())))
-    isnothing(species) || push!(sets, copy(get(registry.by_species, Symbol(species), Set{ObjectId}())))
-    if !isnothing(name)
-        id = get(registry.by_name, Symbol(name), nothing)
-        push!(sets, isnothing(id) ? Set{ObjectId}() : Set([id]))
-    end
-    isempty(sets) && return sort!(collect(keys(registry.objects)); by=id -> string(id.value))
-    ids = reduce(intersect, sets)
-    return sort!(collect(ids); by=id -> string(id.value))
+function object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, id=nothing)
+    ids = _indexed_object_ids(
+        model;
+        scale=_maybe_symbol_collection(scale),
+        kind=_maybe_symbol_collection(kind),
+        species=_maybe_symbol_collection(species),
+        id=_normalize_object_id_criterion(id),
+    )
+    isnothing(ids) && (ids = collect(keys(model.registry.objects)))
+    return sort!(ids; by=id -> string(id.value))
 end
 
 model_objects(model::CompositeModel; kwargs...) = [_model_object(model, id) for id in object_ids(model; kwargs...)]
@@ -1981,27 +1949,39 @@ function explain_scopes(model::CompositeModel)
                 n_objects=length(descendant_ids),
             ),
         )
-        object_scope_name = object.id.value isa Symbol ? object.id.value : Symbol(string(object.id.value))
-        scope_names = Symbol[object_scope_name]
-        isnothing(object.name) || push!(scope_names, object.name)
-        unique!(scope_names)
-        for scope_name in scope_names
-            push!(
-                rows,
-                (
-                    scope_type=:named_scope,
-                    selector=Scope(scope_name),
-                    context=nothing,
-                    root_id=object.id.value,
-                    scale=object.scale,
-                    kind=object.kind,
-                    species=object.species,
-                    name=scope_name,
-                    object_ids=descendant_ids,
-                    n_objects=length(descendant_ids),
-                ),
-            )
-        end
+        push!(
+            rows,
+            (
+                scope_type=:object_scope,
+                selector=Scope(object.id),
+                context=nothing,
+                root_id=object.id.value,
+                scale=object.scale,
+                kind=object.kind,
+                species=object.species,
+                name=object.name,
+                object_ids=descendant_ids,
+                n_objects=length(descendant_ids),
+            ),
+        )
+    end
+    for instance in model.instances
+        root_id = _instance_root_id(instance)
+        haskey(model.registry.objects, root_id) || continue
+        root = _model_object(model, root_id)
+        ids = _object_id_values(_descendant_ids(model, root_id))
+        push!(rows, (
+            scope_type=:instance_scope,
+            selector=Scope(instance.name),
+            context=nothing,
+            root_id=root_id.value,
+            scale=root.scale,
+            kind=root.kind,
+            species=root.species,
+            name=instance.name,
+            object_ids=ids,
+            n_objects=length(ids),
+        ))
     end
     append!(rows, _label_scope_rows(model, :scale, :scale, model.registry.by_scale))
     append!(rows, _label_scope_rows(model, :kind, :kind, model.registry.by_kind))

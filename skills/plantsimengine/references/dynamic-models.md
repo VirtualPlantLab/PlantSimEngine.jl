@@ -105,21 +105,22 @@ set of destination objects—for example, a scene radiation model assigning
 incident radiation to leaves. Do not use them as a substitute for ordinary
 consumer input bindings.
 
-Declare destination groups on the application:
+Declare the output schema in the model, then select destinations on the
+application. This is a solver wrapper skeleton: complete status/environment
+inputs and scientific contracts for the chosen calculation.
 
 ```julia
+PlantSimEngine.outputs_(::SceneRadiation) = (
+    incident_par=Distributed(Default(0.0)),
+    absorbed_par=Distributed(Required(Real)),
+)
+
 ModelSpec(
     SceneRadiation();
     name=:scene_radiation,
     on=One(scale=:Scene),
     outputs_to=(
-        leaves=OutputTo(
-            Many(scale=:Leaf, within=SceneScope());
-            vars=(
-                incident_par=Default(0.0),
-                absorbed_par=Required(Real),
-            ),
-        ),
+        OutputTo(Many(scale=:Leaf, within=SceneScope())),
     ),
 )
 ```
@@ -127,7 +128,7 @@ ModelSpec(
 Inside `run!`, obtain the compiled target view and assign by object identity:
 
 ```julia
-targets = output_targets(context, :leaves)
+targets = output_targets(context, (:incident_par, :absorbed_par))
 assign_outputs!(
     targets,
     object_ids_from_solver,
@@ -138,11 +139,28 @@ assign_outputs!(
 )
 ```
 
-Use `Default(value)` when the destination variable may be created with a real
-default. Use `Required(T)` when every destination status must already own it.
+Use `Distributed(Default(value))` when the destination variable may be created with a real
+default. Use `Distributed(Required(T))` when every destination status must already own it.
 Destination selectors describe objects only; do not add producer `process`,
 `application`, `var`, temporal policy, or status-source criteria to an
 `OutputTo` selector.
+
+With one `OutputTo`, omitted `vars` selects every distributed output. With
+multiple entries, give explicit tuples such as `vars=(:incident_par,)` and
+bind every distributed variable exactly once. Local outputs are not eligible.
+A selector can include the execution object; it then owns the field as a
+selected destination. Distributed outputs always write destination status and
+cannot use `:stream_only` output routing.
+Empty `Many` selections are valid; missing bindings and empty `vars=()` are
+errors. A combined runtime view requires equal ordered object IDs, even when
+its variables come from separate declarations. Request separate views when
+the destinations differ, and call `output_targets` again after each lifecycle
+change instead of retaining a view in the model.
+
+Declare all solver environment inputs explicitly. Distributed outputs write
+object status; `environment_outputs_` and `commit_environment!` apply only to
+accepted updates of environment backends. Selectors do not imply scientific
+contracts or solver equations.
 
 The identity-aware `assign_outputs!` form is preferable when an external
 solver returns rows in a different order. Do not assume that collection order

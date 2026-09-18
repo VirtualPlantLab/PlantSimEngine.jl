@@ -58,9 +58,8 @@ end
 Trait declaring the scientific contracts of status and environment variables
 used by `model`. Return a named tuple whose keys are variables declared by
 `inputs_`, `outputs_`, `environment_inputs_`, or `environment_outputs_`, and
-whose values are [`VariableContract`](@ref)s. A model that produces values only
-through distributed output groups may also declare those names; each compiled
-`ModelSpec` must then include them in `outputs_to`.
+whose values are [`VariableContract`](@ref)s. Distributed outputs use the same
+flat variable names declared with `Distributed(...)` in `outputs_`.
 
 The default is empty for incremental adoption. Once either side of a compiled
 model-to-model input binding declares a contract, the other side must declare
@@ -73,9 +72,8 @@ variable_contracts_(::Missing) = NamedTuple()
 """
     variable_contracts(model)
 
-Return the structurally validated variable-contract declaration for `model`.
-Compilation additionally checks each key against the concrete ModelSpec,
-including its distributed output declarations.
+Return the validated variable-contract declaration for `model`, including
+contracts for distributed outputs declared by the model itself.
 """
 variable_contracts(model::Union{AbstractModel,Missing}) =
     _variable_contract_schema(model)
@@ -83,13 +81,23 @@ variable_contracts(model::Union{AbstractModel,Missing}) =
 function _declared_contract_variable_names(model)
     declared = Set{Symbol}()
     union!(declared, Symbol.(keys(_input_schema(model))))
-    union!(declared, Symbol.(keys(outputs_(model))))
+    union!(declared, Symbol.(keys(_output_schema(model))))
     union!(declared, Symbol.(keys(environment_inputs_(model))))
     union!(declared, Symbol.(keys(environment_outputs_(model))))
     return declared
 end
 
-_validate_variable_contract_names(model, schema) = schema
+function _validate_variable_contract_names(model, schema)
+    declared = _declared_contract_variable_names(model)
+    unknown = Tuple(name for name in keys(schema) if name ∉ declared)
+    isempty(unknown) || return _invalid_variable_contract_schema_error(
+        model,
+        "declares unknown variable(s) `$(unknown)`. Declare every contract variable " *
+        "in inputs_, outputs_, environment_inputs_, or environment_outputs_; " *
+        "distributed outputs belong in outputs_ as Distributed declarations.",
+    )
+    return schema
+end
 
 @noinline function _invalid_variable_contract_schema_error(model, message)
     error("`variable_contracts_($(typeof(model)))` $(message)")

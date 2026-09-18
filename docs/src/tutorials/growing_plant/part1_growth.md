@@ -6,7 +6,7 @@ how to connect those operations to a growth model and a carbon budget.
 
 ## Connect organ creation to a resource budget
 
-Store the plant's carbon reserves on the plant object and each leaf's carbon
+Let's store the plant's carbon reserves on the plant object and each leaf's carbon
 production on that leaf. `Many(scale=:Leaf, within=Subtree())` lets the plant
 collect production from its own leaves. Before adding production to reserves,
 check what it represents: a rate, an amount produced during one interval, or

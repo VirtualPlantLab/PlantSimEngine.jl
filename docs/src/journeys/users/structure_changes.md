@@ -1,6 +1,6 @@
 # Modify Plant Structure
 
-Start with one plant, one branch, and two leaves. Each leaf computes carbon
+We'll start with one plant, one branch, and two leaves. Each leaf computes carbon
 demand. We assume enough carbon is available to meet that demand and pass the
 full amount to `ToyCBiomassModel`, which calculates growth and respiration.
 We will add a leaf, move it to the branch, and remove another leaf. After
