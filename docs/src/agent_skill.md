@@ -45,7 +45,7 @@ You can ask your agents anything, for example you can ask it to assemble existin
 
 Useful inputs to provide are the package names, the process of interest,
 your input data and its units, and the outputs you want to compare. The
-[Loaded model catalog](@ref) and [Model compatibility and replacement](@ref)
+[Model catalog and related packages](@ref) and [Model compatibility and replacement](@ref)
 show the corresponding manual workflow.
 
 Please give as much contest a possible to your agent, for example the data should be documented properly with protocols, units, etc...

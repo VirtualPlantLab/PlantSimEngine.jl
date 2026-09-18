@@ -52,6 +52,12 @@ Researchers assembling models can see which equations and assumptions were
 chosen in the simulation setup. Both can test a component
 before investigating its behaviour in the full system.
 
+You can also examine how uncertainty in weather or model parameters affects
+the results. When process models support uncertain numeric values, these
+values propagate through the simulation. Follow
+[Propagate Uncertainty Through A Simulation](@ref) for an example with uncertain
+radiation, a light-extinction parameter, and plots of the results.
+
 ## Choose the representation that answers your question
 
 An object can represent a leaf, a plant, a canopy layer, a soil compartment,
@@ -83,7 +89,7 @@ or rate-to-amount conversion is a scientific choice. The
 Some calculations also need a controller: an energy-balance algorithm may
 call gas-exchange models repeatedly while finding an accepted leaf temperature.
 Explicit model calls let the controller manage that iteration and record the
-accepted result once. See [advanced execution](../journeys/users/advanced_execution.md).
+accepted result once. See [the controller tutorial](../journeys/modelers/hard_dependencies.md).
 
 ## Understand what the simulation will do
 

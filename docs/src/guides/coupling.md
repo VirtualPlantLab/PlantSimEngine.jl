@@ -56,6 +56,81 @@ Use `Diagnostics.explain_bindings(model)` to see where each input comes from.
 `Diagnostics.explain_initialization(model)` shows how starting values are
 obtained, including values you supplied, defaults, and missing required inputs.
 
+## Let two models update the same value
+
+Normally, only one model may set a given variable on an object. If two models
+both set `stock`, PlantSimEngine needs to know which value to keep. If the
+second model is meant to change the first model's result, use `Updates` to
+specify their order. Without that instruction, this configuration is rejected
+before either model runs. `ToyStockWriterModel(value)` simply stores the given
+number; the values below illustrate ordering, not a biological stock model:
+
+`initial_stock` sets `stock` first, then `adjusted_stock` changes it. The third
+model calculates an alternative value that we want to keep for comparison.
+`output_routing=(stock=:stream_only,)` records that alternative in its own
+output history without replacing the object's `stock` value.
+
+```@example coupling-writers
+using Test, PlantSimEngine, DataFrames
+using PlantSimEngine.Examples
+
+writer_model = CompositeModel(
+    Object(:reserve; scale=:Organ);
+    applications=(
+        ModelSpec(
+            ToyStockWriterModel(4);
+            name=:initial_stock,
+            on=One(scale=:Organ),
+        ),
+        ModelSpec(
+            ToyStockWriterModel(8);
+            name=:adjusted_stock,
+            on=One(scale=:Organ),
+            updates=Updates(:stock; after=:initial_stock),
+        ),
+        ModelSpec(
+            ToyStockWriterModel(99);
+            name=:alternative_stock,
+            on=One(scale=:Organ),
+            output_routing=(stock=:stream_only,),
+        ),
+    ),
+)
+
+select(
+    DataFrame(Diagnostics.explain_writers(writer_model)),
+    :object_id,
+    :variable,
+    :application_ids,
+    :update_application_ids,
+    :update_after,
+)
+```
+
+The table lists the models that write the object's stored `stock` and their
+order. The alternative only contributes to saved output history. Run all
+three applications and collect that history:
+
+```@example coupling-writers
+writer_simulation = run!(writer_model; outputs=:all)
+stored_stock = final_state(writer_simulation).stock
+published = collect_outputs(writer_simulation, :reserve, :stock)
+@test stored_stock == 8.0 # hide
+@test Dict(row.application_id => row.value for row in eachrow(published)) == Dict( # hide
+    :initial_stock => 4.0, # hide
+    :adjusted_stock => 8.0, # hide
+    :alternative_stock => 99.0, # hide
+) # hide
+select(published, :application_id, :value)
+```
+
+The object's final `stock` is `8`. The three models' output histories keep
+their respective values: `4`, `8`, and `99`. The `:stream_only` setting never
+lets the alternative replace the stored `stock`, even if no other model sets
+it. If you use `OutputRequest` to save selected results, name
+`:alternative_stock` explicitly to retain its output; requesting `stock`
+without an application name does not select this alternative.
+
 ## Manual calls
 
 A model that controls another model's calculation is called a **controller**.

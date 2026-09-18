@@ -69,7 +69,8 @@ The first daily calculation has only one hourly value available, so it adds
 1, 25, and 49. All 49 supplied hourly amounts are counted once. A model set
 to run daily still runs at the start, before a full day of values is available.
 
-These totals describe uptake added to storage, not tissue hydration or growth.
+!!! note
+    This example does not represent any real plant or soil. It shows how to integrate a rate into an amount and how to avoid double-counting when a plant collects water from multiple roots.
 
 ## Share a limited soil water supply
 
@@ -81,9 +82,8 @@ same soil stock does not prevent them from taking too much water together.
 `Updates` can specify the order in which models change a value, but your
 equations must decide how to share the water.
 
-Supply rainfall through the environment and state its units before converting
-it to an amount of soil water. Add each loss and exchange when extending
-the plant balance. When growth adds a root, provide its initial values and
+For a better model, we could supply rainfall through the environment and state its units before converting
+it to an amount of soil water. Then compute loss and exchange, and when growth adds a root, provide its initial values and
 add it with `register_object!` or, for an MTG, `add_organ!`. The plant's `Many`
-selection then includes that root after the creating application finishes.
+selection helps include that root after the creating application finishes.
 See [Growing A Plant CompositeModel](@ref).

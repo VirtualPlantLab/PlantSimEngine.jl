@@ -167,4 +167,4 @@ inside the model.
 - [Model repository layout and tests](@ref): organize a package and its checks.
 - [Implement Cross-Object Values](@ref): read another object's result or sum several.
 - [Model compatibility and replacement](@ref): compare another hypothesis.
-- [Loaded model catalog](@ref): discover and inspect models already loaded.
+- [Model catalog and related packages](@ref): find packages and inspect models already loaded.

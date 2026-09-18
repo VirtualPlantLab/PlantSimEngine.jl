@@ -31,7 +31,7 @@ a controller model that calls both models repeatedly. Try values with
 `publish=false` and record each accepted result once with `publish=true`.
 The controller must decide when the result is close enough and what to do if
 the calculation does not converge. See
-[Control Advanced Execution](../journeys/users/advanced_execution.md).
+[Implement A Hard Dependency](@ref).
 
 You may also need to rewrite the equations. Simply changing the order of
 the `ModelSpec` declarations does not resolve a cycle.

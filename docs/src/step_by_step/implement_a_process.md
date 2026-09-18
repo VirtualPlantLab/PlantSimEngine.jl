@@ -36,7 +36,7 @@ candidate = ToyRUEGrowthModel(0.2)
 )
 ```
 
-[Loaded model catalog](@ref) explains discovery and inspection in more detail.
+[Model catalog and related packages](@ref) explains discovery and inspection in more detail.
 These functions only find packages loaded into Julia. Also check the package
 you plan to use before concluding that a process is missing.
 

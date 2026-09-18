@@ -30,12 +30,8 @@ end
         ToyPlantRmModel(),
         ToySoilWaterModel(),
         ToyEnvironmentReaderModel(),
-        ToyEnvironmentControllerModel(30.0, 22.0),
-        ToySelectiveCallControllerModel(
-            (28.0, 31.0),
-            22.0;
-            selected_object=:leaf,
-        ),
+        ToyEnvironmentControllerModel(),
+        ToySelectiveCallControllerModel(; selected_object=:leaf),
         ToyStockWriterModel(4.0),
         ToyDevelopmentModel(0.5),
         ToyDailyDevelopmentModel(2.0),
@@ -82,8 +78,8 @@ end
         (:Rm,),
         (:soil_water_content,),
         (:temperature_seen,),
-        (:trial_temperature_seen, :accepted_temperature_seen),
-        (:target_count, :trial_temperature_seen, :accepted_temperature_seen),
+        (:initial_temperature, :iterations, :accepted_temperature_seen),
+        (:target_count, :initial_temperature, :iterations, :accepted_temperature_seen),
         (:stock,),
         (:growth,),
         (:daily_growth,),
@@ -106,8 +102,8 @@ end
         (),
         (),
         (:T,),
-        (),
-        (),
+        (:T,),
+        (:T,),
         (),
         (),
         (),
@@ -847,7 +843,7 @@ end
                 environment=Environment(backend=environment),
             ),
             ModelSpec(
-                ToyEnvironmentControllerModel(30.0, 22.0);
+                ToyEnvironmentControllerModel();
                 name=:controller,
                 on=One(scale=:Leaf),
                 calls=(
@@ -865,9 +861,10 @@ end
     )
     simulation = run!(model; outputs=:all)
     state = final_state(simulation)
-    @test state.trial_temperature_seen == 30.0
-    @test state.accepted_temperature_seen == 22.0
-    @test environment.cells[:canopy].T == 22.0
+    @test state.initial_temperature == 20.0
+    @test state.iterations == 4
+    @test state.accepted_temperature_seen == 23.0
+    @test environment.cells[:canopy].T == 23.0
     @test only(
         row for row in Diagnostics.explain_outputs(simulation)
         if row.application_id == :reader
@@ -912,16 +909,123 @@ end
     ) == Dict(:sun_leaf => :sun, :shade_leaf => :shade)
 end
 
+@testset "Iterative tutorial controller boundaries" begin
+    function controller_scene(controller, initial_temperature)
+        backend = ToySpatialEnvironment(
+            Dict(:canopy => (T=initial_temperature,));
+            step_seconds=3600.0,
+        )
+        commits_environment = controller isa ToyEnvironmentControllerModel
+        controller_id = commits_environment ? :leaf : :plant
+        controller_environment = commits_environment ?
+            (environment=Environment(backend=backend, sink=:cells),) :
+            NamedTuple()
+        model = CompositeModel(
+            Object(:plant; scale=:Plant),
+            Object(
+                :leaf;
+                scale=:Leaf,
+                parent=:plant,
+                geometry=(cell=:canopy,),
+            );
+            applications=(
+                ModelSpec(
+                    ToyEnvironmentReaderModel();
+                    name=:reader,
+                    on=One(scale=:Leaf),
+                    environment=Environment(backend=backend),
+                ),
+                ModelSpec(
+                    controller;
+                    name=:controller,
+                    on=One(id=controller_id),
+                    controller_environment...,
+                ),
+            ),
+            environment=(T=initial_temperature, duration=Dates.Hour(1)),
+        )
+        return model, backend, controller_id
+    end
+
+    for controller_type in (
+        ToyEnvironmentControllerModel,
+        ToySelectiveCallControllerModel,
+    )
+        @testset "$controller_type" begin
+            options = controller_type === ToySelectiveCallControllerModel ?
+                (selected_object=:leaf,) : NamedTuple()
+            for increment in (0, -1, NaN, Inf)
+                @test_throws ArgumentError controller_type(; options..., increment)
+            end
+            for threshold in (NaN, Inf)
+                @test_throws ArgumentError controller_type(; options..., threshold)
+            end
+            for max_iterations in (0, -1)
+                @test_throws ArgumentError controller_type(; options..., max_iterations)
+            end
+            typed = controller_type(; options..., increment=1.0f0, threshold=22.0f0)
+            @test typed.increment isa Float32
+            @test typed.threshold isa Float32
+            @test PlantSimEngine.environment_inputs_(typed) === (T=0.0f0,)
+
+            # The initial environment value and increment determine the trials;
+            # reaching an accepted value on the last allowed trial succeeds.
+            controller = controller_type(;
+                options...,
+                increment=1.5,
+                threshold=22.0,
+                max_iterations=3,
+            )
+            model, backend, controller_id = controller_scene(controller, 19.5)
+            simulation = run!(model; outputs=:all)
+            state = final_state(simulation, controller_id)
+            @test state.initial_temperature == 19.5
+            @test state.iterations == 3
+            @test state.accepted_temperature_seen == 22.5
+            @test final_state(simulation, :leaf).temperature_seen == 22.5
+            @test only(
+                row for row in Diagnostics.explain_outputs(simulation)
+                if row.application_id == :reader
+            ).nsamples == 1
+            @test backend.cells[:canopy].T == (
+                controller_type === ToyEnvironmentControllerModel ? 22.5 : 19.5
+            )
+
+            # A temperature already above the threshold needs one trial only.
+            controller = controller_type(; options..., max_iterations=1)
+            model, backend, controller_id = controller_scene(controller, 25.0)
+            simulation = run!(model; outputs=:all)
+            state = final_state(simulation, controller_id)
+            @test state.initial_temperature == 25.0
+            @test state.iterations == 1
+            @test state.accepted_temperature_seen == 25.0
+
+            # Equality is insufficient, and exhausting the bound must not
+            # persist a trial temperature or publish a reader sample.
+            controller = controller_type(; options..., max_iterations=2)
+            model, backend, controller_id = controller_scene(controller, 21.0)
+            simulation = run!(model; steps=0, outputs=:all)
+            @test_throws "did not exceed" step!(simulation)
+            @test backend.cells[:canopy].T == 21.0
+            @test only(
+                row for row in Diagnostics.explain_outputs(simulation)
+                if row.application_id == :reader
+            ).nsamples == 0
+        end
+    end
+end
+
 @testset "Advanced execution-control tutorial composition" begin
-    controller = ToySelectiveCallControllerModel(
-        (28, 31.0f0),
-        22;
+    controller = ToySelectiveCallControllerModel(;
+        increment=1.0f0,
+        threshold=22,
         selected_object=:sun_leaf,
     )
     @test PlantSimEngine.inputs_(controller) == NamedTuple()
     @test PlantSimEngine.outputs_(controller) == (
         target_count=0,
-        trial_temperature_seen=0.0,
+        initial_temperature=0.0,
+        iterations=0,
         accepted_temperature_seen=0.0,
     )
 
@@ -968,14 +1072,18 @@ end
                 ),
             ),
         ),
+        environment=(T=20.0, duration=Dates.Hour(1)),
     )
     simulation = run!(model; outputs=:all)
     plant_state = final_state(simulation, :plant)
     leaf_states = final_state(simulation, Many(scale=:Leaf))
     @test plant_state.target_count == 2
-    @test plant_state.trial_temperature_seen == 31.0
-    @test plant_state.accepted_temperature_seen == 22.0
-    @test leaf_states[:sun_leaf].temperature_seen == 22.0
+    @test plant_state.initial_temperature == 20.0
+    @test plant_state.iterations == 4
+    @test plant_state.accepted_temperature_seen == 23.0
+    @test leaf_states[:sun_leaf].temperature_seen == 23.0
+    @test environment.cells[:sun].T == 26.0
+    @test environment.cells[:shade].T == 18.0
     @test leaf_states[:shade_leaf].temperature_seen == 0.0
     @test Dict(
         row.object_id => row.nsamples
@@ -1271,15 +1379,14 @@ end
                 environment=Environment(backend=hard_call_environment),
             ),
             ModelSpec(
-                ToySelectiveCallControllerModel(
-                    (28.0, 31.0),
-                    22.0;
+                ToySelectiveCallControllerModel(;
                     selected_object=:sun_leaf,
                 );
                 name=:controller,
                 on=One(scale=:Plant),
             ),
         ),
+        environment=(T=20.0, duration=Dates.Hour(1)),
     )
     hard_call_row = only(
         row for row in Diagnostics.explain_calls(hard_call_model)
@@ -1292,7 +1399,7 @@ end
     @test final_state(
         hard_call_simulation,
         :plant,
-    ).accepted_temperature_seen == 22.0
+    ).accepted_temperature_seen == 23.0
 
     mutable_environment = ToySpatialEnvironment(
         Dict(:canopy => (T=20.0,));
@@ -1312,7 +1419,7 @@ end
                 environment=Environment(backend=mutable_environment),
             ),
             ModelSpec(
-                ToyEnvironmentControllerModel(30.0, 22.0);
+                ToyEnvironmentControllerModel();
                 name=:controller,
                 on=One(scale=:Leaf),
                 environment=Environment(
@@ -1328,8 +1435,8 @@ end
     )
     @test mutable_call.origin == :model_default
     mutable_simulation = run!(mutable_model; outputs=:all)
-    @test mutable_environment.cells[:canopy].T == 22.0
+    @test mutable_environment.cells[:canopy].T == 23.0
     @test final_state(
         mutable_simulation,
-    ).accepted_temperature_seen == 22.0
+    ).accepted_temperature_seen == 23.0
 end

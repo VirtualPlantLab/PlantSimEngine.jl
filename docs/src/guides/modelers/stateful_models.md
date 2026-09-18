@@ -143,7 +143,7 @@ Use `PreviousTimeStep` when an input should read another model's accepted
 result from the previous time step. The
 [model execution reference](../../model_execution.md) shows how to declare
 this input. If several models deliberately update the same variable, use
-`Updates` to set their order; see [Control Advanced Execution](@ref).
+`Updates` to set their order; see [Let two models update the same value](@ref).
 
 A trial call with `publish=false` does not save its result as an accepted
 output sample. In other words, the results are not published for the user to see, but it can still change values in `status`, 

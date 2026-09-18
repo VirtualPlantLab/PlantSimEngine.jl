@@ -173,3 +173,7 @@ select(
 The `Beer` equation is unchanged. It reads `environment.Ri_PAR_f` in both
 examples; the environment supplies the correct value. To provide your own
 spatial data, see [Environment Backend Extensions](@ref).
+
+When a model also needs to change those conditions, continue with
+[Modify The Environment](@ref). That guide introduces trial values and shows
+how a controller saves the accepted conditions for later calculations.

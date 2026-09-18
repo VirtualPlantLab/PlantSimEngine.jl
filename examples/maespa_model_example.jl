@@ -481,7 +481,8 @@ end
 function PlantSimEngine.run!(m::SceneEB, status, environment, constants, context)
     solution = _solve_model_energy_balance!(m, context, status, environment, constants)
     fluxes = _publish_model_leaf_solution!(context, status, solution, environment, m.ground_area, constants)
-    transpiration_mm = λE_to_E(fluxes.lambda_e, solution.final_meteo.λ) * duration_seconds(environment) * 18.0e-6
+    # W m⁻² / J kg⁻¹ gives kg m⁻² s⁻¹; 1 kg m⁻² of water is 1 mm.
+    transpiration_mm = fluxes.lambda_e / solution.final_meteo.λ * duration_seconds(environment)
 
     status.canopy_tair = solution.tair
     status.canopy_vpd = solution.vpd

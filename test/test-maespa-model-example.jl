@@ -165,6 +165,47 @@ include("../examples/maespa_model_example.jl")
     @test only(row for row in output_summary if row.object_id == :model && row.variable == :scene_transpiration).nsamples == 25
     @test only(row for row in output_summary if row.object_id == :plant_A_leaf_1 && row.variable == :λE).application_id == :plant_A__energy_balance
 
+    @testset "Accepted transpiration conserves soil water" begin
+        history(object_id, variable) = Dict(
+            row.timestep => row.value for row in output_rows
+            if row.object_id == object_id && row.variable == variable
+        )
+        transpiration = history(:model, :scene_transpiration)
+        latent_heat_flux = history(:model, :canopy_lambda_e)
+        canopy_temperature = history(:model, :canopy_tair)
+        infiltration = history(:model, :scene_infiltration)
+        theta1 = history(:soil, :theta1)
+        theta2 = history(:soil, :theta2)
+        @test all(length(stream) == 25 for stream in (
+            transpiration, latent_heat_flux, canopy_temperature,
+            infiltration, theta1, theta2,
+        ))
+        soil_model = only(spec.model for spec in model.applications if spec.name == :soil_water)
+        initial_soil = _maespa_soil_status()
+        previous_theta1 = initial_soil.theta1
+        previous_theta2 = initial_soil.theta2
+        for timestep in sort!(collect(keys(transpiration)))
+            # Accepted W m^-2 / J kg^-1 * 3600 s gives kg m^-2,
+            # numerically equal to mm of water, without a molar conversion.
+            latent_heat = PlantMeteo.latent_heat_vaporization(canopy_temperature[timestep])
+            water_mm = latent_heat_flux[timestep] / latent_heat * 3600.0
+            @test transpiration[timestep] ≈ water_mm
+
+            # This run stays away from the soil bounds, so the change in
+            # stored water must equal infiltration minus accepted withdrawal.
+            @test 0.04 < theta1[timestep] < soil_model.theta_sat
+            @test 0.04 < theta2[timestep] < soil_model.theta_sat
+            storage_change_mm = (
+                (theta1[timestep] - previous_theta1) * soil_model.depth1 +
+                (theta2[timestep] - previous_theta2) * soil_model.depth2
+            ) * 1000.0
+            @test storage_change_mm ≈
+                  max(infiltration[timestep], 0.0) - max(water_mm, 0.0) atol=1.0e-11
+            previous_theta1 = theta1[timestep]
+            previous_theta2 = theta2[timestep]
+        end
+    end
+
     scene_status = only(model_objects(model; scale=:Scene)).status
     @test !hasproperty(scene_status, :T)
     @test !hasproperty(scene_status, :Rh)

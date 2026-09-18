@@ -16,7 +16,7 @@ supported as model cadences.
 
 ## Hold a daily state for an hourly model
 
-Reuse the models that calculate thermal time, LAI, and absorbed light. The
+We'll use models that calculate thermal time, LAI, and absorbed light. The
 weather advances hourly. Thermal time and LAI update daily, while light is
 calculated every hour. `HoldLast` tells the light model to keep using the most
 recent LAI value until a new one is calculated.
@@ -129,15 +129,14 @@ The daily development model assumes that LAI stays unchanged between updates.
 
 ## Integrate a rate into an amount
 
-To turn a water-uptake rate into an amount, multiply each rate by the time it
+To turn *e.g.* a water-uptake rate into an amount, you can multiply each rate by the time it
 represents, then add the amounts. `Integrate(reducer)` lets you supply that
 calculation as a function, called a **reducer**. Be careful: `Integrate()`
 without this function only adds the values; it does not multiply by time.
 
 The function below uses durations in seconds. For a rate in mg per second,
 24 hourly values give a daily amount in mg. The plant then adds the amounts
-from its two leaves. The constant rates are teaching values, not predictions
-of water demand.
+from its two leaves. We use constant rates as simple teaching values.
 
 Load the [teaching models](../../guides/time/teaching_models.jl). One copies a
 leaf's supplied water-uptake rate; the other sums amounts from leaves. Their

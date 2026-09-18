@@ -1,11 +1,11 @@
 # Hourly, Daily, And Weekly Models
 
-Compare daily and weekly water uptake from the same hourly leaf rates. The
+Let's compare daily and weekly water uptake from the same hourly leaf rates. The
 rates below are deliberately constant teaching values: 1 and 2 mg of water
-per leaf per second. They show how to calculate totals over different time
-intervals; they do not predict plant water demand.
+per leaf per second to show how to calculate totals over different time
+intervals.
 
-To calculate each total, multiply the hourly rates by the duration they
+To calculate each total, we can just multiply the hourly rates by the duration they
 represent, then add the two leaves' amounts over a day or a week. Both totals
 use the hourly values directly. This avoids counting the same water twice
 by adding daily totals whose periods might overlap.
