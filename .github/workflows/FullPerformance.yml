@@ -1,11 +1,6 @@
 name: Full downstream performance
 
 on:
-  schedule:
-    - cron: "17 2 * * *"
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       xpalm_ref:
