@@ -235,19 +235,23 @@ function _measure_performance_stage!(
         _checkpoint_performance_records(checkpoint_path, records)
         rethrow()
     end
-    measurements = Any[measurement]
+    # Keep the first result for correctness checks, but retain only statistics
+    # from later samples. A full output history can be much larger than the
+    # model itself and must be collectible before the next sample starts.
+    times = [measurement.time]
+    memories = [measurement.bytes]
+    allocations = [_performance_allocation_count(measurement)]
     for _ in 2:samples
         sample_operation = isnothing(sample_factory) ?
                            operation :
                            sample_factory()
-        push!(
-            measurements,
-            _timed_performance_operation(sample_operation),
-        )
+        sample_measurement = _timed_performance_operation(sample_operation)
+        push!(times, sample_measurement.time)
+        push!(memories, sample_measurement.bytes)
+        push!(allocations, _performance_allocation_count(sample_measurement))
+        sample_measurement = nothing
+        sample_operation = nothing
     end
-    times = getproperty.(measurements, :time)
-    memories = getproperty.(measurements, :bytes)
-    allocations = _performance_allocation_count.(measurements)
     _performance_record!(
         records,
         metadata,

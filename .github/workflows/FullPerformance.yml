@@ -116,10 +116,12 @@ jobs:
           "PlantBiophysics benchmark (API smoke|performance)"
 
       - name: Run the complete XPalm performance and correctness matrix
+        # Leave time to upload checkpoint CSVs if the complete matrix stalls.
+        timeout-minutes: 35
         run: >-
           julia --project=benchmark --color=yes
           benchmark/test/runtests.jl
-          "XPalm staged performance profile full"
+          "XPalm (performance measurement lifetime smoke|staged performance profile full)"
 
       - name: Persist measurements and the resolved environment
         if: always()

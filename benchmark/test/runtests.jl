@@ -1071,9 +1071,51 @@ if benchmark_test_enabled("XPalm benchmark API smoke")
     end
 end
 
+if benchmark_test_enabled("XPalm performance measurement lifetime smoke")
+    @testset "XPalm performance measurement lifetime smoke" begin
+        isdefined(@__MODULE__, :_measure_performance_stage!) ||
+            include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        calls = Ref(0)
+        first_result = Ref{Any}(nothing)
+        sample_results = WeakRef[]
+        second_released_before_third = Ref(false)
+        operation = () -> begin
+            calls[] += 1
+            if calls[] == 3
+                GC.gc(true)
+                second_released_before_third[] = sample_results[2].value === nothing
+            end
+            result = Ref(calls[])
+            if calls[] == 1
+                first_result[] = result
+            end
+            push!(sample_results, WeakRef(result))
+            return result
+        end
+        records = NamedTuple[]
+        result = _measure_performance_stage!(
+            operation, records, NamedTuple(), :smoke, :result_lifetime;
+            samples=3,
+        )
+        @test result === first_result[]
+        @test result[] == 1
+        @test calls[] == length(sample_results) == 3
+        @test second_released_before_third[]
+        metrics = Dict(row.metric => row.value for row in records)
+        @test metrics["samples"] == 3
+        @test metrics["minimum_time"] <= metrics["median_time"]
+        @test metrics["minimum_time"] <= metrics["wall_time"]
+        @test metrics["minimum_memory"] <= metrics["median_memory"]
+        @test metrics["minimum_memory"] <= metrics["allocated"]
+        @test metrics["minimum_allocations"] <= metrics["median_allocations"]
+        @test metrics["minimum_allocations"] <= metrics["allocations"]
+    end
+end
+
 if benchmark_test_enabled("XPalm staged performance profile smoke")
     @testset "XPalm staged performance profile smoke" begin
-        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        isdefined(@__MODULE__, :_measure_performance_stage!) ||
+            include(joinpath(@__DIR__, "..", "performance_regression.jl"))
         metadata = _performance_metadata(; warmup_policy="metadata smoke")
         @test length(metadata.manifest_hash) == 64
         @test length(metadata.fixture_hash) == 64
@@ -1230,7 +1272,8 @@ end
 if !isnothing(BENCHMARK_TEST_PATTERN) &&
    benchmark_test_enabled("XPalm staged performance profile full")
     @testset "XPalm staged performance profile full" begin
-        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        isdefined(@__MODULE__, :_measure_performance_stage!) ||
+            include(joinpath(@__DIR__, "..", "performance_regression.jl"))
         output_path = joinpath(
             @__DIR__,
             "..",
