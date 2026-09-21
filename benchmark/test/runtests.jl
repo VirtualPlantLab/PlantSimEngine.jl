@@ -1139,40 +1139,55 @@ if benchmark_test_enabled("XPalm performance measurement lifetime smoke")
     @testset "XPalm performance measurement lifetime smoke" begin
         isdefined(@__MODULE__, :_measure_performance_stage!) ||
             include(joinpath(@__DIR__, "..", "performance_regression.jl"))
-        calls = Ref(0)
-        first_result = Ref{Any}(nothing)
-        sample_results = WeakRef[]
-        second_released_before_third = Ref(false)
-        operation = () -> begin
-            calls[] += 1
-            if calls[] == 3
-                GC.gc(true)
-                second_released_before_third[] = sample_results[2].value === nothing
+        for use_factory in (false, true)
+            calls = Ref(0)
+            first_result = Ref{Any}(nothing)
+            sample_results = WeakRef[]
+            second_released_before_third = Ref(false)
+            factory_payloads = WeakRef[]
+            factory_released_before_third = Ref(false)
+            operation = () -> begin
+                calls[] += 1
+                if calls[] == 3
+                    GC.gc(true)
+                    second_released_before_third[] = sample_results[2].value === nothing
+                    factory_released_before_third[] = !use_factory ||
+                        factory_payloads[1].value === nothing
+                end
+                local payload = Ref(calls[])
+                if calls[] == 1
+                    first_result[] = payload
+                end
+                push!(sample_results, WeakRef(payload))
+                return payload
             end
-            local payload = Ref(calls[])
-            if calls[] == 1
-                first_result[] = payload
+            factory = () -> begin
+                local held = Ref(0)
+                push!(factory_payloads, WeakRef(held))
+                return () -> begin
+                    held[] += 1
+                    operation()
+                end
             end
-            push!(sample_results, WeakRef(payload))
-            return payload
+            records = NamedTuple[]
+            result = _measure_performance_stage!(
+                operation, records, NamedTuple(), :smoke, :result_lifetime;
+                samples=3, sample_factory=use_factory ? factory : nothing,
+            )
+            @test result === first_result[]
+            @test result[] == 1
+            @test calls[] == length(sample_results) == 3
+            @test second_released_before_third[]
+            @test factory_released_before_third[]
+            metrics = Dict(row.metric => row.value for row in records)
+            @test metrics["samples"] == 3
+            @test metrics["minimum_time"] <= metrics["median_time"]
+            @test metrics["minimum_time"] <= metrics["wall_time"]
+            @test metrics["minimum_memory"] <= metrics["median_memory"]
+            @test metrics["minimum_memory"] <= metrics["allocated"]
+            @test metrics["minimum_allocations"] <= metrics["median_allocations"]
+            @test metrics["minimum_allocations"] <= metrics["allocations"]
         end
-        records = NamedTuple[]
-        result = _measure_performance_stage!(
-            operation, records, NamedTuple(), :smoke, :result_lifetime;
-            samples=3,
-        )
-        @test result === first_result[]
-        @test result[] == 1
-        @test calls[] == length(sample_results) == 3
-        @test second_released_before_third[]
-        metrics = Dict(row.metric => row.value for row in records)
-        @test metrics["samples"] == 3
-        @test metrics["minimum_time"] <= metrics["median_time"]
-        @test metrics["minimum_time"] <= metrics["wall_time"]
-        @test metrics["minimum_memory"] <= metrics["median_memory"]
-        @test metrics["minimum_memory"] <= metrics["allocated"]
-        @test metrics["minimum_allocations"] <= metrics["median_allocations"]
-        @test metrics["minimum_allocations"] <= metrics["allocations"]
     end
 end
 

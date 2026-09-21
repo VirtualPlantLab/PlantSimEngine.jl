@@ -199,6 +199,19 @@ function _timed_performance_operation(operation)
     return @timed operation()
 end
 
+# End the sample's stack frame before the caller starts the next repetition.
+# Assigning `nothing` inside the caller is insufficient: compiler temporaries
+# (including those introduced by logging) can keep the result or closure live.
+@noinline function _additional_performance_sample(operation, sample_factory)
+    sample_operation = isnothing(sample_factory) ? operation : sample_factory()
+    measurement = _timed_performance_operation(sample_operation)
+    return (
+        time=measurement.time,
+        bytes=measurement.bytes,
+        allocations=_performance_allocation_count(measurement),
+    )
+end
+
 function _measure_performance_stage!(
     operation,
     records,
@@ -246,16 +259,11 @@ function _measure_performance_stage!(
     allocations = [_performance_allocation_count(measurement)]
     for sample in 2:samples
         @info "Performance sample starting" profile stage sample samples peak_rss_bytes=Sys.maxrss()
-        sample_operation = isnothing(sample_factory) ?
-                           operation :
-                           sample_factory()
-        sample_measurement = _timed_performance_operation(sample_operation)
-        @info "Performance sample completed" profile stage sample seconds=sample_measurement.time allocated_bytes=sample_measurement.bytes peak_rss_bytes=Sys.maxrss()
-        push!(times, sample_measurement.time)
-        push!(memories, sample_measurement.bytes)
-        push!(allocations, _performance_allocation_count(sample_measurement))
-        sample_measurement = nothing
-        sample_operation = nothing
+        sample_statistics = _additional_performance_sample(operation, sample_factory)
+        @info "Performance sample completed" profile stage sample seconds=sample_statistics.time allocated_bytes=sample_statistics.bytes peak_rss_bytes=Sys.maxrss()
+        push!(times, sample_statistics.time)
+        push!(memories, sample_statistics.bytes)
+        push!(allocations, sample_statistics.allocations)
     end
     _performance_record!(
         records,
