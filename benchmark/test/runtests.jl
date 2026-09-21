@@ -1071,9 +1071,158 @@ if benchmark_test_enabled("XPalm benchmark API smoke")
     end
 end
 
+if benchmark_test_enabled("XPalm reference oracle smoke")
+    @testset "XPalm reference oracle smoke" begin
+        isdefined(@__MODULE__, :xpalm_reference_param_create) ||
+            include(joinpath(@__DIR__, "..", "test-xpalm.jl"))
+        xpalm_root = dirname(dirname(pathof(XPalm)))
+        reference_relpath = joinpath(
+            "test", "references", "regression", XPALM_REFERENCE_BASELINE,
+        )
+        expected = xpalm_reference_full_cycle_expected_state()
+        summary = only(CSV.File(joinpath(xpalm_root, reference_relpath, "summary.csv")))
+        @test expected.current_step == summary.nsteps == 4160
+        @test expected.phytomer_count == summary.final_phytomer_count
+        @test expected.lai == summary.final_lai
+        @test expected.ftsw == summary.final_ftsw
+        historical_summary = only(CSV.File(joinpath(
+            xpalm_root, "test", "references", "regression", "v0.6.1", "summary.csv",
+        )))
+        @test !xpalm_reference_state_matches(
+            merge(expected, (lai=historical_summary.final_lai,)), expected,
+        )
+
+        mktempdir() do fixture_root
+            for relative_path in (
+                joinpath("0-data", "meteo.csv"),
+                joinpath(reference_relpath, "metadata.toml"),
+                joinpath(reference_relpath, "summary.csv"),
+            )
+                target = joinpath(fixture_root, relative_path)
+                mkpath(dirname(target))
+                cp(joinpath(xpalm_root, relative_path), target)
+            end
+            @test xpalm_reference_full_cycle_expected_state(; xpalm_root=fixture_root) == expected
+            metadata_path = joinpath(fixture_root, reference_relpath, "metadata.toml")
+            metadata = TOML.parsefile(metadata_path)
+            for (section, key, wrong_value) in (
+                ("source", "baseline_id", "v0.6.1"),
+                ("source", "xpalm_commit", "unknown"),
+                ("source", "parameter_source", "historical_parameters()"),
+                ("inputs", "nsteps", 1000),
+                ("inputs", "meteo_sha256", repeat("0", 64)),
+            )
+                changed_metadata = deepcopy(metadata)
+                changed_metadata[section][key] = wrong_value
+                open(metadata_path, "w") do io
+                    TOML.print(io, changed_metadata)
+                end
+                @test_throws ErrorException xpalm_reference_full_cycle_expected_state(;
+                    xpalm_root=fixture_root,
+                )
+            end
+            open(metadata_path, "w") do io
+                TOML.print(io, metadata)
+            end
+            summary_path = joinpath(fixture_root, reference_relpath, "summary.csv")
+            changed_summary = CSV.read(summary_path, DataFrame)
+            changed_summary.nsteps[1] -= 1
+            CSV.write(summary_path, changed_summary)
+            @test_throws ErrorException xpalm_reference_full_cycle_expected_state(;
+                xpalm_root=fixture_root,
+            )
+        end
+    end
+end
+
+if benchmark_test_enabled("XPalm performance measurement lifetime smoke")
+    @testset "XPalm performance measurement lifetime smoke" begin
+        isdefined(@__MODULE__, :_measure_performance_stage!) ||
+            include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        for use_factory in (false, true)
+            calls = Ref(0)
+            first_result = Ref{Any}(nothing)
+            sample_results = WeakRef[]
+            second_released_before_third = Ref(false)
+            factory_payloads = WeakRef[]
+            factory_released_before_third = Ref(false)
+            operation = () -> begin
+                calls[] += 1
+                if calls[] == 3
+                    GC.gc(true)
+                    second_released_before_third[] = sample_results[2].value === nothing
+                    factory_released_before_third[] = !use_factory ||
+                        factory_payloads[1].value === nothing
+                end
+                local payload = Ref(calls[])
+                if calls[] == 1
+                    first_result[] = payload
+                end
+                push!(sample_results, WeakRef(payload))
+                return payload
+            end
+            factory = () -> begin
+                local held = Ref(0)
+                push!(factory_payloads, WeakRef(held))
+                return () -> begin
+                    held[] += 1
+                    operation()
+                end
+            end
+            records = NamedTuple[]
+            result = _measure_performance_stage!(
+                operation, records, NamedTuple(), :smoke, :result_lifetime;
+                samples=3, sample_factory=use_factory ? factory : nothing,
+            )
+            @test result === first_result[]
+            @test result[] == 1
+            @test calls[] == length(sample_results) == 3
+            @test second_released_before_third[]
+            @test factory_released_before_third[]
+            metrics = Dict(row.metric => row.value for row in records)
+            @test metrics["samples"] == 3
+            @test metrics["minimum_time"] <= metrics["median_time"]
+            @test metrics["minimum_time"] <= metrics["wall_time"]
+            @test metrics["minimum_memory"] <= metrics["median_memory"]
+            @test metrics["minimum_memory"] <= metrics["allocated"]
+            @test metrics["minimum_allocations"] <= metrics["median_allocations"]
+            @test metrics["minimum_allocations"] <= metrics["allocations"]
+        end
+
+        summarized_calls = Ref(0)
+        transform_calls = Ref(0)
+        raw_results = WeakRef[]
+        prior_results_released = Bool[]
+        summarized_operation = () -> begin
+            GC.gc(true)
+            push!(prior_results_released, all(ref -> ref.value === nothing, raw_results))
+            summarized_calls[] += 1
+            local payload = Ref(summarized_calls[])
+            push!(raw_results, WeakRef(payload))
+            return payload
+        end
+        summarized_records = NamedTuple[]
+        summary = _measure_performance_stage!(
+            summarized_operation, summarized_records, NamedTuple(), :smoke, :summary_lifetime;
+            samples=3,
+            result_transform=payload -> begin
+                transform_calls[] += 1
+                payload[]
+            end,
+        )
+        @test summary == 1
+        @test summarized_calls[] == 3
+        @test transform_calls[] == 1
+        @test all(prior_results_released)
+        @test length(raw_results) == 3
+        @test only(row.value for row in summarized_records if row.metric == "samples") == 3
+    end
+end
+
 if benchmark_test_enabled("XPalm staged performance profile smoke")
     @testset "XPalm staged performance profile smoke" begin
-        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        isdefined(@__MODULE__, :_measure_performance_stage!) ||
+            include(joinpath(@__DIR__, "..", "performance_regression.jl"))
         metadata = _performance_metadata(; warmup_policy="metadata smoke")
         @test length(metadata.manifest_hash) == 64
         @test length(metadata.fixture_hash) == 64
@@ -1230,7 +1379,8 @@ end
 if !isnothing(BENCHMARK_TEST_PATTERN) &&
    benchmark_test_enabled("XPalm staged performance profile full")
     @testset "XPalm staged performance profile full" begin
-        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        isdefined(@__MODULE__, :_measure_performance_stage!) ||
+            include(joinpath(@__DIR__, "..", "performance_regression.jl"))
         output_path = joinpath(
             @__DIR__,
             "..",
@@ -1304,9 +1454,11 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
 end
 
 if !isnothing(BENCHMARK_TEST_PATTERN) &&
-   benchmark_test_enabled("XPalm full warmed no-output performance")
+    benchmark_test_enabled("XPalm full warmed no-output performance")
     @testset "XPalm full warmed no-output performance" begin
-        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        isdefined(@__MODULE__, :_measure_performance_stage!) ||
+            include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        @info "XPalm complete lifecycle warmup starting" steps=PERFORMANCE_FULL_STEPS
         warmup_model, warmup_steps =
             xpalm_reference_model_create(; nsteps=PERFORMANCE_FULL_STEPS)
         xpalm_reference_param_run(
@@ -1315,6 +1467,7 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
             warmup_steps;
             outputs=:none,
         )
+        @info "XPalm complete lifecycle warmup completed" peak_rss_bytes=Sys.maxrss()
         model, nsteps =
             xpalm_reference_model_create(; nsteps=PERFORMANCE_FULL_STEPS)
         metadata = _performance_metadata(;

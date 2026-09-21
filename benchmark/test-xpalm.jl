@@ -3,7 +3,12 @@ using CSV
 using DataFrames
 using Dates
 using PlantSimEngine
+using SHA
+using TOML
 using XPalm
+
+const XPALM_REFERENCE_BASELINE = "v0.7.0-dev"
+const XPALM_REFERENCE_SOURCE_COMMIT = "d4ded8891d03f85bb5691b89572a4e003ac6eb7a"
 
 const XPALM_REFERENCE_BENCHMARK_VARIABLES = Dict{Symbol,Any}(
     :Scene => (:lai, :leaf_area, :aPPFD),
@@ -183,12 +188,48 @@ function xpalm_reference_param_run(
     )
 end
 
-function xpalm_reference_full_cycle_expected_state()
+function xpalm_reference_full_cycle_expected_state(;
+    xpalm_root=dirname(dirname(pathof(XPalm))),
+)
+    reference_dir = joinpath(
+        xpalm_root, "test", "references", "regression", XPALM_REFERENCE_BASELINE,
+    )
+    metadata = TOML.parsefile(joinpath(reference_dir, "metadata.toml"))
+    source = metadata["source"]
+    inputs = metadata["inputs"]
+    source["baseline_id"] == XPALM_REFERENCE_BASELINE ||
+        error("XPalm benchmark reference baseline does not match $(XPALM_REFERENCE_BASELINE).")
+    source["xpalm_commit"] == XPALM_REFERENCE_SOURCE_COMMIT ||
+        error("XPalm benchmark reference source commit has changed; review its provenance.")
+    source["parameter_source"] == "XPalm.default_parameters()" ||
+        error("XPalm benchmark reference uses a different parameter scenario.")
+    inputs["meteo_file"] == "0-data/meteo.csv" ||
+        error("XPalm benchmark reference uses a different meteorology file.")
+    inputs["nsteps"] == 4160 ||
+        error("XPalm benchmark reference must cover the complete 4,160-day scenario.")
+
+    meteo_path = joinpath(xpalm_root, "0-data", "meteo.csv")
+    bytes2hex(SHA.sha256(read(meteo_path))) == inputs["meteo_sha256"] ||
+        error("XPalm benchmark meteorology does not match the committed reference hash.")
+    meteo = CSV.File(meteo_path)
+    length(meteo) == inputs["nsteps"] ||
+        error("XPalm benchmark meteorology length does not match the reference.")
+    first(meteo).date == Date(inputs["start_date"]) &&
+        last(meteo).date == Date(inputs["end_date"]) ||
+        error("XPalm benchmark meteorology dates do not match the reference.")
+
+    summary = only(CSV.File(joinpath(reference_dir, "summary.csv")))
+    summary.nsteps == inputs["nsteps"] &&
+        summary.start_date == Date(inputs["start_date"]) &&
+        summary.end_date == Date(inputs["end_date"]) ||
+        error("XPalm benchmark summary does not describe the reference meteorology.")
+    isfinite(summary.final_lai) && isfinite(summary.final_ftsw) ||
+        error("XPalm benchmark reference final state must be finite.")
     return (
-        current_step=4160,
-        phytomer_count=344,
-        lai=5.0587602356164405,
-        ftsw=0.7991179101191216,
+        current_step=Int(summary.nsteps),
+        phytomer_count=Int(summary.final_phytomer_count),
+        lai=summary.final_lai,
+        ftsw=summary.final_ftsw,
     )
 end
 
