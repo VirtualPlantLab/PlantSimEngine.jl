@@ -1188,6 +1188,34 @@ if benchmark_test_enabled("XPalm performance measurement lifetime smoke")
             @test metrics["minimum_allocations"] <= metrics["median_allocations"]
             @test metrics["minimum_allocations"] <= metrics["allocations"]
         end
+
+        summarized_calls = Ref(0)
+        transform_calls = Ref(0)
+        raw_results = WeakRef[]
+        prior_results_released = Bool[]
+        summarized_operation = () -> begin
+            GC.gc(true)
+            push!(prior_results_released, all(ref -> ref.value === nothing, raw_results))
+            summarized_calls[] += 1
+            local payload = Ref(summarized_calls[])
+            push!(raw_results, WeakRef(payload))
+            return payload
+        end
+        summarized_records = NamedTuple[]
+        summary = _measure_performance_stage!(
+            summarized_operation, summarized_records, NamedTuple(), :smoke, :summary_lifetime;
+            samples=3,
+            result_transform=payload -> begin
+                transform_calls[] += 1
+                payload[]
+            end,
+        )
+        @test summary == 1
+        @test summarized_calls[] == 3
+        @test transform_calls[] == 1
+        @test all(prior_results_released)
+        @test length(raw_results) == 3
+        @test only(row.value for row in summarized_records if row.metric == "samples") == 3
     end
 end
 

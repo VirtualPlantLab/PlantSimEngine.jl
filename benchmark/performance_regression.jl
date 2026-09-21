@@ -199,6 +199,19 @@ function _timed_performance_operation(operation)
     return @timed operation()
 end
 
+# Result extraction is outside the measured operation. The caller can retain a
+# small scientific summary when the complete history is not needed afterward.
+@noinline function _first_performance_sample(operation, result_transform)
+    measurement = _timed_performance_operation(operation)
+    return (
+        value=result_transform(measurement.value),
+        time=measurement.time,
+        bytes=measurement.bytes,
+        gctime=measurement.gctime,
+        allocations=_performance_allocation_count(measurement),
+    )
+end
+
 # End the sample's stack frame before the caller starts the next repetition.
 # Assigning `nothing` inside the caller is insufficient: compiler temporaries
 # (including those introduced by logging) can keep the result or closure live.
@@ -222,12 +235,13 @@ function _measure_performance_stage!(
     ;
     samples::Int=1,
     sample_factory=nothing,
+    result_transform=identity,
 )
     samples >= 1 || error("Performance stage samples must be positive.")
     @info "Performance sample starting" profile stage sample=1 samples peak_rss_bytes=Sys.maxrss()
     started_at = time_ns()
     measurement = try
-        _timed_performance_operation(operation)
+        _first_performance_sample(operation, result_transform)
     catch
         _performance_record!(
             records,
@@ -251,12 +265,11 @@ function _measure_performance_stage!(
         rethrow()
     end
     @info "Performance sample completed" profile stage sample=1 seconds=measurement.time allocated_bytes=measurement.bytes peak_rss_bytes=Sys.maxrss()
-    # Keep the first result for correctness checks, but retain only statistics
-    # from later samples. A full output history can be much larger than the
-    # model itself and must be collectible before the next sample starts.
+    # Keep the first result (or its requested summary) for correctness checks,
+    # but retain only statistics from later samples.
     times = [measurement.time]
     memories = [measurement.bytes]
-    allocations = [_performance_allocation_count(measurement)]
+    allocations = [measurement.allocations]
     for sample in 2:samples
         @info "Performance sample starting" profile stage sample samples peak_rss_bytes=Sys.maxrss()
         sample_statistics = _additional_performance_sample(operation, sample_factory)
@@ -691,13 +704,23 @@ function run_xpalm_performance_profile(;
         xpalm_reference_model_create(; nsteps=nsteps)
     end
     all_output_model, all_output_steps = all_output_setup
-    all_output_simulation = _measure_performance_stage!(
+    all_output_state = _measure_performance_stage!(
         records,
         metadata,
         normalized_profile,
         :simulation_all_outputs,
         checkpoint_path,
         samples=PERFORMANCE_STATISTICAL_SAMPLES,
+        result_transform=simulation -> begin
+            _record_runtime_performance!(
+                records,
+                metadata,
+                normalized_profile,
+                :simulation_all_outputs,
+                simulation,
+            )
+            xpalm_reference_final_state(simulation)
+        end,
         sample_factory=() -> begin
             sample_model, sample_steps =
                 xpalm_reference_model_create(; nsteps=nsteps)
@@ -718,18 +741,9 @@ function run_xpalm_performance_profile(;
             performance=true,
         )
     end
-    _record_runtime_performance!(
-        records,
-        metadata,
-        normalized_profile,
-        :simulation_all_outputs,
-        all_output_simulation,
-    )
-
     no_output_state = xpalm_reference_final_state(no_output_simulation)
     small_state = xpalm_reference_final_state(small_simulation)
     reference_state = xpalm_reference_final_state(reference_simulation)
-    all_output_state = xpalm_reference_final_state(all_output_simulation)
     _record_xpalm_state!(
         records,
         metadata,
