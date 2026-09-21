@@ -18,6 +18,12 @@ on:
         required: true
         default: main
         type: string
+      xpalm_profile:
+        description: Full matrix or the existing warmed 4160-day no-output gate
+        required: true
+        default: full
+        type: choice
+        options: [full, warmed-no-output]
   workflow_call:
     inputs:
       xpalm_ref:
@@ -34,6 +40,10 @@ on:
         description: PlantGeom branch, tag, or commit
         required: false
         default: main
+        type: string
+      xpalm_profile:
+        required: false
+        default: full
         type: string
 
 permissions:
@@ -115,22 +125,42 @@ jobs:
           benchmark/test/runtests.jl
           "PlantBiophysics benchmark (API smoke|performance)"
 
-      - name: Run the complete XPalm performance and correctness matrix
+      - name: Run XPalm performance and correctness checks
         # Leave time to upload checkpoint CSVs if the complete matrix stalls.
         timeout-minutes: 35
-        run: >-
-          julia --project=benchmark --color=yes
-          benchmark/test/runtests.jl
-          "XPalm (reference oracle smoke|performance measurement lifetime smoke|staged performance profile full)"
+        env:
+          XPALM_PROFILE: ${{ inputs.xpalm_profile || 'full' }}
+        run: |
+          case "$XPALM_PROFILE" in
+            full) xpalm_case='staged performance profile full' ;;
+            warmed-no-output) xpalm_case='full warmed no-output performance' ;;
+            *) exit 2 ;;
+          esac
+          mkdir -p benchmark/results
+          julia --project=benchmark --color=yes benchmark/test/runtests.jl \
+            "XPalm (reference oracle smoke|performance measurement lifetime smoke|${xpalm_case})" &
+          pse_benchmark_pid=$!
+          (
+            while kill -0 "$pse_benchmark_pid" 2>/dev/null; do
+              date -u '+%Y-%m-%dT%H:%M:%SZ' | tee -a benchmark/results/xpalm-resources.log
+              ps -p "$pse_benchmark_pid" -o pid,etime,pcpu,rss,vsz | tee -a benchmark/results/xpalm-resources.log
+              sleep 15
+            done
+          ) &
+          pse_monitor_pid=$!
+          trap 'kill "$pse_monitor_pid" 2>/dev/null || true' EXIT
+          wait "$pse_benchmark_pid"
 
       - name: Persist measurements and the resolved environment
         if: always()
+        timeout-minutes: 3
         uses: actions/upload-artifact@v7
         with:
           name: downstream-full-performance-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             benchmark/results/plantbiophysics-full-latest.csv
-            benchmark/results/xpalm-full-latest.csv
+            benchmark/results/xpalm-*.csv
+            benchmark/results/xpalm-resources.log
             benchmark/Manifest.toml
           if-no-files-found: warn
           retention-days: 90

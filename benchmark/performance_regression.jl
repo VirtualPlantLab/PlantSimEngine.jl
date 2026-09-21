@@ -211,6 +211,7 @@ function _measure_performance_stage!(
     sample_factory=nothing,
 )
     samples >= 1 || error("Performance stage samples must be positive.")
+    @info "Performance sample starting" profile stage sample=1 samples peak_rss_bytes=Sys.maxrss()
     started_at = time_ns()
     measurement = try
         _timed_performance_operation(operation)
@@ -236,17 +237,20 @@ function _measure_performance_stage!(
         _checkpoint_performance_records(checkpoint_path, records)
         rethrow()
     end
+    @info "Performance sample completed" profile stage sample=1 seconds=measurement.time allocated_bytes=measurement.bytes peak_rss_bytes=Sys.maxrss()
     # Keep the first result for correctness checks, but retain only statistics
     # from later samples. A full output history can be much larger than the
     # model itself and must be collectible before the next sample starts.
     times = [measurement.time]
     memories = [measurement.bytes]
     allocations = [_performance_allocation_count(measurement)]
-    for _ in 2:samples
+    for sample in 2:samples
+        @info "Performance sample starting" profile stage sample samples peak_rss_bytes=Sys.maxrss()
         sample_operation = isnothing(sample_factory) ?
                            operation :
                            sample_factory()
         sample_measurement = _timed_performance_operation(sample_operation)
+        @info "Performance sample completed" profile stage sample seconds=sample_measurement.time allocated_bytes=sample_measurement.bytes peak_rss_bytes=Sys.maxrss()
         push!(times, sample_measurement.time)
         push!(memories, sample_measurement.bytes)
         push!(allocations, _performance_allocation_count(sample_measurement))
@@ -427,6 +431,7 @@ end
 
 function _warmup_xpalm_performance!(profile_steps)
     lifecycle_steps = min(profile_steps, PERFORMANCE_SHORT_STEPS)
+    @info "XPalm profile warmup starting" lifecycle_steps retained_steps=PERFORMANCE_SMOKE_STEPS
     no_output_model, no_output_steps =
         xpalm_reference_model_create(; nsteps=lifecycle_steps)
     xpalm_reference_param_run(
@@ -444,6 +449,7 @@ function _warmup_xpalm_performance!(profile_steps)
         reference_steps,
     )
     xpalm_default_param_collect_outputs(reference_simulation)
+    @info "XPalm profile warmup completed" peak_rss_bytes=Sys.maxrss()
     return nothing
 end
 

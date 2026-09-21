@@ -1411,9 +1411,11 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
 end
 
 if !isnothing(BENCHMARK_TEST_PATTERN) &&
-   benchmark_test_enabled("XPalm full warmed no-output performance")
+    benchmark_test_enabled("XPalm full warmed no-output performance")
     @testset "XPalm full warmed no-output performance" begin
-        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        isdefined(@__MODULE__, :_measure_performance_stage!) ||
+            include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        @info "XPalm complete lifecycle warmup starting" steps=PERFORMANCE_FULL_STEPS
         warmup_model, warmup_steps =
             xpalm_reference_model_create(; nsteps=PERFORMANCE_FULL_STEPS)
         xpalm_reference_param_run(
@@ -1422,6 +1424,7 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
             warmup_steps;
             outputs=:none,
         )
+        @info "XPalm complete lifecycle warmup completed" peak_rss_bytes=Sys.maxrss()
         model, nsteps =
             xpalm_reference_model_create(; nsteps=PERFORMANCE_FULL_STEPS)
         metadata = _performance_metadata(;

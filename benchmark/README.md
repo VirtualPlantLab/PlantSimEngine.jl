@@ -33,3 +33,10 @@ reads its expected final state from `summary.csv`. The same numerical tolerances
 apply to every output-retention mode and the high-level end-to-end run. Recorded
 fixture hashes include this active reference. The isolated `release_baselines/`
 projects retain the historical XPalm 0.6.1 / PlantSimEngine 0.14.1 comparison.
+
+The full downstream workflow defaults to the complete output-retention matrix.
+For diagnosis, its `warmed-no-output` option selects the existing 4,160-day
+warmup and measured no-output run, including the unchanged 20-second gate.
+This diagnostic does not replace acceptance of the complete matrix. Both modes
+log stage/sample progress outside measured operations and record process memory
+alongside the checkpoint CSVs, so interrupted runs can be investigated.
