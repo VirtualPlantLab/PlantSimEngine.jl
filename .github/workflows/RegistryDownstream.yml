@@ -1,0 +1,71 @@
+name: Registered downstream acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      plantsimengine_version:
+        description: Registered PlantSimEngine version to validate
+        required: true
+        default: '0.15.0'
+        type: string
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Documentation rebuild tags and prereleases are not General releases.
+    if: github.event_name != 'push' || (!contains(github.ref_name, '+') && !contains(github.ref_name, '-'))
+    name: ${{ matrix.downstream.name }} from General - Julia ${{ matrix.julia }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        julia: ['1.10', '1']
+        downstream:
+          - {name: PlantGeom, version: '0.20.0'}
+          - {name: PlantBiophysics, version: '0.18.0'}
+          - {name: XPalm, version: '0.7.0'}
+          - {name: ArchimedLight, version: '0.2.0'}
+    steps:
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.julia }}
+      - name: Install registered releases and run downstream tests
+        env:
+          DOWNSTREAM_PACKAGE: ${{ matrix.downstream.name }}
+          DOWNSTREAM_VERSION: ${{ matrix.downstream.version }}
+          ENGINE_VERSION: ${{ inputs.plantsimengine_version || github.ref_name }}
+          JULIA_NUM_THREADS: '4'
+        shell: julia --color=yes {0}
+        run: |
+          using Pkg
+          project = joinpath(ENV["RUNNER_TEMP"], "registered-downstream")
+          Pkg.activate(project)
+          Pkg.Registry.add("General")
+          engine_version = VersionNumber(replace(ENV["ENGINE_VERSION"], r"^v" => ""))
+          downstream_version = VersionNumber(ENV["DOWNSTREAM_VERSION"])
+          downstream = ENV["DOWNSTREAM_PACKAGE"]
+          Pkg.add([
+              PackageSpec(name="PlantSimEngine", version=engine_version),
+              PackageSpec(name=downstream, version=downstream_version),
+          ])
+          for name in ("PlantSimEngine", downstream)
+              info = only(pkg for pkg in values(Pkg.dependencies()) if pkg.name == name)
+              @assert info.is_tracking_registry "$name must resolve from General"
+              @info "Registered acceptance dependency" name version=info.version path=info.source
+          end
+          using PlantSimEngine
+          @assert pkgversion(PlantSimEngine) == engine_version
+          Pkg.status(; mode=Pkg.PKGMODE_MANIFEST)
+          Pkg.test(downstream; allow_reresolve=false)
+      - name: Save the resolved environment
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: registered-${{ matrix.downstream.name }}-julia-${{ matrix.julia }}
+          path: ${{ runner.temp }}/registered-downstream/*toml
+          if-no-files-found: warn
