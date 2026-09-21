@@ -1,0 +1,97 @@
+/* PlantSimEngine's botanical palette and documentation layout adjustments. */
+:root {
+  --vp-c-brand-1: #156f64;
+  --vp-c-brand-2: #197b6f;
+  --vp-c-brand-3: #156f64;
+  --vp-c-brand-soft: rgba(21, 111, 100, 0.12);
+}
+
+html.dark {
+  --vp-c-brand-1: #83cfa7;
+  --vp-c-brand-2: #197b6f;
+  --vp-c-brand-3: #156f64;
+  --vp-c-brand-soft: rgba(131, 207, 167, 0.14);
+}
+
+/* Long API names must wrap in prose without widening the page. */
+.vp-doc :not(pre) > code {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Keep search, version, theme and the navigation menu reachable on phones. */
+@media (max-width: 480px) {
+  .VPNav .title > span {
+    display: none;
+  }
+}
+
+.VPHero .name {
+  color: var(--vp-c-brand-1);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.VPHero .image img {
+  max-width: 320px;
+  height: auto;
+}
+
+@media (max-width: 640px) {
+  .VPHero .image img {
+    max-width: 200px;
+  }
+}
+
+/* Keep the introduction readable on wide screens. */
+.VPHome .VPDoc .vp-doc {
+  max-width: 1040px;
+  margin-inline: auto;
+}
+
+/* Scientific examples stay side by side when there is room for both. */
+.pse-home-examples {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 24px;
+  margin: 24px 0;
+}
+
+.pse-home-examples figure {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+}
+
+.pse-home-examples img {
+  width: 100%;
+  height: 310px;
+  object-fit: contain;
+  background: white;
+  border-radius: 6px;
+}
+
+.pse-home-examples figcaption {
+  margin-top: 16px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.pse-home-examples figcaption a {
+  display: block;
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .pse-home-examples {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pse-home-examples img {
+    height: auto;
+    max-height: 340px;
+  }
+}
