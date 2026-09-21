@@ -1071,6 +1071,70 @@ if benchmark_test_enabled("XPalm benchmark API smoke")
     end
 end
 
+if benchmark_test_enabled("XPalm reference oracle smoke")
+    @testset "XPalm reference oracle smoke" begin
+        isdefined(@__MODULE__, :xpalm_reference_param_create) ||
+            include(joinpath(@__DIR__, "..", "test-xpalm.jl"))
+        xpalm_root = dirname(dirname(pathof(XPalm)))
+        reference_relpath = joinpath(
+            "test", "references", "regression", XPALM_REFERENCE_BASELINE,
+        )
+        expected = xpalm_reference_full_cycle_expected_state()
+        summary = only(CSV.File(joinpath(xpalm_root, reference_relpath, "summary.csv")))
+        @test expected.current_step == summary.nsteps == 4160
+        @test expected.phytomer_count == summary.final_phytomer_count
+        @test expected.lai == summary.final_lai
+        @test expected.ftsw == summary.final_ftsw
+        historical_summary = only(CSV.File(joinpath(
+            xpalm_root, "test", "references", "regression", "v0.6.1", "summary.csv",
+        )))
+        @test !xpalm_reference_state_matches(
+            merge(expected, (lai=historical_summary.final_lai,)), expected,
+        )
+
+        mktempdir() do fixture_root
+            for relative_path in (
+                joinpath("0-data", "meteo.csv"),
+                joinpath(reference_relpath, "metadata.toml"),
+                joinpath(reference_relpath, "summary.csv"),
+            )
+                target = joinpath(fixture_root, relative_path)
+                mkpath(dirname(target))
+                cp(joinpath(xpalm_root, relative_path), target)
+            end
+            @test xpalm_reference_full_cycle_expected_state(; xpalm_root=fixture_root) == expected
+            metadata_path = joinpath(fixture_root, reference_relpath, "metadata.toml")
+            metadata = TOML.parsefile(metadata_path)
+            for (section, key, wrong_value) in (
+                ("source", "baseline_id", "v0.6.1"),
+                ("source", "xpalm_commit", "unknown"),
+                ("source", "parameter_source", "historical_parameters()"),
+                ("inputs", "nsteps", 1000),
+                ("inputs", "meteo_sha256", repeat("0", 64)),
+            )
+                changed_metadata = deepcopy(metadata)
+                changed_metadata[section][key] = wrong_value
+                open(metadata_path, "w") do io
+                    TOML.print(io, changed_metadata)
+                end
+                @test_throws ErrorException xpalm_reference_full_cycle_expected_state(;
+                    xpalm_root=fixture_root,
+                )
+            end
+            open(metadata_path, "w") do io
+                TOML.print(io, metadata)
+            end
+            summary_path = joinpath(fixture_root, reference_relpath, "summary.csv")
+            changed_summary = CSV.read(summary_path, DataFrame)
+            changed_summary.nsteps[1] -= 1
+            CSV.write(summary_path, changed_summary)
+            @test_throws ErrorException xpalm_reference_full_cycle_expected_state(;
+                xpalm_root=fixture_root,
+            )
+        end
+    end
+end
+
 if benchmark_test_enabled("XPalm performance measurement lifetime smoke")
     @testset "XPalm performance measurement lifetime smoke" begin
         isdefined(@__MODULE__, :_measure_performance_stage!) ||
@@ -1085,12 +1149,12 @@ if benchmark_test_enabled("XPalm performance measurement lifetime smoke")
                 GC.gc(true)
                 second_released_before_third[] = sample_results[2].value === nothing
             end
-            result = Ref(calls[])
+            local payload = Ref(calls[])
             if calls[] == 1
-                first_result[] = result
+                first_result[] = payload
             end
-            push!(sample_results, WeakRef(result))
-            return result
+            push!(sample_results, WeakRef(payload))
+            return payload
         end
         records = NamedTuple[]
         result = _measure_performance_stage!(

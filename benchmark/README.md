@@ -25,3 +25,11 @@ The flag enables the downstream suite; it does not install its dependencies.
 `benchmark/test/runtests.jl` uses the same default. Passing a test-name pattern explicitly
 selects those tests, as the dedicated downstream CI jobs do.
 The pinned release comparisons in `release_baselines/` use separate projects.
+
+The current XPalm full-cycle benchmark uses the committed `v0.7.0-dev` reference
+from the checked-out XPalm package. It validates the reference's source metadata,
+meteorology hash, dates, and 4,160-day horizon before measuring the scenario, then
+reads its expected final state from `summary.csv`. The same numerical tolerances
+apply to every output-retention mode and the high-level end-to-end run. Recorded
+fixture hashes include this active reference. The isolated `release_baselines/`
+projects retain the historical XPalm 0.6.1 / PlantSimEngine 0.14.1 comparison.

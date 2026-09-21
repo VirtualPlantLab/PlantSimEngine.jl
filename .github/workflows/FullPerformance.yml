@@ -121,7 +121,7 @@ jobs:
         run: >-
           julia --project=benchmark --color=yes
           benchmark/test/runtests.jl
-          "XPalm (performance measurement lifetime smoke|staged performance profile full)"
+          "XPalm (reference oracle smoke|performance measurement lifetime smoke|staged performance profile full)"
 
       - name: Persist measurements and the resolved environment
         if: always()

@@ -58,7 +58,7 @@ function _performance_fixture_hash(xpalm_root)
             "test",
             "references",
             "regression",
-            "v0.6.1",
+            XPALM_REFERENCE_BASELINE,
         ),
     )
     entries = String[
@@ -100,6 +100,7 @@ function _performance_metadata(; warmup_policy)
         xpalm_revision=_performance_git_revision(xpalm_root),
         manifest_hash=_performance_path_hash(manifest_path),
         fixture_hash=_performance_fixture_hash(xpalm_root),
+        reference_baseline=XPALM_REFERENCE_BASELINE,
         warmup_policy=warmup_policy,
     )
 end
@@ -452,6 +453,8 @@ function run_xpalm_performance_profile(;
 )
     normalized_profile = Symbol(profile)
     nsteps = _performance_steps(normalized_profile)
+    expected_state = normalized_profile == :full ?
+                     xpalm_reference_full_cycle_expected_state() : nothing
     warmup_policy =
         "unmeasured outputs=:none prefix ($(min(nsteps, PERFORMANCE_SHORT_STEPS)) steps) " *
         "plus requested-output smoke ($(PERFORMANCE_SMOKE_STEPS) steps)"
@@ -752,8 +755,8 @@ function run_xpalm_performance_profile(;
     )
 
     if normalized_profile == :full
-        xpalm_reference_state_matches(reference_state) || error(
-            "XPalm full-cycle performance fixture does not match the committed v0.6.1 final state: ",
+        xpalm_reference_state_matches(reference_state, expected_state) || error(
+            "XPalm full-cycle performance fixture does not match the committed $(XPALM_REFERENCE_BASELINE) final state: ",
             "$(reference_state).",
         )
         high_level_outputs = _measure_performance_stage!(
@@ -766,9 +769,9 @@ function run_xpalm_performance_profile(;
         ) do
             xpalm_reference_end_to_end(; nsteps=nsteps)
         end
-        xpalm_reference_high_level_state_matches(high_level_outputs) || error(
+        xpalm_reference_high_level_state_matches(high_level_outputs; expected=expected_state) || error(
             "XPalm historical end-to-end performance fixture does not match the committed ",
-            "v0.6.1 final state.",
+            "$(XPALM_REFERENCE_BASELINE) final state.",
         )
     end
 
