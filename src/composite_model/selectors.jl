@@ -515,36 +515,37 @@ function _descendant_ids(model::CompositeModel, root_id::ObjectId)
     return _append_descendant_ids!(ObjectId[], model, root_id)
 end
 
-# Object-relative selectors created with a newborn organ commonly cover only a
-# handful of objects. Probe at most 32 objects before falling back to the
-# registry-index heuristic so that those tiny scopes avoid copying a scene-wide
-# label index without making large plant subtrees pay for a full extra walk.
-const _SCOPE_FIRST_DESCENDANT_LIMIT = 32
-
-function _append_descendant_ids_up_to!(
-    ids::Vector{ObjectId},
-    model::CompositeModel,
-    root_id::ObjectId,
-    limit::Int,
-)
-    length(ids) >= limit && return false
-    push!(ids, root_id)
-    object = _model_object(model, root_id)
-    for child_id in object.children
-        _append_descendant_ids_up_to!(ids, model, child_id, limit) ||
-            return false
-    end
-    return true
-end
-
 function _descendant_ids_up_to(
     model::CompositeModel,
     root_id::ObjectId,
     limit::Int,
 )
     ids = ObjectId[]
-    complete = _append_descendant_ids_up_to!(ids, model, root_id, limit)
-    return complete ? ids : nothing
+    # Borrow child vectors and retain only a depth-sized cursor stack. Pushing
+    # every child onto a worklist would allocate for a huge subtree even when
+    # a sparse index gives this traversal a budget of only a few objects.
+    cursors = Tuple{Vector{ObjectId},Int}[]
+    current_id = root_id
+    while true
+        length(ids) >= limit && return nothing
+        push!(ids, current_id)
+        children = _model_object(model, current_id).children
+        if !isempty(children)
+            push!(cursors, (children, 2))
+            current_id = first(children)
+            continue
+        end
+        found_next = false
+        while !isempty(cursors)
+            siblings, next_index = pop!(cursors)
+            next_index > length(siblings) && continue
+            push!(cursors, (siblings, next_index + 1))
+            current_id = siblings[next_index]
+            found_next = true
+            break
+        end
+        found_next || return ids
+    end
 end
 
 function _ancestor_id(
@@ -834,39 +835,77 @@ function _scope_object_ids(model::CompositeModel, scope, context)
     error("Unsupported object scope selector `$(scope)` of type `$(typeof(scope))`.")
 end
 
-function _registry_selector_ids(index, requested)
+function _registry_selector_candidates(index, requested)
     isnothing(requested) && return nothing
-    requested_values = requested isa Tuple ? requested : (requested,)
-    ids = Set{ObjectId}()
-    for value in requested_values
-        union!(ids, get(index, Symbol(value), Set{ObjectId}()))
+    if !(requested isa Tuple)
+        bucket = get(index, requested, ())
+        return (ids=bucket, estimate=length(bucket))
     end
-    return ids
+    requested_values = requested
+    # Unlabelled objects have no index bucket. Another criterion may still
+    # provide a complete candidate source; otherwise scan the registry.
+    any(isnothing, requested_values) && return nothing
+    buckets = map(value -> get(index, value, ()), requested_values)
+    return (ids=Iterators.flatten(buckets), estimate=sum(length, buckets; init=0))
 end
 
-function _indexed_object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, id=nothing)
-    candidate_sets = Set{ObjectId}[]
-    for ids in (
-        _registry_selector_ids(model.registry.by_scale, scale),
-        _registry_selector_ids(model.registry.by_kind, kind),
-        _registry_selector_ids(model.registry.by_species, species),
+function _smallest_indexed_candidates(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, id=nothing)
+    smallest = nothing
+    for candidates in (
+        _registry_selector_candidates(model.registry.by_scale, scale),
+        _registry_selector_candidates(model.registry.by_kind, kind),
+        _registry_selector_candidates(model.registry.by_species, species),
     )
-        isnothing(ids) || push!(candidate_sets, ids)
+        isnothing(candidates) && continue
+        if isnothing(smallest) || candidates.estimate < smallest.estimate
+            smallest = candidates
+        end
     end
     if !isnothing(id)
         requested_ids = id isa Tuple ? id : (id,)
-        push!(candidate_sets, Set{ObjectId}(
-            candidate for candidate in requested_ids
-            if haskey(model.registry.objects, candidate)
-        ))
+        if isnothing(smallest) || length(requested_ids) < smallest.estimate
+            smallest = (ids=requested_ids, estimate=length(requested_ids))
+        end
     end
-    isempty(candidate_sets) && return nothing
-    sort!(candidate_sets; by=length)
-    ids = copy(first(candidate_sets))
-    for candidates in Iterators.drop(candidate_sets, 1)
-        intersect!(ids, candidates)
+    return smallest
+end
+
+function _indexed_object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, id=nothing)
+    candidates = _smallest_indexed_candidates(model; scale, kind, species, id)
+    if isnothing(candidates) && all(isnothing, (scale, kind, species, id))
+        return nothing
     end
-    return ObjectId[ids...]
+    candidate_ids = isnothing(candidates) ? keys(model.registry.objects) : candidates.ids
+    return unique!(ObjectId[
+        candidate for candidate in candidate_ids
+        if haskey(model.registry.objects, candidate) &&
+           _matches_object_criteria(_model_object(model, candidate); scale, kind, species, id)
+    ])
+end
+
+# Resolve topology once, before choosing between a bounded local walk and a
+# borrowed index bucket. The budget follows this query's global candidate count,
+# rather than a fixed cutoff that penalizes many medium-sized plant subtrees.
+function _selector_subtree_root(model::CompositeModel, scope, context)
+    if scope isa Union{Subtree,SelfPlant,Ancestor}
+        current_id = _object_id_from_context(context)
+        isnothing(current_id) && error("`$(scope)` selectors require a current object context.")
+        _model_object(model, current_id)
+        scope isa Subtree && return current_id
+        root = scope isa SelfPlant ?
+               _ancestor_id(model, current_id; scale=:Plant) :
+               _ancestor_id(model, current_id; scale=scope.scale, include_self=false)
+        if isnothing(root)
+            scope isa SelfPlant && error("No `scale=:Plant` ancestor found for object `$(current_id.value)`.")
+            error("No matching ancestor found for object `$(current_id.value)` and selector `$(scope)`.")
+        end
+        return root
+    elseif scope isa Scope
+        return _named_scope_root_id(model, scope)
+    elseif scope isa CompiledNamedScope
+        return scope.root_id
+    end
+    return nothing
 end
 
 function _object_is_in_subtree(model::CompositeModel, object_id::ObjectId, root_id::ObjectId)
@@ -1001,6 +1040,9 @@ end
 
 function _near_symbol_matches(requested, available)
     isnothing(requested) && return Symbol[]
+    requested isa Tuple && return unique!(reduce(
+        vcat, (_near_symbol_matches(value, available) for value in requested); init=Symbol[],
+    ))
     requested_symbol = Symbol(requested)
     threshold = max(2, cld(length(string(requested_symbol)), 3))
     ranked = Tuple{Int,Symbol}[
@@ -1200,6 +1242,27 @@ function _resolve_object_ids(
     )
 end
 
+function _matching_selector_ids(
+    model::CompositeModel,
+    matcher::CompiledSelectorMatcher,
+    candidates,
+    context,
+    default_to_context::Bool,
+    default_scope,
+)
+    # The adaptive candidate source may be a local vector, an index iterator,
+    # or registry keys. Specialize this loop at that boundary, rather than
+    # dispatching dynamically for every object in a heterogeneous query.
+    ids = ObjectId[]
+    for id in candidates
+        haskey(model.registry.objects, id) || continue
+        _selector_matches_object_id(
+            model, matcher, id; context, default_to_context, default_scope,
+        ) && push!(ids, id)
+    end
+    return _sort_object_ids!(unique!(ids))
+end
+
 function _resolve_object_ids(
     model::CompositeModel,
     selector::AbstractObjectMultiplicity,
@@ -1230,108 +1293,79 @@ function _resolve_object_ids(
         return ObjectId[_object_id_from_context(context)]
     end
 
-    has_indexed_criteria = !isnothing(scale) ||
-                           !isnothing(kind) ||
-                           !isnothing(species) ||
-                           !isnothing(requested_id)
-    scope_candidate_ids = if isnothing(relation) && has_indexed_criteria
-        if scope isa Self
-            _scope_object_ids(model, scope, context)
-        elseif scope isa Subtree
-            current_id = _object_id_from_context(context)
-            isnothing(current_id) && error(
-                "`Subtree()` selectors require a current object context.",
-            )
-            _descendant_ids_up_to(
-                model,
-                current_id,
-                _SCOPE_FIRST_DESCENDANT_LIMIT,
-            )
-        else
-            nothing
-        end
-    else
+    indexed = _smallest_indexed_candidates(
+        model; scale, kind, species, id=requested_id,
+    )
+    nearest_ancestor = isnothing(relation) && scope isa Ancestor &&
+                       !isnothing(scale) && scale == scope.scale
+    subtree_root = if nearest_ancestor
         nothing
-    end
-    indexed_ids = if isnothing(scope_candidate_ids)
-        _indexed_object_ids(
-            model;
-            scale=scale,
-            kind=kind,
-            species=species,
-            id=requested_id,
+    elseif relation == :descendants
+        current_id = _object_id_from_context(context)
+        isnothing(current_id) && error(
+            "`Relation(:descendants)` selectors require a current object context.",
         )
-    else
-        nothing
-    end
-    candidate_ids = if !isnothing(scope_candidate_ids)
-        scope_candidate_ids
+        _model_object(model, current_id)
+        current_id
     elseif isnothing(relation)
-        if scope isa Ancestor && !isnothing(scale) && scale == scope.scale
-            current_id = _object_id_from_context(context)
-            isnothing(current_id) && error(
-                "`Ancestor(...)` selectors require a current object context."
-            )
-            ancestor_id = _ancestor_id(
-                model,
-                current_id;
-                scale=scope.scale,
-                include_self=false,
-            )
-            isnothing(ancestor_id) ? ObjectId[] : ObjectId[ancestor_id]
-        elseif isnothing(indexed_ids)
-            _scope_object_ids(model, scope, context)
-        elseif isnothing(scope) || scope isa SceneScope
-            indexed_ids
-        elseif length(indexed_ids) * 4 <= length(model.registry.objects)
-            ObjectId[
-                id for id in indexed_ids
-                if _scope_contains_object(model, scope, context, id)
-            ]
+        _selector_subtree_root(model, scope, context)
+    else
+        nothing
+    end
+    local_ids = if !isnothing(subtree_root)
+        if !haskey(model.registry.objects, subtree_root)
+            ObjectId[]
         else
-            scoped_ids = Set(_scope_object_ids(model, scope, context))
-            ObjectId[id for id in indexed_ids if id in scoped_ids]
+            budget = isnothing(indexed) ? length(model.registry.objects) :
+                     min(indexed.estimate, length(model.registry.objects))
+            _descendant_ids_up_to(model, subtree_root, budget)
         end
     else
-        related_ids = _relation_object_ids(model, relation, context)
-        if isnothing(explicit_scope)
-            related_ids
-        else
-            scoped_ids = Set(_scope_object_ids(model, explicit_scope, context))
-            ObjectId[id for id in related_ids if id in scoped_ids]
-        end
+        nothing
     end
-    ids = ObjectId[
-        id for id in candidate_ids
-        if _matches_object_criteria(
-            _model_object(model, id);
-            scale=scale,
-            kind=kind,
-            species=species,
-            id=requested_id,
+    candidate_ids = if nearest_ancestor
+        current_id = _object_id_from_context(context)
+        isnothing(current_id) && error(
+            "`Ancestor(...)` selectors require a current object context.",
         )
-    ]
-    _sort_object_ids!(ids)
+        ancestor_id = _ancestor_id(model, current_id; scale=scope.scale, include_self=false)
+        isnothing(ancestor_id) ? ObjectId[] : ObjectId[ancestor_id]
+    elseif !isnothing(local_ids)
+        local_ids
+    elseif !isnothing(relation) && relation != :descendants
+        _relation_object_ids(model, relation, context)
+    elseif scope isa Self && isnothing(relation)
+        self_ids = _scope_object_ids(model, scope, context)
+        _model_object(model, only(self_ids))
+        self_ids
+    elseif !isnothing(indexed)
+        indexed.ids
+    elseif isnothing(relation)
+        _scope_object_ids(model, scope, context)
+    else
+        _relation_object_ids(model, relation, context)
+    end
+    ids = _matching_selector_ids(
+        model, matcher, candidate_ids, context, default_to_context, default_scope,
+    )
 
-    diagnostic_candidate_ids = if !isnothing(scope_candidate_ids)
-        # Indexed candidates already satisfy the requested labels. Preserve
-        # that diagnostic contract for ambiguous singular matches, while an
-        # empty match still reports every label available inside the scope.
-        isempty(ids) ? scope_candidate_ids : ids
-    elseif isempty(ids) && !isnothing(indexed_ids)
+    # Cardinality diagnostics may need all available labels in the topology
+    # scope. Materialize them only on an error, never for empty Many queries.
+    invalid_cardinality = (selector isa One && length(ids) != 1) ||
+                          (selector isa OptionalOne && length(ids) > 1)
+    diagnostic_candidate_ids = if invalid_cardinality &&
+                                  (isempty(ids) || !isnothing(relation))
         if isnothing(relation)
             _scope_object_ids(model, scope, context)
         else
             related_ids = _relation_object_ids(model, relation, context)
-            if isnothing(explicit_scope)
-                related_ids
-            else
-                scoped_ids = Set(_scope_object_ids(model, explicit_scope, context))
-                ObjectId[id for id in related_ids if id in scoped_ids]
-            end
+            isnothing(explicit_scope) ? related_ids : ObjectId[
+                id for id in related_ids
+                if _scope_contains_object(model, explicit_scope, context, id)
+            ]
         end
     else
-        candidate_ids
+        ids
     end
 
     if selector isa One && length(ids) != 1
