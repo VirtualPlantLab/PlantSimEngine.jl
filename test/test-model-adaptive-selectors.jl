@@ -337,6 +337,79 @@ end
           ObjectId[ObjectId(:tip)]
 end
 
+# Count membership comparisons without counting dictionary lookup or sorting.
+# This catches quadratic ancestry scans without a wall-time or allocation bound.
+struct AdaptiveAncestorId
+    index::Int
+end
+const ADAPTIVE_ANCESTOR_ID_COMPARISONS = Ref(0)
+function Base.:(==)(left::ObjectId{AdaptiveAncestorId}, right::ObjectId{AdaptiveAncestorId})
+    ADAPTIVE_ANCESTOR_ID_COMPARISONS[] += 1
+    return left.value.index == right.value.index
+end
+Base.isequal(left::ObjectId{AdaptiveAncestorId}, right::ObjectId{AdaptiveAncestorId}) =
+    left.value.index == right.value.index
+Base.hash(id::ObjectId{AdaptiveAncestorId}, seed::UInt) =
+    hash(id.value.index, hash(AdaptiveAncestorId, seed))
+Base.isless(left::AdaptiveAncestorId, right::AdaptiveAncestorId) = left.index < right.index
+
+function adaptive_ancestor_chain(depth)
+    objects = Object[Object(AdaptiveAncestorId(0); scale=:Scene)]
+    for index in 1:depth
+        push!(objects, Object(AdaptiveAncestorId(index);
+            scale=:Axis, kind=isodd(index) ? :active : :dormant,
+            species=index % 3 == 0 ? :alternate : :common,
+            parent=AdaptiveAncestorId(index - 1)))
+    end
+    outside = AdaptiveAncestorId(depth + 1)
+    push!(objects, Object(outside; scale=:Axis, kind=:active, species=:common))
+    return CompositeModel(objects...), AdaptiveAncestorId(depth), outside
+end
+
+@testset "resolved ancestors avoid quadratic membership checks on deep chains" begin
+    for depth in (64, 256)
+        model, tip, outside = adaptive_ancestor_chain(depth)
+        selector = Many(Relation(:ancestors))
+        ADAPTIVE_ANCESTOR_ID_COMPARISONS[] = 0
+        ids = resolve_object_ids(model, selector; context=tip)
+        comparisons = ADAPTIVE_ANCESTOR_ID_COMPARISONS[]
+        @test comparisons <= 4depth
+        @test ids == ObjectId[ObjectId(AdaptiveAncestorId(index)) for index in 0:(depth - 1)]
+
+        # Relation queries ignore the dependency's default scope, but still
+        # intersect explicit scopes and apply all label and identity criteria.
+        @test PlantSimEngine._resolve_object_ids(model, selector;
+            context=tip, default_scope=Self()) == ids
+        middle = depth ÷ 2
+        scope = Scope(ObjectId(AdaptiveAncestorId(middle)))
+        @test resolve_object_ids(model, Many(scope, Relation(:ancestors)); context=tip) ==
+              ObjectId[ObjectId(AdaptiveAncestorId(index)) for index in middle:(depth - 1)]
+        @test resolve_object_ids(model, Many(Scope(ObjectId(outside)), Relation(:ancestors));
+            context=tip) == ObjectId[]
+        @test resolve_object_ids(model, Many(scope, Relation(:ancestors);
+            scale=(:Axis, :Leaf), kind=(:active, :dormant), species=:common); context=tip) ==
+              ObjectId[ObjectId(AdaptiveAncestorId(index))
+                       for index in middle:(depth - 1) if index % 3 != 0]
+        requested = (AdaptiveAncestorId(8), AdaptiveAncestorId(middle), tip, outside)
+        @test resolve_object_ids(model, Many(Relation(:ancestors); id=requested); context=tip) ==
+              ObjectId[ObjectId(AdaptiveAncestorId(8)), ObjectId(AdaptiveAncestorId(middle))]
+        @test resolve_object_ids(model, One(Relation(:ancestors); id=AdaptiveAncestorId(middle));
+            context=tip) == ObjectId[ObjectId(AdaptiveAncestorId(middle))]
+        @test resolve_object_ids(model, OptionalOne(Relation(:ancestors); id=outside);
+            context=tip) == ObjectId[]
+        @test resolve_object_ids(model, selector; context=AdaptiveAncestorId(0)) == ObjectId[]
+
+        # Local descendant walks include self; borrowed ID candidates can also
+        # contain self and unrelated objects. Both paths still need filtering.
+        @test resolve_object_ids(model, Many(Relation(:descendants));
+            context=AdaptiveAncestorId(middle)) ==
+              ObjectId[ObjectId(AdaptiveAncestorId(index)) for index in (middle + 1):depth]
+        @test resolve_object_ids(model, Many(Relation(:descendants);
+            id=(AdaptiveAncestorId(8), AdaptiveAncestorId(middle), tip, outside));
+            context=AdaptiveAncestorId(middle)) == ObjectId[ObjectId(tip)]
+    end
+end
+
 PlantSimEngine.@process "adaptive_leaf_a" verbose = false
 PlantSimEngine.@process "adaptive_leaf_b" verbose = false
 PlantSimEngine.@process "adaptive_plant_sum" verbose = false

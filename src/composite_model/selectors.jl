@@ -1119,6 +1119,7 @@ function _selector_matches_object_id(
     context=nothing,
     default_to_context::Bool=false,
     default_scope=nothing,
+    relation_resolved::Bool=false,
 )
     if default_to_context && matcher.defaults_to_context && !isnothing(context)
         return object_id == _object_id_from_context(context)
@@ -1149,16 +1150,18 @@ function _selector_matches_object_id(
         end
         return _scope_contains_object(model, scope, context, object_id)
     end
-    current_id = _object_id_from_context(context)
-    isnothing(current_id) && error(
-        "`Relation(:$(_compiled_relation_symbol(matcher.relation)))` selectors require a current object context.",
-    )
-    _relation_contains_object(
-        model,
-        matcher.relation,
-        current_id,
-        object_id,
-    ) || return false
+    if !relation_resolved
+        current_id = _object_id_from_context(context)
+        isnothing(current_id) && error(
+            "`Relation(:$(_compiled_relation_symbol(matcher.relation)))` selectors require a current object context.",
+        )
+        _relation_contains_object(
+            model,
+            matcher.relation,
+            current_id,
+            object_id,
+        ) || return false
+    end
     return isnothing(matcher.scope) ||
            _scope_contains_object(model, matcher.scope, context, object_id)
 end
@@ -1249,6 +1252,7 @@ function _matching_selector_ids(
     context,
     default_to_context::Bool,
     default_scope,
+    relation_resolved::Bool,
 )
     # The adaptive candidate source may be a local vector, an index iterator,
     # or registry keys. Specialize this loop at that boundary, rather than
@@ -1257,7 +1261,7 @@ function _matching_selector_ids(
     for id in candidates
         haskey(model.registry.objects, id) || continue
         _selector_matches_object_id(
-            model, matcher, id; context, default_to_context, default_scope,
+            model, matcher, id; context, default_to_context, default_scope, relation_resolved,
         ) && push!(ids, id)
     end
     return _sort_object_ids!(unique!(ids))
@@ -1323,6 +1327,9 @@ function _resolve_object_ids(
     else
         nothing
     end
+    # Only the relation resolver guarantees membership. Borrowed index buckets
+    # still need relation checks, and a completed descendant walk includes self.
+    relation_resolved = false
     candidate_ids = if nearest_ancestor
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error(
@@ -1333,6 +1340,7 @@ function _resolve_object_ids(
     elseif !isnothing(local_ids)
         local_ids
     elseif !isnothing(relation) && relation != :descendants
+        relation_resolved = true
         _relation_object_ids(model, relation, context)
     elseif scope isa Self && isnothing(relation)
         self_ids = _scope_object_ids(model, scope, context)
@@ -1343,10 +1351,11 @@ function _resolve_object_ids(
     elseif isnothing(relation)
         _scope_object_ids(model, scope, context)
     else
+        relation_resolved = true
         _relation_object_ids(model, relation, context)
     end
     ids = _matching_selector_ids(
-        model, matcher, candidate_ids, context, default_to_context, default_scope,
+        model, matcher, candidate_ids, context, default_to_context, default_scope, relation_resolved,
     )
 
     # Cardinality diagnostics may need all available labels in the topology
