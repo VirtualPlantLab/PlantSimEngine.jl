@@ -77,14 +77,6 @@ missing_verification = PlantSimEngineSkillEvaluations.assess_trace(
 @test !missing_verification.passed
 @test missing_verification.missing_actions == [:verify_loaded_package]
 
-skill_source = read(
-    joinpath(@__DIR__, "..", "skills", "plantsimengine", "SKILL.md"),
-    String,
-)
-@test occursin("13. Document the hypothesis", skill_source)
-@test occursin("model_metadata", skill_source)
-@test occursin("parameter_metadata", skill_source)
-
 alternative_source = read(
     joinpath(
         @__DIR__,

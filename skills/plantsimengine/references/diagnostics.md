@@ -4,7 +4,7 @@ Read this reference when discovering processes/models, reviewing a model
 boundary, comparing alternatives, validating a scenario, or investigating a
 compiler/runtime failure.
 
-## Use the neutral authoring API first
+## Public authoring evidence
 
 `PlantSimEngine.Authoring` is the public machine-readable entry point:
 
@@ -21,8 +21,10 @@ validate_model(model; strict=true)
 validate_scenario(composite; strict=false)
 ```
 
-Do not parse `show`, generated documentation, exception prose, or compiler
-fields when one of these functions represents the information directly.
+Prefer these structured reports for information they represent directly.
+Stack traces, exception messages, source inspection, and runtime probes can
+complement them when investigating a failure they do not explain. Compiler
+fields are implementation details rather than a stable model-facing contract.
 
 An instance descriptor is exact for its parameter values and declared schemas.
 A type-only descriptor may be best effort when the type cannot be constructed
@@ -32,7 +34,7 @@ reports and do not present inferred values as exact.
 ## Process identity versus replacement compatibility
 
 Use `compare_models(a, b)` before `Override` or another direct replacement.
-Interpret the report in this order:
+The report should distinguish:
 
 1. Are both values concrete PlantSimEngine models?
 2. Do they implement the same process?
@@ -63,11 +65,11 @@ with `to_dict` or `to_json`.
 when the package or task has enough scientific metadata to satisfy it without
 inventing values.
 
-`validate_scenario` should be used before `run!`. A scenario under construction
-may return a partial report with structured diagnostics rather than a single
-exception. Consume diagnostic codes, severity, application/object identities,
-variables, and suggestions. Keep the report's `schema_version` when
-serializing it.
+`validate_scenario` is useful for checking a composition before a full run.
+A scenario under construction may return a partial report with structured
+diagnostics rather than a single exception. Diagnostic codes, severity,
+application/object identities, variables, and suggestions help locate the
+problem. Keep the report's `schema_version` when serializing it.
 
 Structural validation is exhaustive only for declared/compiled structure.
 Execution probes may depend on data values and branch paths; do not claim that
@@ -112,16 +114,18 @@ This source shows the resolved application order, targets, bindings, calls,
 environment sampling, and invoked kernels. It is a view of the normal compiled
 plan, not a second scheduler and not a replacement for ordinary `run!`.
 
-Only when the user requests a file artifact, write it explicitly:
+When a file helps review or debug the composition, it can be generated with:
 
 ```julia
 Authoring.write_compiled_model_source("compiled_scenario.jl", scenario)
 ```
 
-Prefer `compiled_model_source` in memory for inspection and review. Treat the
-written file as generated evidence and do not edit it as the source scenario.
+Treat this as generated evidence and do not edit it as the source scenario.
 
-## Common diagnosis sequence
+## Common failure mechanisms
+
+The following questions guide investigation; choose the relevant mechanism
+and evidence rather than applying every sequence to each failure.
 
 ### Missing or ambiguous input
 
@@ -166,7 +170,7 @@ written file as generated evidence and do not edit it as the source scenario.
 
 ## Reporting evidence
 
-Always separate:
+Distinguish the evidence relevant to the result:
 
 - freshly executed validation under the reported path/version;
 - facts read from source or a structured descriptor;
@@ -177,3 +181,10 @@ Always separate:
 
 Do not describe a UI view, old generated report, or different checkout as the
 current runtime result.
+
+## Example request
+
+> Diagnose this failure in the smallest useful reproducer. Identify the
+> responsible equation, binding, writer, environment source, or time policy
+> from evidence; apply a focused correction and verify the behavior it changes.
+> Report any scientific assumption or unresolved limitation separately.

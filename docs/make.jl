@@ -95,6 +95,7 @@ makedocs(;
         "Write models" => [
             "New process or new hypothesis?" => "step_by_step/implement_a_process.md",
             "Write and test a first model" => "journeys/modelers/basic_model.md",
+            "Implement a model from a paper" => "guides/modelers/from_paper.md",
             "Keep equations readable" => "guides/modelers/port_existing_model.md",
             "Organize and test your models" => "guides/modelers/repository_and_tests.md",
             "Cross-object values" => "journeys/modelers/cross_object_values.md",
@@ -128,7 +129,7 @@ makedocs(;
             "Inspect a simulation" => "troubleshooting/runtime_contracts.md",
             "Dependency cycles" => "troubleshooting/dependency_cycles.md",
             "Numerical reliability" => "guides/data/numerical_reliability.md",
-            "Parameter fitting" => "working_with_data/fitting.md",
+            "Calibration and evaluation" => "working_with_data/fitting.md",
         ],
         "Reference and tools" => [
             "Julia language basics" => "prerequisites/julia_basics.md",

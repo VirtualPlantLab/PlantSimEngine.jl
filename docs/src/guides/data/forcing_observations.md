@@ -24,7 +24,11 @@ final_state(fixed_simulation).aPPFD
 ```
 
 If you add a model that calculates LAI, it will replace this supplied value
-when it runs. To keep the observed LAI fixed, use it without an LAI model, or with an LAI model that just outputs the constant value.
+when it runs. To keep the observed LAI fixed, leave out that predictive model,
+or replace it with a model that supplies the observed value. In a composed
+scenario, the observation model should own the supplied output. Adding it
+alongside another writer of the same variable can create a writer conflict;
+`Diagnostics.explain_writers(model)` helps check ownership.
 
 ## A sequence of observations
 
@@ -71,15 +75,35 @@ The complete [source file](observed_lai.jl) is short:
 Main.DocsSources.section("docs/src/guides/data/observed_lai.jl", "struct ObservedLAI")
 ```
 
-Before using real measurements, check their units, whether they refer to
-leaf or ground area, their time stamps, and any missing values. This example
-has one observation per day. If your measurements are less frequent, decide
-how to fill the gaps: for example, interpolate between measurements or keep
-the last measured value until the next one. Document that choice before
-using the data. This approach supplies a measured input directly. It does
-not perform data assimilation, which would use observations to estimate or
-correct the model state and could account for measurement uncertainty.
+## Match measurements to the simulation
 
-See [Collect and plot results](outputs_plotting.md) for displaying predictions
-alongside observations and [Parameter fitting](../../working_with_data/fitting.md)
-when the objective is to estimate model parameters.
+Before using real measurements, check their source, units, whether they refer
+to leaf or ground area, their time stamps or measurement intervals, and any
+missing or rejected values. Associate measurements with stable object IDs;
+display names need not be unique. A plot-scale observation may also need an
+explicit aggregation or conversion before it can supply an organ-scale model.
+
+This example has one observation per simulation day and one canopy. Its
+environment rows are already in simulation order; the observation model does
+not look up values by date or object ID. Prepare that alignment before using
+it. For several objects, arrange the observation source and bindings so each
+object receives its own measurement.
+
+If measurements are less frequent than model execution, choose how to fill
+the gaps: for example, interpolate between measurements or keep the last
+measured value until the next one. State the interval over which each value
+applies and the policy for gaps or values outside the measured period.
+Document that choice before using the data. Filling a gap does not create
+a new independent observation for evaluation.
+
+This approach supplies a measured input directly. It does not perform data
+assimilation, which would use observations to estimate or correct the model
+state and could account for measurement uncertainty. It also changes the
+question being tested: predicted light absorption under measured LAI checks
+the light component while treating canopy development as supplied data.
+
+See [Collect and plot results](outputs_plotting.md) for retaining outputs and
+matching predictions with measurements, and [Parameter fitting](../../working_with_data/fitting.md)
+for calibration followed by independent evaluation. The observation-forcing
+prompt in [Work with an AI coding agent](../../agent_skill.md) can help you
+adapt this pattern to documented measurements and your intended objects.
