@@ -1019,32 +1019,33 @@ end
         parent_id = object_id
     end
     long_scope_model = CompositeModel(long_scope_objects...)
+    traversal_budget = 32 # Explicit budget tests the bounded-walk contract.
     @test length(
         PlantSimEngine._descendant_ids_up_to(
             long_scope_model,
             ObjectId(:long_scope_10),
-            PlantSimEngine._SCOPE_FIRST_DESCENDANT_LIMIT,
+            traversal_budget,
         ),
     ) == 31
     @test length(
         PlantSimEngine._descendant_ids_up_to(
             long_scope_model,
             ObjectId(:long_scope_9),
-            PlantSimEngine._SCOPE_FIRST_DESCENDANT_LIMIT,
+            traversal_budget,
         ),
-    ) == PlantSimEngine._SCOPE_FIRST_DESCENDANT_LIMIT
+    ) == traversal_budget
     @test isnothing(
         PlantSimEngine._descendant_ids_up_to(
             long_scope_model,
             ObjectId(:long_scope_8),
-            PlantSimEngine._SCOPE_FIRST_DESCENDANT_LIMIT,
+            traversal_budget,
         ),
     )
     @test isnothing(
         PlantSimEngine._descendant_ids_up_to(
             long_scope_model,
             ObjectId(:long_root),
-            PlantSimEngine._SCOPE_FIRST_DESCENDANT_LIMIT,
+            traversal_budget,
         ),
     )
     @test Set(

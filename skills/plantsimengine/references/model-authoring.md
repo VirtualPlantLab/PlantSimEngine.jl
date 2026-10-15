@@ -3,8 +3,11 @@
 Read this reference when implementing or wrapping a model. Also read
 `scenario-coupling.md` when the task includes a nontrivial scenario, and
 `repository-layout.md` when creating files in a model package.
+For a scientific source paper, use [paper-to-model.md](paper-to-model.md) to
+keep extraction, assumptions, and source-to-code evidence traceable. The
+sections below describe model decisions, not a fixed execution sequence.
 
-## 1. Decide whether the process already exists
+## Decide whether the process already exists
 
 The process is the scientific operation; the concrete model is one hypothesis
 or numerical formulation of that operation.
@@ -26,7 +29,7 @@ Two concrete types may share `process(model)` while exposing different ports.
 They are then alternatives of the same scientific process, but not drop-in
 replacements. Use `Authoring.compare_models(a, b)` to establish compatibility.
 
-## 2. Declare the complete model boundary
+## Declare the complete model boundary
 
 Keep fixed parameters in an immutable, parametrically typed struct. Keep
 timestep-varying state in `Status`.
@@ -101,7 +104,7 @@ Rules:
 - Use `NamedTuple()` for an empty schema.
 - Do not store mutable simulation state in the model object.
 
-## 3. Declare scientific contracts beside the ports
+## Declare scientific contracts beside the ports
 
 Use `VariableContract` for unit and meaning, not only a prose comment:
 
@@ -145,7 +148,7 @@ Do not invent a unit or basis to make compilation pass. If the producer and
 consumer meanings differ, create a named adapter with one input contract and
 one output contract. See `../assets/adapter-model.jl`.
 
-## 4. Add dependencies only when they belong to the model
+## Add dependencies only when they belong to the model
 
 Use `dep` for model-author defaults that remain valid across scenarios:
 
@@ -172,7 +175,7 @@ routing, or initializer declarations only when they are intrinsic to the
 implementation. Do not bake one scenario's scheduling preference into a
 generic model.
 
-## 5. Write `run!` as the scientific narrative
+## Write `run!` as the scientific narrative
 
 The required kernel is:
 
@@ -206,9 +209,9 @@ input/output, environmental forcing, constant, or internal temporary. Split an
 external routine into several PlantSimEngine models only when users need to
 couple, replace, schedule, or validate those subprocesses independently.
 
-## 6. Test from the kernel outward
+## Evidence for the implementation
 
-Start with a direct call, which isolates the equation from the compiler:
+A direct call isolates the equation from the compiler:
 
 ```julia
 model = MyModel(0.02f0, 2.0f0, 20.0f0)
@@ -217,7 +220,7 @@ environment = (T=25.0f0,)
 PlantSimEngine.run!(model, status, environment, nothing, nothing)
 ```
 
-Then test, in proportion to the feature:
+Choose evidence in proportion to the new or changed behavior:
 
 1. `inputs_`, `outputs_`, environment schemas, contracts, and process identity;
 2. direct `run!` values and a generic type such as `Float32`;
@@ -228,8 +231,9 @@ Then test, in proportion to the feature:
    model;
 7. a package-level scenario or empirical regression when available.
 
-Use `Authoring.validate_model(model)` before scenario work. Validation proves
-the declared model boundary; it does not prove the scientific hypothesis.
+`Authoring.validate_model(model)` checks the declared model boundary. It does
+not prove the scientific hypothesis. Existing kernels need new direct tests
+when their behavior changes, rather than whenever their scenario is rewired.
 
 ## Complete executable examples
 

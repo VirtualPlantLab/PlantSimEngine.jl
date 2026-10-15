@@ -1,0 +1,826 @@
+{
+  "schema_version": 1,
+  "measured_on": "2026-10-08",
+  "timezone": "Europe/Paris",
+  "platform": {
+    "system": "Darwin",
+    "architecture": "arm64"
+  },
+  "sources": {
+    "base_revision": "7f3293644c408a1197131a57ab5301c700ed3140",
+    "candidate_branch": "codex/adaptive-subtree-selectors",
+    "candidate_state": "working tree before PR commit",
+    "candidate_sha256": {
+      "src/composite_model/selectors.jl": "9f68fd0b4fcc0929344cfe9c52c05460331aa7144adcf062192d9c58f08e3930",
+      "src/composite_model/compilation.jl": "99ed6533242b6891ff5f023d1bca724791b95065362cae891f0a3898e35559a4",
+      "benchmark/adaptive_selectors.jl": "12f68cf03103784bda9beca0414e88ce4341f8eb1c55aa3082f5eae49a25f04f"
+    }
+  },
+  "methodology": {
+    "execution": "Kaimon-controlled baseline test subprocess and exact-project candidate session; timing runs sequential",
+    "julia_version": "1.13.1",
+    "package_version": "0.15.0",
+    "dependencies": "External package versions and git-tree hashes match. Baseline instantiate rewrote Julia-bundled stdlib/JLL manifest entries to the same Julia 1.13.1 runtime used by the candidate; candidate root Manifest contains older stdlib metadata.",
+    "common_scene": "One scene plus 196 objects per plant; 47 matching leaves, 47 branches, 101 other geometry objects and one plant. Four distinct producer applications/variables share label/topology queries.",
+    "sparse_scene": "One scene plus a 100000-object subtree with 64 matching leaves.",
+    "samples": "Three timed samples after warmup for 64/304 plants and sparse scene. Largest cases use one sample after signatures warmed on smaller fixtures; no repeated largest operation warmup.",
+    "operations": "construction; raw selector sweep when measured; refresh_bindings!(force=true) full compilation; 10 ordinary timesteps with outputs=:none",
+    "validation": "Exact ordered source IDs, producer applications/variables and live reference carriers checked; source mutation restored; ordinary timesteps retain identical compiled bindings. Largest four-input case verifies 5504 bindings.",
+    "missing": "1376-plant four-input raw selector sweep was omitted on both revisions. Large graph-size estimates are unmeasured/null except the already-completed baseline 1376-plant one-input row.",
+    "allocation_units": "Cumulative allocated bytes per operation, not retained or peak RAM. Non-null graph estimates use Base.summarysize and are neither RSS nor peak memory.",
+    "query_reuse_ablation": "Candidate-only 304-plant four-input raw query sweep compares fresh per-consumer caches with unshared resolution. It does not isolate the full compiler-cache speedup.",
+    "scope": "Generic engine fixtures; no scientific AgriPV validation, downstream full performance run, geometry-ID selector fix, or ArchimedLight indexing change."
+  },
+  "base": {
+    "revision": "7f329364",
+    "package_path": "/private/tmp/pse-adaptive-base/src/PlantSimEngine.jl",
+    "active_project": "/private/tmp/pse-adaptive-base/test/Project.toml",
+    "julia_version": "1.13.1"
+  },
+  "candidate": {
+    "package_path": "/Users/rvezy/Documents/dev/PlantSimEngine/src/PlantSimEngine.jl",
+    "package_version": "0.15.0",
+    "active_project": "/Users/rvezy/Documents/dev/PlantSimEngine/Project.toml",
+    "julia_version": "1.13.1"
+  },
+  "rows": {
+    "common_64_inputs_1": {
+      "base": {
+        "correctness": {
+          "nplants": 64,
+          "ninputs": 1,
+          "matching_ids": 3008
+        },
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.024775583,
+          "minimum_seconds": 0.024539,
+          "median_allocated_bytes": 23257248,
+          "minimum_allocated_bytes": 23257248,
+          "reachable_bytes": 9447488
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.081458709,
+          "minimum_seconds": 0.080675208,
+          "median_allocated_bytes": 105666624,
+          "minimum_allocated_bytes": 105666624,
+          "reachable_bytes": 8
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.098942,
+          "minimum_seconds": 0.098690084,
+          "median_allocated_bytes": 117032560,
+          "minimum_allocated_bytes": 117032560,
+          "reachable_bytes": 11226488
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.000138833,
+          "minimum_seconds": 0.000136625,
+          "median_allocated_bytes": 5440,
+          "minimum_allocated_bytes": 5440,
+          "reachable_bytes": 14104736
+        },
+        "model_reachable_bytes": 12645256,
+        "ordinary_steps_reuse_compiled_bindings": true
+      },
+      "candidate": {
+        "correctness": {
+          "nplants": 64,
+          "ninputs": 1,
+          "matching_ids": 3008
+        },
+        "binding_checks": 64,
+        "selector_sweep_measured": true,
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.029082334,
+          "minimum_seconds": 0.028632125,
+          "median_allocated_bytes": 23257264,
+          "minimum_allocated_bytes": 23257264,
+          "reachable_bytes": 9447488
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.002906625,
+          "minimum_seconds": 0.00289375,
+          "median_allocated_bytes": 1957888,
+          "minimum_allocated_bytes": 1957888,
+          "reachable_bytes": 8
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.023188875,
+          "minimum_seconds": 0.02280075,
+          "median_allocated_bytes": 11851920,
+          "minimum_allocated_bytes": 11849664,
+          "reachable_bytes": 11177848
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.000141667,
+          "minimum_seconds": 0.000136416,
+          "median_allocated_bytes": 5936,
+          "minimum_allocated_bytes": 5440,
+          "reachable_bytes": 14056096
+        },
+        "model_reachable_bytes": 12596616,
+        "ordinary_steps_reuse_compiled_bindings": true
+      }
+    },
+    "common_64_inputs_4": {
+      "base": {
+        "correctness": {
+          "nplants": 64,
+          "ninputs": 4,
+          "matching_ids": 3008
+        },
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.025326958,
+          "minimum_seconds": 0.025297083,
+          "median_allocated_bytes": 23277584,
+          "minimum_allocated_bytes": 23277584,
+          "reachable_bytes": 9447968
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.339618542,
+          "minimum_seconds": 0.338225375,
+          "median_allocated_bytes": 422723840,
+          "minimum_allocated_bytes": 422723840,
+          "reachable_bytes": 8
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.414017042,
+          "minimum_seconds": 0.410043,
+          "median_allocated_bytes": 471510912,
+          "minimum_allocated_bytes": 471510912,
+          "reachable_bytes": 13967144
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.000687666,
+          "minimum_seconds": 0.000675125,
+          "median_allocated_bytes": 136480,
+          "minimum_allocated_bytes": 136480,
+          "reachable_bytes": 29331384
+        },
+        "model_reachable_bytes": 23014312,
+        "ordinary_steps_reuse_compiled_bindings": true
+      },
+      "candidate": {
+        "correctness": {
+          "nplants": 64,
+          "ninputs": 4,
+          "matching_ids": 3008
+        },
+        "binding_checks": 256,
+        "selector_sweep_measured": true,
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.028663583,
+          "minimum_seconds": 0.027962792,
+          "median_allocated_bytes": 23277600,
+          "minimum_allocated_bytes": 23277600,
+          "reachable_bytes": 9447968
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.010085791,
+          "minimum_seconds": 0.009932208,
+          "median_allocated_bytes": 7888896,
+          "minimum_allocated_bytes": 7888896,
+          "reachable_bytes": 8
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.078134,
+          "minimum_seconds": 0.078095583,
+          "median_allocated_bytes": 45253904,
+          "minimum_allocated_bytes": 45253488,
+          "reachable_bytes": 13927720
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.000855834,
+          "minimum_seconds": 0.000766542,
+          "median_allocated_bytes": 136480,
+          "minimum_allocated_bytes": 136480,
+          "reachable_bytes": 29291960
+        },
+        "model_reachable_bytes": 22974888,
+        "ordinary_steps_reuse_compiled_bindings": true
+      }
+    },
+    "common_304_inputs_1": {
+      "base": {
+        "correctness": {
+          "nplants": 304,
+          "ninputs": 1,
+          "matching_ids": 14288
+        },
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.192112375,
+          "minimum_seconds": 0.174021667,
+          "median_allocated_bytes": 107566176,
+          "minimum_allocated_bytes": 107566176,
+          "reachable_bytes": 42231912
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 2.725255834,
+          "minimum_seconds": 2.682604791,
+          "median_allocated_bytes": 2265946176,
+          "minimum_allocated_bytes": 2265946176,
+          "reachable_bytes": 8
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 2.635327083,
+          "minimum_seconds": 2.470813333,
+          "median_allocated_bytes": 2318314784,
+          "minimum_allocated_bytes": 2318314784,
+          "reachable_bytes": 49359336
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.000726917,
+          "minimum_seconds": 0.000672125,
+          "median_allocated_bytes": 5440,
+          "minimum_allocated_bytes": 5440,
+          "reachable_bytes": 61294272
+        },
+        "model_reachable_bytes": 54391208,
+        "ordinary_steps_reuse_compiled_bindings": true
+      },
+      "candidate": {
+        "correctness": {
+          "nplants": 304,
+          "ninputs": 1,
+          "matching_ids": 14288
+        },
+        "binding_checks": 304,
+        "selector_sweep_measured": true,
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.199102584,
+          "minimum_seconds": 0.190593041,
+          "median_allocated_bytes": 107568448,
+          "minimum_allocated_bytes": 107568448,
+          "reachable_bytes": null
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.016413459,
+          "minimum_seconds": 0.014935833,
+          "median_allocated_bytes": 9299968,
+          "minimum_allocated_bytes": 9299968,
+          "reachable_bytes": null
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.111883167,
+          "minimum_seconds": 0.110292334,
+          "median_allocated_bytes": 54794032,
+          "minimum_allocated_bytes": 54794032,
+          "reachable_bytes": null
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.000705333,
+          "minimum_seconds": 0.000657834,
+          "median_allocated_bytes": 5440,
+          "minimum_allocated_bytes": 5440,
+          "reachable_bytes": null
+        },
+        "model_reachable_bytes": null,
+        "ordinary_steps_reuse_compiled_bindings": true
+      }
+    },
+    "common_304_inputs_4": {
+      "base": {
+        "correctness": {
+          "nplants": 304,
+          "ninputs": 4,
+          "matching_ids": 14288
+        },
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.180666166,
+          "minimum_seconds": 0.171142833,
+          "median_allocated_bytes": 107586512,
+          "minimum_allocated_bytes": 107586512,
+          "reachable_bytes": 42232392
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 10.650859667,
+          "minimum_seconds": 10.407101958,
+          "median_allocated_bytes": 9064057088,
+          "minimum_allocated_bytes": 9064057088,
+          "reachable_bytes": 8
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 11.465299375,
+          "minimum_seconds": 10.901285166,
+          "median_allocated_bytes": 9291568624,
+          "minimum_allocated_bytes": 9291568624,
+          "reachable_bytes": 61672696
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.006341333,
+          "minimum_seconds": 0.006296083,
+          "median_allocated_bytes": 597280,
+          "minimum_allocated_bytes": 597280,
+          "reachable_bytes": 128340960
+        },
+        "model_reachable_bytes": 98423200,
+        "ordinary_steps_reuse_compiled_bindings": true
+      },
+      "candidate": {
+        "correctness": {
+          "nplants": 304,
+          "ninputs": 4,
+          "matching_ids": 14288
+        },
+        "binding_checks": 1216,
+        "selector_sweep_measured": true,
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.198386625,
+          "minimum_seconds": 0.198005709,
+          "median_allocated_bytes": 107588784,
+          "minimum_allocated_bytes": 107588784,
+          "reachable_bytes": null
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.050535417,
+          "minimum_seconds": 0.049924042,
+          "median_allocated_bytes": 37472256,
+          "minimum_allocated_bytes": 37472256,
+          "reachable_bytes": null
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.400851708,
+          "minimum_seconds": 0.396143583,
+          "median_allocated_bytes": 211225616,
+          "minimum_allocated_bytes": 211225616,
+          "reachable_bytes": null
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.006924291,
+          "minimum_seconds": 0.005669334,
+          "median_allocated_bytes": 597280,
+          "minimum_allocated_bytes": 597280,
+          "reachable_bytes": null
+        },
+        "model_reachable_bytes": null,
+        "ordinary_steps_reuse_compiled_bindings": true
+      }
+    },
+    "common_1376_inputs_1": {
+      "base": {
+        "correctness": {
+          "nplants": 1376,
+          "ninputs": 1,
+          "matching_ids": 64672
+        },
+        "construction": {
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 2.002655333,
+          "minimum_seconds": 2.002655333,
+          "median_allocated_bytes": 446204528,
+          "minimum_allocated_bytes": 446204528,
+          "reachable_bytes": 158501032
+        },
+        "selector": {
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 100.4283965,
+          "minimum_seconds": 100.4283965,
+          "median_allocated_bytes": 45195881536,
+          "minimum_allocated_bytes": 45195881536,
+          "reachable_bytes": 8
+        },
+        "compilation": {
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 100.007437834,
+          "minimum_seconds": 100.007437834,
+          "median_allocated_bytes": 45509188256,
+          "minimum_allocated_bytes": 45509188256,
+          "reachable_bytes": 189868984
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 0.006164,
+          "minimum_seconds": 0.006164,
+          "median_allocated_bytes": 5440,
+          "minimum_allocated_bytes": 5440,
+          "reachable_bytes": 238654472
+        },
+        "model_reachable_bytes": 207468784,
+        "ordinary_steps_reuse_compiled_bindings": true
+      },
+      "candidate": {
+        "correctness": {
+          "nplants": 1376,
+          "ninputs": 1,
+          "matching_ids": 64672
+        },
+        "binding_checks": 1376,
+        "selector_sweep_measured": true,
+        "construction": {
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 2.050062042,
+          "minimum_seconds": 2.050062042,
+          "median_allocated_bytes": 445970448,
+          "minimum_allocated_bytes": 445970448,
+          "reachable_bytes": null
+        },
+        "selector": {
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 0.086714958,
+          "minimum_seconds": 0.086714958,
+          "median_allocated_bytes": 42096848,
+          "minimum_allocated_bytes": 42096848,
+          "reachable_bytes": null
+        },
+        "compilation": {
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 0.729260833,
+          "minimum_seconds": 0.729260833,
+          "median_allocated_bytes": 324074368,
+          "minimum_allocated_bytes": 324074368,
+          "reachable_bytes": null
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 0.006123125,
+          "minimum_seconds": 0.006123125,
+          "median_allocated_bytes": 5440,
+          "minimum_allocated_bytes": 5440,
+          "reachable_bytes": null
+        },
+        "model_reachable_bytes": null,
+        "ordinary_steps_reuse_compiled_bindings": true
+      }
+    },
+    "common_1376_inputs_4": {
+      "base": {
+        "correctness": {
+          "nplants": 1376,
+          "ninputs": 4,
+          "matching_ids": 64672
+        },
+        "binding_checks": 5504,
+        "selector_sweep_measured": false,
+        "construction": {
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 1.999367958,
+          "minimum_seconds": 1.999367958,
+          "median_allocated_bytes": 444914960,
+          "minimum_allocated_bytes": 444914960,
+          "reachable_bytes": null
+        },
+        "selector": null,
+        "compilation": {
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 370.55618375,
+          "minimum_seconds": 370.55618375,
+          "median_allocated_bytes": 181959382816,
+          "minimum_allocated_bytes": 181959382816,
+          "reachable_bytes": null
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 0.041562083,
+          "minimum_seconds": 0.041562083,
+          "median_allocated_bytes": 2655520,
+          "minimum_allocated_bytes": 2655520,
+          "reachable_bytes": null
+        },
+        "model_reachable_bytes": null,
+        "ordinary_steps_reuse_compiled_bindings": true
+      },
+      "candidate": {
+        "correctness": {
+          "nplants": 1376,
+          "ninputs": 4,
+          "matching_ids": 64672
+        },
+        "binding_checks": 5504,
+        "selector_sweep_measured": false,
+        "construction": {
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 1.904139417,
+          "minimum_seconds": 1.904139417,
+          "median_allocated_bytes": 426052256,
+          "minimum_allocated_bytes": 426052256,
+          "reachable_bytes": null
+        },
+        "selector": null,
+        "compilation": {
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 2.207682,
+          "minimum_seconds": 2.207682,
+          "median_allocated_bytes": 1089764992,
+          "minimum_allocated_bytes": 1089764992,
+          "reachable_bytes": null
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 1,
+          "warmup": false,
+          "median_seconds": 0.044480208,
+          "minimum_seconds": 0.044480208,
+          "median_allocated_bytes": 2655520,
+          "minimum_allocated_bytes": 2655520,
+          "reachable_bytes": null
+        },
+        "model_reachable_bytes": null,
+        "ordinary_steps_reuse_compiled_bindings": true
+      }
+    },
+    "sparse_100000_inputs_1": {
+      "base": {
+        "correctness": {
+          "nplants": 1,
+          "ninputs": 1,
+          "matching_ids": 64
+        },
+        "binding_checks": 1,
+        "selector_sweep_measured": true,
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 5.867201167,
+          "minimum_seconds": 5.488262084,
+          "median_allocated_bytes": 153092192,
+          "minimum_allocated_bytes": 153092192,
+          "reachable_bytes": null
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.007872,
+          "minimum_seconds": 0.007222125,
+          "median_allocated_bytes": 5592768,
+          "minimum_allocated_bytes": 5592768,
+          "reachable_bytes": null
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.013656042,
+          "minimum_seconds": 0.013107125,
+          "median_allocated_bytes": 12216632,
+          "minimum_allocated_bytes": 12216632,
+          "reachable_bytes": null
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 1.175e-05,
+          "minimum_seconds": 1.0833e-05,
+          "median_allocated_bytes": 5440,
+          "minimum_allocated_bytes": 5440,
+          "reachable_bytes": null
+        },
+        "model_reachable_bytes": null,
+        "ordinary_steps_reuse_compiled_bindings": true
+      },
+      "candidate": {
+        "correctness": {
+          "nplants": 1,
+          "ninputs": 1,
+          "matching_ids": 64
+        },
+        "binding_checks": 1,
+        "selector_sweep_measured": true,
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 5.740721833,
+          "minimum_seconds": 5.653062292,
+          "median_allocated_bytes": 153169760,
+          "minimum_allocated_bytes": 153168416,
+          "reachable_bytes": null
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 9.6834e-05,
+          "minimum_seconds": 8.975e-05,
+          "median_allocated_bytes": 14112,
+          "minimum_allocated_bytes": 14112,
+          "reachable_bytes": null
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.000993542,
+          "minimum_seconds": 0.00092775,
+          "median_allocated_bytes": 1065032,
+          "minimum_allocated_bytes": 1065032,
+          "reachable_bytes": null
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 1.8667e-05,
+          "minimum_seconds": 1.05e-05,
+          "median_allocated_bytes": 5440,
+          "minimum_allocated_bytes": 5440,
+          "reachable_bytes": null
+        },
+        "model_reachable_bytes": null,
+        "ordinary_steps_reuse_compiled_bindings": true
+      }
+    },
+    "sparse_100000_inputs_4": {
+      "base": {
+        "correctness": {
+          "nplants": 1,
+          "ninputs": 4,
+          "matching_ids": 64
+        },
+        "binding_checks": 4,
+        "selector_sweep_measured": true,
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 5.830173167,
+          "minimum_seconds": 5.498936667,
+          "median_allocated_bytes": 153112528,
+          "minimum_allocated_bytes": 153112528,
+          "reachable_bytes": null
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.019328292,
+          "minimum_seconds": 0.017674583,
+          "median_allocated_bytes": 22371968,
+          "minimum_allocated_bytes": 22371968,
+          "reachable_bytes": null
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.0373725,
+          "minimum_seconds": 0.036395458,
+          "median_allocated_bytes": 46486776,
+          "minimum_allocated_bytes": 46486776,
+          "reachable_bytes": null
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 3.5084e-05,
+          "minimum_seconds": 3.1167e-05,
+          "median_allocated_bytes": 15520,
+          "minimum_allocated_bytes": 15520,
+          "reachable_bytes": null
+        },
+        "model_reachable_bytes": null,
+        "ordinary_steps_reuse_compiled_bindings": true
+      },
+      "candidate": {
+        "correctness": {
+          "nplants": 1,
+          "ninputs": 4,
+          "matching_ids": 64
+        },
+        "binding_checks": 4,
+        "selector_sweep_measured": true,
+        "construction": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 5.882271125,
+          "minimum_seconds": 5.730991,
+          "median_allocated_bytes": 153190096,
+          "minimum_allocated_bytes": 153187840,
+          "reachable_bytes": null
+        },
+        "selector": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.000167917,
+          "minimum_seconds": 0.00015525,
+          "median_allocated_bytes": 57344,
+          "minimum_allocated_bytes": 57344,
+          "reachable_bytes": null
+        },
+        "compilation": {
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 0.002304875,
+          "minimum_seconds": 0.002218959,
+          "median_allocated_bytes": 1849304,
+          "minimum_allocated_bytes": 1849304,
+          "reachable_bytes": null
+        },
+        "timestep": {
+          "steps_per_sample": 10,
+          "samples": 3,
+          "warmup": true,
+          "median_seconds": 4.075e-05,
+          "minimum_seconds": 4.025e-05,
+          "median_allocated_bytes": 16016,
+          "minimum_allocated_bytes": 15600,
+          "reachable_bytes": null
+        },
+        "model_reachable_bytes": null,
+        "ordinary_steps_reuse_compiled_bindings": true
+      }
+    }
+  },
+  "query_reuse": {
+    "unshared": {
+      "samples": 3,
+      "warmup": true,
+      "median_seconds": 0.051451875,
+      "minimum_seconds": 0.049885834,
+      "median_allocated_bytes": 37474528,
+      "minimum_allocated_bytes": 37472272,
+      "reachable_bytes": null
+    },
+    "shared": {
+      "samples": 3,
+      "warmup": true,
+      "median_seconds": 0.017047,
+      "minimum_seconds": 0.015888625,
+      "median_allocated_bytes": 10058768,
+      "minimum_allocated_bytes": 10058768,
+      "reachable_bytes": null
+    }
+  }
+}

@@ -25,3 +25,9 @@ The flag enables the downstream suite; it does not install its dependencies.
 `benchmark/test/runtests.jl` uses the same default. Passing a test-name pattern explicitly
 selects those tests, as the dedicated downstream CI jobs do.
 The pinned release comparisons in `release_baselines/` use separate projects.
+
+The standalone [adaptive selector comparison](adaptive_selectors.md) measures
+common-label plant subtrees and huge subtrees with rare matches. It separates
+construction, selector resolution, compilation, and ordinary timestep work,
+and runs outside the routinely tuned suite because large baseline scenes are
+expensive.

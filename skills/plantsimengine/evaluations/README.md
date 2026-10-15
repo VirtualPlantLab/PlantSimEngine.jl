@@ -28,6 +28,16 @@ oracles against the loaded PlantSimEngine package.
 
 These executable oracles establish the starting state and expected technical
 outcome; they still do not replace fresh-agent behavioral runs. The trace score
-and transcript are the evidence that an agent selected the skill, read only the
-routed references, and followed the workflow rather than merely reaching the
-same runtime result.
+and transcript record skill selection, reference routing, and the declared
+actions. `assess_trace` scores those behaviors, not overall scientific or task
+success. An equally correct implementation can use a different route.
+
+When comparing skill versions, assess the produced model/scenario, scientific
+fidelity, executable results, and truthful evidence separately from the trace
+score. Use the same task inputs and model configuration, and record cost or
+runtime where relevant. Add guidance for demonstrated failures rather than
+requiring every task to follow the manifest's action list.
+
+The current cases cover technical authoring, coupling, and runtime contracts.
+They do not establish success at extracting a model from a paper, forcing real
+observations, calibration, or independent empirical evaluation.

@@ -252,9 +252,12 @@ form to execute every target. Use `call_targets` and individual calls only for
 selective ordering, per-target environment values, or explicit target status
 inspection. Call-target-only applications are not run by the root scheduler.
 
-## Validate before running the full scenario
+## Evidence for the changed composition
 
-Use `Authoring.validate_scenario(model)` and inspect:
+`Authoring.validate_scenario(model)` checks declared scenario structure. Choose
+the public reports that answer questions about the changed connections,
+ownership, timing, or execution; these are available examples, not a required
+bundle:
 
 ```julia
 Diagnostics.explain_initialization(model)
@@ -266,7 +269,7 @@ Diagnostics.explain_schedule(model)
 Diagnostics.explain_execution_plan(model)
 ```
 
-Then run with explicit output retention:
+For a focused execution check, retain only the outputs needed by the task:
 
 ```julia
 simulation = run!(model; steps=10, outputs=:none)
@@ -276,3 +279,14 @@ latest = final_state(simulation, One(scale=:Plant))
 Use `outputs=:all` or `OutputRequest` only for streams needed by the task.
 `collect_outputs` materializes rows and should not be the default internal
 representation. Use `continue!` or `step!` to advance the same timeline.
+
+For observed upstream values, parameter fitting, or scientific comparison,
+see [data-calibration-evaluation.md](data-calibration-evaluation.md). These
+tasks require data alignment and scientific evidence beyond compiled bindings.
+
+## Example request
+
+> Couple these component models into the requested scenario. Preserve units,
+> physical bases, object identities, and time meaning. Make needed conversions
+> explicit and show evidence that each changed input receives its intended
+> source, with a focused execution check of the composition.
