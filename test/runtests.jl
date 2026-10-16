@@ -1,4 +1,7 @@
 using PlantSimEngine
+realpath(pkgdir(PlantSimEngine)) == realpath(joinpath(@__DIR__, "..")) || error(
+    "Tests must load this PlantSimEngine checkout; loaded $(pkgdir(PlantSimEngine)).",
+)
 using PlantSimEngine.Diagnostics
 using PlantSimEngine.GraphEditor
 using PlantSimEngine.EnvironmentAPI
@@ -144,6 +147,10 @@ else
 
     @testset "Composite model binding inference" begin
         include("test-model-binding-inference.jl")
+    end
+
+    @testset "Adaptive subtree selectors" begin
+        include("test-model-adaptive-selectors.jl")
     end
 
     @testset "Identity-aware Many inputs" begin

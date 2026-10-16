@@ -989,6 +989,19 @@ if benchmark_test_enabled("PlantBiophysics benchmark API smoke")
             outputs=:none,
         )
         @test current_step(simulation) == nsteps
+        state = final_state(simulation)
+        @test all(isfinite, (state.A, state.Gₛ, state.Tₗ, state.λE))
+        retained_model, retained_steps = setup_plantbiophysics_multistep(; nsteps=2)
+        retained = benchmark_plantbiophysics_multistep(
+            retained_model,
+            retained_steps;
+            outputs=:all,
+        )
+        retained_state = final_state(retained)
+        @test retained_state.A ≈ state.A
+        @test retained_state.Gₛ ≈ state.Gₛ
+        @test retained_state.Tₗ ≈ state.Tₗ
+        @test retained_state.λE ≈ state.λE
         records = run_plantbiophysics_performance_profile(;
             nsteps=2,
             fanout_scenes=2,

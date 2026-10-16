@@ -163,14 +163,24 @@ alternatives and check whether their inputs require different connections.
 ## Work with an AI coding agent
 
 An **AI coding agent** is software that can read and edit code and run tests
-with your development tools. Think OpenAI's ChatGPT App (formerly Codex), Anthropic's Claude Code, SpaceXAI's Grok Bot, or Mistral's Vibe. PlantSimEngine is designed to support this way
-of working, so you can just make new models, compare hypothesis, make model calibration or anything you'd like with just a prompt, such as:
+with your development tools. With a recent frontier coding or reasoning model,
+access to Julia, and the relevant papers and data, you can ask it to implement
+scientific models, couple components, investigate unexpected results, or
+prepare a calibration and independent evaluation.
 
-> Replace the radiation-use efficiency approach I'm using at the moment in my model by the FvCB, Medlyn and Monteith models from PlantBiophysics. Apply them at an hourly rate first, then at half-hourly, and compare the impact on yield of the three approaches. Report the results through dynamic graphs and statistics.
+> Compare my radiation-use efficiency model with the FvCB, Medlyn, and
+> Monteith components from PlantBiophysics using [scenario and input data].
+> Explain the required changes in inputs, units, and timing, then compare
+> their predictions against [independent observations]. Keep any additional
+> scientific assumptions explicit.
 
-For optimum results, ask your agent to [install the **agent skill**](agent_skill.md). It'll give your agent concrete information to implement, inspect and check models. Then, it will have access to every detail of the simulation, so you'll be able to ask it complex prompts such as:
-
-> Yield simulation is too low compared to data in 2025 and 2026, can you check why?
+Install the versioned [AI agent skill](agent_skill.md) to provide the
+PlantSimEngine API, scientific contracts, diagnostics, and executable examples.
+The guide includes concise prompts for paper implementation, coupling,
+debugging, observation forcing, calibration, and evaluation. Describe the
+result you want and supply its evidence; the agent can choose its approach.
+You remain responsible for the scientific question and the interpretation
+of the results.
 
 ## Choose your starting point
 

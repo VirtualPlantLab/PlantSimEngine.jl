@@ -2076,6 +2076,14 @@ Base.@nospecializeinfer function _compile_added_consumer_bindings!(
 )
     # Cold assembly must not specialize on each application × input-plan tuple.
     @nospecialize application input_plans
+    # One consumer's inputs often select the same objects for different
+    # variables/producers. Keep this cache local to this invocation so neither
+    # scene identity nor lifecycle invalidation needs persistent cache state.
+    share_object_queries = count(
+        plan -> plan.origin != :inferred_same_object && plan.selector isa Many,
+        input_plans,
+    ) > 1
+    object_query_cache = share_object_queries ? Dict{Any,Vector{ObjectId}}() : nothing
     for plan in input_plans
         plan.origin == :inferred_same_object && continue
         if !isnothing(many_binding_cache)
@@ -2104,6 +2112,7 @@ Base.@nospecializeinfer function _compile_added_consumer_bindings!(
             applications_by_id,
             nothing,
             distributed_outputs,
+            ; object_query_cache,
         )
     end
     application.id in manual_application_ids && return bindings
@@ -4977,6 +4986,28 @@ function _dependency_object_ids(
     )
 end
 
+function _cached_dependency_object_ids(
+    cache,
+    model::CompositeModel,
+    selector::AbstractObjectMultiplicity,
+    matcher::CompiledSelectorMatcher,
+    context::ObjectId,
+)
+    (isnothing(cache) || !(selector isa Many)) &&
+        return _dependency_object_ids(model, selector, matcher, context)
+    key = (
+        matcher.scope, matcher.relation, matcher.scale, matcher.kind,
+        matcher.species, matcher.id, matcher.defaults_to_context,
+    )
+    cached_ids = get(cache, key, nothing)
+    isnothing(cached_ids) || return copy(cached_ids)
+    ids = _dependency_object_ids(model, selector, matcher, context)
+    # Writer filtering and lifecycle carriers own mutable vectors. The cache
+    # retains an unfiltered snapshot and never lends it to a binding.
+    cache[key] = copy(ids)
+    return ids
+end
+
 function _carrier_hint(selector::AbstractObjectMultiplicity, policy, window)
     !isnothing(window) && return :temporal_stream
     policy isa HoldLast || return :temporal_stream
@@ -7140,6 +7171,7 @@ Base.@nospecializeinfer function _push_model_input_binding!(
     applications_by_id,
     source_ids_override=nothing,
     distributed_outputs=NoCompiledDistributedOutputs(),
+    ; object_query_cache=nothing,
 )
     @nospecialize application plan
     input_sym = plan.input
@@ -7148,7 +7180,8 @@ Base.@nospecializeinfer function _push_model_input_binding!(
     process_filter = plan.process
     application_filter = plan.application
     source_ids = isnothing(source_ids_override) ?
-                 _dependency_object_ids(
+                 _cached_dependency_object_ids(
+        object_query_cache,
         model,
         selector,
         plan.matcher,

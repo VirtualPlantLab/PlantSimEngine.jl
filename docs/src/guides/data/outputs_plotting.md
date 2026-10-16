@@ -157,3 +157,43 @@ Saved values, including arrays, record the result at that time. Later changes
 do not rewrite earlier rows, and removing an organ does not delete its past
 results. Compatible numerical types are preserved, including values with
 attached physical units when your model uses them.
+
+## Match predictions with observations
+
+Before plotting measurements beside predictions, select the intended
+application and variable. Match stable object IDs and measurement times,
+rather than assuming that two tables have the same row order. Confirm that
+units, area basis, and sampling intervals describe the same quantity. If an
+observation covers a daily interval but predictions are hourly fluxes,
+aggregate the predictions over that interval before matching them. Use the
+same time representation in both tables, including the convention for whether
+a timestamp labels the start or end of an interval.
+
+For your own observation table, adapt the following snippet after preparing
+an `observations` DataFrame with `object_id`, `datetime`, and `observed`
+columns. Here `light` is the one-canopy result from the first example, and
+both tables contain one value per object and time:
+
+```julia
+predictions = select(light, :object_id, :datetime, :value => :simulated)
+match_columns = [:object_id, :datetime]
+matched = innerjoin(observations, predictions; on=match_columns, validate=(true, true))
+unmatched_observations = antijoin(observations, predictions; on=match_columns)
+unmatched_predictions = antijoin(predictions, observations; on=match_columns)
+matched.residual = matched.simulated .- matched.observed
+```
+
+`validate=(true, true)` rejects duplicate matching keys, which might otherwise
+multiply rows and distort scores. Repeated measurements require an explicit
+replicate or aggregation policy. `innerjoin` retains only matching rows, so
+inspect and count both unmatched tables before reporting results. Keep the
+source and reason for any excluded observation. Define how to handle missing
+or non-finite values before computing residuals or metrics.
+
+Plot `simulated` as a line and `observed` as points using their matched
+`datetime` values, keeping objects separate as above and sorting by time
+within each object before drawing lines. A residual plot can reveal a
+time-dependent bias that the time-series overlay hides. Follow
+[Parameter fitting](../../working_with_data/fitting.md) to compare baseline
+and fitted predictions on calibration and independent evaluation datasets,
+or use the evaluation prompt in [Work with an AI coding agent](../../agent_skill.md).

@@ -48,7 +48,7 @@ function _plantbiophysics_leaf_scene(
     row;
     environment=_plantbiophysics_atmosphere(row),
 )
-    return PlantBiophysics.leaf_scene(
+    return CompositeModel(
         Monteith(),
         Fvcb(
             VcMaxRef=row.VcMaxRef,
@@ -63,6 +63,9 @@ function _plantbiophysics_leaf_scene(
             aPPFD=row.Ra_SW_f * 0.48 * 4.57,
             d=row.d,
         ),
+        id=:leaf,
+        scale=:Leaf,
+        kind=:plant,
         environment=environment,
     )
 end
