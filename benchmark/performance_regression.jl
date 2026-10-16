@@ -58,7 +58,7 @@ function _performance_fixture_hash(xpalm_root)
             "test",
             "references",
             "regression",
-            "v0.6.1",
+            XPALM_REFERENCE_BASELINE,
         ),
     )
     entries = String[
@@ -100,6 +100,7 @@ function _performance_metadata(; warmup_policy)
         xpalm_revision=_performance_git_revision(xpalm_root),
         manifest_hash=_performance_path_hash(manifest_path),
         fixture_hash=_performance_fixture_hash(xpalm_root),
+        reference_baseline=XPALM_REFERENCE_BASELINE,
         warmup_policy=warmup_policy,
     )
 end
@@ -198,6 +199,32 @@ function _timed_performance_operation(operation)
     return @timed operation()
 end
 
+# Result extraction is outside the measured operation. The caller can retain a
+# small scientific summary when the complete history is not needed afterward.
+@noinline function _first_performance_sample(operation, result_transform)
+    measurement = _timed_performance_operation(operation)
+    return (
+        value=result_transform(measurement.value),
+        time=measurement.time,
+        bytes=measurement.bytes,
+        gctime=measurement.gctime,
+        allocations=_performance_allocation_count(measurement),
+    )
+end
+
+# End the sample's stack frame before the caller starts the next repetition.
+# Assigning `nothing` inside the caller is insufficient: compiler temporaries
+# (including those introduced by logging) can keep the result or closure live.
+@noinline function _additional_performance_sample(operation, sample_factory)
+    sample_operation = isnothing(sample_factory) ? operation : sample_factory()
+    measurement = _timed_performance_operation(sample_operation)
+    return (
+        time=measurement.time,
+        bytes=measurement.bytes,
+        allocations=_performance_allocation_count(measurement),
+    )
+end
+
 function _measure_performance_stage!(
     operation,
     records,
@@ -208,11 +235,13 @@ function _measure_performance_stage!(
     ;
     samples::Int=1,
     sample_factory=nothing,
+    result_transform=identity,
 )
     samples >= 1 || error("Performance stage samples must be positive.")
+    @info "Performance sample starting" profile stage sample=1 samples peak_rss_bytes=Sys.maxrss()
     started_at = time_ns()
     measurement = try
-        _timed_performance_operation(operation)
+        _first_performance_sample(operation, result_transform)
     catch
         _performance_record!(
             records,
@@ -235,19 +264,20 @@ function _measure_performance_stage!(
         _checkpoint_performance_records(checkpoint_path, records)
         rethrow()
     end
-    measurements = Any[measurement]
-    for _ in 2:samples
-        sample_operation = isnothing(sample_factory) ?
-                           operation :
-                           sample_factory()
-        push!(
-            measurements,
-            _timed_performance_operation(sample_operation),
-        )
+    @info "Performance sample completed" profile stage sample=1 seconds=measurement.time allocated_bytes=measurement.bytes peak_rss_bytes=Sys.maxrss()
+    # Keep the first result (or its requested summary) for correctness checks,
+    # but retain only statistics from later samples.
+    times = [measurement.time]
+    memories = [measurement.bytes]
+    allocations = [measurement.allocations]
+    for sample in 2:samples
+        @info "Performance sample starting" profile stage sample samples peak_rss_bytes=Sys.maxrss()
+        sample_statistics = _additional_performance_sample(operation, sample_factory)
+        @info "Performance sample completed" profile stage sample seconds=sample_statistics.time allocated_bytes=sample_statistics.bytes peak_rss_bytes=Sys.maxrss()
+        push!(times, sample_statistics.time)
+        push!(memories, sample_statistics.bytes)
+        push!(allocations, sample_statistics.allocations)
     end
-    times = getproperty.(measurements, :time)
-    memories = getproperty.(measurements, :bytes)
-    allocations = _performance_allocation_count.(measurements)
     _performance_record!(
         records,
         metadata,
@@ -422,6 +452,7 @@ end
 
 function _warmup_xpalm_performance!(profile_steps)
     lifecycle_steps = min(profile_steps, PERFORMANCE_SHORT_STEPS)
+    @info "XPalm profile warmup starting" lifecycle_steps retained_steps=PERFORMANCE_SMOKE_STEPS
     no_output_model, no_output_steps =
         xpalm_reference_model_create(; nsteps=lifecycle_steps)
     xpalm_reference_param_run(
@@ -439,6 +470,7 @@ function _warmup_xpalm_performance!(profile_steps)
         reference_steps,
     )
     xpalm_default_param_collect_outputs(reference_simulation)
+    @info "XPalm profile warmup completed" peak_rss_bytes=Sys.maxrss()
     return nothing
 end
 
@@ -448,6 +480,8 @@ function run_xpalm_performance_profile(;
 )
     normalized_profile = Symbol(profile)
     nsteps = _performance_steps(normalized_profile)
+    expected_state = normalized_profile == :full ?
+                     xpalm_reference_full_cycle_expected_state() : nothing
     warmup_policy =
         "unmeasured outputs=:none prefix ($(min(nsteps, PERFORMANCE_SHORT_STEPS)) steps) " *
         "plus requested-output smoke ($(PERFORMANCE_SMOKE_STEPS) steps)"
@@ -670,13 +704,23 @@ function run_xpalm_performance_profile(;
         xpalm_reference_model_create(; nsteps=nsteps)
     end
     all_output_model, all_output_steps = all_output_setup
-    all_output_simulation = _measure_performance_stage!(
+    all_output_state = _measure_performance_stage!(
         records,
         metadata,
         normalized_profile,
         :simulation_all_outputs,
         checkpoint_path,
         samples=PERFORMANCE_STATISTICAL_SAMPLES,
+        result_transform=simulation -> begin
+            _record_runtime_performance!(
+                records,
+                metadata,
+                normalized_profile,
+                :simulation_all_outputs,
+                simulation,
+            )
+            xpalm_reference_final_state(simulation)
+        end,
         sample_factory=() -> begin
             sample_model, sample_steps =
                 xpalm_reference_model_create(; nsteps=nsteps)
@@ -697,18 +741,9 @@ function run_xpalm_performance_profile(;
             performance=true,
         )
     end
-    _record_runtime_performance!(
-        records,
-        metadata,
-        normalized_profile,
-        :simulation_all_outputs,
-        all_output_simulation,
-    )
-
     no_output_state = xpalm_reference_final_state(no_output_simulation)
     small_state = xpalm_reference_final_state(small_simulation)
     reference_state = xpalm_reference_final_state(reference_simulation)
-    all_output_state = xpalm_reference_final_state(all_output_simulation)
     _record_xpalm_state!(
         records,
         metadata,
@@ -748,8 +783,8 @@ function run_xpalm_performance_profile(;
     )
 
     if normalized_profile == :full
-        xpalm_reference_state_matches(reference_state) || error(
-            "XPalm full-cycle performance fixture does not match the committed v0.6.1 final state: ",
+        xpalm_reference_state_matches(reference_state, expected_state) || error(
+            "XPalm full-cycle performance fixture does not match the committed $(XPALM_REFERENCE_BASELINE) final state: ",
             "$(reference_state).",
         )
         high_level_outputs = _measure_performance_stage!(
@@ -762,9 +797,9 @@ function run_xpalm_performance_profile(;
         ) do
             xpalm_reference_end_to_end(; nsteps=nsteps)
         end
-        xpalm_reference_high_level_state_matches(high_level_outputs) || error(
+        xpalm_reference_high_level_state_matches(high_level_outputs; expected=expected_state) || error(
             "XPalm historical end-to-end performance fixture does not match the committed ",
-            "v0.6.1 final state.",
+            "$(XPALM_REFERENCE_BASELINE) final state.",
         )
     end
 
