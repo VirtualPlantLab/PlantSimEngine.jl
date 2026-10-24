@@ -6196,6 +6196,45 @@ function _current_topology_call_targets(
         requested_ids,
         callee_application_ids,
     )
+    if !isnothing(context.temporal_streams) &&
+       context.output_retention isa OutputRetentionPlan &&
+       !isempty(context.output_retention.retained_outputs_by_application)
+        # This accessor can refresh topology inside a running controller,
+        # before Simulation reaches its normal stream-initialization barrier.
+        # Prepare the refreshed targets without publishing a sample, including
+        # distributed destinations and other applications on newborn objects.
+        if compiled !== context.compiled
+            _initialize_model_output_streams!(
+                context.temporal_streams,
+                compiled,
+                context.output_retention,
+                0,
+                compiled.changed_execution_target_ids,
+            )
+        end
+        # A previous explicit call may already have consumed the structural
+        # delta. Independently ensure the selected targets' streams exist;
+        # this stays bounded by this call's selection on a clean topology.
+        selected_target_keys = Tuple{Symbol,ObjectId}[]
+        for application_id in callee_application_ids
+            application = _compiled_application_by_id(compiled, application_id)
+            for object_id in requested_ids
+                _call_binding_target_matches(
+                    selected_binding,
+                    application,
+                    object_id,
+                ) || continue
+                push!(selected_target_keys, (application_id, object_id))
+            end
+        end
+        _initialize_model_output_streams!(
+            context.temporal_streams,
+            compiled,
+            context.output_retention,
+            0,
+            selected_target_keys,
+        )
+    end
     # This synthetic binding is already the complete explicitly requested
     # selection. Mark only it observed so materialization never activates the
     # cached full `Many` binding or its lifecycle reverse index.
