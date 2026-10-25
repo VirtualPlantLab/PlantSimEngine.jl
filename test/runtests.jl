@@ -69,6 +69,10 @@ else
         include("test-model-hard-calls.jl")
     end
 
+    @testset "Newborn retained manual calls" begin
+        include("test-model-newborn-retention.jl")
+    end
+
     @testset "Scheduled newborn initializers" begin
         include("test-model-initializers.jl")
     end
