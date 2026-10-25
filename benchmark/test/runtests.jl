@@ -816,6 +816,19 @@ if benchmark_test_enabled("hard-call path benchmark API smoke")
         sampled_leaf = only(model_objects(sampled_model; scale=:Leaf))
         @test current_step(sampled_simulation) == 2
         @test sampled_leaf.status.temperature_seen == 30.0
+        for kind in (:transient_environment, :nested_transient_environment)
+            transient_model, transient_steps = setup_compiled_hard_call_benchmark(;
+                kind=kind,
+                steps=2,
+            )
+            transient_simulation = benchmark_compiled_hard_call(
+                transient_model,
+                transient_steps,
+            )
+            @test current_step(transient_simulation) == 2
+            leaf = only(model_objects(transient_model; scale=:Leaf))
+            @test leaf.status.temperature_seen == 30.0
+        end
         for (kind, repeats, target_count) in (
             (:singular, 1, 1),
             (:repeated, 8, 1),
@@ -847,6 +860,18 @@ if benchmark_test_enabled("hard-call path benchmark API smoke")
             sampled_context,
             (T=31.0,),
         ) == 0
+        for kind in (:transient_environment, :nested_transient_environment)
+            simulation = setup_compiled_hard_call_step(; kind=kind)
+            context = BENCHMARK_BULK_CALL_CONTEXT[]
+            trial = (T=31.0, duration=Hour(1))
+            @test transient_hard_call_invocation_allocations(context, trial) == 0
+            leaf = only(model_objects(simulation.model; scale=:Leaf))
+            @test leaf.status.temperature_seen == 31.0
+            # A same-type new value must refresh the inherited trial state,
+            # rather than reusing the row from cache creation or warm-up.
+            benchmark_transient_hard_call_invocation(context, (T=32.0, duration=Hour(1)))
+            @test leaf.status.temperature_seen == 32.0
+        end
     end
 end
 
@@ -1326,6 +1351,8 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
         @test haskey(suite, "PSE_compiled_hard_call_many")
         @test haskey(suite, "PSE_compiled_hard_call_heterogeneous")
         @test haskey(suite, "PSE_compiled_hard_call_sampled_environment")
+        @test haskey(suite, "PSE_compiled_hard_call_transient_environment")
+        @test haskey(suite, "PSE_compiled_hard_call_nested_transient_environment")
         @test haskey(suite, "PSE_compiled_hard_call_published")
         @test haskey(suite, "PSE_lifecycle_small")
         @test haskey(suite, "PSE_lifecycle_large")

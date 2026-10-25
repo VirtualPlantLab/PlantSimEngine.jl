@@ -23,6 +23,10 @@ struct BenchmarkSampledEnvironmentControllerModel{E} <:
        AbstractBenchmark_Sampled_Environment_ControllerModel
     sampled_environment::E
 end
+struct BenchmarkTransientEnvironmentControllerModel{E} <:
+       AbstractBenchmark_Sampled_Environment_ControllerModel
+    trial_environment::E
+end
 struct BenchmarkUnrelatedWorkModel <: AbstractBenchmark_Unrelated_WorkModel end
 
 const BENCHMARK_BULK_CALL_CONTEXT = Ref{Any}()
@@ -74,6 +78,29 @@ function PlantSimEngine.run!(
         context,
         :source;
         sampled_environment=model.sampled_environment,
+        publish=false,
+    )
+    BENCHMARK_BULK_CALL_CONTEXT[] = context
+    status.executions += 1
+    return nothing
+end
+
+PlantSimEngine.inputs_(::BenchmarkTransientEnvironmentControllerModel) =
+    NamedTuple()
+PlantSimEngine.outputs_(::BenchmarkTransientEnvironmentControllerModel) =
+    (executions=0,)
+
+function PlantSimEngine.run!(
+    model::BenchmarkTransientEnvironmentControllerModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    run_call!(
+        context,
+        :source;
+        environment=model.trial_environment,
         publish=false,
     )
     BENCHMARK_BULK_CALL_CONTEXT[] = context
@@ -212,6 +239,8 @@ function setup_compiled_hard_call_benchmark(;
         :many,
         :heterogeneous,
         :sampled_environment,
+        :transient_environment,
+        :nested_transient_environment,
         :published,
     ) ||
         error("Unsupported compiled hard-call benchmark kind `$(kind)`.")
@@ -274,32 +303,44 @@ function setup_compiled_hard_call_benchmark(;
             Int(steps),
         )
     end
-    if kind == :sampled_environment
-        model = CompositeModel(
-            PlantSimEngine.Object(:scene; scale=:Scene),
-            PlantSimEngine.Object(
-                :leaf_1;
-                scale=:Leaf,
-                parent=:scene,
-            );
-            applications=(
-                ModelSpec(
-                    BenchmarkSampledEnvironmentSourceModel();
-                    name=:source,
-                    on=One(id=:leaf_1),
-                ),
-                ModelSpec(
-                    BenchmarkSampledEnvironmentControllerModel((T=30.0,));
-                    name=:controller,
-                    on=One(id=:scene),
-                    calls=(
-                        :source => One(
-                            id=:leaf_1,
-                            application=:source,
-                        ),
-                    ),
-                ),
+    if kind in (:sampled_environment, :transient_environment, :nested_transient_environment)
+        nested = kind == :nested_transient_environment
+        objects = Any[PlantSimEngine.Object(:scene; scale=:Scene)]
+        if nested
+            push!(objects, PlantSimEngine.Object(:middle; scale=:Plant, parent=:scene))
+        end
+        push!(objects, PlantSimEngine.Object(:leaf_1;
+            scale=:Leaf, parent=nested ? :middle : :scene))
+        source = ModelSpec(
+            BenchmarkSampledEnvironmentSourceModel();
+            name=:source,
+            on=One(id=:leaf_1),
+        )
+        # Explicit sampling affects one model only. A transient backend row must
+        # instead pass through the middle controller to its nested source call.
+        middle = nested ? (
+            ModelSpec(
+                BenchmarkBulkCallControllerModel(1, false, false);
+                name=:middle,
+                on=One(id=:middle),
+                calls=(:source => One(id=:leaf_1, within=Subtree(), application=:source),),
             ),
+        ) : ()
+        controller = kind == :sampled_environment ?
+            BenchmarkSampledEnvironmentControllerModel((T=30.0,)) :
+            BenchmarkTransientEnvironmentControllerModel((T=30.0, duration=Hour(1)))
+        caller = ModelSpec(
+            controller;
+            name=:controller,
+            on=One(id=:scene),
+            calls=(:source => One(
+                id=nested ? :middle : :leaf_1,
+                within=Subtree(),
+                application=nested ? :middle : :source,
+            ),),
+        )
+        model = CompositeModel(objects...;
+            applications=(source, middle..., caller),
             environment=(T=20.0, duration=Hour(1)),
         )
         return model, Int(steps)
@@ -454,6 +495,18 @@ function sampled_hard_call_invocation_allocations(
         context,
         sampled_environment,
     )
+end
+
+function benchmark_transient_hard_call_invocation(context::T, trial_environment) where {T}
+    run_call!(context, :source; environment=trial_environment, publish=false)
+    return nothing
+end
+
+function transient_hard_call_invocation_allocations(context::T, trial_environment) where {T}
+    # Warm the exact public call route, including its transient-state type,
+    # before the allocation gate. No retained output history is requested.
+    benchmark_transient_hard_call_invocation(context, trial_environment)
+    return @allocated benchmark_transient_hard_call_invocation(context, trial_environment)
 end
 
 function hard_call_path_summary(model)

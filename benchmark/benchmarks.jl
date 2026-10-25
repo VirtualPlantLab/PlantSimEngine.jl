@@ -344,6 +344,8 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
         (:many, 1, 1000),
         (:heterogeneous, 1, 2),
         (:sampled_environment, 1, 1),
+        (:transient_environment, 1, 1),
+        (:nested_transient_environment, 1, 1),
         (:published, 1, 1),
     )
         SUITE[suite_name]["PSE_compiled_hard_call_$(kind)"] =
