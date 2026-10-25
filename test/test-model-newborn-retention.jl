@@ -99,6 +99,73 @@ end
 
 end # module
 
+module ManualPublicationMembershipChecks
+using Dates, PlantSimEngine, Test
+using ..NewbornRetentionReproducer: Signal, START, retention
+
+PlantSimEngine.@process "manual_publication_membership" verbose=false
+struct PublishBeforeLifecycle <: AbstractManual_Publication_MembershipModel
+    single_targets::Bool
+end
+PlantSimEngine.outputs_(::PublishBeforeLifecycle) = (iteration=0,)
+function PlantSimEngine.run!(model::PublishBeforeLifecycle, status, environment, constants, context)
+    status.iteration += 1
+    runtime = runtime_model(context)
+    if model.single_targets && !isempty(object_ids(runtime; scale=:Leaf))
+        for target in call_targets(context, :signals)
+            run_call!(target; publish=true)
+        end
+    else
+        # Exercise accepted empty Many calls before the first organ exists.
+        run_call!(context, :signals; publish=true)
+    end
+    if status.iteration == 1
+        register_object!(runtime, Object(:newborn; scale=:Leaf, parent=:scene))
+    elseif status.iteration == 3
+        remove_object!(runtime, :newborn)
+        register_object!(runtime, Object(:last_born; scale=:Leaf, parent=:scene))
+    end
+    return nothing
+end
+
+function scenario(; initially_empty, single_targets)
+    objects = Object[Object(:scene; scale=:Scene)]
+    initially_empty || push!(objects, Object(:existing; scale=:Leaf, parent=:scene))
+    return CompositeModel(objects...; applications=(
+        ModelSpec(PublishBeforeLifecycle(single_targets); name=:controller, on=One(id=:scene),
+            calls=(signals=Many(scale=:Leaf, application=:signal),), every=Hour(1)),
+        ModelSpec(Signal(); name=:signal, on=Many(scale=:Leaf), every=Hour(1)),
+    ), environment=[(date=START + Hour(i - 1), duration=Hour(1)) for i in 1:3])
+end
+
+@testset "named membership follows accepted manual publications around lifecycle changes" begin
+    for initially_empty in (false, true), single_targets in (false, true)
+        model = scenario(; initially_empty, single_targets)
+        simulation = run!(model; steps=1, outputs=retention(:request))
+        @test isempty(collect_outputs(simulation, :newborn, :value; sink=nothing))
+        rows = collect_outputs(simulation, :leaf_value; sink=nothing)
+        @test isempty(filter(row -> row.object_id == :newborn, rows))
+        step!(simulation)
+        snapshot = deepcopy(collect_outputs(simulation, :newborn, :value; sink=nothing))
+        step!(simulation)
+        raw = collect_outputs(simulation, :newborn, :value; sink=nothing)
+        requested = collect_outputs(simulation, :leaf_value; sink=nothing)
+        selected = filter(row -> row.object_id == :newborn, requested)
+        @test getproperty.(raw, :timestep) == [2, 3]
+        @test getproperty.(selected, :timestep) == [2, 3]
+        @test getproperty.(raw, :value) == [1.0, 2.0]
+        @test getproperty.(selected, :value) == [1.0, 2.0]
+        @test getproperty.(selected, :datetime) == [START + Hour(1), START + Hour(2)]
+        @test raw[1:1] == snapshot
+        @test ObjectId(:newborn) ∉ object_ids(model)
+        @test ObjectId(:last_born) in object_ids(model)
+        @test isempty(collect_outputs(simulation, :last_born, :value; sink=nothing))
+        @test isempty(filter(row -> row.object_id == :last_born, requested))
+        @test length(unique((row.object_id, row.timestep) for row in requested)) == length(requested)
+    end
+end
+end # module ManualPublicationMembershipChecks
+
 module PublicationChecks
 using Dates, PlantSimEngine, Test
 using ..NewbornRetentionReproducer: Signal, START, retention
