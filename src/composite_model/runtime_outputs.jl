@@ -4,6 +4,22 @@ struct OutputRetentionPlan
     requested_outputs::Set{Tuple{Symbol,Symbol}}
     dependency_horizons::Dict{Tuple{Symbol,Symbol},Float64}
     retained_outputs_by_application::Dict{Symbol,Vector{Symbol}}
+    # Shared across call contexts and retained-plan refreshes. Empty accepted
+    # calls matter too: newborns created afterwards first belong to the next
+    # publication interval. Only explicitly requested manual apps are tracked.
+    accepted_call_times::Dict{Symbol,Float64}
+end
+
+@inline _record_model_call_publication!(plan, application_id, time) = nothing
+
+@inline function _record_model_call_publication!(
+    plan::OutputRetentionPlan,
+    application_id::Symbol,
+    time::Float64,
+)
+    haskey(plan.accepted_call_times, application_id) &&
+        (plan.accepted_call_times[application_id] = time)
+    return nothing
 end
 
 mutable struct OutputRequestMembership{T}
@@ -5163,6 +5179,7 @@ function compile_model_output_retention(
     compiled::CompiledCompositeModel,
     output_requests;
     retain_all::Bool=false,
+    accepted_call_times=Dict{Symbol,Float64}(),
 )
     temporal_dependencies = Set{Tuple{Symbol,Symbol}}()
     dependency_horizons = Dict{Tuple{Symbol,Symbol},Float64}()
@@ -5203,6 +5220,9 @@ function compile_model_output_retention(
             request,
         )
         push!(requested_outputs, (application.id, request.var))
+        if application.id in compiled.scenario_plan.manual_application_ids
+            get!(accepted_call_times, application.id, -Inf)
+        end
     end
     retained_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
     retained_keys = if retain_all
@@ -5232,6 +5252,7 @@ function compile_model_output_retention(
         requested_outputs,
         dependency_horizons,
         retained_outputs_by_application,
+        accepted_call_times,
     )
 end
 
@@ -6415,6 +6436,11 @@ end
                 target.output_bindings,
                 target.time,
             )
+        _record_model_call_publication!(
+            target.output_retention,
+            target.application.id,
+            target.time,
+        )
     end
     return target
 end
@@ -6489,6 +6515,11 @@ end
                 target.output_bindings,
                 targets.time,
             )
+        _record_model_call_publication!(
+            targets.output_retention,
+            application.id,
+            targets.time,
+        )
     end
     return nothing
 end
@@ -6558,6 +6589,18 @@ function _run_call_targets!(
         sampled_environment,
         environment,
     )
+    if publish && targets.publication_allowed
+        # The declared call completed even when its Many selection was empty.
+        # Per-target publications above still distinguish objects included in
+        # the accepted call from objects created or removed around that call.
+        for application_id in targets.binding.potential_callee_application_ids
+            _record_model_call_publication!(
+                targets.output_retention,
+                application_id,
+                targets.time,
+            )
+        end
+    end
     return targets
 end
 
@@ -6875,6 +6918,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
                 simulation.compiled,
                 simulation.output_requests;
                 retain_all=simulation.output_retention.retain_all,
+                accepted_call_times=simulation.output_retention.accepted_call_times,
             )
             _runtime_performance_finish!(
                 simulation.performance,
@@ -7327,6 +7371,11 @@ _output_request_target_is_active(target) =
     !isempty(target.memberships) &&
     isnothing(last(target.memberships).end_time)
 
+function _output_request_published_at(simulation, application_id, object_id, variable, time)
+    samples = get(simulation.temporal_streams, (application_id, object_id, variable), nothing)
+    return !isnothing(samples) && !isempty(samples) && first(last(samples)) == time
+end
+
 function _initial_output_request_targets(
     model,
     compiled,
@@ -7443,22 +7492,37 @@ function _refresh_output_request_targets!(
                 "`$(request.selector)`, got $([id.value for id in current_ids]).",
             )
         end
+        publication_time = float(simulation.current_step + 1)
+        manual_application = application_id in simulation.compiled.scenario_plan.manual_application_ids
         application_completed =
-            !isnothing(completed_applications) &&
-            application_id in completed_applications
+            (!isnothing(completed_applications) && application_id in completed_applications) ||
+            get(simulation.output_retention.accepted_call_times, application_id, -Inf) == publication_time
         membership_end_time = application_completed ?
                               float(simulation.current_step + 1) :
                               float(simulation.current_step)
         if isnothing(added_object_ids)
             for object_id in setdiff(active_ids, matched_id_set)
+                # A manual call may publish before removing an object, or may
+                # run only after removal. Preserve the last accepted sample in
+                # the former case without inventing a held sample in the latter.
+                target_end_time = manual_application ?
+                    (_output_request_published_at(simulation, application_id, object_id,
+                        request.var, publication_time) ? publication_time :
+                        float(simulation.current_step)) : membership_end_time
                 last(object_targets[object_id].memberships).end_time =
-                    membership_end_time
+                    target_end_time
             end
         end
         start_time = application_completed ?
                      float(simulation.current_step + 2) :
                      float(simulation.current_step + 1)
         for object_id in matched_ids
+            # Same-step accepted newborn publications take precedence over an
+            # already completed call. Newborns created after an accepted empty
+            # call instead join the following publication interval.
+            target_start_time = manual_application &&
+                _output_request_published_at(simulation, application_id, object_id,
+                    request.var, publication_time) ? publication_time : start_time
             if haskey(object_targets, object_id)
                 target = object_targets[object_id]
                 _output_request_target_is_active(target) && continue
@@ -7471,7 +7535,7 @@ function _refresh_output_request_targets!(
                 push!(
                     target.memberships,
                     OutputRequestMembership(
-                        start_time,
+                        target_start_time,
                         nothing,
                         deepcopy(initial),
                     ),
@@ -7484,7 +7548,7 @@ function _refresh_output_request_targets!(
                 application,
                 object_id,
                 request.var,
-                start_time,
+                target_start_time,
             )
         end
     end

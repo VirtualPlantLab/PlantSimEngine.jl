@@ -384,6 +384,7 @@ end
         Set([(:probe, :first)]),
         Dict((:probe, :second) => 3.0),
         Dict(:probe => [:second, :undeclared, :first]),
+        Dict{Symbol,Float64}(),
     )
     first_key = (:probe, object_id, :first)
     second_key = (:probe, object_id, :second)
@@ -456,7 +457,7 @@ end
     for retained in (Dict{Symbol,Vector{Symbol}}(), Dict(:probe => Symbol[]))
         retention = PlantSimEngine.OutputRetentionPlan(
             false, Set{Tuple{Symbol,Symbol}}(), Set{Tuple{Symbol,Symbol}}(),
-            Dict{Tuple{Symbol,Symbol},Float64}(), retained,
+            Dict{Tuple{Symbol,Symbol},Float64}(), retained, Dict{Symbol,Float64}(),
         )
         for initialize_missing in (false, true)
             evaluations[] = 0
