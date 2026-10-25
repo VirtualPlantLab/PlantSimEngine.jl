@@ -480,27 +480,46 @@ individual target to [`run_call!(::CallTarget)`](@ref). A target is a runtime
 view owned by its compiled simulation; construct hard-call relationships with
 `ModelSpec(...; calls=...)` rather than constructing this type directly.
 """
-struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,BI,OT,ENV,TS,OR,C,E,CC}
+# Keep the execution owner by reference; only caller-specific metadata and the
+# descendant-call snapshot belong to a materialized view. Execution owners are
+# replaced, not rewritten, when their model/status/binding identity changes.
+struct CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
+    execution_target::T
     compiled::CS
     environment_bindings::EB
     application::A
     object_id::ObjectId
-    model::M
-    status::S
-    canonical_status::VS
-    temporal_inputs::TI
-    output_bindings::OB
     calls::CT
-    bound_inputs::BI
-    output_targets::OT
-    environment_binding::ENV
     temporal_streams::TS
     output_retention::OR
     time::Float64
     constants::C
     publication_allowed::Bool
     environment::E
-    context_cache::CC
+end
+
+@inline function Base.getproperty(target::CallTarget, name::Symbol)
+    name === :model && return getfield(getfield(target, :execution_target), :model)
+    name === :status && return getfield(getfield(target, :execution_target), :status)
+    name === :canonical_status && return getfield(getfield(target, :execution_target), :canonical_status)
+    name === :temporal_inputs && return getfield(getfield(target, :execution_target), :input_bindings)
+    name === :output_bindings && return getfield(getfield(target, :execution_target), :output_bindings)
+    name === :bound_inputs && return getfield(getfield(target, :execution_target), :bound_inputs)
+    name === :output_targets && return getfield(getfield(target, :execution_target), :output_targets)
+    name === :environment_binding && return getfield(getfield(target, :execution_target), :environment_binding)
+    name === :context_cache && return getfield(getfield(target, :execution_target), :call_context_cache)
+    return getfield(target, name)
+end
+
+function Base.propertynames(::CallTarget, private::Bool=false)
+    names = (
+        :compiled, :environment_bindings, :application, :object_id, :model,
+        :status, :canonical_status, :temporal_inputs, :output_bindings, :calls,
+        :bound_inputs, :output_targets, :environment_binding, :temporal_streams,
+        :output_retention, :time, :constants, :publication_allowed, :environment,
+        :context_cache,
+    )
+    return private ? (names..., :execution_target) : names
 end
 
 abstract type AbstractExecutionBatch end
@@ -5478,26 +5497,18 @@ function _materialize_call(
         )
     end
     return CallTarget(
+        target,
         targets.compiled,
         targets.environment_bindings,
         application,
         target.object_id,
-        target.model,
-        target.status,
-        target.canonical_status,
-        target.input_bindings,
-        target.output_bindings,
         calls,
-        target.bound_inputs,
-        target.output_targets,
-        target.environment_binding,
         targets.temporal_streams,
         targets.output_retention,
         targets.time,
         targets.constants,
         targets.publication_allowed,
         targets.environment,
-        target.call_context_cache,
     )
 end
 
@@ -6107,44 +6118,50 @@ function _targeted_new_object_call_targets(
                 targeted_runtime.application_positions,
                 compiled.distributed_outputs,
             )
+            # Targeted newborns have no ordinary compiled execution owner yet.
+            # Keep only their exact application-local payload, without adding
+            # a second mutable CompiledExecutionTarget allocation.
+            execution_target = (
+                model=_application_model(application, object_id),
+                status=status_view.status,
+                canonical_status=status_view.canonical_status,
+                input_bindings=status_view.temporal_inputs,
+                output_bindings=_runtime_model_output_streams(
+                    status_view.status,
+                    application,
+                    object_id,
+                    context.temporal_streams,
+                    context.output_retention,
+                    true,
+                ),
+                bound_inputs=status_view.bound_inputs,
+                output_targets=_runtime_model_output_targets(
+                    compiled,
+                    application,
+                    object_id,
+                ),
+                environment_binding=_environment_binding_for(
+                    environment_bindings,
+                    application.id,
+                    object_id,
+                ),
+                call_context_cache=CallContextCache(nothing),
+            )
             push!(
                 targets,
                 CallTarget(
+                    execution_target,
                     compiled,
                     environment_bindings,
                     application,
                     object_id,
-                    _application_model(application, object_id),
-                    status_view.status,
-                    status_view.canonical_status,
-                    status_view.temporal_inputs,
-                    _runtime_model_output_streams(
-                        status_view.status,
-                        application,
-                        object_id,
-                        context.temporal_streams,
-                        context.output_retention,
-                        true,
-                    ),
                     (),
-                    status_view.bound_inputs,
-                    _runtime_model_output_targets(
-                        compiled,
-                        application,
-                        object_id,
-                    ),
-                    _environment_binding_for(
-                        environment_bindings,
-                        application.id,
-                        object_id,
-                    ),
                     context.temporal_streams,
                     context.output_retention,
                     context.time,
                     context.constants,
                     context.publication_allowed,
                     context.environment,
-                    CallContextCache(nothing),
                 ),
             )
         end
