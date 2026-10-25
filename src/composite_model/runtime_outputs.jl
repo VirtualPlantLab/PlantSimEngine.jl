@@ -6548,12 +6548,25 @@ end
     acquired = !cache.in_use
     acquired && (cache.in_use = true)
     try
-        context = _prepare_cached_call_context!(
-            cache, acquired, targets.compiled, targets.environment_bindings,
-            application, target.object_id, target.bound_inputs, target.output_targets,
-            targets.temporal_streams, targets.output_retention, targets.time,
-            targets.constants, publication_allowed, environment,
-        )
+        # The compiled bulk target already owns this typed default context.
+        # Preserve its original preparation path, with the same lease as the
+        # transient cache; materialized views still check captured metadata.
+        context = if acquired && target.context isa RunContext &&
+                     typeof(target.context.environment) === typeof(environment)
+            _prepare_model_execution_context!(
+                target.context, targets.compiled, targets.environment_bindings,
+                application, target.object_id, target.bound_inputs, target.output_targets,
+                targets.temporal_streams, targets.output_retention, targets.time,
+                targets.constants, publication_allowed, environment,
+            )
+        else
+            _prepare_cached_call_context!(
+                cache, acquired, targets.compiled, targets.environment_bindings,
+                application, target.object_id, target.bound_inputs, target.output_targets,
+                targets.temporal_streams, targets.output_retention, targets.time,
+                targets.constants, publication_allowed, environment,
+            )
+        end
         _run_call_kernel!(
             target.model, status, environment_value, context, target.output_bindings,
         )
