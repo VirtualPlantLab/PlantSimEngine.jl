@@ -480,10 +480,10 @@ individual target to [`run_call!(::CallTarget)`](@ref). A target is a runtime
 view owned by its compiled simulation; construct hard-call relationships with
 `ModelSpec(...; calls=...)` rather than constructing this type directly.
 """
-# Keep the execution owner by reference; only caller-specific metadata and the
-# descendant-call snapshot belong to a materialized view. Execution owners are
-# replaced, not rewritten, when their model/status/binding identity changes.
 struct CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
+    # Keep the execution owner by reference; only caller-specific metadata and
+    # the descendant-call snapshot belong to a materialized view. Owners are
+    # replaced when their model/status/binding identity changes.
     execution_target::T
     compiled::CS
     environment_bindings::EB

@@ -98,6 +98,7 @@ function retained(simulation, application, variable)
 end
 
 @testset "CallTarget preserves application views and captured publication/time" begin
+    @test haskey(Base.Docs.meta(PSE), Base.Docs.Binding(PSE, :CallTarget))
     for S in (Float32, Float64)
         @testset "storage=$S" begin
             scene = view_scene(S)
