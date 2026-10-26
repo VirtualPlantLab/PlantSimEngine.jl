@@ -273,6 +273,16 @@ mutable struct RunContext{CS,A,CT,BI,OT,TS,OR,C,E}
     environment::E
 end
 
+# A manual target owns its execution shells. Keep the normal typed context and
+# at most one transient specialization; materialized views share this lease.
+mutable struct CallContextCache{C}
+    default::C
+    transient::Any
+    in_use::Bool
+end
+
+CallContextCache(context) = CallContextCache(context, nothing, false)
+
 function RunContext(
     compiled,
     environment_bindings,
@@ -470,7 +480,7 @@ individual target to [`run_call!(::CallTarget)`](@ref). A target is a runtime
 view owned by its compiled simulation; construct hard-call relationships with
 `ModelSpec(...; calls=...)` rather than constructing this type directly.
 """
-struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,BI,OT,ENV,TS,OR,C,E}
+struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,BI,OT,ENV,TS,OR,C,E,CC}
     compiled::CS
     environment_bindings::EB
     application::A
@@ -490,6 +500,7 @@ struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,BI,OT,ENV,TS,OR,C,E}
     constants::C
     publication_allowed::Bool
     environment::E
+    context_cache::CC
 end
 
 abstract type AbstractExecutionBatch end
@@ -925,6 +936,7 @@ mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OT,OB,CB,EB,RC}
     call_bindings_signature::UInt
     environment_binding::EB
     context::RC
+    call_context_cache::CallContextCache{RC}
 end
 
 function _call_bindings_signature(call_bindings)
@@ -3528,6 +3540,7 @@ function _compiled_model_execution_target(
         _call_bindings_signature(call_bindings),
         environment_binding,
         context,
+        CallContextCache(context),
     )
 end
 
@@ -4259,6 +4272,7 @@ function _extend_execution_target_call_batches_by_prefix!(
     target.call_bindings = current_call_bindings
     target.call_bindings_signature =
         _call_bindings_signature(current_call_bindings)
+    target.call_context_cache.transient = nothing
     return true
 end
 
@@ -4395,6 +4409,7 @@ function _extend_execution_target_call_batches_for_pure_addition!(
     target.call_bindings = current_call_bindings
     target.call_bindings_signature =
         _call_bindings_signature(current_call_bindings)
+    target.call_context_cache.transient = nothing
     _runtime_performance_count!(
         performance,
         :execution_target_call_delta_extensions,
@@ -5436,7 +5451,7 @@ function _materialize_call(
     target::CompiledExecutionTarget,
 )
     context = target.context
-    calls = if context isa RunContext
+    calls = if context isa RunContext && !target.call_context_cache.in_use
         _prepare_runtime_call_targets!(
             context.calls,
             targets.compiled,
@@ -5482,6 +5497,7 @@ function _materialize_call(
         targets.constants,
         targets.publication_allowed,
         targets.environment,
+        target.call_context_cache,
     )
 end
 
@@ -5551,7 +5567,9 @@ Base.@constprop :aggressive function call_targets(
 end
 
 @inline function _single_call_model(batches::Tuple{B}) where {B}
-    return only(first(batches).targets).model
+    # The caller has already checked singular membership. Index directly rather
+    # than allocating the Vector iterator's (target, state) tuple on this path.
+    return first(batches).targets[1].model
 end
 
 """
@@ -6126,6 +6144,7 @@ function _targeted_new_object_call_targets(
                     context.constants,
                     context.publication_allowed,
                     context.environment,
+                    CallContextCache(nothing),
                 ),
             )
         end
@@ -6337,6 +6356,77 @@ function commit_environment!(context, state)
     )
 end
 
+# CallTargets store override metadata behind Any; changing the override does
+# not change the concrete child-call tuple. Recover the context type without
+# erasing the normal no-override execution path.
+@inline _call_context_type(
+    ::RunContext{CS,A,CT,BI,OT,TS,OR,C}, ::E,
+) where {CS,A,CT,BI,OT,TS,OR,C,E} = RunContext{CS,A,CT,BI,OT,TS,OR,C,E}
+@inline _call_context_type(::Nothing, environment) = RunContext
+
+@inline function _call_context_matches(
+    context::RunContext, compiled, environment_bindings, application, object_id,
+    bound_inputs, output_targets, temporal_streams, output_retention, constants,
+    environment,
+)
+    return context.compiled === compiled &&
+           context.environment_bindings === environment_bindings &&
+           context.application === application && context.object_id == object_id &&
+           context.bound_inputs === bound_inputs && context.output_targets === output_targets &&
+           context.temporal_streams === temporal_streams &&
+           context.output_retention === output_retention && context.constants === constants &&
+           typeof(context.environment) === typeof(environment)
+end
+@inline _call_context_matches(::Nothing, args...) = false
+
+@inline function _prepare_cached_call_context!(
+    cache::CallContextCache, reuse::Bool, compiled, environment_bindings,
+    application, object_id, bound_inputs, output_targets, temporal_streams,
+    output_retention, time, constants, publication_allowed, environment,
+)
+    Context = _call_context_type(cache.default, environment)
+    context = reuse ? cache.default : nothing
+    if !(context isa Context && _call_context_matches(
+        context, compiled, environment_bindings, application, object_id,
+        bound_inputs, output_targets, temporal_streams, output_retention, constants,
+        environment,
+    ))
+        context = reuse ? cache.transient : nothing
+        if !(context isa Context && _call_context_matches(
+            context, compiled, environment_bindings, application, object_id,
+            bound_inputs, output_targets, temporal_streams, output_retention, constants,
+            environment,
+        ))
+            # A reentrant call needs its own descendants as well as its shell:
+            # child CallTargets carry mutable time, environment and permission.
+            context = _prepare_model_execution_context!(
+                nothing, compiled, environment_bindings, application, object_id,
+                bound_inputs, output_targets, temporal_streams, output_retention,
+                time, constants, publication_allowed, environment,
+            )::Context
+            reuse && (cache.transient = context)
+            return context
+        end
+    end
+    return _prepare_model_execution_context!(
+        context::Context, compiled, environment_bindings, application, object_id,
+        bound_inputs, output_targets, temporal_streams, output_retention,
+        time, constants, publication_allowed, environment,
+    )
+end
+
+@inline function _run_call_kernel!(model, status, environment, context, output_bindings)
+    run!(model, status, environment, context.constants, context)
+    if context.publication_allowed
+        isempty(output_bindings) ||
+            _model_publish_runtime_outputs!(output_bindings, context.time)
+        _record_model_call_publication!(
+            context.output_retention, context.application.id, context.time,
+        )
+    end
+    return nothing
+end
+
 """
     run_call!(target::CallTarget; publish=false, sampled_environment)
 
@@ -6397,50 +6487,21 @@ end
         environment,
     ) : sampled_environment
     publication_allowed = publish && target.publication_allowed
-    _prepare_runtime_call_targets!(
-        target.calls,
-        target.compiled,
-        target.environment_bindings,
-        target.temporal_streams,
-        target.output_retention,
-        target.time,
-        target.constants,
-        publication_allowed,
-        environment,
-    )
-    context = RunContext(
-        target.compiled,
-        target.environment_bindings,
-        target.application,
-        target.object_id,
-        target.calls,
-        target.bound_inputs,
-        target.output_targets,
-        target.temporal_streams,
-        target.output_retention,
-        target.time,
-        target.constants,
-        publication_allowed,
-        environment,
-    )
-    run!(
-        target.model,
-        status,
-        environment_value,
-        target.constants,
-        context,
-    )
-    if publication_allowed
-        isempty(target.output_bindings) ||
-            _model_publish_runtime_outputs!(
-                target.output_bindings,
-                target.time,
-            )
-        _record_model_call_publication!(
-            target.output_retention,
-            target.application.id,
-            target.time,
+    cache = target.context_cache
+    acquired = !cache.in_use
+    acquired && (cache.in_use = true)
+    try
+        context = _prepare_cached_call_context!(
+            cache, acquired, target.compiled, target.environment_bindings,
+            target.application, target.object_id, target.bound_inputs,
+            target.output_targets, target.temporal_streams, target.output_retention,
+            target.time, target.constants, publication_allowed, environment,
         )
+        _run_call_kernel!(
+            target.model, status, environment_value, context, target.output_bindings,
+        )
+    finally
+        acquired && (cache.in_use = false)
     end
     return target
 end
@@ -6483,43 +6544,34 @@ end
         environment,
     ) : sampled_environment
     publication_allowed = publish && targets.publication_allowed
-    reusable_context =
-        target.context isa RunContext &&
-        typeof(target.context.environment) === typeof(environment)
-    context = _prepare_model_execution_context!(
-        reusable_context ? target.context : nothing,
-        targets.compiled,
-        targets.environment_bindings,
-        application,
-        target.object_id,
-        target.bound_inputs,
-        target.output_targets,
-        targets.temporal_streams,
-        targets.output_retention,
-        targets.time,
-        targets.constants,
-        publication_allowed,
-        environment,
-    )
-    reusable_context && (target.context = context)
-    run!(
-        target.model,
-        status,
-        environment_value,
-        targets.constants,
-        context,
-    )
-    if publication_allowed
-        isempty(target.output_bindings) ||
-            _model_publish_runtime_outputs!(
-                target.output_bindings,
-                targets.time,
+    cache = target.call_context_cache
+    acquired = !cache.in_use
+    acquired && (cache.in_use = true)
+    try
+        # The compiled bulk target already owns this typed default context.
+        # Preserve its original preparation path, with the same lease as the
+        # transient cache; materialized views still check captured metadata.
+        context = if acquired && target.context isa RunContext &&
+                     typeof(target.context.environment) === typeof(environment)
+            _prepare_model_execution_context!(
+                target.context, targets.compiled, targets.environment_bindings,
+                application, target.object_id, target.bound_inputs, target.output_targets,
+                targets.temporal_streams, targets.output_retention, targets.time,
+                targets.constants, publication_allowed, environment,
             )
-        _record_model_call_publication!(
-            targets.output_retention,
-            application.id,
-            targets.time,
+        else
+            _prepare_cached_call_context!(
+                cache, acquired, targets.compiled, targets.environment_bindings,
+                application, target.object_id, target.bound_inputs, target.output_targets,
+                targets.temporal_streams, targets.output_retention, targets.time,
+                targets.constants, publication_allowed, environment,
+            )
+        end
+        _run_call_kernel!(
+            target.model, status, environment_value, context, target.output_bindings,
         )
+    finally
+        acquired && (cache.in_use = false)
     end
     return nothing
 end

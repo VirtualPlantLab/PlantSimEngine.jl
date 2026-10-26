@@ -22,9 +22,13 @@ For a local downstream run, follow the environment setup in
 `.github/workflows/FullPerformance.yml`, then set
 `PSE_BENCHMARK_INCLUDE_DOWNSTREAM=true` when loading `benchmarks.jl`.
 The flag enables the downstream suite; it does not install its dependencies.
+
 `benchmark/test/runtests.jl` uses the same default. Passing a test-name pattern explicitly
 selects those tests, as the dedicated downstream CI jobs do.
 The pinned release comparisons in `release_baselines/` use separate projects.
+
+For the transient hard-call context cache and its local measurement protocol,
+see [Reusing transient hard-call contexts](transient_contexts.md).
 
 The full downstream workflow defaults to the complete output-retention matrix.
 For diagnosis, its `warmed-no-output` option selects the existing 4,160-day

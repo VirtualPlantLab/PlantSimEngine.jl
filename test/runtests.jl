@@ -69,6 +69,10 @@ else
         include("test-model-hard-calls.jl")
     end
 
+    @testset "Transient manual-call context reuse" begin
+        include("test-model-call-context-cache.jl")
+    end
+
     @testset "Newborn retained manual calls" begin
         include("test-model-newborn-retention.jl")
     end
