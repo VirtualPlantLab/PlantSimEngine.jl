@@ -22,11 +22,22 @@ Choose how to make the call according to what your calculation needs:
   running selected objects individually. Use it to choose their order,
   inspect their values, or supply different environmental values to each one.
 
-The two environment keywords serve different purposes.
+Both the collection form and `run_call!(target; ...)` accept the two
+environment keywords, which serve different purposes.
 `environment=trial_state` supplies a trial version of the environment, from
-which PlantSimEngine retrieves the conditions at each selected object.
+which PlantSimEngine retrieves the conditions at each selected object through
+its own provider and spatial handle. Descendant calls inherit that trial
+backend state and sample it through their own bindings.
 `sampled_environment=value` supplies the environmental variables directly in
-the form the model reads, so no further sampling occurs.
+the form the immediate model reads, so no further sampling occurs for that
+model. Its descendants keep the inherited backend state; they do not inherit
+this already sampled value. The keywords are mutually exclusive.
+
+An individual call returns the same `CallTarget`. An explicit override changes
+neither its captured environment nor its timestamp or inherited publication
+permission. A later call without an override uses the captured environment.
+Obtain targets locally for the current calculation; do not keep them in model
+parameters or reuse them across structural lifecycle barriers.
 
 A model used only through these calls does not also run independently from
 the simulation schedule. Calls default to `publish=false`, so trial results

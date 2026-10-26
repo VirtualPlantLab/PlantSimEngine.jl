@@ -6476,43 +6476,6 @@ end
     return nothing
 end
 
-"""
-    run_call!(target::CallTarget; publish=false, sampled_environment)
-
-Run one manually selected model call. By default, the call mutates its target
-status without publishing outputs or environment updates, which is suitable
-for trial iterations. Pass `publish=true` once for the accepted state. When
-`sampled_environment` is provided, it is forwarded directly to this target
-instead of using its compiled environment binding. This is the fine-grained
-escape hatch for one selected target; execute provider-aware trial states for all targets with
-`run_call!(context, name; environment=state)`.
-
-The method returns the same `CallTarget`.
-
-Publication permission is inherited through the call stack. A descendant
-cannot publish outputs or environment writes while any ancestor is running as
-a trial.
-
-For fine-grained control, obtain a collection with [`call_targets`](@ref), then
-select or iterate its targets:
-
-```julia
-targets = call_targets(context, :leaf_energy)
-for (target, target_environment) in zip(targets, environments_by_leaf)
-    run_call!(
-        target;
-        sampled_environment=target_environment,
-        publish=false,
-    )
-end
-
-accepted = accepted_environment(model, status)
-commit_environment!(context, accepted)
-for target in targets
-    run_call!(target; publish=true)
-end
-```
-"""
 @inline function _run_call!(
     target::CallTarget,
     publish::Bool,
@@ -6555,16 +6518,68 @@ end
     return target
 end
 
+"""
+    run_call!(target::CallTarget; publish=false, environment, sampled_environment)
+
+Run one manually selected model call. By default, the call mutates its target
+status without publishing outputs or environment updates, which is suitable
+for trial iterations. Pass `publish=true` once for the accepted state.
+
+`environment=trial_state` samples this target through its own compiled provider
+and handle, and supplies that backend state to its descendant calls. In
+contrast, `sampled_environment=value` forwards an already sampled model-facing
+value to this target only; descendants keep their inherited backend state.
+These two overrides are mutually exclusive. With neither override, the target
+uses its captured environment. An override does not change the target's
+captured environment, timestamp or inherited publication permission.
+
+The method returns the same `CallTarget`.
+
+Publication permission is inherited through the call stack. A descendant
+cannot publish outputs or environment writes while any ancestor is running as
+a trial.
+
+For fine-grained control, obtain a collection with [`call_targets`](@ref), then
+select or iterate its targets:
+
+```julia
+targets = call_targets(context, :leaf_energy)
+for (target, target_environment) in zip(targets, environments_by_leaf)
+    run_call!(
+        target;
+        sampled_environment=target_environment,
+        publish=false,
+    )
+end
+
+accepted = accepted_environment(model, status)
+commit_environment!(context, accepted)
+for target in targets
+    run_call!(target; publish=true)
+end
+```
+"""
 function run_call!(
     target::CallTarget;
     publish::Bool=false,
+    environment=_NO_ENVIRONMENT_OVERRIDE,
     sampled_environment=_UNSPECIFIED_SCENE_ENVIRONMENT,
 )
+    if !(environment isa NoEnvironmentOverride) &&
+       !(sampled_environment isa UnspecifiedModelEnvironment)
+        throw(
+            ArgumentError(
+                "`environment` and `sampled_environment` are mutually exclusive hard-call overrides.",
+            ),
+        )
+    end
+    selected_environment = environment isa NoEnvironmentOverride ?
+                           target.environment : environment
     return _run_call!(
         target,
         publish,
         sampled_environment,
-        target.environment,
+        selected_environment,
     )
 end
 
