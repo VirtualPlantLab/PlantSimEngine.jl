@@ -30,12 +30,6 @@ The pinned release comparisons in `release_baselines/` use separate projects.
 For the transient hard-call context cache and its local measurement protocol,
 see [Reusing transient hard-call contexts](transient_contexts.md).
 
-For the subsequent target-view allocation change and its hot/cold trade-offs,
-see [Lightweight hard-call target views](lightweight_call_targets.md).
-
-For singular hard-call access and its measured hot-path trade-offs, see
-[Singular hard-call target access](singular_call_targets.md).
-
 The full downstream workflow defaults to the complete output-retention matrix.
 For diagnosis, its `warmed-no-output` option selects the existing 4,160-day
 warmup and measured no-output run, including the unchanged 20-second gate.

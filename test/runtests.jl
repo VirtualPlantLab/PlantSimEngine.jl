@@ -49,6 +49,10 @@ else
         include("test-model-api-stabilization.jl")
     end
 
+    @testset "Selector candidate scope fast path" begin
+        include("test-selector-candidate-empty-scope.jl")
+    end
+
     @testset "Public model authoring API" begin
         include("test-authoring-api.jl")
     end

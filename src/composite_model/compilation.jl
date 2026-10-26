@@ -471,6 +471,8 @@ function _union_selector_candidates!(
     )
         isnothing(value) || union!(candidates, get(groups, value, ()))
     end
+    # Ancestors cannot contribute without any scoped selector entries.
+    isempty(index.by_scope_anchor) && return candidates
     for anchor in _object_ancestor_ids(model.registry, object_id)
         union!(candidates, get(index.by_scope_anchor, anchor, ()))
         for (label, value) in (
