@@ -5542,6 +5542,38 @@ function Base.iterate(targets::CallTargets, state::Tuple{Int,Int}=(1, 1))
     return nothing
 end
 
+@noinline function _only_call_target_count_error(count::Int)
+    if iszero(count)
+        throw(ArgumentError("Collection is empty, must contain exactly 1 element"))
+    end
+    throw(ArgumentError("Collection has multiple elements, must contain exactly 1 element"))
+end
+
+@inline function _only_call_target(targets::CallTargets, batches::Tuple{B}) where {B}
+    batch = first(batches)
+    length(batch.targets) == 1 || _only_call_target_count_error(length(batch.targets))
+    return _materialize_call(targets, batch.application, batch.targets[1])
+end
+
+function _only_call_target(targets::CallTargets, batches::Tuple)
+    count = 0
+    selected_batch = nothing
+    for batch in batches
+        isempty(batch.targets) && continue
+        count += length(batch.targets)
+        count == 1 || _only_call_target_count_error(count)
+        selected_batch = batch
+    end
+    iszero(count) && _only_call_target_count_error(count)
+    return _materialize_call(targets, selected_batch.application, selected_batch.targets[1])
+end
+
+# Preserve normal snapshot construction, but avoid the generic iterator's
+# materialized (target, state) tuples when a hard call has exactly one target.
+@inline function Base.only(targets::CallTargets)
+    return _only_call_target(targets, _materialize_call_execution_batches!(targets))
+end
+
 """
     call_targets(context::RunContext, name::Symbol; objects=nothing)
 

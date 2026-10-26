@@ -81,6 +81,10 @@ else
         include("test-model-lightweight-call-targets.jl")
     end
 
+    @testset "Singular manual-call target access" begin
+        include("test-model-only-call-targets.jl")
+    end
+
     @testset "Newborn retained manual calls" begin
         include("test-model-newborn-retention.jl")
     end
