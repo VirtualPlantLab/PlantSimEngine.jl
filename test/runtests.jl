@@ -77,6 +77,10 @@ else
         include("test-model-call-context-cache.jl")
     end
 
+    @testset "Lightweight manual-call target views" begin
+        include("test-model-lightweight-call-targets.jl")
+    end
+
     @testset "Newborn retained manual calls" begin
         include("test-model-newborn-retention.jl")
     end
