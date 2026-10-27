@@ -85,6 +85,8 @@ time-based inputs can instead read saved results.
   execution groups already prepared by PlantSimEngine.
 - `call_model(context, :name)` returns the model when a call selects exactly
   one target.
+- `with_call_targets(context, :name) do targets ... end` borrows reusable typed
+  target storage for the callback, refreshing its metadata on each invocation.
 - `call_targets(context, :name)` returns those targets without running them,
   so you can choose individual targets to run with `run_call!(target; ...)`.
 - `evaluate_call!(context, :name; environment=..., sampled_environment=...,

@@ -51,7 +51,7 @@ explains the functions and their requirements in detail.
   `reparent_object!`, `move_object!`, `update_geometry!`,
   `mark_environment_binding_dirty!`, `objects_from_mtg`.
 - Running another model from within a calculation: `RunContext`, `CallTarget`, `CallTargets`, `call_model`,
-  `call_targets`, `run_call!`.
+  `call_targets`, `with_call_targets`, `run_call!`.
 - Publishing an already evaluated candidate without another kernel execution:
   `CallEvaluation`, `evaluate_call!`, `accept_call!`; inspect evaluated targets
   with `call_targets(evaluation)`.

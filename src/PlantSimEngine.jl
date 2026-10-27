@@ -379,7 +379,7 @@ export Input, Call, Initializer, Environment
 export application_name, applies_to, value_inputs, model_calls, outputs_to
 export environment_config
 export ModelSpec, OutputTo, Updates
-export call_targets, call_model, run_call!, run_initializer!, commit_environment!
+export call_targets, with_call_targets, call_model, run_call!, run_initializer!, commit_environment!
 export CallEvaluation, evaluate_call!, accept_call!
 export bound_input, output_targets, assign_outputs!
 export Status

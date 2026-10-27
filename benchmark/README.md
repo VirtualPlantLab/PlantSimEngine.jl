@@ -63,3 +63,17 @@ in a sink. Results are scalar timings and allocations per operation. These
 measurements diagnose engine mechanisms; use complete downstream scenarios to
 establish an application speedup. Run benchmarks serially after warmup and
 outside regression-test execution.
+
+To check scoped target-buffer reuse at different target counts, load the same
+`reusable_targets.jl` asset in both engine environments:
+
+```julia
+include("/path/to/PlantSimEngine/benchmark/reusable_targets.jl")
+result = ReusableTargetsBenchmark.run_benchmark()
+```
+
+The diagnostic compares fresh collection plus Status reads with
+`with_call_targets` when the loaded engine provides it. Preparation and 2,304
+warmup operations precede timing; the default target counts are 8 and 64.
+Use complete fresh downstream scenarios to include first-use preparation and
+to establish application gains.
