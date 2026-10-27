@@ -90,6 +90,10 @@ else
         include("test-model-lightweight-call-targets.jl")
     end
 
+    @testset "Collected hard-call target types" begin
+        include("test-model-collected-call-targets.jl")
+    end
+
     @testset "Singular manual-call target access" begin
         include("test-model-only-call-targets.jl")
     end

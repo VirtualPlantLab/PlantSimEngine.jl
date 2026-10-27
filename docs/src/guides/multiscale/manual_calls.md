@@ -22,6 +22,13 @@ Choose how to make the call according to what your calculation needs:
   running selected objects individually. Use it to choose their order,
   inspect their values, or supply different environmental values to each one.
 
+Use `collect(call_targets(context, :name))` when the calculation needs a
+sortable vector. Collection preserves a concrete element type when all targets
+have the same type and widens for mixed target types. Empty results use
+`Vector{CallTarget}`. To append other target types later, request
+`collect(CallTarget, call_targets(context, :name))` explicitly. The vector
+contains fresh views sharing the original live status references.
+
 Both the collection form and `run_call!(target; ...)` accept the two
 environment keywords, which serve different purposes.
 `environment=trial_state` supplies a trial version of the environment, from
