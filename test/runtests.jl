@@ -41,6 +41,10 @@ else
         include("test-model-object-id.jl")
     end
 
+    @testset "Organ creation allocations" begin
+        include("test-organ-creation-allocation.jl")
+    end
+
     @testset "CompositeModel display" begin
         include("test-model-display.jl")
     end

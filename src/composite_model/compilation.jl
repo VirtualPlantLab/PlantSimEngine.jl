@@ -2005,7 +2005,10 @@ function _new_application_targets(
         union!(candidate_slots, template.candidate_slots)
         for slot in template.matched_slots
             application = compiled.applications[slot]
-            push!(get!(targets, application.id, ObjectId[]), object_id)
+            application_targets = get!(targets, application.id) do
+                ObjectId[]
+            end
+            push!(application_targets, object_id)
         end
     end
     _runtime_performance_count!(

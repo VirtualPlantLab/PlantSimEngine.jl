@@ -937,7 +937,10 @@ end
 
 function _push_index!(index::Dict{Symbol,Set{ObjectId}}, key, id::ObjectId)
     isnothing(key) && return nothing
-    push!(get!(index, key, Set{ObjectId}()), id)
+    ids = get!(index, key) do
+        Set{ObjectId}()
+    end
+    push!(ids, id)
     return nothing
 end
 
@@ -1210,7 +1213,7 @@ function _lifecycle_object_snapshot(model::CompositeModel, object::Object)
     ancestors = get(
         model.registry.ancestor_ids_by_object,
         object.id,
-        ObjectId[],
+        (),
     )
     return LifecycleObjectSnapshot(
         object.id,
@@ -1261,6 +1264,7 @@ function _refresh_object_ancestor_ids!(
 end
 
 function _instance_for_object(model::CompositeModel, id)
+    isempty(model.instances) && return nothing
     current_id = ObjectId(id)
     while haskey(model.registry.objects, current_id)
         for instance in model.instances
@@ -1304,10 +1308,9 @@ function _register_object_without_lifecycle!(
     registry.objects[object.id] = object
     _index_object!(registry, object)
     _set_status_source_identity!(model, object.id, source_status)
-    parent_ancestors = isnothing(parent_id) ?
-                       ObjectId[] :
-                       _object_ancestor_ids(registry, parent_id)
-    ancestors = copy(parent_ancestors)
+    ancestors = isnothing(parent_id) ?
+                ObjectId[] :
+                copy(_object_ancestor_ids(registry, parent_id))
     push!(ancestors, object.id)
     registry.ancestor_ids_by_object[object.id] = ancestors
     if !isnothing(object.parent)
@@ -1359,9 +1362,8 @@ function _status_data!(data::Dict{Symbol,Any}, values)
 end
 
 function _validate_organ_attributes(attributes)
-    source = attributes isa Status ? NamedTuple(attributes) : attributes
-    source isa Union{NamedTuple,AbstractDict,Base.Pairs} || return attributes
-    for (key, _) in pairs(source)
+    attributes isa Union{Status,NamedTuple,AbstractDict,Base.Pairs} || return attributes
+    for key in keys(attributes)
         Symbol(key) == :plantsimengine_status || continue
         error(
             "`plantsimengine_status` is runtime state, not an organ attribute. " *
@@ -1438,7 +1440,6 @@ function add_organ!(
     # Resolve the exact registered node before advancing ids or mutating either
     # the source MTG or the runtime registry.
     parent_id = object_id(model, parent_node)
-    root = MultiScaleTreeGraph.get_root(parent_node)
     node_id = if isnothing(id)
         # `max_node_id` is initialized from every active id in the source
         # attribute store (store-wide for a columnar MTG) and is updated for
@@ -1446,6 +1447,7 @@ function add_organ!(
         # an O(n) tree lookup.
         adapter.max_node_id[] += 1
     else
+        root = MultiScaleTreeGraph.get_root(parent_node)
         explicit_id = Int(id)
         adapter.max_node_id[] = max(adapter.max_node_id[], explicit_id)
         isnothing(MultiScaleTreeGraph.get_node(root, explicit_id)) || error(
