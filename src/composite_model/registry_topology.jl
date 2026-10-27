@@ -1374,6 +1374,12 @@ function _validate_organ_attributes(attributes)
     return attributes
 end
 
+# Use a concrete name carrier at dynamic assembly sites. Constructing the
+# partially specified Status{names} type for every organ allocates a UnionAll.
+@inline function _organ_status_from_values(::Val{names}, values::Tuple) where {names}
+    return Status(NamedTuple{names}(Ref.(values)))
+end
+
 function _organ_status(
     adapter::MTGObjectAdapter,
     node,
@@ -1391,7 +1397,7 @@ function _organ_status(
     data[:node] = node
     status_names = Tuple(keys(data))
     status_values = Tuple(values(data))
-    return Status{status_names}(status_values)
+    return _organ_status_from_values(Val(status_names), status_values)
 end
 
 """

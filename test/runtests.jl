@@ -45,6 +45,10 @@ else
         include("test-organ-creation-allocation.jl")
     end
 
+    @testset "Organ status assembly" begin
+        include("test-organ-status-assembly.jl")
+    end
+
     @testset "CompositeModel display" begin
         include("test-model-display.jl")
     end
