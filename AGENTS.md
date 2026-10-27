@@ -130,7 +130,20 @@ Hard dependencies are parent-controlled:
    and execute individual `CallTarget`s with `run_call!`.
 
 `run_call!` defaults to `publish=false`, which is appropriate for iterative
-trial states. Publish only the accepted state with `publish=true`.
+trial states. `publish=true` runs and publishes together. When an iterative
+solver has already evaluated its accepted candidate, prefer
+`evaluate_call!(context, :name; ...)` or `evaluate_call!(target; ...)`, inspect
+`call_targets(evaluation)`, then `accept_call!(evaluation)` without replaying
+its kernels. Nested accepted calls stage into the outer evaluation;
+`publish=false` suppresses descendants transitively.
+
+Evaluations mutate live statuses and are not rollback snapshots. Accept the
+latest token once, on its originating task and synchronous call tree, before
+rerunning its targets, advancing time or changing topology/models/bindings.
+Avoid direct input/status mutation before acceptance. Reevaluate saved
+scientific inputs/state to revisit an earlier candidate. Deferred environment
+commits do not create a speculative sampling overlay: pass trial state
+explicitly to descendants that need it.
 
 Applications used exclusively as call targets are not run by the root
 scheduler and do not receive inferred soft bindings.
@@ -174,6 +187,11 @@ know its scenario timestep unless the scientific model explicitly requires it.
   backend-specific state through each target's compiled handle.
 - `environment_outputs_` declares environment variables a controller may commit, and
   `commit_environment!` commits only the accepted state.
+- Environment sampling reuses `EnvironmentAPI.PreparedEnvironmentInputs`
+  schemas. A custom complete-row `sample_environment` method should accept
+  that schema, honor its target/source names and compiled handle, and read
+  fresh mutable committed/trial values on every invocation. Schema reuse is
+  not permission to cache a mutable environment by identity.
 
 ## Lifecycle
 

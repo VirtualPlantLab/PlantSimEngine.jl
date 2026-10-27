@@ -347,6 +347,7 @@ mutable struct LifecycleDelta
     full_environment::Bool
     structural_generation::Int
     environment_generation::Int
+    mutation_generation::UInt64
 end
 
 function LifecycleDelta(;
@@ -369,6 +370,7 @@ function LifecycleDelta(;
         full_environment,
         0,
         0,
+        UInt64(0),
     )
 end
 
@@ -836,6 +838,9 @@ function _mark_environment_bindings_dirty!(
     object_ids=nothing,
 )
     delta = model.lifecycle_delta
+    # Public mutations may coalesce into an already dirty revision. Tokens
+    # still need to distinguish every mutation within that pending event.
+    delta.mutation_generation += UInt64(1)
     ids = _lifecycle_object_ids(object_ids)
     if isnothing(ids) || isnothing(model.environment_binding_cache)
         model.environment_binding_cache = nothing
@@ -914,6 +919,7 @@ function _consume_structural_lifecycle_delta!(model::CompositeModel)
         consumed.full_environment,
         consumed.structural_generation,
         consumed.environment_generation,
+        consumed.mutation_generation,
     )
     return consumed
 end

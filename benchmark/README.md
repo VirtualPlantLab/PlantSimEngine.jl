@@ -26,6 +26,9 @@ The flag enables the downstream suite; it does not install its dependencies.
 `benchmark/test/runtests.jl` uses the same default. Passing a test-name pattern explicitly
 selects those tests, as the dedicated downstream CI jobs do.
 The pinned release comparisons in `release_baselines/` use separate projects.
+The optional [MAESPA comparison](downstream_maespa/README.md) likewise uses
+separate temporary projects, pins the same downstream dependencies across
+engine revisions, and checks complete final states and retained publications.
 
 For the transient hard-call context cache and its local measurement protocol,
 see [Reusing transient hard-call contexts](transient_contexts.md).

@@ -41,8 +41,128 @@ parameters or reuse them across structural lifecycle barriers.
 
 A model used only through these calls does not also run independently from
 the simulation schedule. Calls default to `publish=false`, so trial results
-are not saved in the output history. Use `publish=true` for the accepted
-calculation.
+are not saved in the output history. Use `publish=true` when executing and
+publishing a calculation together. For an iterative solver that has already
+evaluated its accepted candidate, use `evaluate_call!` and `accept_call!` to
+publish that candidate without running its equations again.
+
+## Accept an evaluated candidate without running it again
+
+`evaluate_call!(context, :name; ...)` runs the selected models and returns a
+`CallEvaluation`. Inspect their results through `call_targets(evaluation)`.
+Once the solver accepts that candidate, `accept_call!(evaluation)` publishes
+its captured outputs and environment commits without another model execution.
+To evaluate one individual `CallTarget`, use `evaluate_call!(target; ...)` and
+accept the returned token in the same way.
+
+This small example counts actual kernel executions. The counter is an
+instrumentation example, not a physiological model: rejected trials still
+increment its live count.
+
+```@example manual_evaluation
+using Dates, PlantSimEngine
+
+PlantSimEngine.@process "docs_evaluation_counter" verbose=false
+struct EvaluationCounter <: AbstractDocs_Evaluation_CounterModel end
+PlantSimEngine.outputs_(::EvaluationCounter) = (calls=0,)
+function PlantSimEngine.run!(::EvaluationCounter, status, environment, constants, context)
+    status.calls += 1
+    return nothing
+end
+
+PlantSimEngine.@process "docs_evaluation_controller" verbose=false
+struct EvaluationController <: AbstractDocs_Evaluation_ControllerModel end
+PlantSimEngine.outputs_(::EvaluationController) = (accepted_calls=0,)
+function PlantSimEngine.run!(::EvaluationController, status, environment, constants, context)
+    evaluate_call!(context, :counter) # First candidate, left unpublished.
+    accepted = evaluate_call!(context, :counter)
+    counter = only(call_targets(accepted))
+    accept_call!(accepted)
+    status.accepted_calls = counter.status.calls
+    return nothing
+end
+
+scenario = CompositeModel(
+    Object(:plant; scale=:Plant),
+    Object(:counter; scale=:Counter, parent=:plant);
+    applications=(
+        ModelSpec(EvaluationController(); name=:controller, on=One(id=:plant),
+            calls=(counter=One(id=:counter, within=Subtree(), application=:counter),)),
+        ModelSpec(EvaluationCounter(); name=:counter, on=One(id=:counter)),
+    ), environment=(duration=Hour(1),))
+
+simulation = run!(scenario; outputs=:all)
+@assert final_state(simulation, :counter).calls == 2
+@assert final_state(simulation, :plant).accepted_calls == 2
+collect(outputs(simulation)[(:counter, ObjectId(:counter), :calls)])
+```
+
+There are two evaluations and one retained sample. Acceptance adds no third
+execution. The same pattern applies to a leaf energy solver or a canopy-air
+iteration: accept the state whose fluxes were actually evaluated, rather than
+an unevaluated proposal for the next iteration.
+
+Evaluation uses the same `environment` and `sampled_environment` keywords as
+`run_call!`. The context form also accepts `objects=...` to evaluate a selected
+subset. `One`, `OptionalOne` and `Many` keep their target identities and
+multiplicity; `call_targets(evaluation)` is always a collection.
+
+### Nested calls and live state
+
+During an evaluation, nested calls requesting `publish=true` stage their
+outputs and environment commits. A nested `publish=false` suppresses its
+whole descendant call tree. Accepting a child evaluation within an outer
+evaluation stages the child's events into the outer one. Nothing is published
+until that outer evaluation is accepted with publication permission.
+
+Retained mutable output values are captured when publication is requested, so
+a later writer cannot change an earlier writer's sample. This also applies to
+private `stream_only` outputs. Evaluation does not copy or roll back the
+complete status of the called models: trial equations still change their live
+values.
+Within an evaluation, temporal inputs can read staged publications from that
+evaluation and its ancestors through private read views. These values remain
+invisible to ordinary output history until acceptance. Read views allocate
+only when staged outputs affect a temporal input; they are not copies of the
+whole scene.
+Models with state that advances once per physical timestep need their own
+scientific trial/accepted-state design.
+
+The existing restriction on distributed outputs still applies: applications
+using `outputs_to` must remain root-scheduled and cannot be manual-call-only
+targets. Such a scheduled model can evaluate and accept its scalar child
+calculations before writing their results through `OutputTargets`.
+
+Accept a token once, on the same task and within its originating synchronous
+call tree. Accept only the latest evaluation before rerunning its targets,
+advancing the simulation, or changing models, topology, geometry or bindings.
+Do not directly mutate its live inputs or statuses between evaluation and
+acceptance. To revisit an earlier candidate, save its scientific inputs/state
+and evaluate it again; keeping an old token is not a rollback mechanism.
+
+### Shared trial environments
+
+Use `environment=trial_state` when several leaves read one trial air state.
+Each leaf keeps its own compiled environment handle; a shared-air backend can
+read the same air compartment for every leaf, while a spatial backend can
+read different cells. A backend can specialize prepared batch sampling to
+read a complete model-facing row; see
+[Environment Backend Extensions](../extensions/environment_backends.md).
+
+A controller may commit its accepted air and then accept the evaluated leaves:
+
+```julia
+evaluated = evaluate_call!(context, :leaves; environment=evaluated_air)
+# Inspect call_targets(evaluated) and decide whether this evaluated air is accepted.
+commit_environment!(context, evaluated_air)
+accept_call!(evaluated)
+```
+
+Commit requests made *inside* an evaluation are deferred. They do not create a
+speculative backend overlay for later default sampling. Pass the appropriate
+transient state explicitly to descendants that need it. Acceptance is not an
+atomic transaction across arbitrary backend side effects; a custom backend
+owns the exception semantics of its commit method.
 
 ## Initialize a newly registered object
 

@@ -52,6 +52,9 @@ explains the functions and their requirements in detail.
   `mark_environment_binding_dirty!`, `objects_from_mtg`.
 - Running another model from within a calculation: `RunContext`, `CallTarget`, `CallTargets`, `call_model`,
   `call_targets`, `run_call!`.
+- Publishing an already evaluated candidate without another kernel execution:
+  `CallEvaluation`, `evaluate_call!`, `accept_call!`; inspect evaluated targets
+  with `call_targets(evaluation)`.
 - Setting initial values when an object is created: `Initializer`, `run_initializer!`.
 
 ## Diagnostics namespace
@@ -144,6 +147,8 @@ are not imported by `using PlantSimEngine`.
 - Reading and updating environmental values: `EnvironmentAPI.sample`,
   `EnvironmentAPI.sample_environment`, `EnvironmentAPI.commit_environment!`,
   and `EnvironmentAPI.update_index!`.
+- Preparing names/remapping for complete-row backend sampling:
+  `EnvironmentAPI.PreparedEnvironmentInputs`.
 - PlantMeteo conveniences: `Atmosphere`, `Constants`, `Weather`.
 
 ## GraphEditor namespace

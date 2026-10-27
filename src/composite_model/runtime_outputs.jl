@@ -249,6 +249,8 @@ end
 struct NoEnvironmentOverride end
 const _NO_ENVIRONMENT_OVERRIDE = NoEnvironmentOverride()
 
+include("call_evaluation_types.jl")
+
 """
     RunContext
 
@@ -279,9 +281,11 @@ mutable struct CallContextCache{C}
     default::C
     transient::Any
     in_use::Bool
+    execution_revision::UInt64
+    evaluation::Union{Nothing,CallEvaluationFrame}
 end
 
-CallContextCache(context) = CallContextCache(context, nothing, false)
+CallContextCache(context) = CallContextCache(context, nothing, false, UInt64(0), nothing)
 
 function RunContext(
     compiled,
@@ -573,6 +577,7 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C,BT} <: AbstractVector{CallTarget}
     # may legitimately change its concrete type between invocations.
     environment::Any
     execution_batches::BT
+    evaluation::Union{Nothing,CallEvaluationFrame}
 end
 
 Base.@nospecializeinfer function CallTargets(
@@ -623,6 +628,7 @@ Base.@nospecializeinfer function CallTargets(
         publication_allowed,
         environment,
         execution_batches,
+        nothing,
     )
     execution_batches isa LazyCallExecutionBatches &&
         (execution_batches.owner = targets)
@@ -1748,7 +1754,7 @@ function _model_remove_sample_time!(samples, sample_time::Float64)
     return samples
 end
 
-@inline function _model_publish_sample!(samples, sample_time::Float64, value)
+@inline function _model_publish_sample!(samples, sample_time::Float64, value; copy_value::Bool=true)
     if !isempty(samples) &&
        isapprox(last(samples)[1], sample_time; atol=1.0e-8, rtol=0.0)
         pop!(samples)
@@ -1758,7 +1764,7 @@ end
     # A model may update an array or a nested mutable value in place on its next
     # execution. Published history must remain independent of that live state.
     # `deepcopy` leaves scalar/isbits values unchanged.
-    push!(samples, (sample_time, deepcopy(value)))
+    push!(samples, (sample_time, copy_value ? deepcopy(value) : value))
     return samples
 end
 
@@ -1767,6 +1773,7 @@ end
     stream,
     value,
     time::Real,
+    ; copy_value::Bool=true,
 )
     expected_type = fieldtype(eltype(stream), 2)
     value isa expected_type || error(
@@ -1778,6 +1785,7 @@ end
         stream,
         float(time),
         value,
+        ; copy_value=copy_value,
     )
     if stream isa TemporalDependencyBuffer
         cutoff = output.dependency_horizon <= 0.0 ?
@@ -2297,7 +2305,7 @@ function _materialize_model_temporal_input!(
             "compiled lifecycle bindings before execution.",
         )
         for index in eachindex(source_ids)
-            value = _model_temporal_sample_value(
+            value = _evaluated_temporal_sample_value(
                 runtime_input.source_streams[index],
                 time,
                 policy,
@@ -2318,7 +2326,7 @@ function _materialize_model_temporal_input!(
         return status
     end
     source_id = only(source_ids)
-    value = _model_temporal_sample_value(
+    value = _evaluated_temporal_sample_value(
         runtime_input.source_streams,
         time,
         policy,
@@ -2453,7 +2461,7 @@ function _model_environment_for_binding(
             binding.handle,
             environment,
             time,
-            application.spec,
+            _prepared_environment_inputs(binding.compiled_sampling_rules),
         )
     end
     if binding.backend isa GlobalConstant
@@ -2473,7 +2481,7 @@ function _model_environment_for_binding(
         binding.backend,
         binding.handle,
         time,
-        application.spec,
+        _prepared_environment_inputs(binding.compiled_sampling_rules),
     )
 end
 
@@ -5724,6 +5732,7 @@ mutable struct _TargetedTopologyRuntime{CS,MA} <:
     indexed_addition_count::Int
     manual_application_ids::MA
     application_positions::Dict{Symbol,Int}
+    call_context_caches::Dict{Tuple{Symbol,ObjectId},CallContextCache}
 end
 
 @inline function Base.get(
@@ -5762,6 +5771,7 @@ function _targeted_topology_runtime!(
             application_id => index
             for (index, application_id) in pairs(compiled.application_order)
         ),
+        Dict{Tuple{Symbol,ObjectId},CallContextCache}(),
     )
     delta.targeted_topology_runtime = runtime
     return runtime
@@ -6177,7 +6187,11 @@ function _targeted_new_object_call_targets(
                     application.id,
                     object_id,
                 ),
-                call_context_cache=CallContextCache(nothing),
+                # Re-resolving the same newborn preserves its physical call
+                # owner, including execution stamps used by pending evaluations.
+                call_context_cache=get!(targeted_runtime.call_context_caches, key) do
+                    CallContextCache(nothing)
+                end,
             )
             push!(
                 targets,
@@ -6389,6 +6403,13 @@ function commit_environment!(context::RunContext, state)
     context.publication_allowed || return nothing
     binding = _environment_binding_for_current_context(context)
     _validate_environment_commit(context, state)
+    frame = _active_call_evaluation()
+    if frame !== nothing
+        push!(frame.events, CapturedEnvironmentCommit(
+            binding.backend, binding.handle, deepcopy(state), context.time,
+        ))
+        return nothing
+    end
     return commit_environment!(
         binding.backend,
         binding.handle,
@@ -6464,14 +6485,21 @@ end
     )
 end
 
-@inline function _run_call_kernel!(model, status, environment, context, output_bindings)
+@inline function _record_call_execution!(cache)
+    cache.execution_revision += UInt64(1)
+    frame = _active_call_evaluation()
+    ancestor = frame
+    while ancestor !== nothing
+        ancestor.executions[cache] = cache.execution_revision
+        ancestor = ancestor.parent
+    end
+    return frame
+end
+
+@inline function _run_call_kernel!(model, status, environment, context, output_bindings, frame)
     run!(model, status, environment, context.constants, context)
     if context.publication_allowed
-        isempty(output_bindings) ||
-            _model_publish_runtime_outputs!(output_bindings, context.time)
-        _record_model_call_publication!(
-            context.output_retention, context.application.id, context.time,
-        )
+        _publish_evaluated_call!(frame, output_bindings, context)
     end
     return nothing
 end
@@ -6482,6 +6510,8 @@ end
     sampled_environment,
     environment,
 )
+    cache = target.context_cache
+    frame = _record_call_execution!(cache)
     status = _materialize_model_inputs!(
         target.status,
         target.temporal_inputs,
@@ -6499,7 +6529,6 @@ end
         environment,
     ) : sampled_environment
     publication_allowed = publish && target.publication_allowed
-    cache = target.context_cache
     acquired = !cache.in_use
     acquired && (cache.in_use = true)
     try
@@ -6510,7 +6539,7 @@ end
             target.time, target.constants, publication_allowed, environment,
         )
         _run_call_kernel!(
-            target.model, status, environment_value, context, target.output_bindings,
+            target.model, status, environment_value, context, target.output_bindings, frame,
         )
     finally
         acquired && (cache.in_use = false)
@@ -6591,6 +6620,8 @@ end
     sampled_environment,
     environment,
 )
+    cache = target.call_context_cache
+    frame = _record_call_execution!(cache)
     status = _materialize_model_inputs!(
         target.status,
         target.input_bindings,
@@ -6608,7 +6639,6 @@ end
         environment,
     ) : sampled_environment
     publication_allowed = publish && targets.publication_allowed
-    cache = target.call_context_cache
     acquired = !cache.in_use
     acquired && (cache.in_use = true)
     try
@@ -6632,7 +6662,7 @@ end
             )
         end
         _run_call_kernel!(
-            target.model, status, environment_value, context, target.output_bindings,
+            target.model, status, environment_value, context, target.output_bindings, frame,
         )
     finally
         acquired && (cache.in_use = false)
@@ -6710,7 +6740,7 @@ function _run_call_targets!(
         # Per-target publications above still distinguish objects included in
         # the accepted call from objects created or removed around that call.
         for application_id in targets.binding.potential_callee_application_ids
-            _record_model_call_publication!(
+            _record_evaluated_call_clock!(
                 targets.output_retention,
                 application_id,
                 targets.time,
@@ -7348,6 +7378,7 @@ end
 end
 
 function _run_model_execution_step!(simulation::Simulation, step::Integer)
+    simulation.compiled.execution_generation += UInt64(1)
     started_at = _runtime_performance_start(simulation.performance)
     empty!(simulation.environment_bindings.sample_cache)
     schedule_plan = simulation.compiled.scenario_plan.application_schedule
@@ -7702,6 +7733,7 @@ function run!(
         model;
         performance=performance_counters,
     )
+    compiled.execution_generation += UInt64(1)
     _runtime_performance_finish!(
         performance_counters,
         :initial_binding_compile,

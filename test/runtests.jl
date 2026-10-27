@@ -73,6 +73,15 @@ else
         include("test-model-hard-calls.jl")
     end
 
+    @testset "Accepted call evaluations" begin
+        include("test-model-call-evaluations.jl")
+        include("test-call-evaluation-parent-generation.jl")
+    end
+
+    @testset "Prepared environment inputs" begin
+        include("test-prepared-environment-inputs.jl")
+    end
+
     @testset "Transient manual-call context reuse" begin
         include("test-model-call-context-cache.jl")
     end
@@ -255,6 +264,14 @@ else
 
     @testset "Toy models" begin
         include("test-toy_models.jl")
+    end
+
+    @testset "Readable-source call evaluation acceptance" begin
+        include("test-model-source-call-evaluations.jl")
+    end
+
+    @testset "Temporal inputs inside call evaluations" begin
+        include("test-model-call-evaluation-temporal-inputs.jl")
     end
 
     if VERSION >= v"1.10"

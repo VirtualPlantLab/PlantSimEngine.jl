@@ -87,6 +87,17 @@ time-based inputs can instead read saved results.
   one target.
 - `call_targets(context, :name)` returns those targets without running them,
   so you can choose individual targets to run with `run_call!(target; ...)`.
+- `evaluate_call!(context, :name; environment=..., sampled_environment=...,
+  objects=...)` evaluates a named call and returns a `CallEvaluation` without
+  publishing its staged outputs or environment commits. The two environment
+  keywords are mutually exclusive, as in `run_call!`.
+- `evaluate_call!(target; ...)` evaluates one individual call target.
+  `call_targets(evaluation)` returns the evaluated target collection.
+- `accept_call!(evaluation)` publishes that evaluation and returns the same
+  token without rerunning model kernels. Use this for iterative acceptance
+  when the accepted candidate has already been evaluated. Nested accepted
+  evaluations stage into their outer evaluation, and an unpublished ancestor
+  suppresses publication.
 - `run_initializer!(context, :name, object)` runs a declared `Initializer`
   once on a newly created object. It sets values in that object's main stored
   status and returns that `Status`, without adding an output-history sample
@@ -104,6 +115,15 @@ calls after changes to the objects have been processed. If you reuse the
 same ID-column object, PlantSimEngine reuses the correspondence it calculated
 between result rows and destination objects. This requires the IDs and their
 order to remain unchanged. Supply a new ID-column object if either changes.
+
+`CallEvaluation` is a synchronous, single-use publication token, not a status
+rollback snapshot. Evaluation changes live statuses. Accept the latest token
+before rerunning its targets, advancing time or changing models/bindings, and
+avoid intervening direct input/status mutation. Save scientific inputs/state
+and reevaluate to revisit an earlier candidate. Deferred environment commits
+do not change subsequent default sampling during the evaluation; pass trial
+state explicitly with `environment=...`. See
+[Manual Calls Across Objects](../guides/multiscale/manual_calls.md).
 
 ### Model input schema
 
@@ -374,6 +394,17 @@ Packages that provide environmental data implement functions under
 `EnvironmentAPI.commit_environment!`, and `EnvironmentAPI.update_index!`.
 The root-level `commit_environment!` is the function a model calls to store
 accepted environmental values after a trial calculation.
+
+`EnvironmentAPI.PreparedEnvironmentInputs(model_spec)` describes model-facing
+names and aligned backend source names without storing sampled values. The
+runtime prepares and reuses this schema. A backend may implement
+`EnvironmentAPI.sample_environment(backend, handle, time, prepared)` and its
+transient `(..., handle, state, time, prepared)` overload to sample a complete
+row once. The default uses the scalar `sample` methods. Custom batch methods
+specialize on `prepared::EnvironmentAPI.PreparedEnvironmentInputs`, preserve
+the supplied handle and remapping, and read current values on every call.
+This supports mutable shared environments without treating object identity as
+a value-cache key. See [Environment Backend Extensions](../guides/extensions/environment_backends.md).
 
 ### Fitting and evaluation
 

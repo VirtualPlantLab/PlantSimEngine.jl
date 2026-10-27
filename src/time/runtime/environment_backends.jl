@@ -268,57 +268,83 @@ update_index!(::GlobalConstant, changed_entities, removed_object_ids) =
     nothing
 
 """
-    sample_environment(backend, handle, time, variables)
-    sample_environment(backend, handle, state, time, variables)
+    PreparedEnvironmentInputs(targets, sources; raw_global_source=false)
+    PreparedEnvironmentInputs(model_spec::ModelSpec)
 
-Sample a model-facing source row through a compiled backend `handle`.
-`GlobalConstant` returns the original row; other backends return a `NamedTuple`
-assembled from `sample` calls. The overload containing `state` preserves the
-same handle while sampling a transient environment.
+Prepared model-facing environment names and their backend source names. Create
+this immutable schema once; its type carries the complete remapping. `keys`
+returns target names and `values` returns the aligned source names. The schema
+contains no sampled values, so the same schema can sample changing mutable
+backend or trial state without retaining a stale snapshot.
+
+Backends may specialize `sample_environment(backend, handle, [state], time,
+prepared::PreparedEnvironmentInputs)` to validate and sample a complete row
+once. The default calls `sample` separately for every source through the same
+compiled handle and constructs a concretely typed `NamedTuple`. The optional
+`raw_global_source` flag preserves a `GlobalConstant` row without projecting it;
+it is selected automatically for a ModelSpec without source remapping.
 """
-function sample_environment(
-    backend::AbstractEnvironmentBackend,
-    handle,
-    time,
-    variables,
-)
-    pairs = Pair{Symbol,Any}[]
-    for variable in variables
-        push!(pairs, variable => sample(backend, handle, variable, time))
-    end
-    return (; pairs...)
+struct PreparedEnvironmentInputs{Targets,Sources,RawGlobalSource} end
+
+function PreparedEnvironmentInputs(targets::Tuple, sources::Tuple; raw_global_source::Bool=false)
+    length(targets) == length(sources) || throw(ArgumentError(
+        "Prepared environment target and source names must have the same length."))
+    all(name -> name isa Symbol, targets) && all(name -> name isa Symbol, sources) ||
+        throw(ArgumentError("Prepared environment target and source names must be Symbols."))
+    allunique(targets) || throw(ArgumentError("Prepared environment target names must be unique."))
+    return PreparedEnvironmentInputs{targets,sources,raw_global_source}()
 end
 
-function sample_environment(
-    backend::AbstractEnvironmentBackend,
-    handle,
-    state,
-    time,
-    variables,
-)
-    pairs = Pair{Symbol,Any}[]
-    for variable in variables
-        push!(pairs, variable => sample(backend, handle, state, variable, time))
-    end
-    return (; pairs...)
+Base.keys(::PreparedEnvironmentInputs{Targets}) where {Targets} = Targets
+Base.values(::PreparedEnvironmentInputs{Targets,Sources}) where {Targets,Sources} = Sources
+
+"""
+    sample_environment(backend, handle, time, prepared::PreparedEnvironmentInputs)
+    sample_environment(backend, handle, state, time, prepared::PreparedEnvironmentInputs)
+
+Sample a model-facing row through a compiled backend `handle` using a prepared
+schema. The `state` overload samples a transient environment without changing
+the handle or committing that state. A backend batch specialization must sample
+the current values on every invocation; schema reuse does not permit caching
+mutable values by object identity.
+
+A ModelSpec or iterable of variable names is also accepted for direct calls;
+these convenience forms prepare a schema before invoking the same batch hook.
+Simulation execution reuses its compiled schema.
+"""
+@generated function sample_environment(
+    backend::AbstractEnvironmentBackend, handle, time,
+    ::PreparedEnvironmentInputs{Targets,Sources,Raw},
+) where {Targets,Sources,Raw}
+    sampled = Expr(:tuple, (:(sample(backend, handle, $(QuoteNode(source)), time))
+        for source in Sources)...)
+    return :(NamedTuple{$(QuoteNode(Targets))}($sampled))
 end
 
-function sample_environment(
-    backend::GlobalConstant,
-    handle,
-    time,
-    variables,
-)
+@generated function sample_environment(
+    backend::AbstractEnvironmentBackend, handle, state, time,
+    ::PreparedEnvironmentInputs{Targets,Sources,Raw},
+) where {Targets,Sources,Raw}
+    sampled = Expr(:tuple, (:(sample(backend, handle, state, $(QuoteNode(source)), time))
+        for source in Sources)...)
+    return :(NamedTuple{$(QuoteNode(Targets))}($sampled))
+end
+
+function sample_environment(backend::AbstractEnvironmentBackend, handle, time, variables)
+    names = Tuple(Symbol(variable) for variable in variables)
+    return sample_environment(backend, handle, time, PreparedEnvironmentInputs(names, names))
+end
+
+function sample_environment(backend::AbstractEnvironmentBackend, handle, state, time, variables)
+    names = Tuple(Symbol(variable) for variable in variables)
+    return sample_environment(backend, handle, state, time, PreparedEnvironmentInputs(names, names))
+end
+
+function sample_environment(backend::GlobalConstant, handle, time, variables)
     return _environment_row_at_step(environment_source(backend), Int(round(time)))
 end
 
-function sample_environment(
-    backend::GlobalConstant,
-    handle,
-    state,
-    time,
-    variables,
-)
+function sample_environment(backend::GlobalConstant, handle, state, time, variables)
     return _environment_row_at_step(state, Int(round(time)))
 end
 
@@ -355,78 +381,75 @@ function _environment_source_overrides(model_spec::ModelSpec)
     return NamedTuple()
 end
 
-function sample_environment(
-    backend::AbstractEnvironmentBackend,
-    handle,
-    time,
-    model_spec::ModelSpec
-)
-    pairs = Pair{Symbol,Any}[]
-    for (target, source) in _environment_sampling_rules(model_spec)
-        push!(pairs, target => sample(backend, handle, source, time))
-    end
-    return (; pairs...)
-end
-
-function sample_environment(
-    backend::AbstractEnvironmentBackend,
-    handle,
-    state,
-    time,
-    model_spec::ModelSpec
-)
-    pairs = Pair{Symbol,Any}[]
-    for (target, source) in _environment_sampling_rules(model_spec)
-        push!(pairs, target => sample(backend, handle, state, source, time))
-    end
-    return (; pairs...)
-end
-
-function _sample_global_environment_row(row, model_spec::ModelSpec)
+function PreparedEnvironmentInputs(model_spec::ModelSpec)
+    rules = _environment_sampling_rules(model_spec)
+    targets = Tuple(first(rule) for rule in rules)
+    sources = Tuple(last(rule) for rule in rules)
     bindings = environment_bindings(model_spec)
-    has_bindings = bindings isa NamedTuple && !isempty(keys(bindings))
-    environment_sources = _environment_source_overrides(model_spec)
-    has_environment_sources = !isempty(keys(environment_sources))
-    !has_bindings && !has_environment_sources && return row
+    raw_global_source = !(bindings isa NamedTuple && !isempty(keys(bindings))) &&
+                        isempty(keys(_environment_source_overrides(model_spec)))
+    return PreparedEnvironmentInputs(targets, sources; raw_global_source)
+end
 
-    pairs = Pair{Symbol,Any}[]
-    for (target, source) in _environment_sampling_rules(model_spec)
-        isnothing(row) && error(
-            "GlobalConstant source is `nothing`, but the model requires source variable ",
-            "`$(target)`."
-        )
-        hasproperty(row, source) || error(
-            "GlobalConstant source does not provide source variable `$(source)` for model-facing variable ",
-            "`$(target)`."
-        )
-        push!(pairs, target => getproperty(row, source))
+sample_environment(backend::AbstractEnvironmentBackend, handle, time, model_spec::ModelSpec) =
+    sample_environment(backend, handle, time, PreparedEnvironmentInputs(model_spec))
+sample_environment(backend::AbstractEnvironmentBackend, handle, state, time, model_spec::ModelSpec) =
+    sample_environment(backend, handle, state, time, PreparedEnvironmentInputs(model_spec))
+sample_environment(backend::GlobalConstant, handle, time, model_spec::ModelSpec) =
+    sample_environment(backend, handle, time, PreparedEnvironmentInputs(model_spec))
+sample_environment(backend::GlobalConstant, handle, state, time, model_spec::ModelSpec) =
+    sample_environment(backend, handle, state, time, PreparedEnvironmentInputs(model_spec))
+
+@generated function _sample_prepared_global_environment_row(
+    row::Row, ::PreparedEnvironmentInputs{Targets,Sources,Raw},
+) where {Row,Targets,Sources,Raw}
+    Raw && return :(row)
+    checks = Expr[]
+    sampled = Expr[]
+    for (target, source) in zip(Targets, Sources)
+        push!(checks, quote
+            isnothing(row) && error(
+                "GlobalConstant source is `nothing`, but the model requires source variable `",
+                $(QuoteNode(target)), "`.")
+            hasproperty(row, $(QuoteNode(source))) || error(
+                "GlobalConstant source does not provide source variable `",
+                $(QuoteNode(source)), "` for model-facing variable `", $(QuoteNode(target)), "`.")
+        end)
+        push!(sampled, :(getproperty(row, $(QuoteNode(source)))))
     end
-    if !(:duration in keys(environment_inputs_(model_spec))) &&
-       !isnothing(row) && hasproperty(row, :duration)
-        push!(pairs, :duration => getproperty(row, :duration))
+    names = Targets
+    if Row <: NamedTuple
+        if :duration in Row.parameters[1] && !(:duration in Targets)
+            names = (Targets..., :duration)
+            push!(sampled, :(getproperty(row, :duration)))
+        end
+        return quote
+            $(checks...)
+            NamedTuple{$(QuoteNode(names))}($(Expr(:tuple, sampled...)))
+        end
     end
-    return (; pairs...)
+    return quote
+        $(checks...)
+        sampled = NamedTuple{$(QuoteNode(Targets))}($(Expr(:tuple, sampled...)))
+        if $(!(:duration in Targets)) && !isnothing(row) && hasproperty(row, :duration)
+            return merge(sampled, (duration=getproperty(row, :duration),))
+        end
+        return sampled
+    end
 end
 
 function sample_environment(
-    backend::GlobalConstant,
-    handle,
-    time,
-    model_spec::ModelSpec,
+    backend::GlobalConstant, handle, time, prepared::PreparedEnvironmentInputs,
 )
     row = _environment_row_at_step(environment_source(backend), Int(round(time)))
-    return _sample_global_environment_row(row, model_spec)
+    return _sample_prepared_global_environment_row(row, prepared)
 end
 
 function sample_environment(
-    backend::GlobalConstant,
-    handle,
-    state,
-    time,
-    model_spec::ModelSpec,
+    backend::GlobalConstant, handle, state, time, prepared::PreparedEnvironmentInputs,
 )
     row = _environment_row_at_step(state, Int(round(time)))
-    return _sample_global_environment_row(row, model_spec)
+    return _sample_prepared_global_environment_row(row, prepared)
 end
 
 """
