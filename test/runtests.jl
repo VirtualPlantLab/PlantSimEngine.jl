@@ -98,6 +98,10 @@ else
         include("test-model-reusable-call-targets.jl")
     end
 
+    @testset "Materialized manual-call dispatch" begin
+        include("test-model-materialized-call-dispatch.jl")
+    end
+
     @testset "Singular manual-call target access" begin
         include("test-model-only-call-targets.jl")
     end

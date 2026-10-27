@@ -6679,6 +6679,27 @@ end
     return nothing
 end
 
+@noinline function _run_materialized_call_kernel!(
+    owner::CompiledExecutionTarget,
+    environment,
+    context::RunContext,
+    frame,
+)
+    # Sampling can erase the environment type on the materialized-call path.
+    # Cross that boundary with the mutable owner, then read its typed payload
+    # here instead of boxing model/status/output tuples as dispatch arguments.
+    if frame === nothing
+        _run_call_kernel!(
+            owner.model, owner.status, environment, context, owner.output_bindings,
+        )
+    else
+        _run_evaluated_call_kernel!(
+            owner.model, owner.status, environment, context, owner.output_bindings, frame,
+        )
+    end
+    return nothing
+end
+
 @inline function _run_call!(
     target::CallTarget,
     publish::Bool,
@@ -6713,7 +6734,14 @@ end
             target.output_targets, target.temporal_streams, target.output_retention,
             target.time, target.constants, publication_allowed, environment,
         )
-        if frame === nothing
+        if target.execution_target isa CompiledExecutionTarget
+            # Input materialization above updates this owner's references and
+            # returns the same Status. Targeted newborns have a distinct payload
+            # and retain the original dispatch path below.
+            _run_materialized_call_kernel!(
+                target.execution_target, environment_value, context, frame,
+            )
+        elseif frame === nothing
             _run_call_kernel!(
                 target.model, status, environment_value, context, target.output_bindings,
             )
