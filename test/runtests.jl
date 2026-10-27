@@ -41,6 +41,10 @@ else
         include("test-model-object-id.jl")
     end
 
+    @testset "Source-backed organ status and MTG node backends" begin
+        include("test-source-backed-organ-status.jl")
+    end
+
     @testset "CompositeModel display" begin
         include("test-model-display.jl")
     end

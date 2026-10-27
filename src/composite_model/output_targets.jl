@@ -277,13 +277,29 @@ function _output_assignment_cache!(targets::OutputTargets, ids)
 end
 
 @inline function _validate_output_column_values!(
-    destination::RefVector{T},
+    destination::RefVector{T,Base.RefValue{T}},
     source,
     permutation,
 ) where {T}
     eltype(source) <: T && return nothing
     @inbounds for (row, source_index) in enumerate(eachindex(source))
         convert(T, source[source_index])
+    end
+    return nothing
+end
+
+# Source-backed cells must still be live before any destination is written.
+# Reading a custom Ref performs its backend validity check; type conversion is
+# then validated just as for an ordinary RefValue. This is not synchronization
+# against concurrent mutation of the underlying store.
+@inline function _validate_output_column_values!(
+    destination::RefVector,
+    source,
+    permutation,
+)
+    references = parent(destination)
+    @inbounds for (row, source_index) in enumerate(eachindex(source))
+        _validate_output_reference_value(references[permutation[row]], source[source_index])
     end
     return nothing
 end
@@ -308,6 +324,12 @@ end
     reference::Base.RefValue{T},
     value,
 ) where {T}
+    convert(T, value)
+    return nothing
+end
+
+@inline function _validate_output_reference_value(reference::Ref{T}, value) where {T}
+    reference[]
     convert(T, value)
     return nothing
 end

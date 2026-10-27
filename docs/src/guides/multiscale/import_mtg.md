@@ -78,3 +78,77 @@ See [Growth within a time step](../../tutorials/growing_plant/part1_growth.md).
 Use `objects_from_mtg(root; status=initial_status)` when you only want a
 list of `Object`s to assemble yourself. It does not keep the node-to-object
 lookup needed to find nodes or create new organs through the MTG later.
+
+## Share selected variables with the source graph
+
+When another process updates the MTG during a simulation, copying an attribute
+into a private `Ref` does not provide a live view of that source. An explicit
+`status_factory` can choose the variables of each new organ and keep their
+references attached to the source storage. The numerical values below only
+illustrate reference semantics; they are not a growth model.
+
+```@example shared_mtg_status
+using PlantSimEngine, MultiScaleTreeGraph
+
+plant = Node(NodeMTG(:/, :Plant, 1, 0))
+
+function live_organ_status(node, adapted_status, initial_status)
+    return Status((
+        node=Ref(node),
+        Length=attribute_ref(node, :Length, Float64),
+    ))
+end
+
+live_model = CompositeModel(plant; status_factory=live_organ_status)
+leaf_status = add_organ!(plant, live_model, :+, :Leaf, 1;
+    attributes=(Length=1.0, description="source metadata"),
+    use_status_adapter=false)
+leaf = source_node(live_model, leaf_status)
+leaf_status.Length = 2.0
+@assert leaf[:Length] == 2.0 # hide
+leaf[:Length] = 3.0
+@assert leaf_status.Length == 3.0 # hide
+@assert !hasproperty(leaf_status, :description) # hide
+leaf_status.Length
+```
+
+The factory is retained by the model and applies to **new organs**. Initial MTG
+import still uses the `status=` accessor. It is called after that accessor during
+organ creation, as `(node, adapted_status, initial_status)`, and must return a
+fresh `Status` containing the exact new node in its `node` field. Explicit
+`initial_status` variables must be present with their original values and types;
+selected adapter values retain their precedence unless explicitly overridden.
+The factory can omit scientific source attributes that no process needs.
+
+`Status` accepts custom `Ref{T}` cells, and homogeneous `Many` connections retain
+their concrete cell type in a `RefVector`. One-source inputs also keep the live
+cell. Ordinary status conversion policies remain active: if a policy changes a
+value or its type, registration can replace that cell with private storage.
+
+!!! note "Ownership and lifetime"
+    Source-backed references are explicit shared state. Create separate source
+    stores for independent simulations. Do not place the returned `Status` in
+    MTG attributes or return a status already owned by another object. Factories
+    must not modify existing model state: rejecting a new organ removes its new
+    node, but cannot undo arbitrary callback side effects. MTG attribute references
+    reject removed nodes or variables, and a reference does not keep a deleted
+    organ active in the model.
+
+Sharing scalar cells does not invalidate geometry caches or environmental
+bindings. For example, a model can change `Length` in the MTG while a PlantGeom
+mesh still represents the previous length. Rebuild or update the geometry, then
+follow the existing `update_geometry!` or `mark_environment_binding_dirty!`
+contract for affected objects before using geometry-dependent inputs.
+
+## Use a client-owned MTG node backend
+
+MTG adaptation accepts `AbstractMTGNode` implementations. A backend supplies its
+identity, encoding, attributes, parent/children and traversal operations through
+the MTG interface. During `add_organ!`, PlantSimEngine calls
+`MultiScaleTreeGraph.add_node!(parent, id, encoding, attributes)` instead of
+constructing a concrete `Node`. The backend also provides node lookup, fresh-ID
+selection and deletion so rejection can remove a partially created node.
+
+This permits lightweight node handles on a compact store while retaining PSE
+object identities, selectors and lifecycle refresh. The adapter does not infer
+independent simulation ownership or a complete MTG export from a handle.

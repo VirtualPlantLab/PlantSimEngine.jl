@@ -1,7 +1,7 @@
 """
     RefVector(field::Symbol, sts...)
     RefVector(field::Symbol, sts::Vector{<:Status})
-    RefVector(v::Vector{Base.RefValue{T}})
+    RefVector(v::Vector{R}) where {T,R<:Ref{T}}
 
 A vector of references to a field of a vector of structs.
 This is used to efficiently pass the values between scales.
@@ -32,7 +32,7 @@ We can make a RefVector of the field `a` of the structs `st1` and `st2`:
 
 ```jldoctest mylabel
 julia> rv = PlantSimEngine.RefVector(:a, status1, status2)
-2-element PlantSimEngine.RefVector{Float64}:
+2-element PlantSimEngine.RefVector{Float64, Base.RefValue{Float64}}:
  1.0
  2.0
 ```
@@ -41,7 +41,7 @@ Which is equivalent to:
 
 ```jldoctest mylabel
 julia> rv = PlantSimEngine.RefVector(:a, [status1, status2])
-2-element PlantSimEngine.RefVector{Float64}:
+2-element PlantSimEngine.RefVector{Float64, Base.RefValue{Float64}}:
  1.0
  2.0
 ```
@@ -77,7 +77,7 @@ julia> vec = [Ref(1.0), Ref(2.0), Ref(3.0)]
 
 ```jldoctest mylabel
 julia> rv = PlantSimEngine.RefVector(vec)
-3-element PlantSimEngine.RefVector{Float64}:
+3-element PlantSimEngine.RefVector{Float64, Base.RefValue{Float64}}:
  1.0
  2.0
  3.0
@@ -88,9 +88,11 @@ julia> rv[1]
 1.0
 ```
 """
-struct RefVector{T} <: AbstractVector{T}
-    v::Vector{Base.RefValue{T}}
+struct RefVector{T,R<:Ref{T}} <: AbstractVector{T}
+    v::Vector{R}
 end
+
+RefVector{T}(references::Vector{R}) where {T,R<:Ref{T}} = RefVector{T,R}(references)
 
 function Base.getindex(rv::RefVector, i::Int)
     return rv.v[i][]
@@ -102,7 +104,7 @@ end
 
 Base.size(rv::RefVector) = size(rv.v)
 Base.length(rv::RefVector) = length(rv.v)
-Base.eltype(::Type{RefVector{T}}) where {T} = T
+Base.eltype(::Type{<:RefVector{T}}) where {T} = T
 Base.parent(v::RefVector) = v.v
 Base.dataids(v::RefVector) = Base.dataids(parent(v))
 

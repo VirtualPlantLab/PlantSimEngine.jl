@@ -5024,7 +5024,7 @@ function _status_ref_or_nothing(status, var::Symbol)
 end
 
 function _input_carrier(model::CompositeModel, selector::AbstractObjectMultiplicity, source_ids::Vector{ObjectId}, source_var::Symbol)
-    refs = Base.RefValue[]
+    refs = Ref[]
     selector isa Many && sizehint!(refs, length(source_ids) + 1)
     for source_id in source_ids
         object = _model_object(model, source_id)
@@ -5094,7 +5094,7 @@ function _stream_only_initial_carrier(
     source_var::Symbol,
     applications_by_id,
 )
-    references = Base.RefValue[]
+    references = Ref[]
     for source_id in source_ids
         reference = _stream_only_initial_reference(
             model,
@@ -5115,10 +5115,12 @@ end
 
 function _ref_vector_carrier(refs)
     T = typeof(refs[1][])
-    typed_refs = Base.RefValue{T}[]
+    R = typeof(refs[1])
+    R <: Ref{T} || return ObjectRefVector(refs)
+    typed_refs = R[]
     sizehint!(typed_refs, length(refs) + 1)
     for source_ref in refs
-        source_ref isa Base.RefValue{T} || return ObjectRefVector(refs)
+        source_ref isa R || return ObjectRefVector(refs)
         push!(typed_refs, source_ref)
     end
     return RefVector(typed_refs)
@@ -5195,6 +5197,11 @@ function _status_recipe_set_reference!(
     variable::Symbol,
     reference::Ref,
 )
+    # A private-only recipe may acquire a live source cell when compiling a
+    # One binding. Widen the container, retaining each existing cell identity.
+    if recipe.references isa Vector{Base.RefValue} && !(reference isa Base.RefValue)
+        recipe.references = Ref[recipe.references...]
+    end
     position = _status_recipe_position(recipe, variable)
     if iszero(position)
         push!(recipe.names, variable)
@@ -5324,7 +5331,7 @@ function _apply_status_recipes!(
     return model
 end
 
-function _status_with_reference(status::Status, variable::Symbol, reference::Base.RefValue)
+function _status_with_reference(status::Status, variable::Symbol, reference::Ref)
     names = propertynames(status)
     if variable in names
         references = ntuple(
@@ -5572,7 +5579,7 @@ function _model_output_destination_columns(
     declarations = resolved.plan.declarations
     names = Tuple(Symbol.(keys(declarations)))
     columns = map(names) do variable
-        refs = Base.RefValue[
+        refs = Ref[
             refvalue(
                 _model_object(model, destination_id).status,
                 variable,
@@ -5965,7 +5972,7 @@ function _refresh_model_distributed_outputs(
 end
 
 _model_input_status_reference(binding) =
-    binding.carrier isa Base.RefValue ?
+    binding.carrier isa Ref ?
     binding.carrier : Ref(binding.carrier)
 
 function _model_input_status_references(bindings)
@@ -6559,7 +6566,7 @@ input_carrier(binding::CompiledModelInputBinding) = binding.carrier
 has_reference_carrier(binding::CompiledModelInputBinding) = !isnothing(binding.carrier)
 input_value(binding::CompiledModelInputBinding) = _input_value(binding.carrier)
 _input_value(::Nothing) = nothing
-_input_value(carrier::Base.RefValue) = carrier[]
+_input_value(carrier::Ref) = carrier[]
 _input_value(carrier::RefVector) = carrier
 _input_value(carrier::ObjectRefVector) = carrier
 
@@ -7996,7 +8003,7 @@ function _model_binding_carrier_kind(binding::CompiledModelInputBinding)
     binding.carrier_hint == :optional_default && return :optional_default
     carrier = binding.carrier
     isnothing(carrier) && return :unresolved
-    carrier isa Base.RefValue && return :ref
+    carrier isa Ref && return :ref
     carrier isa RefVector && return :ref_vector
     carrier isa ObjectRefVector && return :object_ref_vector
     return :custom

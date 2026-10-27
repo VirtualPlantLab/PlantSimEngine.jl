@@ -238,7 +238,7 @@ struct MTGObjectAccessors{I,S,K,SP,N,G,ST}
     status::ST
 end
 
-struct MTGObjectAdapter{R,I,S,K,SP,N,G,ST}
+struct MTGObjectAdapter{R,I,S,K,SP,N,G,ST,F}
     root::R
     id::I
     scale::S
@@ -247,6 +247,7 @@ struct MTGObjectAdapter{R,I,S,K,SP,N,G,ST}
     name::N
     geometry::G
     status::ST
+    status_factory::F
     max_node_id::Base.RefValue{Int}
     object_ids_by_node::IdDict{Any,ObjectId}
     nodes_by_object_id::Dict{ObjectId,Any}
@@ -711,7 +712,7 @@ projection retains no lifecycle identity index; construct `CompositeModel(root)`
 when later node resolution or organogenesis is required.
 """
 function objects_from_mtg(
-    root::MultiScaleTreeGraph.Node;
+    root::MultiScaleTreeGraph.AbstractMTGNode;
     id=node_id,
     scale=symbol,
     kind=node -> _mtg_attribute(node, :kind, nothing),
@@ -732,7 +733,7 @@ function objects_from_mtg(
     return _objects_from_mtg(root, accessors)
 end
 
-function _objects_from_mtg(root::MultiScaleTreeGraph.Node, accessors::MTGObjectAccessors)
+function _objects_from_mtg(root::MultiScaleTreeGraph.AbstractMTGNode, accessors::MTGObjectAccessors)
     objects = Object[]
     MultiScaleTreeGraph.traverse!(root) do node
         node_parent = parent(node)
@@ -755,7 +756,7 @@ function _objects_from_mtg(root::MultiScaleTreeGraph.Node, accessors::MTGObjectA
     return objects
 end
 
-function _objects_from_mtg(root::MultiScaleTreeGraph.Node, adapter::MTGObjectAdapter)
+function _objects_from_mtg(root::MultiScaleTreeGraph.AbstractMTGNode, adapter::MTGObjectAdapter)
     objects = Object[]
     MultiScaleTreeGraph.traverse!(root) do node
         id = _register_mtg_object_identity!(adapter, node)
@@ -780,15 +781,25 @@ function _objects_from_mtg(root::MultiScaleTreeGraph.Node, adapter::MTGObjectAda
 end
 
 """
-    CompositeModel(root::MultiScaleTreeGraph.Node; applications=(), instances=(),
+    CompositeModel(root::MultiScaleTreeGraph.AbstractMTGNode; applications=(), instances=(),
     environment=nothing, type_promotion=nothing, status_transform=nothing,
     id=node_id, scale=symbol, status=..., ...)
 
 Build a unified model directly from an MTG subtree. The MTG accessors are
 retained and reused by [`add_organ!`](@ref) when the topology grows.
+
+`status_factory=nothing` retains the ordinary private status construction for new
+organs. An explicit factory is called as `(node, adapted_status, initial_status)`
+and must return a fresh `Status` with the canonical `node` field. It may select
+which node attributes are runtime variables and retain custom `Ref` cells, such
+as source-backed MTG attribute references. Selected adapter values must retain
+their value and type unless overridden by `initial_status`; every explicit
+initial variable must be present. The factory affects new organs only: initial
+MTG import still uses `status=`. Factories must not mutate existing model state;
+rollback removes the new node, not arbitrary user callback side effects.
 """
 function CompositeModel(
-    root::MultiScaleTreeGraph.Node;
+    root::MultiScaleTreeGraph.AbstractMTGNode;
     applications=(),
     instances=(),
     environment=nothing,
@@ -799,6 +810,7 @@ function CompositeModel(
     name=node -> _mtg_attribute(node, :name, nothing),
     geometry=node -> _mtg_attribute(node, :geometry, nothing),
     status=_no_mtg_status,
+    status_factory=nothing,
     type_promotion=nothing,
     status_transform=nothing,
 )
@@ -811,6 +823,7 @@ function CompositeModel(
         name,
         geometry,
         status,
+        status_factory,
         Ref(MultiScaleTreeGraph.new_id(root) - 1),
         IdDict{Any,ObjectId}(),
         Dict{ObjectId,Any}(),
@@ -1145,7 +1158,7 @@ function object_id(model::CompositeModel, status::Status)
     return matched_id
 end
 
-function object_id(model::CompositeModel, node::MultiScaleTreeGraph.Node)
+function object_id(model::CompositeModel, node::MultiScaleTreeGraph.AbstractMTGNode)
     adapter = model.source_adapter
     adapter isa MTGObjectAdapter || throw(
         ArgumentError(
@@ -1160,7 +1173,7 @@ object_id(model::CompositeModel, id) =
 
 model_object(
     model::CompositeModel,
-    source::Union{Object,Status,MultiScaleTreeGraph.Node},
+    source::Union{Object,Status,MultiScaleTreeGraph.AbstractMTGNode},
 ) = _model_object(model, object_id(model, source))
 
 """
@@ -1174,7 +1187,7 @@ model registry and is not stored in MTG attributes.
 model_status(model::CompositeModel, source) = model_object(model, source).status
 
 """
-    source_node(model::CompositeModel, source) -> MultiScaleTreeGraph.Node
+    source_node(model::CompositeModel, source) -> MultiScaleTreeGraph.AbstractMTGNode
 
 Return the exact MTG node associated with a registered object identity. This is
 available only for a model constructed from an MTG; copied, foreign, and removed
@@ -1372,6 +1385,97 @@ function _validate_organ_attributes(attributes)
     return attributes
 end
 
+# The opt-in factory deals in references, rather than making every scientific
+# node attribute a separately owned runtime variable. Validate only its selected
+# fields and the explicit overlays; do not materialize a dictionary of all attrs.
+function _organ_factory_keys(values)
+    values === nothing && return ()
+    values isa Union{Status,NamedTuple,AbstractDict,Base.Pairs} || error(
+        "Initial organ status must be a `Status`, `NamedTuple`, `AbstractDict`, " *
+        "`Base.Pairs`, or `nothing`, got `$(typeof(values))`.",
+    )
+    return keys(values)
+end
+
+function _organ_factory_validate_source(values)
+    for key in _organ_factory_keys(values)
+        Symbol(key) == :plantsimengine_status || continue
+        isnothing(values[key]) && continue
+        error(
+            "`plantsimengine_status` is runtime state, not an organ attribute. " *
+            "Pass scientific initial values through `initial_status` and resolve " *
+            "runtime status with `model_status`.",
+        )
+    end
+    return nothing
+end
+
+function _organ_factory_lookup(values, name::Symbol)
+    values === nothing && return false, nothing
+    # Status and NamedTuple schemas already have symbol names. Other supported
+    # containers may use strings, whose normalization matches _status_data!.
+    if values isa Union{Status,NamedTuple}
+        return hasproperty(values, name) ? (true, values[name]) : (false, nothing)
+    end
+    found = false
+    value = nothing
+    for key in _organ_factory_keys(values)
+        Symbol(key) == name || continue
+        found = true
+        value = values[key]
+    end
+    return found, value
+end
+
+function _organ_factory_validate_value(status::Status, name::Symbol, expected)
+    actual = status[name]
+    same = typeof(actual) === typeof(expected) &&
+           (ismutabletype(typeof(expected)) ? actual === expected : isequal(actual, expected))
+    same || throw(ArgumentError(
+        "`status_factory` changed the supplied value or type of organ variable `$(name)`. " *
+        "Preserve adapter values and apply `initial_status` last.",
+    ))
+    return nothing
+end
+
+function _organ_status_from_factory(factory, node, adapted_status, initial_status)
+    attrs = MultiScaleTreeGraph.node_attributes(node)
+    if attrs isa AbstractDict{Symbol}
+        reserved = get(attrs, :plantsimengine_status, nothing)
+        isnothing(reserved) || _organ_factory_validate_source(attrs)
+    else
+        _organ_factory_validate_source(attrs)
+    end
+    _organ_factory_validate_source(adapted_status)
+    _organ_factory_validate_source(initial_status)
+    status = factory(node, adapted_status, initial_status)
+    status isa Status || throw(ArgumentError(
+        "`status_factory(node, adapted_status, initial_status)` must return a fresh `Status`.",
+    ))
+    hasproperty(status, :plantsimengine_status) && throw(ArgumentError(
+        "`status_factory` must not expose the reserved `plantsimengine_status` field.",
+    ))
+    hasproperty(status, :node) && status.node === node || throw(ArgumentError(
+        "`status_factory` must return a Status whose `node` is the newly created MTG node.",
+    ))
+    for name in keys(status)
+        name === :node && continue
+        found, expected = _organ_factory_lookup(initial_status, name)
+        if !found
+            found, expected = _organ_factory_lookup(adapted_status, name)
+        end
+        found && _organ_factory_validate_value(status, name, expected)
+    end
+    for key in _organ_factory_keys(initial_status)
+        name = Symbol(key)
+        name in (:node, :plantsimengine_status) && continue
+        hasproperty(status, name) || throw(ArgumentError(
+            "`status_factory` omitted explicit initial organ variable `$(name)`.",
+        ))
+    end
+    return status
+end
+
 function _organ_status(
     adapter::MTGObjectAdapter,
     node,
@@ -1381,6 +1485,11 @@ function _organ_status(
     # Keep this call before reading node attributes: a status accessor may
     # initialize attributes that must participate in the merged status.
     adapted_status = use_status_adapter ? adapter.status(node) : nothing
+    if !isnothing(adapter.status_factory)
+        return _organ_status_from_factory(
+            adapter.status_factory, node, adapted_status, initial_status,
+        )
+    end
     data = Dict{Symbol,Any}()
     _status_data!(data, MultiScaleTreeGraph.node_attributes(node))
     _status_data!(data, adapted_status)
@@ -1405,13 +1514,17 @@ initializer supplied when it was constructed, then overlays `initial_status`.
 Set `use_status_adapter=false` only when the caller guarantees that the new
 node's attributes and `initial_status` completely define its initial status.
 In that mode the configured MTG status accessor is not called for the new
-node. The `node` status field is always forced to the newly created node.
+node. The `node` status field is always forced to the newly created node in the default
+policy. A model configured with `status_factory` delegates reference construction
+to that factory and validates that its `node` field is canonical. Normal status
+conversion and ownership checks still apply during registration; a configured
+conversion may replace a reference whose value needs conversion.
 
 This is the public growth API. [`register_object!`](@ref) remains the low-level
 registry operation for callers that already own a fully initialized `Object`.
 """
 function add_organ!(
-    parent_node::MultiScaleTreeGraph.Node,
+    parent_node::MultiScaleTreeGraph.AbstractMTGNode,
     runtime,
     link,
     organ_symbol,
@@ -1454,9 +1567,9 @@ function add_organ!(
         explicit_id
     end
 
-    node = MultiScaleTreeGraph.Node(
-        node_id,
+    node = MultiScaleTreeGraph.add_node!(
         parent_node,
+        node_id,
         MultiScaleTreeGraph.NodeMTG(
             Symbol(link),
             Symbol(organ_symbol),
