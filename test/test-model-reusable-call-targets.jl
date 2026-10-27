@@ -3,6 +3,7 @@ module ReusableCallTargetChecks
 using Dates, PlantSimEngine, Test
 
 const PSE = PlantSimEngine
+const LEAF_DEFAULT_COEFFICIENTS = [1.0, 2.0]
 PSE.@process "reusable_target_owner_probe" verbose=false
 PSE.@process "reusable_target_leaf_probe" verbose=false
 PSE.@process "reusable_target_middle_probe" verbose=false
@@ -20,7 +21,7 @@ end
 struct Leaf <: AbstractReusable_Target_Leaf_ProbeModel end
 struct AlternateLeaf <: AbstractReusable_Target_Leaf_ProbeModel end
 PSE.inputs_(::AbstractReusable_Target_Leaf_ProbeModel) = (
-    driver=Default(0.0), coefficients=Default([1.0, 2.0]),
+    driver=Default(0.0), coefficients=Default(LEAF_DEFAULT_COEFFICIENTS),
 )
 PSE.outputs_(::AbstractReusable_Target_Leaf_ProbeModel) = (seen=0.0, calls=0)
 PSE.environment_inputs_(::AbstractReusable_Target_Leaf_ProbeModel) = (T=0.0,)
@@ -56,6 +57,7 @@ function scene(::Type{S}=Float64; heterogeneous=false, empty=false) where {S}
         ModelSpec(Leaf(); name=:leaf_a, on=One(id=:leaf_a), inputs=leaf_input),
         ModelSpec(AlternateLeaf(); name=:leaf_b, on=One(id=:leaf_b), inputs=leaf_input),
     ) : (ModelSpec(Leaf(); name=:leaves, on=Many(scale=:Leaf), inputs=leaf_input),)
+    leaf_application = heterogeneous ? :leaf_a : :leaves
     objects = Object[Object(:owner; scale=:Scene),
         Object(:middle; scale=:Plant, parent=:owner)]
     if !empty
@@ -65,7 +67,7 @@ function scene(::Type{S}=Float64; heterogeneous=false, empty=false) where {S}
     model = CompositeModel(objects...; applications=(
         ModelSpec(CaptureOwner(capture); name=:owner, on=One(id=:owner), calls=(
             leaves=Many(scale=:Leaf, within=SceneScope(), process=:reusable_target_leaf_probe),
-            first=OptionalOne(id=:leaf_a, within=SceneScope(), process=:reusable_target_leaf_probe),
+            first=OptionalOne(id=:leaf_a, within=SceneScope(), application=leaf_application),
             empty=Many(id=:newborn, within=SceneScope(), process=:reusable_target_leaf_probe),
             middle=One(id=:middle, within=SceneScope(), application=:middle),)),
         ModelSpec(BorrowingMiddle(child_capture); name=:middle, on=One(id=:middle),
@@ -108,6 +110,7 @@ rows(simulation, object=:leaf_a) = sort!(
                 @test PSE.refvalue(target.status, :driver) ===
                     PSE.refvalue(model_status(fixture.model, :owner), :shared_driver)
                 @test eltype(target.status.coefficients) === S
+                @test target.status.coefficients !== LEAF_DEFAULT_COEFFICIENTS
             end
             :callback_result
         end
@@ -138,6 +141,7 @@ rows(simulation, object=:leaf_a) = sort!(
             @test length(targets) == 1
             @test only(targets).object_id == ObjectId(:leaf_a)
         end
+        @test LEAF_DEFAULT_COEFFICIENTS == [1.0, 2.0]
     end
 end
 
@@ -337,7 +341,19 @@ end
         reparent_object!(fixture.model, :newborn, :owner)
         step!(simulation)
         with_call_targets(fixture.capture[], :empty) do targets
-            @test only(targets).status === first_status
+            current = only(targets).status
+            canonical = model_status(fixture.model, :newborn)
+            fresh = only(collect(call_targets(fixture.capture[], :empty)))
+            @test current === fresh.status
+            @test PSE.refvalue(current, :seen) === PSE.refvalue(canonical, :seen)
+            @test PSE.refvalue(current, :coefficients) === PSE.refvalue(canonical, :coefficients)
+            @test current.seen === first_status.seen
+            @test current.coefficients == first_status.coefficients
+            @test PSE.refvalue(current, :driver) ===
+                PSE.refvalue(model_status(fixture.model, :owner), :shared_driver)
+            run_call!(only(targets); sampled_environment=(T=31.0,))
+            @test current.seen === S(46.5)
+            @test canonical.seen === current.seen
         end
         middle = only(call_targets(fixture.capture[], :middle))
         run_call!(middle; publish=false)
