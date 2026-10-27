@@ -112,9 +112,15 @@ jobs:
           DOWNSTREAM_PACKAGE: ${{ matrix.package.name }}
         shell: julia --threads 4 --color=yes --project=downstream --depwarn=yes {0}
         run: |
-          using Pkg
+          using Pkg, TOML
 
           Pkg.develop(PackageSpec(path=joinpath(pwd(), ".ci-deps", "MultiScaleTreeGraph")))
+          # Developing the transitive pin makes it a temporary direct dependency.
+          # Keep downstream Aqua checks valid without replacing existing bounds.
+          project = TOML.parsefile(Base.active_project())
+          if !haskey(get(project, "compat", Dict{String,Any}()), "MultiScaleTreeGraph")
+              Pkg.compat("MultiScaleTreeGraph", "0.16")
+          end
           Pkg.resolve()
 
           function assert_path_dependency(name, uuid, expected_path)
