@@ -104,3 +104,23 @@ of work to each child evaluation on both paths.
 Report microbenchmark results separately. Replay elimination may change the
 numerical algorithm when kernels have stateful effects; this fixture's leaf
 equation is intentionally deterministic and overwrites its output.
+
+## Optional CPU attribution after timing
+
+After every unprofiled comparison has finished, load `profile.jl` in the
+candidate session and run:
+
+```julia
+include("/path/to/candidate/benchmark/downstream_maespa/profile.jl")
+MAESPADownstreamProfile.run_profile("candidate", "/tmp/results/candidate/profile")
+```
+
+The default prepares eight initialized simulations outside sampling, warms the
+empty wrapper, and profiles only their 96-step continuations. Raw addresses and
+frame dictionaries are serialized before compact TOML attribution is written.
+Only stacks containing `_profile_steps!` are retained for attribution. Package
+ownership uses the loaded packages' absolute directories; it does not depend
+on a checkout directory containing the package name. Compiler and GC detection
+matches the earlier local baseline protocol. Inclusive sites overlap and the
+profiled wall time is not an unprofiled performance result. All simulations
+receive the same final smoke checks after sampling.

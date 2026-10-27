@@ -165,6 +165,69 @@ end
     @test EA.sample_environment(backend, nothing, 2.0, spec) === backend.snapshot[]
 end
 
+mutable struct MutablePreparedRow{F}
+    T::F
+    clock_index::F
+end
+PSE.@process "prepared_environment_shared_identity_probe" verbose=false
+struct SharedIdentityProbe{R} <: AbstractPrepared_Environment_Shared_Identity_ProbeModel
+    shared_row::R
+end
+PSE.outputs_(model::SharedIdentityProbe) = (
+    seen=zero(model.shared_row.T), seen_time=zero(model.shared_row.clock_index), shared_identity=false,
+)
+PSE.environment_inputs_(model::SharedIdentityProbe) = (
+    T=zero(model.shared_row.T), clock_index=zero(model.shared_row.clock_index),
+)
+function PSE.run!(model::SharedIdentityProbe, status, environment, constants, context)
+    status.shared_identity = environment === model.shared_row
+    status.seen = environment.T
+    status.seen_time = environment.clock_index
+    return nothing
+end
+
+function changing_shared_row_sum(backend, inputs, count)
+    row = backend.snapshot[]
+    total = zero(row.T)
+    for _ in 1:count
+        row.T += one(row.T)
+        total += EA.sample_environment(backend, nothing, 1.0, inputs).T
+    end
+    return total
+end
+
+@testset "Two leaves share one mutable model-facing environment object" begin
+    row = MutablePreparedRow(12.0, 1.0)
+    backend = SharedPreparedSnapshotBackend(Ref(row), Ref(0))
+    spec = ModelSpec(SharedIdentityProbe(row); name=:shared, on=Many(scale=:Leaf),
+        environment=Environment(sources=(T=:source_temperature,)))
+    model = CompositeModel(Object(:shared_a; scale=:Leaf), Object(:shared_b; scale=:Leaf);
+        applications=(spec,), environment=backend)
+    simulation = run!(model; steps=1, performance=true)
+    for id in (:shared_a, :shared_b)
+        status = model_status(model, id)
+        @test status.shared_identity
+        @test (status.seen, status.seen_time) == (12.0, 1.0)
+    end
+    before = PSE.Advanced.runtime_performance(simulation).counts
+    row.T = 23.0
+    row.clock_index = 2.0
+    step!(simulation)
+    @test backend.snapshot[] === row
+    for id in (:shared_a, :shared_b)
+        status = model_status(model, id)
+        @test status.shared_identity
+        @test (status.seen, status.seen_time) == (23.0, 2.0)
+    end
+    after = PSE.Advanced.runtime_performance(simulation).counts
+    @test get(after, :lifecycle_barriers, 0) == 0
+    @test after[:initial_environment_bindings_constructed] == before[:initial_environment_bindings_constructed]
+    inputs = PSE.PreparedEnvironmentInputs(spec)
+    changing_shared_row_sum(backend, inputs, 4)
+    @test @allocated(changing_shared_row_sum(backend, inputs, 1_000)) == 0
+    @test EA.sample_environment(backend, nothing, 2.0, inputs) === row
+end
+
 @testset "Prepared global sampling preserves raw rows and duration remapping" begin
     row = (source_temperature=18.0, clock_index=1.0, duration=Hour(1), alternate_duration=Hour(2))
     backend = EA.GlobalConstant(row)

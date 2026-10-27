@@ -525,4 +525,39 @@ end
     @test after <= before + 256
 end
 
+function repeated_evaluate_accept!(context, count)
+    for _ in 1:count
+        accept_call!(evaluate_call!(context, :leaf; sampled_environment=(T=30.0,)))
+    end
+    return nothing
+end
+
+function evaluation_accept_allocations(context, count)
+    return @allocated repeated_evaluate_accept!(context, count)
+end
+
+@testset "warmed evaluate and accept reuse their publication workspace" begin
+    capture = Ref{Any}()
+    model = CompositeModel(
+        Object(:owner; scale=:Scene), Object(:leaf; scale=:Leaf, parent=:owner);
+        applications=(
+            ModelSpec(CaptureOwner(capture); name=:owner, on=One(id=:owner),
+                calls=(leaf=One(id=:leaf, within=Subtree(), application=:leaf),)),
+            ModelSpec(CountingLeaf(); name=:leaf, on=One(id=:leaf)),
+        ), environment=(T=10.0, duration=Hour(1)))
+    run!(model; steps=1, outputs=:none)
+    context = capture[]
+    # Pass the small UInt boxing cache before measuring reused execution
+    # revisions and frame generations, and compile the measurement helper.
+    repeated_evaluate_accept!(context, 2304)
+    evaluation_accept_allocations(context, 1)
+    calls_before = model_status(model, :leaf).calls
+    allocated_bytes = evaluation_accept_allocations(context, 100)
+    @test model_status(model, :leaf).calls == calls_before + 100
+    @test model_status(model, :leaf).seen == 30.0
+    # Keep a portable Julia 1.10 allowance while detecting publication-frame
+    # storage that is reallocated on every evaluation rather than reused.
+    @test allocated_bytes <= 100 * 256
+end
+
 end # module CallEvaluationChecks

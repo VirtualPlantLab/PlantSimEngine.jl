@@ -6486,8 +6486,16 @@ end
 end
 
 @inline function _record_call_execution!(cache)
+    return _record_call_execution!(cache, _active_call_evaluation())
+end
+
+@inline function _record_call_execution!(cache, ::Nothing)
     cache.execution_revision += UInt64(1)
-    frame = _active_call_evaluation()
+    return nothing
+end
+
+@inline function _record_call_execution!(cache, frame::CallEvaluationFrame)
+    cache.execution_revision += UInt64(1)
     ancestor = frame
     while ancestor !== nothing
         ancestor.executions[cache] = cache.execution_revision
@@ -6496,7 +6504,21 @@ end
     return frame
 end
 
-@inline function _run_call_kernel!(model, status, environment, context, output_bindings, frame)
+@inline function _run_call_kernel!(model, status, environment, context, output_bindings)
+    run!(model, status, environment, context.constants, context)
+    if context.publication_allowed
+        isempty(output_bindings) ||
+            _model_publish_runtime_outputs!(output_bindings, context.time)
+        _record_model_call_publication!(
+            context.output_retention, context.application.id, context.time,
+        )
+    end
+    return nothing
+end
+
+@inline function _run_evaluated_call_kernel!(
+    model, status, environment, context, output_bindings, frame::CallEvaluationFrame,
+)
     run!(model, status, environment, context.constants, context)
     if context.publication_allowed
         _publish_evaluated_call!(frame, output_bindings, context)
@@ -6538,9 +6560,15 @@ end
             target.output_targets, target.temporal_streams, target.output_retention,
             target.time, target.constants, publication_allowed, environment,
         )
-        _run_call_kernel!(
-            target.model, status, environment_value, context, target.output_bindings, frame,
-        )
+        if frame === nothing
+            _run_call_kernel!(
+                target.model, status, environment_value, context, target.output_bindings,
+            )
+        else
+            _run_evaluated_call_kernel!(
+                target.model, status, environment_value, context, target.output_bindings, frame,
+            )
+        end
     finally
         acquired && (cache.in_use = false)
     end
@@ -6619,9 +6647,10 @@ end
     publish::Bool,
     sampled_environment,
     environment,
+    frame,
 )
     cache = target.call_context_cache
-    frame = _record_call_execution!(cache)
+    _record_call_execution!(cache, frame)
     status = _materialize_model_inputs!(
         target.status,
         target.input_bindings,
@@ -6661,9 +6690,15 @@ end
                 targets.constants, publication_allowed, environment,
             )
         end
-        _run_call_kernel!(
-            target.model, status, environment_value, context, target.output_bindings, frame,
-        )
+        if frame === nothing
+            _run_call_kernel!(
+                target.model, status, environment_value, context, target.output_bindings,
+            )
+        else
+            _run_evaluated_call_kernel!(
+                target.model, status, environment_value, context, target.output_bindings, frame,
+            )
+        end
     finally
         acquired && (cache.in_use = false)
     end
@@ -6676,6 +6711,7 @@ end
     publish::Bool,
     sampled_environment,
     environment,
+    frame,
 )
     for target in batch.targets
         _run_compiled_call_target!(
@@ -6685,6 +6721,7 @@ end
             publish,
             sampled_environment,
             environment,
+            frame,
         )
     end
     return nothing
@@ -6696,6 +6733,7 @@ end
     publish::Bool,
     sampled_environment,
     environment,
+    frame,
 ) = nothing
 
 @inline function _run_compiled_call_batches!(
@@ -6704,6 +6742,7 @@ end
     publish::Bool,
     sampled_environment,
     environment,
+    frame,
 )
     _run_compiled_call_batch!(
         targets,
@@ -6711,6 +6750,7 @@ end
         publish,
         sampled_environment,
         environment,
+        frame,
     )
     _run_compiled_call_batches!(
         targets,
@@ -6718,6 +6758,7 @@ end
         publish,
         sampled_environment,
         environment,
+        frame,
     )
     return nothing
 end
@@ -6728,12 +6769,16 @@ function _run_call_targets!(
     sampled_environment,
     environment,
 )
+    # Read task-local evaluation state once for the complete homogeneous batch,
+    # rather than repeating the lookup at every target and publication clock.
+    frame = _active_call_evaluation()
     _run_compiled_call_batches!(
         targets,
         _materialize_call_execution_batches!(targets),
         publish,
         sampled_environment,
         environment,
+        frame,
     )
     if publish && targets.publication_allowed
         # The declared call completed even when its Many selection was empty.
@@ -6741,6 +6786,7 @@ function _run_call_targets!(
         # the accepted call from objects created or removed around that call.
         for application_id in targets.binding.potential_callee_application_ids
             _record_evaluated_call_clock!(
+                frame,
                 targets.output_retention,
                 application_id,
                 targets.time,

@@ -1025,8 +1025,9 @@ function _compiled_source_run_call_target!(
     publish::Bool,
     sampled_environment,
     environment,
+    frame,
 )
-    frame = _record_call_execution!(target.call_context_cache)
+    _record_call_execution!(target.call_context_cache, frame)
     status = _materialize_model_inputs!(
         target.status,
         target.input_bindings,
@@ -1101,6 +1102,7 @@ function _compiled_source_run_call!(
     selected_environment = environment isa NoEnvironmentOverride ?
                            context.environment :
                            environment
+    frame = _active_call_evaluation()
     for batch in targets.execution_batches
         for target in batch.targets
             _compiled_source_run_call_target!(
@@ -1111,6 +1113,7 @@ function _compiled_source_run_call!(
                 publish,
                 sampled_environment,
                 selected_environment,
+                frame,
             )
         end
     end
@@ -1118,7 +1121,7 @@ function _compiled_source_run_call!(
         # Match ordinary calls, including an accepted empty Many selection.
         for application_id in targets.binding.potential_callee_application_ids
             _record_evaluated_call_clock!(
-                targets.output_retention, application_id, targets.time,
+                frame, targets.output_retention, application_id, targets.time,
             )
         end
     end

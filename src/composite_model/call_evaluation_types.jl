@@ -22,7 +22,7 @@ end
 
 mutable struct CallEvaluationFrame
     events::Vector{AbstractCallPublicationEvent}
-    executions::IdDict{Any,UInt64}
+    executions::Dict{Any,UInt64}
     generation::UInt64
     pending::Bool
     in_use::Bool
@@ -42,7 +42,9 @@ mutable struct CallEvaluationFrame
 end
 
 CallEvaluationFrame() = CallEvaluationFrame(
-    AbstractCallPublicationEvent[], IdDict{Any,UInt64}(), UInt64(0), false,
+    # Cache keys are mutable objects with identity equality. Dict keeps its
+    # storage when emptied and stores revision values without boxing.
+    AbstractCallPublicationEvent[], Dict{Any,UInt64}(), UInt64(0), false,
     false, current_task(), nothing, 0, 0, 0, nothing, UInt64(0), (false, false), UInt64(0),
     0.0, nothing, UInt64(0), false,
 )
@@ -65,5 +67,5 @@ const _CALL_EVALUATION_TLS_KEY = :PlantSimEngine_call_evaluation
 @inline function _active_call_evaluation()
     storage = current_task().storage
     return (storage === nothing ? nothing :
-        get(storage, _CALL_EVALUATION_TLS_KEY, nothing))::Union{Nothing,CallEvaluationFrame}
+        get(storage::IdDict{Any,Any}, _CALL_EVALUATION_TLS_KEY, nothing))::Union{Nothing,CallEvaluationFrame}
 end

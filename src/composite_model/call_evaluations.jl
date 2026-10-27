@@ -22,7 +22,7 @@ function _publish_evaluated_call!(frame::CallEvaluationFrame, outputs, context)
     for output in outputs
         _capture_call_output!(frame, output, context.time)
     end
-    _record_evaluated_call_clock!(context.output_retention, context.application.id, context.time)
+    _record_evaluated_call_clock!(frame, context.output_retention, context.application.id, context.time)
     return nothing
 end
 
@@ -49,10 +49,16 @@ end
 end
 
 @inline function _record_evaluated_call_clock!(plan, application, time)
-    frame = _active_call_evaluation()
-    if frame === nothing
-        _record_model_call_publication!(plan, application, time)
-    elseif plan isa OutputRetentionPlan && haskey(plan.accepted_call_times, application)
+    return _record_evaluated_call_clock!(_active_call_evaluation(), plan, application, time)
+end
+
+@inline function _record_evaluated_call_clock!(::Nothing, plan, application, time)
+    _record_model_call_publication!(plan, application, time)
+    return nothing
+end
+
+@inline function _record_evaluated_call_clock!(frame::CallEvaluationFrame, plan, application, time)
+    if plan isa OutputRetentionPlan && haskey(plan.accepted_call_times, application)
         push!(frame.events, CapturedCallClock(plan, application, time))
     end
     return nothing
@@ -127,8 +133,7 @@ function _begin_call_evaluation!(frame, compiled, time, permission)
 end
 
 function _with_call_evaluation(f, frame)
-    storage = task_local_storage()
-    present = haskey(storage, _CALL_EVALUATION_TLS_KEY)
+    storage = task_local_storage()::IdDict{Any,Any}
     previous = get(storage, _CALL_EVALUATION_TLS_KEY, nothing)
     storage[_CALL_EVALUATION_TLS_KEY] = frame
     try
@@ -141,11 +146,9 @@ function _with_call_evaluation(f, frame)
         rethrow()
     finally
         frame.in_use = false
-        if present
-            storage[_CALL_EVALUATION_TLS_KEY] = previous
-        else
-            delete!(storage, _CALL_EVALUATION_TLS_KEY)
-        end
+        # Keep this private slot prepared. Repeated deletion makes IdDict
+        # periodically allocate a replacement table; `nothing` is inactive.
+        storage[_CALL_EVALUATION_TLS_KEY] = previous
     end
 end
 
@@ -219,21 +222,30 @@ end
 
 call_targets(evaluation::CallEvaluation) = evaluation.targets
 
+@noinline function _validate_call_model_state(frame, compiled::CompiledCompositeModel)
+    model = compiled.model
+    delta = lifecycle_delta(model)
+    model.revision == frame.model_revision && model.runtime_revision == frame.runtime_revision &&
+        model.environment_revision == frame.environment_revision &&
+        delta === frame.lifecycle_delta &&
+        delta.mutation_generation == frame.lifecycle_generation &&
+        compiled.execution_generation == frame.execution_generation &&
+        (model.bindings_dirty, model.environment_bindings_dirty) == frame.binding_flags ||
+        throw(ArgumentError("Call evaluation is stale after a simulation, model or binding change."))
+    return nothing
+end
+
+@noinline _call_execution_matches(cache::CallContextCache, executions::Dict{Any,UInt64}) =
+    cache.execution_revision == executions[cache]
+
 function _validate_call_evaluation(evaluation::CallEvaluation)
     frame = evaluation.frame
     frame.task === current_task() || throw(ArgumentError("Accept a call evaluation on its originating task."))
     frame.pending && frame.generation == evaluation.generation ||
         throw(ArgumentError("Call evaluation is stale or has already been accepted."))
-    model = frame.compiled.model
-    model.revision == frame.model_revision && model.runtime_revision == frame.runtime_revision &&
-        model.environment_revision == frame.environment_revision &&
-        lifecycle_delta(model) === frame.lifecycle_delta &&
-        frame.lifecycle_delta.mutation_generation == frame.lifecycle_generation &&
-        frame.compiled.execution_generation == frame.execution_generation &&
-        (model.bindings_dirty, model.environment_bindings_dirty) == frame.binding_flags ||
-        throw(ArgumentError("Call evaluation is stale after a simulation, model or binding change."))
-    for (cache, revision) in frame.executions
-        cache.execution_revision == revision ||
+    _validate_call_model_state(frame, frame.compiled)
+    for cache in keys(frame.executions)
+        _call_execution_matches(cache, frame.executions) ||
             throw(ArgumentError("Call evaluation is stale after another execution of its targets."))
     end
     frame.parent === _active_call_evaluation() ||
