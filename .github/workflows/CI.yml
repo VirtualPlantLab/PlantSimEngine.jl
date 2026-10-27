@@ -11,6 +11,10 @@ concurrency:
   # Cancel intermediate builds: only if it is a pull request build.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+# Temporary stacked-PR dependency. Remove this pin and raise MTG compat after
+# the release exporting AbstractMTGNode, add_node! and attribute_ref.
+env:
+  PSE_STACKED_MTG_REV: a2c7b58b9b073c7ecc7191f6f9344135c3831a0d
 jobs:
   test:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}
@@ -37,6 +41,17 @@ jobs:
         with:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v3
+      - name: Check out the stacked MTG dependency
+        uses: actions/checkout@v7
+        with:
+          repository: VEZY/MultiScaleTreeGraph.jl
+          ref: ${{ env.PSE_STACKED_MTG_REV }}
+          path: .ci-deps/MultiScaleTreeGraph
+      - name: Configure the stacked MTG dependency
+        shell: julia --project=. --color=yes {0}
+        run: |
+          using Pkg
+          Pkg.develop(PackageSpec(path=joinpath(pwd(), ".ci-deps", "MultiScaleTreeGraph")))
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         env:
@@ -58,11 +73,25 @@ jobs:
         with:
           version: "1"
       - uses: julia-actions/cache@v3
+      - name: Check out the stacked MTG dependency
+        uses: actions/checkout@v7
+        with:
+          repository: VEZY/MultiScaleTreeGraph.jl
+          ref: ${{ env.PSE_STACKED_MTG_REV }}
+          path: .ci-deps/MultiScaleTreeGraph
+      - name: Configure the root stacked MTG dependency
+        shell: julia --project=. --color=yes {0}
+        run: |
+          using Pkg
+          Pkg.develop(PackageSpec(path=joinpath(pwd(), ".ci-deps", "MultiScaleTreeGraph")))
       - name: Configure doc environment
         shell: julia --project=docs --color=yes {0}
         run: |
           using Pkg
-          Pkg.develop(PackageSpec(path=pwd()))
+          Pkg.develop([
+              PackageSpec(path=pwd()),
+              PackageSpec(path=joinpath(pwd(), ".ci-deps", "MultiScaleTreeGraph")),
+          ])
           Pkg.instantiate()
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-docdeploy@v1
@@ -89,11 +118,20 @@ jobs:
         with:
           version: "1"
       - uses: julia-actions/cache@v3
+      - name: Check out the stacked MTG dependency
+        uses: actions/checkout@v7
+        with:
+          repository: VEZY/MultiScaleTreeGraph.jl
+          ref: ${{ env.PSE_STACKED_MTG_REV }}
+          path: .ci-deps/MultiScaleTreeGraph
       - name: Configure test environment
         shell: julia --project=test --color=yes {0}
         run: |
           using Pkg
-          Pkg.develop(PackageSpec(path=pwd()))
+          Pkg.develop([
+              PackageSpec(path=pwd()),
+              PackageSpec(path=joinpath(pwd(), ".ci-deps", "MultiScaleTreeGraph")),
+          ])
           Pkg.instantiate()
       - uses: actions/setup-node@v7
         with:

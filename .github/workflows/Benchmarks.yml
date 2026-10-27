@@ -12,9 +12,14 @@ on:
 permissions:
   pull-requests: write
   contents: read
+# Temporary stacked-PR dependency; remove and raise MTG compat after release.
+env:
+  PSE_STACKED_MTG_REV: a2c7b58b9b073c7ecc7191f6f9344135c3831a0d
 jobs:
   bench:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.full_performance }}
+    # ASV resolves isolated revision environments and cannot inherit a local
+    # dependency checkout. Defer only this stacked branch until MTG is released.
+    if: ${{ (github.event_name != 'workflow_dispatch' || !inputs.full_performance) && github.head_ref != 'codex/source-backed-organ-status' && github.ref_name != 'codex/source-backed-organ-status' }}
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{
       github.event_name }}
     runs-on: ${{ matrix.os }}
@@ -62,6 +67,13 @@ jobs:
           ref: master
           path: downstream/PlantBiophysics
 
+      - name: Check out the stacked MTG dependency
+        uses: actions/checkout@v7
+        with:
+          repository: VEZY/MultiScaleTreeGraph.jl
+          ref: ${{ env.PSE_STACKED_MTG_REV }}
+          path: .ci-deps/MultiScaleTreeGraph
+
       - name: Set up Julia
         uses: julia-actions/setup-julia@v3
         with:
@@ -81,6 +93,7 @@ jobs:
           Pkg.activate(joinpath(pwd(), "benchmark"))
           Pkg.develop([
               PackageSpec(path=pwd()),
+              PackageSpec(path=joinpath(pwd(), ".ci-deps", "MultiScaleTreeGraph")),
               PackageSpec(path=joinpath(pwd(), "downstream", "PlantBiophysics")),
           ])
           Pkg.resolve()

@@ -49,6 +49,10 @@ on:
 permissions:
   contents: read
 
+# Temporary stacked-PR dependency; remove and raise MTG compat after release.
+env:
+  PSE_STACKED_MTG_REV: a2c7b58b9b073c7ecc7191f6f9344135c3831a0d
+
 concurrency:
   group: full-downstream-performance-${{ github.ref }}
   cancel-in-progress: false
@@ -77,6 +81,13 @@ jobs:
           repository: PalmStudio/XPalm.jl
           ref: ${{ inputs.xpalm_ref || 'main' }}
           path: downstream/XPalm
+
+      - name: Check out the stacked MTG dependency
+        uses: actions/checkout@v7
+        with:
+          repository: VEZY/MultiScaleTreeGraph.jl
+          ref: ${{ env.PSE_STACKED_MTG_REV }}
+          path: .ci-deps/MultiScaleTreeGraph
 
       - name: Check out PlantBiophysics
         uses: actions/checkout@v7
@@ -111,6 +122,7 @@ jobs:
           Pkg.activate(joinpath(pwd(), "benchmark"))
           Pkg.develop([
               PackageSpec(path=pwd()),
+              PackageSpec(path=joinpath(pwd(), ".ci-deps", "MultiScaleTreeGraph")),
               PackageSpec(path=joinpath(pwd(), "downstream", "XPalm")),
               PackageSpec(path=joinpath(pwd(), "downstream", "PlantBiophysics")),
               PackageSpec(path=joinpath(pwd(), "downstream", "PlantGeom")),
