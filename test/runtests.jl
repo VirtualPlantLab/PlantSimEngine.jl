@@ -53,6 +53,10 @@ else
         include("test-selector-candidate-empty-scope.jl")
     end
 
+    @testset "Lifecycle without target additions" begin
+        include("test-model-lifecycle-empty-targets.jl")
+    end
+
     @testset "Public model authoring API" begin
         include("test-authoring-api.jl")
     end
