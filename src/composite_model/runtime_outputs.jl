@@ -502,6 +502,11 @@ struct CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
     environment::E
 end
 
+# Bind the existential variables once, rather than constructing fresh
+# TypeVar/UnionAll objects while checking each singular target view.
+const _SingleCallTargetView{T,CS,EB,A,TS,OR,C} =
+    CallTarget{T,CS,EB,A,CT,TS,OR,C,E} where {CT,E}
+
 @inline function Base.getproperty(target::CallTarget, name::Symbol)
     name === :model && return getfield(getfield(target, :execution_target), :model)
     name === :status && return getfield(getfield(target, :execution_target), :status)
@@ -601,6 +606,21 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C,BT} <: AbstractVector{CallTarget}
     execution_batches::BT
     evaluation::Union{Nothing,CallEvaluationFrame}
     target_buffer_cache::Union{Nothing,_CallTargetBufferCache}
+    # One immutable singular snapshot; numerical state remains in its owner.
+    last_single_snapshot::Any
+end
+
+@inline function _invalidate_single_call_snapshot!(
+    targets::CallTargets,
+    compiled,
+    environment_bindings,
+)
+    if targets.last_single_snapshot !== nothing &&
+       (targets.compiled !== compiled ||
+        targets.environment_bindings !== environment_bindings)
+        targets.last_single_snapshot = nothing
+    end
+    return nothing
 end
 
 Base.@nospecializeinfer function CallTargets(
@@ -651,6 +671,7 @@ Base.@nospecializeinfer function CallTargets(
         publication_allowed,
         environment,
         execution_batches,
+        nothing,
         nothing,
         nothing,
     )
@@ -730,6 +751,9 @@ function _synchronize_tracked_call_targets!(targets::CallTargets)
         current_compiled = targets.compiled
         current_environment_bindings = targets.environment_bindings
     end
+    _invalidate_single_call_snapshot!(
+        targets, current_compiled, current_environment_bindings,
+    )
     if current_compiled !== targets.compiled
         current_binding = _current_call_binding_for_retained_view(
             current_compiled,
@@ -790,6 +814,7 @@ function _record_call_execution_batch_cache!(
     targets::CallTargets,
     batches,
 )
+    targets.last_single_snapshot = nothing
     cached.batches = if cached.tracks_full_membership
         _TrackedCallExecutionBatchCache(
             batches,
@@ -810,6 +835,7 @@ function _record_extended_call_execution_batch_cache!(
     environment_bindings::CompiledEnvironmentBindings,
     binding::CompiledModelCallBinding,
 )
+    targets.last_single_snapshot = nothing
     cached = targets.execution_batches
     cached isa LazyCallExecutionBatches || return targets
     cached.tracks_full_membership || return targets
@@ -940,6 +966,7 @@ end
     environment,
 )
     targets = first(calls)
+    _invalidate_single_call_snapshot!(targets, compiled, environment_bindings)
     targets.compiled = compiled
     targets.environment_bindings = environment_bindings
     targets.temporal_streams = temporal_streams
@@ -5703,6 +5730,75 @@ end
     return with_call_targets(f, call_targets(context, name))
 end
 
+@noinline function _single_call_snapshot_matches(
+    snapshot::CallTarget,
+    targets::CallTargets,
+    application,
+    target::CompiledExecutionTarget,
+    context::RunContext,
+)
+    return getfield(snapshot, :execution_target) === target &&
+           getfield(snapshot, :compiled) === targets.compiled &&
+           getfield(snapshot, :environment_bindings) === targets.environment_bindings &&
+           getfield(snapshot, :application) === application &&
+           getfield(snapshot, :object_id) === target.object_id &&
+           getfield(snapshot, :calls) === context.calls &&
+           getfield(snapshot, :temporal_streams) === targets.temporal_streams &&
+           getfield(snapshot, :output_retention) === targets.output_retention &&
+           getfield(snapshot, :time) === targets.time &&
+           getfield(snapshot, :constants) === targets.constants &&
+           getfield(snapshot, :publication_allowed) === targets.publication_allowed &&
+           getfield(snapshot, :environment) === targets.environment
+end
+
+@inline function _single_call_target_snapshot(
+    targets::CallTargets{CS,EB,B,TS,OR,C},
+    application::A,
+    target::T,
+) where {CS,EB,B,TS,OR,C,A,T<:CompiledExecutionTarget}
+    # The execution owner determines model/status types. Descendant tuple and
+    # environment types may change, including during a leased lifecycle refresh.
+    View = _SingleCallTargetView{T,CS,EB,A,TS,OR,C}
+    context = target.context
+    if context isa RunContext && !target.call_context_cache.in_use
+        _prepare_runtime_call_targets!(
+            context.calls,
+            targets.compiled,
+            targets.environment_bindings,
+            targets.temporal_streams,
+            targets.output_retention,
+            targets.time,
+            targets.constants,
+            targets.publication_allowed,
+            targets.environment,
+        )
+        previous = targets.last_single_snapshot
+        if previous isa View &&
+           _single_call_snapshot_matches(previous, targets, application, target, context)
+            return previous::View
+        end
+        snapshot = CallTarget(
+            target,
+            targets.compiled,
+            targets.environment_bindings,
+            application,
+            target.object_id,
+            context.calls,
+            targets.temporal_streams,
+            targets.output_retention,
+            targets.time,
+            targets.constants,
+            targets.publication_allowed,
+            targets.environment,
+        )
+        targets.last_single_snapshot = snapshot
+        return snapshot::View
+    end
+    # Reentrant materialization owns fresh descendants and never changes the
+    # outer cached snapshot. Nothing-context owners keep general construction.
+    return _materialize_call(targets, application, target)::View
+end
+
 @noinline function _only_call_target_count_error(count::Int)
     if iszero(count)
         throw(ArgumentError("Collection is empty, must contain exactly 1 element"))
@@ -5713,7 +5809,7 @@ end
 @inline function _only_call_target(targets::CallTargets, batches::Tuple{B}) where {B}
     batch = first(batches)
     length(batch.targets) == 1 || _only_call_target_count_error(length(batch.targets))
-    return _materialize_call(targets, batch.application, batch.targets[1])
+    return _single_call_target_snapshot(targets, batch.application, batch.targets[1])
 end
 
 function _only_call_target(targets::CallTargets, batches::Tuple)
@@ -5726,11 +5822,11 @@ function _only_call_target(targets::CallTargets, batches::Tuple)
         selected_batch = batch
     end
     iszero(count) && _only_call_target_count_error(count)
-    return _materialize_call(targets, selected_batch.application, selected_batch.targets[1])
+    return _single_call_target_snapshot(targets, selected_batch.application, selected_batch.targets[1])
 end
 
-# Preserve normal snapshot construction, but avoid the generic iterator's
-# materialized (target, state) tuples when a hard call has exactly one target.
+# Reuse only indistinguishable immutable snapshots; all numerical state is
+# still live. General iteration/collection and borrowed-buffer paths stay fresh.
 @inline function Base.only(targets::CallTargets)
     return _only_call_target(targets, _materialize_call_execution_batches!(targets))
 end
@@ -6797,7 +6893,7 @@ for target in targets
 end
 ```
 """
-function run_call!(
+@inline function run_call!(
     target::CallTarget;
     publish::Bool=false,
     environment=_NO_ENVIRONMENT_OVERRIDE,
