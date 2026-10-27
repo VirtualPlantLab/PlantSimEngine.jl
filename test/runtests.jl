@@ -85,6 +85,14 @@ else
         include("test-model-only-call-targets.jl")
     end
 
+    @testset "Individual manual-call environments" begin
+        include("test-model-individual-call-environments.jl")
+    end
+
+    @testset "Individual environments in generated source" begin
+        include("test-model-individual-source-environment.jl")
+    end
+
     @testset "Newborn retained manual calls" begin
         include("test-model-newborn-retention.jl")
     end

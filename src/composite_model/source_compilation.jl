@@ -1120,8 +1120,19 @@ function _compiled_source_run_call!(
     source_id::Val,
     target::CallTarget;
     publish::Bool=false,
+    environment=_NO_ENVIRONMENT_OVERRIDE,
     sampled_environment=_UNSPECIFIED_SCENE_ENVIRONMENT,
 )
+    if !(environment isa NoEnvironmentOverride) &&
+       !(sampled_environment isa UnspecifiedModelEnvironment)
+        throw(
+            ArgumentError(
+                "`environment` and `sampled_environment` are mutually exclusive hard-call overrides.",
+            ),
+        )
+    end
+    selected_environment = environment isa NoEnvironmentOverride ?
+                           target.environment : environment
     status = _materialize_model_inputs!(
         target.status,
         target.temporal_inputs,
@@ -1136,7 +1147,7 @@ function _compiled_source_run_call!(
         target.application,
         target.environment_binding,
         target.time,
-        target.environment,
+        selected_environment,
     ) : sampled_environment
     publication_allowed = publish && target.publication_allowed
     _prepare_runtime_call_targets!(
@@ -1148,7 +1159,7 @@ function _compiled_source_run_call!(
         target.time,
         target.constants,
         publication_allowed,
-        target.environment,
+        selected_environment,
     )
     context = RunContext(
         target.compiled,
@@ -1163,7 +1174,7 @@ function _compiled_source_run_call!(
         target.time,
         target.constants,
         publication_allowed,
-        target.environment,
+        selected_environment,
     )
     _compiled_source_kernel!(
         source_id,

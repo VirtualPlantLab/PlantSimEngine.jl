@@ -223,14 +223,23 @@ There are two ways to supply trial conditions:
 
 - `environment=trial_state` gives the provider a temporary environment from
   which each target reads its own local values. Use it when a trial canopy
-  temperature field gives different temperatures to different leaves.
+  temperature field gives different temperatures to different leaves. Nested
+  sub-models inherit that backend state and use their own provider bindings.
 - `sampled_environment=value` passes values you have already chosen, such as
   `(T=22.0,)`, directly to the called model, without asking the provider to
-  sample them. This is what our controller uses.
+  sample them. This is what our controller uses. This value affects only the
+  immediate model; nested calls keep the inherited backend environment.
 
 With `run_call!(context, name; ...)`, either form runs all selected targets
 together. Use `call_targets` followed by `run_call!(target; ...)` when you need
 to choose individual targets, change their order, or inspect their status.
+Both forms accept either environment keyword, but not both at once.
+
+An individual target keeps its captured time, environment and publication
+permission. Supplying a different trial backend for one call does not change
+that snapshot: a later call without an override again uses the captured
+environment. Keep target views local to the current calculation, not in
+model parameters or across structural lifecycle barriers.
 
 When objects are added, removed, or moved to a different parent through the
 PlantSimEngine functions, the selection is updated. Use these call functions
