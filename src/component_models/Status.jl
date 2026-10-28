@@ -88,7 +88,7 @@ Base.keys(::Status{names}) where {names} = names
 Base.values(st::Status) = _status_values(st)
 _status_identity(status::Status) = getfield(status, :identity)
 refvalues(mnt::Status) = values(getfield(mnt, :vars))
-refvalue(mnt::Status, key::Symbol) = getfield(getfield(mnt, :vars), key)
+Base.@constprop :aggressive @inline refvalue(mnt::Status, key::Symbol) = getfield(getfield(mnt, :vars), key)
 
 Base.NamedTuple(mnt::Status) = _status_namedtuple(mnt)
 Base.Tuple(mnt::Status) = _status_tuple(mnt)
@@ -109,25 +109,25 @@ function Base.show(io::IO, t::Status)
     print(io, "Status", NamedTuple(t))
 end
 
-Base.getproperty(mnt::Status, s::Symbol) = getproperty(getfield(mnt, :vars), s)[]
-Base.getindex(mnt::Status, i::Int) = getfield(getfield(mnt, :vars), i)[]
-Base.getindex(mnt::Status, i::Symbol) = getproperty(mnt, i)
+Base.@constprop :aggressive @inline Base.getproperty(mnt::Status, s::Symbol) = getproperty(getfield(mnt, :vars), s)[]
+Base.@constprop :aggressive @inline Base.getindex(mnt::Status, i::Int) = getfield(getfield(mnt, :vars), i)[]
+Base.@constprop :aggressive @inline Base.getindex(mnt::Status, i::Symbol) = getproperty(mnt, i)
 
-function Base.setproperty!(mnt::Status, s::Symbol, x)
+Base.@constprop :aggressive @inline function Base.setproperty!(mnt::Status, s::Symbol, x)
     nt = getfield(mnt, :vars)
     getfield(nt, s)[] = x
 end
 
-function Base.setproperty!(mnt::Status, i::Int, x)
+Base.@constprop :aggressive @inline function Base.setproperty!(mnt::Status, i::Int, x)
     nt = getfield(mnt, :vars)
     getindex(nt, i)[] = x
 end
 
-function Base.setindex!(mnt::Status, x, i::Symbol)
+Base.@constprop :aggressive @inline function Base.setindex!(mnt::Status, x, i::Symbol)
     Base.setproperty!(mnt, i, x)
 end
 
-function Base.setindex!(mnt::Status, x, i::Int)
+Base.@constprop :aggressive @inline function Base.setindex!(mnt::Status, x, i::Int)
     setproperty!(mnt, i, x)
 end
 

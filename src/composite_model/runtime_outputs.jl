@@ -5756,6 +5756,17 @@ end
            getfield(snapshot, :environment) === targets.environment
 end
 
+@inline function _default_single_call_view_type(
+    ::CallTargets{CS,EB,B,TS,OR,C},
+    ::A,
+    ::T,
+    ::RC,
+) where {CS,EB,B,TS,OR,C,A,T<:CompiledExecutionTarget,RC<:RunContext}
+    CT = fieldtype(RC, :calls)
+    E = fieldtype(RC, :environment)
+    return CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
+end
+
 @inline function _single_call_target_snapshot(
     targets::CallTargets{CS,EB,B,TS,OR,C},
     application::A,
@@ -5778,6 +5789,37 @@ end
             targets.environment,
         )
         previous = targets.last_single_snapshot
+        ConcreteView = _default_single_call_view_type(
+            targets, application, target, context,
+        )
+        # Exact default metadata permits a concrete type check instead of
+        # existential subtyping; changed environment types keep the general path.
+        if isconcretetype(ConcreteView) &&
+           isconcretetype(CS) && isconcretetype(EB) &&
+           isconcretetype(TS) && isconcretetype(OR) && isconcretetype(C) &&
+           isconcretetype(fieldtype(typeof(context), :calls)) &&
+           typeof(targets.environment) === fieldtype(ConcreteView, :environment)
+            if previous isa ConcreteView &&
+               _single_call_snapshot_matches(previous, targets, application, target, context)
+                return previous::ConcreteView
+            end
+            snapshot = ConcreteView(
+                target,
+                targets.compiled,
+                targets.environment_bindings,
+                application,
+                target.object_id,
+                context.calls,
+                targets.temporal_streams,
+                targets.output_retention,
+                targets.time,
+                targets.constants,
+                targets.publication_allowed,
+                targets.environment,
+            )
+            targets.last_single_snapshot = snapshot
+            return snapshot
+        end
         if previous isa View &&
            _single_call_snapshot_matches(previous, targets, application, target, context)
             return previous::View

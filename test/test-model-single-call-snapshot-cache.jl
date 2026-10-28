@@ -215,6 +215,53 @@ end
     end
 end
 
+@testset "default contexts restore live sampling and current metadata after retained calls" begin
+    for S in (Float32, Float64)
+        data = fixture(S)
+        parent = only(call_targets(data.capture[], :middle))
+        default = parent.context_cache.default
+        initial_samples = data.backend.samples
+        trial = TrialA((S(30), S(40)))
+        run_call!(parent; environment=trial, publish=false)
+        @test parent.status.seen === S(42)
+        trial.temperatures = (S(31), S(41))
+        run_call!(parent; environment=trial, publish=false)
+        @test parent.status.seen === S(43)
+
+        # Returning to the typed default must read the changed committed backend,
+        # then pass its permission and environment to the nested leaf call.
+        data.backend.temperatures = (S(50), S(60))
+        run_call!(parent; publish=true)
+        @test parent.context_cache.default === default
+        @test parent.status.seen === S(63)
+        @test parent.status.temperature === S(51)
+        @test data.backend.samples == initial_samples + 6
+        @test raw(data) == [(1.0, S(63))]
+
+        step!(data.simulation)
+        current_targets = call_targets(data.capture[], :middle)
+        current_parent = only(current_targets)
+        run_call!(current_parent; publish=false)
+        @test data.child_capture[].time == 2
+        @test !data.child_capture[].publication_allowed
+        # The old immutable view still executes at its captured time. A later
+        # lookup must repair shared descendant metadata for the current view.
+        run_call!(parent; publish=true)
+        @test data.child_capture[].time == 1
+        @test data.child_capture[].publication_allowed
+        current_again = only(current_targets)
+        @test only(current_again.calls).time == 2
+        @test only(current_again.calls).environment === current_parent.environment
+        @test only(current_again.calls).publication_allowed == current_parent.publication_allowed
+        run_call!(current_again; publish=false)
+        @test data.child_capture[].time == 2
+        @test !data.child_capture[].publication_allowed
+        @test current_again.status.seen === S(65)
+        @test parent.time == 1 && current_parent.time == 2
+        @test raw(data) == [(1.0, S(64))]
+    end
+end
+
 @testset "singleton membership refresh handles newborns and changing Many cardinality" begin
     for S in (Float32, Float64)
         data = fixture(S; outputs=:none)
@@ -296,6 +343,10 @@ end
             @test inner.execution_target === parent.execution_target
             @test inner.calls !== parent.calls
             @test only(inner.calls) !== only(parent.calls)
+            # Matching the default environment type still cannot borrow a
+            # context whose outer invocation holds the lease.
+            run_call!(inner; publish=false)
+            @test parent.context_cache.in_use
             run_call!(inner; environment=TrialB((S(31), S(41))), publish=false)
             @test parent.context_cache.in_use
         end
