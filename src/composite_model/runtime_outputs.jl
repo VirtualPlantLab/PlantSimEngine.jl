@@ -5860,9 +5860,13 @@ end
         if isconcretetype(CS) && isconcretetype(EB) &&
            isconcretetype(TS) && isconcretetype(OR) && isconcretetype(C) &&
            isconcretetype(fieldtype(typeof(context), :calls))
+            # Preserve the prepared metadata types for callers while leaving
+            # the actual override type to the specialized boxed-view helper.
+            CT = fieldtype(typeof(context), :calls)
+            TransientView = CallTarget{T,CS,EB,A,CT,TS,OR,C}
             return _transient_single_call_target_snapshot(
                 targets, application, target, context, targets.environment,
-            )
+            )::TransientView
         end
         if previous isa View &&
            _single_call_snapshot_matches(previous, targets, application, target, context)
