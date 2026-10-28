@@ -46,3 +46,20 @@ first run's final state and runtime counters outside the timed operation, then
 releases its complete history before the second sample. Each of the three
 samples still retains all outputs for the full 4,160 days while it executes.
 This avoids overlapping two large histories solely for benchmark bookkeeping.
+
+For a focused diagnostic of collected target types and `Status` access, load
+`call_target_access.jl` in a Kaimon session for the engine revision being checked:
+
+```julia
+include("/path/to/PlantSimEngine/benchmark/call_target_access.jl")
+result = PSEStatusTargetMicrobench.run_microbench(calls=10_000, repetitions=5)
+```
+
+Run the same file in both isolated engine environments. The fixture uses public
+calls for `One`, `OptionalOne`, empty and eight-target `Many`, nested calls,
+trial environments and selected newborns. It also checks shared status bindings.
+Construction and correctness checks precede timing; escaped views are retained
+in a sink. Results are scalar timings and allocations per operation. These
+measurements diagnose engine mechanisms; use complete downstream scenarios to
+establish an application speedup. Run benchmarks serially after warmup and
+outside regression-test execution.

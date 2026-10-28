@@ -562,6 +562,13 @@ A cached vector-like view of the compiled targets for one declared hard call.
 Retrieving it does not allocate a replacement collection. Obtain it with
 [`call_targets`](@ref) or as the result of
 [`run_call!(::RunContext, ::Symbol)`](@ref).
+
+`collect(targets)` creates fresh target views and chooses their element type
+from the values: homogeneous targets retain a concrete type, while mixed target
+types widen as needed. Empty collections have element type `CallTarget`. Use
+`collect(CallTarget, targets)` when the resulting vector must accept additional
+target types. Each view captures its caller metadata and shares the live status
+references; collecting does not copy numerical state.
 """
 mutable struct CallTargets{CS,EB,B,TS,OR,C,BT} <: AbstractVector{CallTarget}
     compiled::CS
@@ -5464,7 +5471,8 @@ _call_target_matches(targets::CallTargets, application, object_id::ObjectId) =
 
 function Base.length(targets::CallTargets)
     count = 0
-    for batch in targets.execution_batches
+    batches = _materialize_call_execution_batches!(targets)
+    for batch in batches
         count += length(batch.targets)
     end
     return count
@@ -5472,7 +5480,7 @@ end
 
 Base.size(targets::CallTargets) = (length(targets),)
 
-function _materialize_call(
+@inline function _materialize_call(
     targets::CallTargets,
     application,
     target::CompiledExecutionTarget,
@@ -5521,22 +5529,23 @@ function _materialize_call(
 end
 
 function Base.getindex(targets::CallTargets, requested::Int)
-    checkbounds(targets, requested)
+    batches = _materialize_call_execution_batches!(targets)
     current = 0
-    for batch in targets.execution_batches
+    for batch in batches
         for target in batch.targets
             current += 1
             current == requested &&
                 return _materialize_call(targets, batch.application, target)
         end
     end
-    throw(BoundsError(targets, requested))
+    throw(BoundsError(targets, (requested,)))
 end
 
 function Base.iterate(targets::CallTargets, state::Tuple{Int,Int}=(1, 1))
     batch_index, target_index = state
-    while batch_index <= length(targets.execution_batches)
-        batch = targets.execution_batches[batch_index]
+    batches = _materialize_call_execution_batches!(targets)
+    while batch_index <= length(batches)
+        batch = batches[batch_index]
         if target_index <= length(batch.targets)
             target = batch.targets[target_index]
             return (
@@ -5548,6 +5557,14 @@ function Base.iterate(targets::CallTargets, state::Tuple{Int,Int}=(1, 1))
         target_index = 1
     end
     return nothing
+end
+
+# Array collection would allocate Vector{CallTarget} and repeatedly index the
+# lazy collection. Iteration preserves concrete homogeneous snapshot types and
+# widens normally when target models/statuses differ. Every view is still fresh.
+function Base.collect(targets::CallTargets)
+    isempty(targets) && return CallTarget[]
+    return collect(target for target in targets)
 end
 
 @noinline function _only_call_target_count_error(count::Int)
