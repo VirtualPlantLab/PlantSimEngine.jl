@@ -6747,22 +6747,24 @@ function _potential_input_source_application_ids(
     application_filter,
     origin::Symbol,
     distributed_output_plans,
+    local_output_names,
 )
     _selector_from_status(selector) && return ()
     source_selector = origin == :inferred_same_object ?
                       consumer_application.applies_to : selector
     return Tuple(
         application.id for application in applications
-        if _application_may_output_variable(
+        if (isnothing(process_filter) ||
+            application.process == process_filter) &&
+           (isnothing(application_filter) ||
+            application.id == application_filter) &&
+           _application_may_output_variable(
                application,
                source_var,
                source_selector,
+               local_output_names[application.id],
                distributed_output_plans,
-           ) &&
-           (isnothing(process_filter) ||
-            application.process == process_filter) &&
-           (isnothing(application_filter) ||
-            application.id == application_filter)
+           )
     )
 end
 
@@ -6770,9 +6772,10 @@ function _application_may_output_variable(
     application,
     variable::Symbol,
     source_selector,
+    local_output_names,
     ::NoCompiledDistributedOutputPlans,
 )
-    return variable in _model_output_names(application) &&
+    return variable in local_output_names &&
            _selector_labels_may_overlap(
         source_selector,
         application.applies_to,
@@ -6783,9 +6786,10 @@ function _application_may_output_variable(
     application,
     variable::Symbol,
     source_selector,
+    local_output_names,
     plans::CompiledDistributedOutputPlans,
 )
-    variable in _model_output_names(application) &&
+    variable in local_output_names &&
         _selector_labels_may_overlap(
             source_selector,
             application.applies_to,
@@ -6842,6 +6846,7 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
     origin::Symbol,
     applications_by_id,
     distributed_output_plans,
+    local_output_names,
 )
     # Selector and application values still determine the concrete final plan.
     @nospecialize application selector
@@ -6865,6 +6870,7 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
         application_filter,
         origin,
         distributed_output_plans,
+        local_output_names,
     )
     for producer_id in potential_source_application_ids
         _validate_model_variable_contract!(
@@ -6914,6 +6920,20 @@ function _compile_model_input_plans(
     applications_by_id = Dict(
         application.id => application for application in applications
     )
+    # Output declarations can allocate fresh default arrays even when only
+    # their names are needed. Snapshot names for this planning pass only:
+    # neither declaration values nor runtime reference carriers are retained.
+    # Application IDs also support filtered lists with non-contiguous slots.
+    local_output_names = Dict(
+        application.id => _model_output_names(application)
+        for application in applications
+    )
+    canonical_output_names = Dict(
+        application.id => Symbol[
+            variable for variable in local_output_names[application.id]
+            if _publish_mode_for_output(application.spec, variable) == :canonical
+        ] for application in applications
+    )
     for application in applications
         _variable_contract_schema(application.spec)
         declared_inputs = value_inputs(application.spec)
@@ -6937,6 +6957,7 @@ function _compile_model_input_plans(
                     get(input_origins(application.spec), input, :model_spec),
                     applications_by_id,
                     distributed_output_plans,
+                    local_output_names,
                 ),
             )
         end
@@ -6944,7 +6965,7 @@ function _compile_model_input_plans(
             input in declared_names && continue
             for producer in applications
                 producer.id == application.id && continue
-                local_output = input in _model_canonical_output_names(producer) &&
+                local_output = input in canonical_output_names[producer.id] &&
                                _selector_labels_may_overlap(
                     application.applies_to,
                     producer.applies_to,
@@ -6974,6 +6995,7 @@ function _compile_model_input_plans(
                         :inferred_same_object,
                         applications_by_id,
                         distributed_output_plans,
+                        local_output_names,
                     ),
                 )
             end

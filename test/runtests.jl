@@ -218,6 +218,10 @@ else
         include("test-model-binding-inference.jl")
     end
 
+    @testset "Compile-local output name metadata" begin
+        include("test-model-input-plan-output-metadata.jl")
+    end
+
     @testset "Adaptive subtree selectors" begin
         include("test-model-adaptive-selectors.jl")
     end
