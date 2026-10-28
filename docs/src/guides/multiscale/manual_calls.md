@@ -29,6 +29,30 @@ have the same type and widens for mixed target types. Empty results use
 `collect(CallTarget, call_targets(context, :name))` explicitly. The vector
 contains fresh views sharing the original live status references.
 
+For repeated calculations over the same selection, borrow reusable typed
+storage with `with_call_targets`:
+
+```julia
+with_call_targets(context, :leaf_energy) do targets
+    sort!(targets; by=target -> target.status.leaf_index)
+    for target in targets
+        run_call!(target; publish=true)
+    end
+end
+```
+
+The engine prepares storage on first use and reuses it on later invocations.
+It refills each target with the current time, environment and publication
+permission before entering the callback. Changes to membership, models,
+bindings or environment type can require new storage. Numerical status values
+still use their original shared references.
+
+The vector is borrowed until the callback returns. Sort or inspect it inside
+that scope; do not retain or return the vector or an array view of it. A nested
+borrow receives separate storage, and exceptions release the lease. Ordinary
+`collect` still creates an independent vector when the caller needs ownership.
+The callback's result is returned by `with_call_targets`.
+
 Both the collection form and `run_call!(target; ...)` accept the two
 environment keywords, which serve different purposes.
 `environment=trial_state` supplies a trial version of the environment, from

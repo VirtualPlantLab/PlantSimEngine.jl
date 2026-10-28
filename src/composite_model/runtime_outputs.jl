@@ -555,6 +555,21 @@ end
 
 Base.IndexStyle(::Type{LazyCallExecutionBatches}) = IndexLinear()
 
+mutable struct _CallTargetBuffer{V}
+    values::V
+    batches::Any
+    binding::Any
+    compiled::Any
+    environment_bindings::Any
+    environment_type::Any
+    in_use::Bool
+end
+
+mutable struct _CallTargetBufferCache
+    first::Any
+    second::Any
+end
+
 """
     CallTargets <: AbstractVector{CallTarget}
 
@@ -585,6 +600,7 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C,BT} <: AbstractVector{CallTarget}
     environment::Any
     execution_batches::BT
     evaluation::Union{Nothing,CallEvaluationFrame}
+    target_buffer_cache::Union{Nothing,_CallTargetBufferCache}
 end
 
 Base.@nospecializeinfer function CallTargets(
@@ -635,6 +651,7 @@ Base.@nospecializeinfer function CallTargets(
         publication_allowed,
         environment,
         execution_batches,
+        nothing,
         nothing,
     )
     execution_batches isa LazyCallExecutionBatches &&
@@ -5485,6 +5502,20 @@ Base.size(targets::CallTargets) = (length(targets),)
     application,
     target::CompiledExecutionTarget,
 )
+    return _materialize_call(CallTarget, targets, application, target)
+end
+
+@inline function _materialize_call(
+    ::Type{V},
+    targets::CallTargets,
+    application,
+    target::CompiledExecutionTarget,
+) where {V<:CallTarget}
+    # A reusable buffer already matches the environment type. Recover it before
+    # constructing a concrete view so Julia does not box fields at a dynamic
+    # constructor call.
+    environment = isconcretetype(V) ?
+        (targets.environment::fieldtype(V, :environment)) : targets.environment
     context = target.context
     calls = if context isa RunContext && !target.call_context_cache.in_use
         _prepare_runtime_call_targets!(
@@ -5496,7 +5527,7 @@ Base.size(targets::CallTargets) = (length(targets),)
             targets.time,
             targets.constants,
             targets.publication_allowed,
-            targets.environment,
+            environment,
         )
         context.calls
     else
@@ -5509,10 +5540,10 @@ Base.size(targets::CallTargets) = (length(targets),)
             targets.time,
             targets.constants,
             targets.publication_allowed,
-            targets.environment,
+            environment,
         )
     end
-    return CallTarget(
+    return V(
         target,
         targets.compiled,
         targets.environment_bindings,
@@ -5524,7 +5555,7 @@ Base.size(targets::CallTargets) = (length(targets),)
         targets.time,
         targets.constants,
         targets.publication_allowed,
-        targets.environment,
+        environment,
     )
 end
 
@@ -5565,6 +5596,116 @@ end
 function Base.collect(targets::CallTargets)
     isempty(targets) && return CallTarget[]
     return collect(target for target in targets)
+end
+
+@inline function _call_target_buffer_matches(entry, targets, batches, environment_type)
+    return entry isa _CallTargetBuffer &&
+           entry.batches === batches && entry.binding === targets.binding &&
+           entry.compiled === targets.compiled &&
+           entry.environment_bindings === targets.environment_bindings &&
+           entry.environment_type === environment_type
+end
+
+@noinline function _new_call_target_buffer!(cache, targets, batches, environment_type)
+    entry = _CallTargetBuffer(collect(targets), batches, targets.binding,
+        targets.compiled, targets.environment_bindings, environment_type, false)
+    # Keep the ordinary slot stable while nested calls use the second slot.
+    # Deeper reentrancy gets independent temporary storage rather than
+    # overwriting a vector that is still borrowed by an ancestor.
+    if cache.first === nothing
+        cache.first = entry
+    elseif cache.first.in_use
+        if cache.second === nothing || !cache.second.in_use
+            cache.second = entry
+        end
+    else
+        if cache.second === nothing || !cache.second.in_use
+            cache.second = cache.first
+        end
+        cache.first = entry
+    end
+    return entry
+end
+
+function _refill_call_target_buffer!(values::Vector{V}, targets, batches::Tuple) where {V}
+    count = 0
+    for batch in batches
+        count += length(batch.targets)
+    end
+    resize!(values, count)
+    index = 0
+    for batch in batches
+        for target in batch.targets
+            index += 1
+            # A concrete constructor lets Julia write immutable views directly
+            # into inline vector storage, without a boxed temporary per target.
+            # Mixed collections keep Base's widened element type instead.
+            view = if isconcretetype(V)
+                _materialize_call(V, targets, batch.application, target)
+            else
+                _materialize_call(targets, batch.application, target)
+            end
+            @inbounds values[index] = view
+        end
+    end
+    return values
+end
+
+function _with_call_target_buffer(f::F, entry::_CallTargetBuffer, targets, batches) where {F}
+    entry.in_use = true
+    try
+        values = _refill_call_target_buffer!(entry.values, targets, batches)
+        return f(values)
+    finally
+        entry.in_use = false
+    end
+end
+
+"""
+    with_call_targets(f, context::RunContext, name::Symbol)
+    with_call_targets(f, targets::CallTargets)
+
+Call `f` with a borrowed vector of the current hard-call targets and return
+its result. Homogeneous targets keep a concrete element type; mixed types
+widen as needed. The engine reuses prepared storage while the target bindings
+and environment type remain compatible. Each invocation
+refreshes caller metadata and restores compiled target order; it shares live
+status references and does not run a model or copy numerical state.
+
+The vector may be reordered inside `f`, but must not escape the callback or be
+retained for another invocation. Use `collect(values)` inside the callback for
+an independent vector. Individual immutable `CallTarget` values may be retained;
+they keep their captured time, environment and publication permission.
+
+Nested invocations borrow independent storage, and exceptions release the
+lease. This controls storage lifetime, not rollback or concurrent execution of
+one mutable model/status. Ordinary `collect(targets)` continues to return fresh
+storage. Use `call_targets(context, name; objects=...)` for targeted newborns.
+"""
+function with_call_targets(f::F, targets::CallTargets) where {F}
+    batches = _materialize_call_execution_batches!(targets)
+    environment_type = typeof(targets.environment)
+    cache = targets.target_buffer_cache
+    if cache === nothing
+        cache = _CallTargetBufferCache(nothing, nothing)
+        targets.target_buffer_cache = cache
+    end
+    entry = if _call_target_buffer_matches(cache.first, targets, batches, environment_type) &&
+               !cache.first.in_use
+        cache.first
+    elseif _call_target_buffer_matches(cache.second, targets, batches, environment_type) &&
+           !cache.second.in_use
+        cache.second
+    else
+        _new_call_target_buffer!(cache, targets, batches, environment_type)
+    end
+    return _with_call_target_buffer(f, entry, targets, batches)
+end
+
+@inline Base.@constprop :aggressive function with_call_targets(
+    f::F, context::RunContext, name::Symbol,
+) where {F}
+    return with_call_targets(f, call_targets(context, name))
 end
 
 @noinline function _only_call_target_count_error(count::Int)

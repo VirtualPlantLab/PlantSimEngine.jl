@@ -297,6 +297,7 @@ end
         :bound_input,
         :call_model,
         :call_targets,
+        :with_call_targets,
         :evaluate_call!,
         :accept_call!,
         :collect_outputs,
