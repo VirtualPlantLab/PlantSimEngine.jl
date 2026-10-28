@@ -1,6 +1,6 @@
 module CallEvaluationParentGenerationChecks
 
-using Dates, PlantSimEngine, Test
+using Dates, PlantSimEngine, Serialization, Test
 
 const PSE = PlantSimEngine
 
@@ -34,10 +34,11 @@ PSE.inputs_(::GenerationParent) = (mode=Default(:capture),)
 PSE.outputs_(::GenerationParent) = (visits=0,)
 function PSE.run!(model::GenerationParent, status, environment, constants, context)
     status.visits += 1
-    if status.mode === :capture || status.mode === :capture_and_accept
+    if status.mode in (:capture, :capture_and_accept, :capture_and_fail)
         evaluated = evaluate_call!(context, :child; sampled_environment=(T=31.0,))
         model.child_evaluation[] = evaluated
         status.mode === :capture_and_accept && accept_call!(evaluated)
+        status.mode === :capture_and_fail && error("intentional outer evaluation failure")
     elseif status.mode === :accept_saved
         accept_call!(model.child_evaluation[])
     else
@@ -101,6 +102,47 @@ end
     accept_call!(evaluated)
     @test model_status(fixture.model, :child).calls == 1
     @test outputs(fixture.simulation)[(:child, ObjectId(:child), :seen)] == [(1.0, 31.0)]
+    @test evaluated.frame.task_identity === nothing
+    @test evaluated.frame.parent === nothing
+    @test fixture.child_evaluation[].frame.task_identity === nothing
+    @test fixture.child_evaluation[].frame.parent === nothing
+    buffer = IOBuffer()
+    serialize(buffer, fixture.simulation)
+    seekstart(buffer)
+    restored = deserialize(buffer)
+    @test isequal(collect_outputs(restored), collect_outputs(fixture.simulation))
+    continue!(restored; steps=1)
+    continue!(fixture.simulation; steps=1)
+    @test isequal(collect_outputs(restored), collect_outputs(fixture.simulation))
+end
+
+
+@testset "Abandoned nested evaluations do not retain their originating task" begin
+    for outcome in (:accepted, :failed)
+        fixture = generation_scene()
+        if outcome === :failed
+            model_status(fixture.model, :parent).mode = :capture_and_fail
+            @test_throws ErrorException evaluate_call!(fixture.capture[], :parent)
+        else
+            accept_call!(evaluate_call!(fixture.capture[], :parent))
+        end
+        child = fixture.child_evaluation[]
+        @test child.frame.pending
+        @test_throws ArgumentError accept_call!(child)
+        @test isempty(outputs(fixture.simulation)[(:child, ObjectId(:child), :seen)])
+
+        # The cached unaccepted child is stale outside its parent, but remains
+        # in the simulation graph. Its task marker must not serialize a Task.
+        buffer = IOBuffer()
+        serialize(buffer, fixture.simulation)
+        seekstart(buffer)
+        restored = deserialize(buffer)
+        @test isequal(collect_outputs(restored), collect_outputs(fixture.simulation))
+        continue!(restored; steps=1)
+        continue!(fixture.simulation; steps=1)
+        @test isequal(collect_outputs(restored), collect_outputs(fixture.simulation))
+        @test final_state(restored, :child) == final_state(fixture.simulation, :child)
+    end
 end
 
 
