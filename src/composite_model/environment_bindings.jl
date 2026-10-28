@@ -640,10 +640,12 @@ function _refresh_environment_bindings_for_objects(
             object_id,
             (),
         )
+        previous_targets = get(cached.targets_by_object, object_id, ())
+        isempty(current_applications) && isempty(previous_targets) && continue
         current_application_ids = Set(
             application.id for application in current_applications
         )
-        for target in get(cached.targets_by_object, object_id, ())
+        for target in previous_targets
             target[1] in current_application_ids ||
                 push!(stale_targets, target)
         end

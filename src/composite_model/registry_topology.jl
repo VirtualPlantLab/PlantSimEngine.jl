@@ -937,7 +937,10 @@ end
 
 function _push_index!(index::Dict{Symbol,Set{ObjectId}}, key, id::ObjectId)
     isnothing(key) && return nothing
-    push!(get!(index, key, Set{ObjectId}()), id)
+    ids = get!(index, key) do
+        Set{ObjectId}()
+    end
+    push!(ids, id)
     return nothing
 end
 
@@ -1210,9 +1213,17 @@ function _lifecycle_object_snapshot(model::CompositeModel, object::Object)
     ancestors = get(
         model.registry.ancestor_ids_by_object,
         object.id,
-        ObjectId[],
+        (),
     )
-    return LifecycleObjectSnapshot(
+    return _lifecycle_object_snapshot(object, ancestors, object.geometry)
+end
+
+# Bind the geometry type before constructing the snapshot. The tuple types of
+# children and ancestors depend on runtime topology, so asking the outer
+# constructor to infer its parameter from all fields dispatches on every path
+# length. The event still owns immutable topology tuples and shares geometry.
+function _lifecycle_object_snapshot(object::Object, ancestors, geometry::G) where {G}
+    return LifecycleObjectSnapshot{G}(
         object.id,
         object.scale,
         object.kind,
@@ -1221,13 +1232,13 @@ function _lifecycle_object_snapshot(model::CompositeModel, object::Object)
         object.parent,
         Tuple(object.children),
         Tuple(ancestors),
-        object.geometry,
+        geometry,
     )
 end
 
 function _record_added_objects!(model::CompositeModel, objects)
     isempty(objects) && return model
-    object_ids = Tuple(object.id for object in objects)
+    object_ids = (object.id for object in objects)
     for object in objects
         push!(
             model.lifecycle_delta.added,
@@ -1241,13 +1252,24 @@ function _record_added_objects!(model::CompositeModel, objects)
     )
 end
 
+function _append_object_ancestor_id(
+    parent_ancestors::Vector{ObjectId},
+    object_id::ObjectId,
+)
+    # `copy` followed by `push!` grows a just-copied path a second time. Reserve
+    # the final slot up front: paths remain independent mutable registry caches.
+    ancestors = Vector{ObjectId}(undef, length(parent_ancestors) + 1)
+    copyto!(ancestors, 1, parent_ancestors, 1, length(parent_ancestors))
+    ancestors[end] = object_id
+    return ancestors
+end
+
 function _refresh_object_ancestor_ids!(
     model::CompositeModel,
     object_id::ObjectId,
     parent_ancestors::Vector{ObjectId},
 )
-    ancestors = copy(parent_ancestors)
-    push!(ancestors, object_id)
+    ancestors = _append_object_ancestor_id(parent_ancestors, object_id)
     model.registry.ancestor_ids_by_object[object_id] = ancestors
     object = _model_object(model, object_id)
     for child_id in object.children
@@ -1261,6 +1283,7 @@ function _refresh_object_ancestor_ids!(
 end
 
 function _instance_for_object(model::CompositeModel, id)
+    isempty(model.instances) && return nothing
     current_id = ObjectId(id)
     while haskey(model.registry.objects, current_id)
         for instance in model.instances
@@ -1304,11 +1327,11 @@ function _register_object_without_lifecycle!(
     registry.objects[object.id] = object
     _index_object!(registry, object)
     _set_status_source_identity!(model, object.id, source_status)
-    parent_ancestors = isnothing(parent_id) ?
-                       ObjectId[] :
-                       _object_ancestor_ids(registry, parent_id)
-    ancestors = copy(parent_ancestors)
-    push!(ancestors, object.id)
+    ancestors = isnothing(parent_id) ?
+                ObjectId[object.id] :
+                _append_object_ancestor_id(
+                    _object_ancestor_ids(registry, parent_id), object.id,
+                )
     registry.ancestor_ids_by_object[object.id] = ancestors
     if !isnothing(object.parent)
         parent_object = registry.objects[object.parent]
@@ -1359,9 +1382,8 @@ function _status_data!(data::Dict{Symbol,Any}, values)
 end
 
 function _validate_organ_attributes(attributes)
-    source = attributes isa Status ? NamedTuple(attributes) : attributes
-    source isa Union{NamedTuple,AbstractDict,Base.Pairs} || return attributes
-    for (key, _) in pairs(source)
+    attributes isa Union{Status,NamedTuple,AbstractDict,Base.Pairs} || return attributes
+    for key in keys(attributes)
         Symbol(key) == :plantsimengine_status || continue
         error(
             "`plantsimengine_status` is runtime state, not an organ attribute. " *
@@ -1370,6 +1392,12 @@ function _validate_organ_attributes(attributes)
         )
     end
     return attributes
+end
+
+# Use a concrete name carrier at dynamic assembly sites. Constructing the
+# partially specified Status{names} type for every organ allocates a UnionAll.
+@inline function _organ_status_from_values(::Val{names}, values::Tuple) where {names}
+    return Status(NamedTuple{names}(Ref.(values)))
 end
 
 function _organ_status(
@@ -1389,7 +1417,7 @@ function _organ_status(
     data[:node] = node
     status_names = Tuple(keys(data))
     status_values = Tuple(values(data))
-    return Status{status_names}(status_values)
+    return _organ_status_from_values(Val(status_names), status_values)
 end
 
 """
@@ -1438,7 +1466,6 @@ function add_organ!(
     # Resolve the exact registered node before advancing ids or mutating either
     # the source MTG or the runtime registry.
     parent_id = object_id(model, parent_node)
-    root = MultiScaleTreeGraph.get_root(parent_node)
     node_id = if isnothing(id)
         # `max_node_id` is initialized from every active id in the source
         # attribute store (store-wide for a columnar MTG) and is updated for
@@ -1446,6 +1473,7 @@ function add_organ!(
         # an O(n) tree lookup.
         adapter.max_node_id[] += 1
     else
+        root = MultiScaleTreeGraph.get_root(parent_node)
         explicit_id = Int(id)
         adapter.max_node_id[] = max(adapter.max_node_id[], explicit_id)
         isnothing(MultiScaleTreeGraph.get_node(root, explicit_id)) || error(

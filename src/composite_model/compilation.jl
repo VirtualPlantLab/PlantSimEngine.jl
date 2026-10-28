@@ -1926,11 +1926,15 @@ function _application_target_template_key(
     object_id::ObjectId,
 )
     object = _model_object(model, object_id)
-    ancestors = _object_ancestor_ids(model.registry, object_id)
-    scope_roots = Tuple(
-        ancestor_id for ancestor_id in ancestors
-        if ancestor_id in index.scope_roots
-    )
+    scope_roots = if isempty(index.scope_roots)
+        ()
+    else
+        ancestors = _object_ancestor_ids(model.registry, object_id)
+        Tuple(
+            ancestor_id for ancestor_id in ancestors
+            if ancestor_id in index.scope_roots
+        )
+    end
     return (
         _application_target_template_label(index, :scale, object.scale),
         _application_target_template_label(index, :kind, object.kind),
@@ -2001,7 +2005,10 @@ function _new_application_targets(
         union!(candidate_slots, template.candidate_slots)
         for slot in template.matched_slots
             application = compiled.applications[slot]
-            push!(get!(targets, application.id, ObjectId[]), object_id)
+            application_targets = get!(targets, application.id) do
+                ObjectId[]
+            end
+            push!(application_targets, object_id)
         end
     end
     _runtime_performance_count!(
