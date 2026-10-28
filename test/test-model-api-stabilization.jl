@@ -1129,6 +1129,13 @@ end
                 object_id,
                 context,
             )
+            # Warm the same context type used by the measured call.
+            stabilization_compiled_selector_allocations(
+                model,
+                matcher,
+                object_id,
+                ObjectId(context),
+            )
             @test stabilization_compiled_selector_allocations(
                 model,
                 matcher,
