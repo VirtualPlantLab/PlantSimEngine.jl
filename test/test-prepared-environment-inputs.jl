@@ -98,6 +98,12 @@ function changing_committed_sum(backend, handle, inputs, count)
     return total
 end
 
+# Measure the specialized sampling kernel, excluding call-site boxing from the
+# surrounding testset (including its Float32/Float64 loop) on Julia 1.10.
+function sampling_allocations(f::F, args::Vararg{Any,N}) where {F,N}
+    return @allocated f(args...)
+end
+
 @testset "Prepared environment schemas preserve handles and changing values" begin
     @test_throws ArgumentError PSE.PreparedEnvironmentInputs((:T,), ())
     @test_throws ArgumentError PSE.PreparedEnvironmentInputs((:T, :T), (:a, :b))
@@ -134,8 +140,8 @@ end
         # Warm the exact committed and transient specializations first.
         changing_trial_sum(scene.backend, handle, trial, inputs, 4)
         changing_committed_sum(scene.backend, handle, inputs, 4)
-        @test @allocated(changing_trial_sum(scene.backend, handle, trial, inputs, 1_000)) == 0
-        @test @allocated(changing_committed_sum(scene.backend, handle, inputs, 1_000)) == 0
+        @test sampling_allocations(changing_trial_sum, scene.backend, handle, trial, inputs, 1_000) == 0
+        @test sampling_allocations(changing_committed_sum, scene.backend, handle, inputs, 1_000) == 0
     end
 end
 
@@ -224,7 +230,7 @@ end
     @test after[:initial_environment_bindings_constructed] == before[:initial_environment_bindings_constructed]
     inputs = PSE.PreparedEnvironmentInputs(spec)
     changing_shared_row_sum(backend, inputs, 4)
-    @test @allocated(changing_shared_row_sum(backend, inputs, 1_000)) == 0
+    @test sampling_allocations(changing_shared_row_sum, backend, inputs, 1_000) == 0
     @test EA.sample_environment(backend, nothing, 2.0, inputs) === row
 end
 
