@@ -5538,6 +5538,11 @@ end
     application,
     target::CompiledExecutionTarget,
 ) where {V<:CallTarget}
+    # A reusable buffer already matches the environment type. Recover it before
+    # constructing a concrete view so Julia does not box fields at a dynamic
+    # constructor call.
+    environment = isconcretetype(V) ?
+        (targets.environment::fieldtype(V, :environment)) : targets.environment
     context = target.context
     calls = if context isa RunContext && !target.call_context_cache.in_use
         _prepare_runtime_call_targets!(
@@ -5549,7 +5554,7 @@ end
             targets.time,
             targets.constants,
             targets.publication_allowed,
-            targets.environment,
+            environment,
         )
         context.calls
     else
@@ -5562,7 +5567,7 @@ end
             targets.time,
             targets.constants,
             targets.publication_allowed,
-            targets.environment,
+            environment,
         )
     end
     return V(
@@ -5577,7 +5582,7 @@ end
         targets.time,
         targets.constants,
         targets.publication_allowed,
-        targets.environment,
+        environment,
     )
 end
 
