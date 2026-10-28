@@ -3071,6 +3071,22 @@ function _changed_previous_time_step_targets(
     return changed_target_ids
 end
 
+function _sorted_object_ids_intersect_set(sorted_ids, ids::AbstractSet)
+    # A large lifecycle delta must not be scanned once for every singular
+    # input/call binding. Probe the set from a shorter source list; otherwise
+    # binary-search the sorted source list from the smaller dirty set.
+    if length(sorted_ids) <= length(ids)
+        for object_id in sorted_ids
+            object_id in ids && return true
+        end
+    else
+        for object_id in ids
+            first(_sorted_object_id_position(sorted_ids, object_id)) && return true
+        end
+    end
+    return false
+end
+
 function _prepare_structural_compiled_delta(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -3113,7 +3129,7 @@ function _prepare_structural_compiled_delta(
         Vector{ObjectId},
     }()
     for binding in input_bindings
-        any(dirty_id -> first(_sorted_object_id_position(binding.source_ids, dirty_id)), dirty) ||
+        _sorted_object_ids_intersect_set(binding.source_ids, dirty) ||
             continue
         key = (binding.application_id, binding.consumer_id, binding.input)
         push!(forced_input_binding_keys, key)
@@ -3141,15 +3157,7 @@ function _prepare_structural_compiled_delta(
     forced_call_target_keys = Set{Tuple{Symbol,ObjectId}}()
     for binding in call_bindings
         _compiled_call_membership_is_observed(binding) || continue
-        any(
-            dirty_id -> first(
-                _sorted_object_id_position(
-                    binding.callee_object_ids,
-                    dirty_id,
-                ),
-            ),
-            dirty,
-        ) ||
+        _sorted_object_ids_intersect_set(binding.callee_object_ids, dirty) ||
             continue
         push!(
             forced_call_target_keys,
