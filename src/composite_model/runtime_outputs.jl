@@ -6849,7 +6849,7 @@ end
     finally
         acquired && (cache.in_use = false)
     end
-    return target
+    return nothing
 end
 
 """
@@ -6909,12 +6909,15 @@ end
     end
     selected_environment = environment isa NoEnvironmentOverride ?
                            target.environment : environment
-    return _run_call!(
+    _run_call!(
         target,
         publish,
         sampled_environment,
         selected_environment,
     )
+    # Preserve the public view without returning it across the execution
+    # boundary, where partially inferred immutable snapshots can be boxed.
+    return target
 end
 
 @inline function _run_compiled_call_target!(
