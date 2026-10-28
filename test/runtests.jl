@@ -41,6 +41,18 @@ else
         include("test-model-object-id.jl")
     end
 
+    @testset "Organ creation allocations" begin
+        include("test-organ-creation-allocation.jl")
+    end
+
+    @testset "Lifecycle snapshot allocations" begin
+        include("test-lifecycle-snapshot-allocations.jl")
+    end
+
+    @testset "Organ status assembly" begin
+        include("test-organ-status-assembly.jl")
+    end
+
     @testset "CompositeModel display" begin
         include("test-model-display.jl")
     end
@@ -51,6 +63,10 @@ else
 
     @testset "Selector candidate scope fast path" begin
         include("test-selector-candidate-empty-scope.jl")
+    end
+
+    @testset "Lifecycle without target additions" begin
+        include("test-model-lifecycle-empty-targets.jl")
     end
 
     @testset "Public model authoring API" begin
