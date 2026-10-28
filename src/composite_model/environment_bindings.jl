@@ -341,67 +341,16 @@ end
     step::Int,
 ) = @inbounds prepared.rows[step]
 
-@generated function _sample_compiled_global_environment_row(
-    row::Row,
-    ::R,
-) where {Row,R<:Tuple}
-    rule_types = R.parameters
-    targets = Tuple(rule_type.parameters[1] for rule_type in rule_types)
-    sources = Tuple(rule_type.parameters[2] for rule_type in rule_types)
-    checks = Expr[]
-    values = Expr[]
-    for (target, source) in zip(targets, sources)
-        push!(
-            checks,
-            quote
-                isnothing(row) && error(
-                    "GlobalConstant source is `nothing`, but the model requires source variable `",
-                    $(QuoteNode(target)),
-                    "`.",
-                )
-                hasproperty(row, $(QuoteNode(source))) || error(
-                    "GlobalConstant source does not provide source variable `",
-                    $(QuoteNode(source)),
-                    "` for model-facing variable `",
-                    $(QuoteNode(target)),
-                    "`.",
-                )
-            end,
-        )
-        push!(values, :(getproperty(row, $(QuoteNode(source)))))
-    end
-    values_tuple = Expr(:tuple, values...)
-    checks_block = Expr(:block, checks...)
-    if Row <: NamedTuple
-        row_names = Row.parameters[1]
-        if :duration in row_names && !(:duration in targets)
-            output_targets = (targets..., :duration)
-            output_values = Expr(
-                :tuple,
-                values...,
-                :(getproperty(row, :duration)),
-            )
-            return quote
-                $checks_block
-                return NamedTuple{$(QuoteNode(output_targets))}($output_values)
-            end
-        end
-        return quote
-            $checks_block
-            return NamedTuple{$(QuoteNode(targets))}($values_tuple)
-        end
-    end
-    return quote
-        $checks_block
-        sampled = NamedTuple{$(QuoteNode(targets))}($values_tuple)
-        if $(!(:duration in targets)) && !isnothing(row) && hasproperty(row, :duration)
-            return merge(
-                sampled,
-                (duration=getproperty(row, :duration),),
-            )
-        end
-        return sampled
-    end
+# Rule names are fixed in the compiled plan's tuple type. Materializing this
+# zero-size schema is a compiler constant, not a scan or a sampled-value cache.
+@generated function _prepared_environment_inputs(::R) where {R<:Tuple}
+    targets = Tuple(rule.parameters[1] for rule in R.parameters)
+    sources = Tuple(rule.parameters[2] for rule in R.parameters)
+    return :(PreparedEnvironmentInputs{$(QuoteNode(targets)),$(QuoteNode(sources)),false}())
+end
+
+@inline function _sample_compiled_global_environment_row(row, rules::Tuple)
+    return _sample_prepared_global_environment_row(row, _prepared_environment_inputs(rules))
 end
 
 # A `GlobalConstant` table is immutable simulation input. Materialize
@@ -419,7 +368,7 @@ function _compiled_environment_bindings(
     bindings,
     by_target,
     sample_cache=Dict{Tuple{Symbol,Int},Any}(),
-    positions_by_target=Dict(
+    positions_by_target=Dict{Tuple{Symbol,ObjectId},Int}(
         (binding.application_id, binding.object_id) => index
         for (index, binding) in pairs(bindings)
     ),
@@ -454,7 +403,10 @@ function _index_environment_targets_by_object(bindings)
 end
 
 function _index_environment_bindings(bindings)
-    by_target = Dict(
+    # An initially empty application can acquire targets with another schema
+    # during growth. Keep this lifecycle index value-widened; concrete handles
+    # and sampling plans remain in the typed execution targets.
+    by_target = Dict{Tuple{Symbol,ObjectId},CompiledEnvironmentBinding}(
         (binding.application_id, binding.object_id) => binding
         for binding in bindings
     )

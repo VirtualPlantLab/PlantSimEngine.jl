@@ -334,6 +334,7 @@ import ..PlantSimEngine:
     bind_environment,
     sample,
     sample_environment,
+    PreparedEnvironmentInputs,
     update_index!,
     commit_environment!
 
@@ -341,6 +342,7 @@ export AbstractEnvironmentBackend, EnvironmentContext, GlobalConstant
 export environment_backend, environment_variables, base_step_seconds
 export get_nsteps, bind_environment, sample, sample_environment, update_index!
 export commit_environment!
+export PreparedEnvironmentInputs
 end
 
 """
@@ -378,6 +380,7 @@ export application_name, applies_to, value_inputs, model_calls, outputs_to
 export environment_config
 export ModelSpec, OutputTo, Updates
 export call_targets, call_model, run_call!, run_initializer!, commit_environment!
+export CallEvaluation, evaluate_call!, accept_call!
 export bound_input, output_targets, assign_outputs!
 export Status
 export Required, Default, Distributed

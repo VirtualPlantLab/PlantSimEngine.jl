@@ -1430,6 +1430,7 @@ mutable struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,
     status_view_refresh_is_pure_addition::PA
     application_order::AO
     revision::Int
+    execution_generation::UInt64
 end
 
 function _index_dynamic_input_binding!(
@@ -1902,6 +1903,7 @@ function _compile_scene(
         false,
         application_order,
         model.revision,
+        UInt64(0),
     )
 end
 
@@ -3195,6 +3197,7 @@ function _prepare_structural_compiled_delta(
         false,
         compiled.application_order,
         model.revision,
+        compiled.execution_generation,
     )
     result = (
         compiled=stripped,
@@ -3965,6 +3968,7 @@ function _extend_compiled_scene(
         status_view_refresh_is_pure_addition,
         application_order,
         model.revision,
+        compiled.execution_generation,
     )
 end
 

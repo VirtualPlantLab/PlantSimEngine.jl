@@ -878,6 +878,7 @@ function _compiled_source_prepare_step!(simulation::Simulation, step::Integer)
     lifecycle = _pending_output_request_lifecycle_delta(simulation.model)
     _refresh_simulation_runtime!(simulation)
     _refresh_output_request_targets!(simulation, lifecycle)
+    simulation.compiled.execution_generation += UInt64(1)
     empty!(simulation.environment_bindings.sample_cache)
     schedule_plan = simulation.compiled.scenario_plan.application_schedule
     due_indices = _due_application_schedule_entries!(
@@ -1024,7 +1025,9 @@ function _compiled_source_run_call_target!(
     publish::Bool,
     sampled_environment,
     environment,
+    frame,
 )
+    _record_call_execution!(target.call_context_cache, frame)
     status = _materialize_model_inputs!(
         target.status,
         target.input_bindings,
@@ -1071,8 +1074,7 @@ function _compiled_source_run_call_target!(
         context,
     )
     if publication_allowed
-        isempty(target.output_bindings) ||
-            _model_publish_runtime_outputs!(target.output_bindings, targets.time)
+        _publish_evaluated_call!(frame, target.output_bindings, context)
     end
     return nothing
 end
@@ -1100,6 +1102,7 @@ function _compiled_source_run_call!(
     selected_environment = environment isa NoEnvironmentOverride ?
                            context.environment :
                            environment
+    frame = _active_call_evaluation()
     for batch in targets.execution_batches
         for target in batch.targets
             _compiled_source_run_call_target!(
@@ -1110,6 +1113,15 @@ function _compiled_source_run_call!(
                 publish,
                 sampled_environment,
                 selected_environment,
+                frame,
+            )
+        end
+    end
+    if publish && targets.publication_allowed
+        # Match ordinary calls, including an accepted empty Many selection.
+        for application_id in targets.binding.potential_callee_application_ids
+            _record_evaluated_call_clock!(
+                frame, targets.output_retention, application_id, targets.time,
             )
         end
     end
@@ -1133,6 +1145,7 @@ function _compiled_source_run_call!(
     end
     selected_environment = environment isa NoEnvironmentOverride ?
                            target.environment : environment
+    frame = _record_call_execution!(target.context_cache)
     status = _materialize_model_inputs!(
         target.status,
         target.temporal_inputs,
@@ -1186,8 +1199,7 @@ function _compiled_source_run_call!(
         context,
     )
     if publication_allowed
-        isempty(target.output_bindings) ||
-            _model_publish_runtime_outputs!(target.output_bindings, target.time)
+        _publish_evaluated_call!(frame, target.output_bindings, context)
     end
     return target
 end

@@ -223,6 +223,12 @@ For transient hard-call trials, distinguish:
 - `sampled_environment=model_facing_value`: forward an already sampled value.
 
 Commit only the accepted environmental state with `commit_environment!`.
+The runtime reuses `EnvironmentAPI.PreparedEnvironmentInputs` schemas, which
+contain names/remapping rather than values. A custom backend's
+`sample_environment` specialization should accept that prepared schema and
+read current committed/trial data on every invocation. This supports a shared
+mutable air compartment as well as spatial handles; never cache mutable
+environment values solely because the trial state's object identity matches.
 
 ## Hard calls
 
@@ -237,20 +243,50 @@ PlantSimEngine.dep(::Controller) = (
 )
 
 function PlantSimEngine.run!(model::Controller, status, environment, constants, context)
-    # Trial calls do not publish outputs.
-    run_call!(context, :leaves; publish=false)
-
-    # Call once with the accepted state and publish it.
-    accepted = run_call!(context, :leaves; publish=true)
-    status.total = sum(target.status.flux for target in accepted)
+    # Evaluate a candidate, inspect it, and accept it without replaying kernels.
+    evaluated = evaluate_call!(context, :leaves)
+    status.total = sum(target.status.flux for target in call_targets(evaluated))
+    accept_call!(evaluated)
     return nothing
 end
 ```
 
-`run_call!` always returns a vector-like `CallTargets` collection. Use the bulk
-form to execute every target. Use `call_targets` and individual calls only for
-selective ordering, per-target environment values, or explicit target status
-inspection. Call-target-only applications are not run by the root scheduler.
+For an iterative solve, evaluate each candidate with `evaluate_call!`, inspect
+its target statuses, and accept only the latest successful candidate. The
+individual-target overload accepts a `CallTarget`; the named-call overload
+also accepts `objects=...`. Both environment keywords retain their usual
+meaning. Publish the state whose equations were evaluated, not a proposed
+next iterate.
+
+`run_call!` remains appropriate when capture is unnecessary: use
+`publish=false` for an ordinary unpublished trial or `publish=true` to run and
+publish together. It always returns a vector-like `CallTargets` collection.
+Use the bulk form to execute every target, and individual calls for selective
+ordering, per-target environment values or explicit status inspection.
+Call-target-only applications are not run by the root scheduler.
+
+Evaluation/acceptance constraints:
+
+- Evaluation mutates live statuses. It captures
+  publication-intended retained/dependency values and commits, not complete
+  model state; it is not rollback for stateful scientific equations.
+- Accept a token once on its originating task, in the same synchronous call
+  tree, before any rerun of its targets, timestep advance or structural/model/
+  binding change. Do not directly change its live inputs/status before accept.
+- Earlier candidates require caller-owned scientific inputs/state and another
+  evaluation. Mutable retained output values are captured at their original
+  publication point, including private outputs. Applications declaring
+  distributed outputs still cannot be manual-call-only targets; keep them
+  root-scheduled and evaluate/accept their scalar children instead.
+- Nested `publish=false` suppresses descendant publication; nested
+  `publish=true` stages into the active evaluation. Accepting a child inside
+  an outer evaluation merges its events; an unpublished ancestor still wins.
+- Environment commits inside evaluation are deferred and do not overlay the
+  backend for subsequent default samples. Pass transient states explicitly to
+  descendants. A controller may commit accepted air, then accept its already
+  evaluated leaves without rerunning them. Backend commit failures retain the
+  backend's own exception semantics; acceptance is not arbitrary-side-effect
+  atomicity.
 
 ## Evidence for the changed composition
 
