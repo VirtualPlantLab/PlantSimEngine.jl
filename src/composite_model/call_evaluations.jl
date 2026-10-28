@@ -116,7 +116,7 @@ function _begin_call_evaluation!(frame, compiled, time, permission)
     frame.in_use = true
     empty!(frame.events)
     empty!(frame.executions)
-    frame.task = current_task()
+    frame.task_identity = _call_evaluation_task_identity!()
     frame.compiled = compiled
     frame.model_revision = compiled.model.revision
     frame.runtime_revision = compiled.model.runtime_revision
@@ -143,6 +143,8 @@ function _with_call_evaluation(f, frame)
     catch
         empty!(frame.events)
         empty!(frame.executions)
+        frame.task_identity = nothing
+        frame.parent = nothing
         rethrow()
     finally
         frame.in_use = false
@@ -174,6 +176,10 @@ changing topology, bindings or models. Earlier candidates need caller-owned
 scientific state/inputs and a new evaluation; this API does not roll status
 back. Workspace vectors are reused, while retained mutable output values are
 snapshotted at publication intent so later writers cannot change them.
+Pending evaluations belong to their originating task. Restored pending tokens
+cannot be accepted; evaluate a new candidate after restoring a checkpoint.
+Accepted or failed evaluations release their task identity and parent
+references while keeping reusable workspace capacity.
 
 Deferred environment commits are not a speculative backend overlay. Pass trial
 state explicitly with `environment=state` when descendants need it. Acceptance
@@ -240,7 +246,8 @@ end
 
 function _validate_call_evaluation(evaluation::CallEvaluation)
     frame = evaluation.frame
-    frame.task === current_task() || throw(ArgumentError("Accept a call evaluation on its originating task."))
+    frame.task_identity === _call_evaluation_task_identity!() ||
+        throw(ArgumentError("Accept a call evaluation on its originating task."))
     frame.pending && frame.generation == evaluation.generation ||
         throw(ArgumentError("Call evaluation is stale or has already been accepted."))
     _validate_call_model_state(frame, frame.compiled)
@@ -304,6 +311,8 @@ function accept_call!(evaluation::CallEvaluation)
         # streams or the parent journal now own the captured values.
         empty!(frame.events)
         empty!(frame.executions)
+        frame.task_identity = nothing
+        frame.parent = nothing
     end
     return evaluation
 end

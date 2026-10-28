@@ -1,6 +1,6 @@
 module CallEvaluationChecks
 
-using Dates, PlantSimEngine, Test
+using Dates, PlantSimEngine, Serialization, Test
 
 const PSE = PlantSimEngine
 const EA = PSE.EnvironmentAPI
@@ -558,6 +558,71 @@ end
     # Keep a portable Julia 1.10 allowance while detecting publication-frame
     # storage that is reallocated on every evaluation rather than reused.
     @test allocated_bytes <= 100 * 256
+end
+
+function checkpoint_copy(simulation)
+    buffer = IOBuffer()
+    serialize(buffer, simulation)
+    seekstart(buffer)
+    return deserialize(buffer)
+end
+
+@testset "completed evaluation workspaces permit simulation checkpoints" begin
+    for selection in (:collection, :individual), outcome in (:accepted, :failed)
+        fixture = basic_scene()
+        simulation = run!(fixture.model; steps=1, outputs=:all)
+        context = fixture.capture[]
+        target = only(call_targets(context, :one))
+        evaluate = selection === :collection ?
+            () -> evaluate_call!(context, :one) : () -> evaluate_call!(target)
+        if outcome === :accepted
+            candidate = evaluate()
+            # Pending tokens still enforce the originating-task boundary.
+            foreign_error = fetch(@async try
+                accept_call!(candidate)
+                nothing
+            catch error
+                error
+            end)
+            @test foreign_error isa ArgumentError
+            @test candidate.frame.pending
+            owner_marker = task_local_storage()[PSE._CALL_EVALUATION_TASK_IDENTITY_TLS_KEY]
+            copied_tls_error = fetch(@async try
+                task_local_storage()[PSE._CALL_EVALUATION_TASK_IDENTITY_TLS_KEY] = owner_marker
+                accept_call!(candidate)
+                nothing
+            catch error
+                error
+            end)
+            @test copied_tls_error isa ArgumentError
+            @test candidate.frame.pending
+            restored_candidate = checkpoint_copy(candidate)
+            @test_throws ArgumentError accept_call!(restored_candidate)
+            @test candidate.frame.pending
+            accept_call!(candidate)
+            @test candidate.frame.task_identity === nothing
+            @test candidate.frame.parent === nothing
+            @test_throws ArgumentError accept_call!(candidate)
+        else
+            target.status.fail_next = true
+            @test_throws ErrorException evaluate()
+            workspace = selection === :collection ?
+                call_targets(context, :one).evaluation : target.context_cache.evaluation
+            @test workspace.task_identity === nothing
+            @test workspace.parent === nothing
+        end
+
+        # Serialize on this same still-running task, then advance both branches
+        # to verify checkpoint cleanup preserves outputs, statuses and caches.
+        restored = checkpoint_copy(simulation)
+        @test isequal(collect_outputs(restored), collect_outputs(simulation))
+        continue!(restored; steps=1)
+        continue!(simulation; steps=1)
+        @test isequal(collect_outputs(restored), collect_outputs(simulation))
+        for object_id in (:owner, :leaf_a, :leaf_b)
+            @test final_state(restored, object_id) == final_state(simulation, object_id)
+        end
+    end
 end
 
 end # module CallEvaluationChecks
