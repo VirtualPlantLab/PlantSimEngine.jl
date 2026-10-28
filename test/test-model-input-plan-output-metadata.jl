@@ -421,4 +421,75 @@ end
     end
 end
 
+@testset "writer candidates restrict variable scans and preserve mixed producer selection" begin
+    first_source = Source(3.0; port=:sent, payload=:first_payload)
+    last_source = Source(7.0; port=:sent, payload=:last_payload)
+    noise = [Source(1.0; port=Symbol(:unrelated_, index),
+        payload=Symbol(:unrelated_payload_, index)) for index in 1:32]
+    model = CompositeModel(Object(:scene; scale=:Scene); applications=(
+        ModelSpec(first_source; name=:local_first, on=Many(scale=:LocalFirst)),
+        (ModelSpec(source; name=Symbol(:noise_, index), on=Many(scale=:Noise))
+            for (index, source) in pairs(noise))...,
+        ModelSpec(DistributedWriter(10.0); name=:distributed, on=One(id=:scene),
+            outputs_to=(OutputTo(Many(scale=:Destination, within=SceneScope())),)),
+        ModelSpec(last_source; name=:local_last, on=Many(scale=:LocalLast)),
+        ModelSpec(Reader(Float64; port=:sent); name=:reader,
+            on=Many(scale=(:LocalFirst, :Destination, :LocalLast))),
+    ), environment=(duration=Hour(1),))
+    applications = PSE._compile_model_applications(model, model.applications,
+        PSE._model_timeline(model))
+    destinations = PSE._compile_model_output_destination_plans(model, applications)
+    local_names = Dict(application.id => PSE._model_output_names(application)
+        for application in applications)
+    queries_before = [source.queries[] for source in (first_source, last_source, noise...)]
+    writers = PSE._input_plan_writer_applications(applications, local_names, destinations)
+    @test [source.queries[] for source in (first_source, last_source, noise...)] == queries_before
+    @test getproperty.(writers[:sent], :id) == [:local_first, :distributed, :local_last]
+    # Each explicit or inferred scan for :sent now visits three declarations,
+    # regardless of the 32 unrelated-variable applications.
+    @test length(writers[:sent]) == 3 < length(applications)
+    @test !haskey(writers, :missing)
+    @test all(isempty(application.target_ids) for application in writers[:sent]
+        if application.id != :distributed)
+    consumer = last(applications)
+    potential(selector; process_filter=nothing, application_filter=nothing,
+        origin=:model_spec) = PSE._potential_input_source_application_ids(
+        writers, consumer, selector, :sent, process_filter, application_filter,
+        origin, destinations, local_names)
+    broad = Many(scale=(:LocalFirst, :Destination, :LocalLast))
+    @test potential(broad) == (:local_first, :distributed, :local_last)
+    @test potential(broad; process_filter=:input_plan_metadata_source) ==
+        (:local_first, :local_last)
+    @test potential(broad; application_filter=:distributed) == (:distributed,)
+    @test potential(broad; process_filter=:input_plan_metadata_source,
+        application_filter=:distributed) == ()
+    @test potential(Many(scale=:Destination)) == (:distributed,)
+    @test potential(Many(scale=:Noise)) == ()
+    @test potential(Many(scale=:Noise); origin=:inferred_same_object) ==
+        (:local_first, :distributed, :local_last)
+    @test potential(Many(scale=:Destination, from_status=true)) == ()
+
+    # The pass also supports application subsets whose slots belong to the
+    # original full graph, including distributed declaration lookup by ID.
+    selected = applications[[1, length(applications) - 2, length(applications)]]
+    subset = PSE._input_plan_writer_applications(selected, local_names, destinations)
+    @test getproperty.(subset[:sent], :id) == [:local_first, :distributed]
+    @test getproperty.(selected, :slot) == [1, 34, 36]
+
+    simulation = run!(model; steps=1, outputs=:none)
+    signature = plan_signature(simulation.compiled.scenario_plan.input_plans)
+    @test signature == [(:reader, :sent, :inferred_same_object, (id,))
+        for id in (:local_first, :distributed, :local_last)]
+    register_object!(model, Object(:first; scale=:LocalFirst, parent=:scene))
+    register_object!(model, Object(:destination; scale=:Destination, parent=:scene))
+    register_object!(model, Object(:last; scale=:LocalLast, parent=:scene))
+    step!(simulation)
+    @test model_status(model, :first).observed === 6.0
+    @test model_status(model, :destination).observed === 11.0
+    @test model_status(model, :last).observed === 14.0
+    refreshed = Advanced.refresh_bindings!(model; force=true)
+    @test plan_signature(refreshed.scenario_plan.input_plans) == signature
+    @test PSE._input_plan_writer_applications(applications, local_names, destinations) !== writers
+end
+
 end # module
