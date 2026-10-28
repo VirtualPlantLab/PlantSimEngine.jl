@@ -31,6 +31,39 @@ its initial values. If you represent the plant with a MultiScaleTreeGraph
 together. Your growth model must still decide when an organ appears, what it
 costs, and how carbon is converted to dry matter.
 
+## Create dependent organs together
+
+Use [`add_organs!`](@ref) to describe a group in which a new organ can become
+the parent of a later one. This example creates topology only:
+
+```@example grouped_organs
+using PlantSimEngine
+using MultiScaleTreeGraph
+
+plant = Node(NodeMTG(:/, :Plant, 1, 1))
+model = CompositeModel(plant)
+cycle, zone = add_organs!(model, (
+    (parent=plant, link=:/, symbol=:Cycle, scale=2,
+        attributes=(CycleIndex=1,)),
+    (parent=OrganParent(1), link=:/, symbol=:Zone, scale=3,
+        attributes=(ZoneIndex=1,)),
+))
+
+@assert parent(zone.node) === cycle.node
+@assert model_status(model, zone.node) === zone.status
+(symbol(cycle.node), symbol(zone.node))
+```
+
+[`OrganParent(1)`](@ref OrganParent) selects the first specification's created
+node. Each returned record contains its physical `node` and the `status`
+registered at that birth. If a later callback replaces an earlier status,
+use `model_status(model, record.node)` to retrieve its current status.
+
+Each birth finishes its callbacks, registration, and lifecycle recording
+before the next specification is processed. If one fails, the group stops
+and earlier successful births remain. Initializers and resource accounting
+keep the same responsibilities as for `add_organ!`.
+
 ## Know when a newborn can run
 
 When a model adds, removes, or reparents an organ, PlantSimEngine updates

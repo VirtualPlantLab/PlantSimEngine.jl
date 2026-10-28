@@ -203,6 +203,9 @@ They cannot select where an application runs through `ModelSpec(...; on=...)`.
 - `objects_from_mtg` and `CompositeModel(mtg; ...)` create registered objects
   from a MultiScaleTreeGraph (MTG).
 - `add_organ!` creates and initializes a new organ when the model uses an MTG.
+- `add_organs!(runtime, specifications)` creates an ordered group and returns
+  `(; node, status)` records. `OrganParent(i)` selects a parent created by an
+  earlier specification in that group.
 - `runtime_model(context)` gives a model's `run!` function access to the
   running `CompositeModel`, for example to add or remove objects.
 - `object_id(context)`, `model_object(context)`, `model_status(context)`, and
