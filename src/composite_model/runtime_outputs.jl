@@ -5767,6 +5767,43 @@ end
     return CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
 end
 
+@noinline function _transient_single_call_target_snapshot(
+    targets::CallTargets{CS,EB,B,TS,OR,C},
+    application::A,
+    target::T,
+    context::RC,
+    environment::E,
+) where {CS,EB,B,TS,OR,C,A,T<:CompiledExecutionTarget,RC<:RunContext,E}
+    # The collection stores override metadata behind Any. Cross that boundary
+    # once so this specialization knows the actual environment type while
+    # checking and constructing cached immutable views.
+    CT = fieldtype(RC, :calls)
+    View = CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
+    previous = targets.last_single_snapshot
+    if previous isa View &&
+       _single_call_snapshot_matches(previous, targets, application, target, context)
+        # Keep the existing boxed view across this dynamic return boundary.
+        # A concrete return would unbox it here and box a copy in the caller.
+        return Base.inferencebarrier(previous)
+    end
+    snapshot = View(
+        target,
+        targets.compiled,
+        targets.environment_bindings,
+        application,
+        target.object_id,
+        context.calls,
+        targets.temporal_streams,
+        targets.output_retention,
+        targets.time,
+        targets.constants,
+        targets.publication_allowed,
+        environment,
+    )
+    targets.last_single_snapshot = snapshot
+    return Base.inferencebarrier(targets.last_single_snapshot)
+end
+
 @inline function _single_call_target_snapshot(
     targets::CallTargets{CS,EB,B,TS,OR,C},
     application::A,
@@ -5793,7 +5830,7 @@ end
             targets, application, target, context,
         )
         # Exact default metadata permits a concrete type check instead of
-        # existential subtyping; changed environment types keep the general path.
+        # existential subtyping without crossing a dynamic override boundary.
         if isconcretetype(ConcreteView) &&
            isconcretetype(CS) && isconcretetype(EB) &&
            isconcretetype(TS) && isconcretetype(OR) && isconcretetype(C) &&
@@ -5819,6 +5856,13 @@ end
             )
             targets.last_single_snapshot = snapshot
             return snapshot
+        end
+        if isconcretetype(CS) && isconcretetype(EB) &&
+           isconcretetype(TS) && isconcretetype(OR) && isconcretetype(C) &&
+           isconcretetype(fieldtype(typeof(context), :calls))
+            return _transient_single_call_target_snapshot(
+                targets, application, target, context, targets.environment,
+            )
         end
         if previous isa View &&
            _single_call_snapshot_matches(previous, targets, application, target, context)
