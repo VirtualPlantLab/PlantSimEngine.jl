@@ -1444,6 +1444,33 @@ function add_organ!(
     link,
     organ_symbol,
     mtg_scale::Integer;
+    kwargs...,
+)
+    model, adapter = _organ_creation_runtime(runtime)
+    return _add_organ!(parent_node, model, adapter, link, organ_symbol, mtg_scale; kwargs...)
+end
+
+function _organ_creation_runtime(runtime)
+    model = runtime_model(runtime)
+    adapter = model.source_adapter
+    adapter isa MTGObjectAdapter || error(
+        "Organ creation requires a model constructed from an MTG. Use ",
+        "`register_object!` for composite models built directly from `Object` values."
+    )
+    return model, adapter
+end
+
+@inline _created_organ_result(::Val{false}, node, status) = status
+@inline _created_organ_result(::Val{true}, node, status) = (; node, status)
+
+function _add_organ!(
+    parent_node::MultiScaleTreeGraph.Node,
+    model::CompositeModel,
+    adapter::MTGObjectAdapter,
+    link,
+    organ_symbol,
+    mtg_scale::Integer,
+    return_node::Val=Val(false);
     index::Integer=0,
     id=nothing,
     attributes=NamedTuple(),
@@ -1453,12 +1480,6 @@ function add_organ!(
     species=nothing,
     name=nothing,
 )
-    model = runtime_model(runtime)
-    adapter = model.source_adapter
-    adapter isa MTGObjectAdapter || error(
-        "`add_organ!` requires a model constructed from an MTG. Use ",
-        "`register_object!` for composite models built directly from `Object` values."
-    )
     # Reject the reserved runtime field before constructing the MTG node. A
     # rejected ColumnarAttrs insertion would otherwise leave an empty schema
     # column visible on later nodes of the same organ symbol.
@@ -1512,12 +1533,78 @@ function add_organ!(
             status=status,
         )
         registered = register_object!(model, object)
-        return registered.status
+        return _created_organ_result(return_node, node, registered.status)
     catch
         _unregister_mtg_object_identity!(adapter, node)
         MultiScaleTreeGraph.delete_node!(node)
         rethrow()
     end
+end
+
+"""
+    OrganParent(index)
+
+Use the MTG node created by the earlier, one-based specification `index` as
+the parent of an organ in [`add_organs!`](@ref). The referenced specification
+must precede the one using it. Validation occurs when that organ is reached.
+"""
+struct OrganParent
+    index::Int
+end
+
+"""
+    add_organs!(runtime, specifications::Tuple) -> Tuple
+
+Create an ordered group of MTG organs, sharing runtime setup. Each specification
+is a `NamedTuple` with `parent`, `link`, `symbol`, and `scale`, followed by any
+optional keywords accepted by [`add_organ!`](@ref). `parent` is an existing MTG
+node or `OrganParent(i)` referring to an earlier specification in this group.
+Return birth records `(; node, status)` in specification order. Each record
+contains the physical MTG node and the canonical status returned at its birth.
+Later callbacks may replace that object's registry status, just as between
+scalar calls; the record retains the original node and returned status.
+
+Each organ completes the scalar operation, including callbacks, registration,
+and lifecycle recording, before the next specification is read. Validation is
+per organ: if an organ fails, earlier successful births remain registered and
+later specifications are not processed. An empty tuple performs no work.
+
+```julia
+cycle, zone = add_organs!(model, (
+    (parent=axis, link=:/, symbol=:Cycle, scale=2),
+    (parent=OrganParent(1), link=:/, symbol=:Zone, scale=3),
+))
+```
+"""
+function add_organs!(runtime, specifications::Tuple)
+    isempty(specifications) && return ()
+    model, adapter = _organ_creation_runtime(runtime)
+    return _add_organs!(model, adapter, specifications, ())
+end
+
+_organ_parent(parent::MultiScaleTreeGraph.Node, nodes::Tuple) = parent
+function _organ_parent(parent::OrganParent, nodes::Tuple)
+    1 <= parent.index <= length(nodes) || throw(ArgumentError(
+        "OrganParent($(parent.index)) must refer to an earlier organ specification.",
+    ))
+    return nodes[parent.index]
+end
+
+function _add_organ_spec!(model, adapter, nodes; parent, link, symbol, scale, kwargs...)
+    return _add_organ!(
+        _organ_parent(parent, nodes), model, adapter, link, symbol, scale, Val(true); kwargs...,
+    )
+end
+
+_add_organs!(model, adapter, ::Tuple{}, nodes::Tuple) = ()
+function _add_organs!(model, adapter, specifications::Tuple, nodes::Tuple)
+    specification = first(specifications)
+    specification isa NamedTuple || throw(ArgumentError(
+        "Each organ specification must be a NamedTuple, got $(typeof(specification)).",
+    ))
+    creation = _add_organ_spec!(model, adapter, nodes; specification...)
+    remaining = _add_organs!(model, adapter, Base.tail(specifications), (nodes..., creation.node))
+    return (creation, remaining...)
 end
 
 function _remove_child_link!(model::CompositeModel, parent_id, child_id::ObjectId)

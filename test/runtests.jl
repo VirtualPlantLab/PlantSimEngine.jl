@@ -45,6 +45,10 @@ else
         include("test-organ-creation-allocation.jl")
     end
 
+    @testset "Grouped organ creation" begin
+        include("test-grouped-organ-creation.jl")
+    end
+
     @testset "Lifecycle snapshot allocations" begin
         include("test-lifecycle-snapshot-allocations.jl")
     end

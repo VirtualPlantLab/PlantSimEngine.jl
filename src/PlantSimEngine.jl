@@ -364,7 +364,7 @@ export ClockSpec
 export SchedulePolicy, HoldLast, Interpolate, Integrate, Aggregate
 export OutputRequest, collect_outputs
 export CompositeModel, Object, ObjectId, CompositeModelTemplate, ObjectInstance, Override
-export add_organ!, register_object!, remove_object!, reparent_object!, move_object!, update_geometry!
+export add_organ!, add_organs!, OrganParent, register_object!, remove_object!, reparent_object!, move_object!, update_geometry!
 export mark_environment_binding_dirty!
 export objects_from_mtg, object_id, object_ids, model_object, model_status, source_node
 export model_objects, resolve_object_ids, resolve_objects
