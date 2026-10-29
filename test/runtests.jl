@@ -87,6 +87,7 @@ else
 
     @testset "Composite model hard calls" begin
         include("test-model-hard-calls.jl")
+        include("test-model-call-target-cardinality.jl")
     end
 
     @testset "Accepted call evaluations" begin
@@ -248,6 +249,14 @@ else
 
     @testset "Composite model multirate integration" begin
         include("test-model-multirate-integration.jl")
+    end
+
+    @testset "Simulation reference dispatch boundary" begin
+        include("test-model-simulation-dispatch-barrier.jl")
+    end
+
+    @testset "Stable private status views" begin
+        include("test-model-stable-status-views.jl")
     end
 
     @testset "Composite model configuration errors" begin

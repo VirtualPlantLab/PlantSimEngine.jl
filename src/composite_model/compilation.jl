@@ -1211,12 +1211,25 @@ struct CompiledTemporalInput{B,S,I,R}
     reference::R
 end
 
-struct CompiledModelStatusView{S,C,T,P,BI}
-    status::S
-    canonical_status::C
-    temporal_inputs::T
-    private_outputs::P
-    bound_inputs::BI
+mutable struct CompiledModelStatusView{S,C,T,P,BI}
+    const status::S
+    const canonical_status::C
+    const temporal_inputs::T
+    const private_outputs::P
+    const bound_inputs::BI
+end
+
+# Preserve the former immutable wrapper's egal semantics for the diagnostic
+# construction counter. Runtime cache validity still uses its existing guards.
+@inline function _same_model_status_view_payloads(current, previous)
+    current === previous && return true
+    typeof(current) === typeof(previous) || return false
+    current isa CompiledModelStatusView || return false
+    return current.status === previous.status &&
+           current.canonical_status === previous.canonical_status &&
+           current.temporal_inputs === previous.temporal_inputs &&
+           current.private_outputs === previous.private_outputs &&
+           current.bound_inputs === previous.bound_inputs
 end
 
 struct CompiledModelCallBinding{P}
