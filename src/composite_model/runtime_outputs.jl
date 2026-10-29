@@ -7287,7 +7287,7 @@ use [`call_targets`](@ref) and [`run_call!(::CallTarget)`](@ref). Commit an
 accepted mutable state with [`commit_environment!`](@ref) before publishing the
 accepted descendants.
 """
-function run_call!(
+Base.@constprop :aggressive function run_call!(
     context::RunContext,
     name::Symbol;
     environment=_NO_ENVIRONMENT_OVERRIDE,
