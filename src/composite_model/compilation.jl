@@ -6739,7 +6739,7 @@ function _selector_labels_may_overlap(left, right)
 end
 
 function _potential_input_source_application_ids(
-    applications,
+    writer_applications,
     consumer_application,
     selector,
     source_var::Symbol,
@@ -6753,7 +6753,7 @@ function _potential_input_source_application_ids(
     source_selector = origin == :inferred_same_object ?
                       consumer_application.applies_to : selector
     return Tuple(
-        application.id for application in applications
+        application.id for application in get(writer_applications, source_var, ())
         if (isnothing(process_filter) ||
             application.process == process_filter) &&
            (isnothing(application_filter) ||
@@ -6766,6 +6766,34 @@ function _potential_input_source_application_ids(
                distributed_output_plans,
            )
     )
+end
+
+function _input_plan_writer_applications(
+    applications,
+    local_output_names,
+    distributed_output_plans,
+)
+    writers = Dict{Symbol,Vector{CompiledModelApplication}}()
+    for application in applications
+        for variable in local_output_names[application.id]
+            push!(get!(Vector{CompiledModelApplication}, writers, variable), application)
+        end
+        distributed_output_plans isa NoCompiledDistributedOutputPlans && continue
+        for plan in get(
+            distributed_output_plans.by_application,
+            application.id,
+            (),
+        )
+            for variable in keys(plan.declarations)
+                candidates = get!(Vector{CompiledModelApplication}, writers, variable)
+                # An application can write the same name through several
+                # destination plans. Keep it once, in application order.
+                (isempty(candidates) || last(candidates).id != application.id) &&
+                    push!(candidates, application)
+            end
+        end
+    end
+    return writers
 end
 
 function _application_may_output_variable(
@@ -6836,10 +6864,23 @@ Base.@nospecializeinfer function _potential_call_application_ids(
     )
 end
 
+Base.@nospecializeinfer function _input_plan_variable_contracts!(
+    contracts_by_application::Dict{Symbol,NamedTuple},
+    application,
+)
+    @nospecialize application
+    application_id = application.id
+    schema = get(contracts_by_application, application_id, nothing)
+    isnothing(schema) || return schema
+    schema = _variable_contract_schema(application.spec)
+    contracts_by_application[application_id] = schema
+    return schema
+end
+
 Base.@nospecializeinfer function _compiled_model_input_plan(
     plans,
     model,
-    applications,
+    writer_applications,
     application,
     input::Symbol,
     selector,
@@ -6847,6 +6888,7 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
     applications_by_id,
     distributed_output_plans,
     local_output_names,
+    variable_contracts_by_application,
 )
     # Selector and application values still determine the concrete final plan.
     @nospecialize application selector
@@ -6862,7 +6904,7 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
     )
     potential_source_application_ids =
         _potential_input_source_application_ids(
-        applications,
+        writer_applications,
         application,
         selector,
         source_var,
@@ -6878,6 +6920,11 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
             input,
             applications_by_id[producer_id],
             source_var,
+            variable_contracts_by_application[application.id],
+            _input_plan_variable_contracts!(
+                variable_contracts_by_application,
+                applications_by_id[producer_id],
+            ),
         )
     end
     policy = _selector_has_policy(selector) ? _selector_policy(selector) : nothing
@@ -6928,14 +6975,29 @@ function _compile_model_input_plans(
         application.id => _model_output_names(application)
         for application in applications
     )
+    # Restrict producer scans by declared variable, before applying selectors
+    # and process/application filters. This remains a compile-pass inventory:
+    # retain empty applications, stream-only local outputs, and distributed
+    # declarations regardless of their current destination membership.
+    writer_applications = _input_plan_writer_applications(
+        applications,
+        local_output_names,
+        distributed_output_plans,
+    )
     canonical_output_names = Dict(
         application.id => Symbol[
             variable for variable in local_output_names[application.id]
             if _publish_mode_for_output(application.spec, variable) == :canonical
         ] for application in applications
     )
+    # Contract-name validation reads full declarations, which may allocate
+    # array defaults. Validate each exact application once in this pass and
+    # reuse only its contract metadata for every producer/consumer comparison.
+    # Fill lazily to preserve declaration/endpoint error ordering. Do not retain
+    # initialization values or cache across compilations.
+    variable_contracts_by_application = Dict{Symbol,NamedTuple}()
     for application in applications
-        _variable_contract_schema(application.spec)
+        _input_plan_variable_contracts!(variable_contracts_by_application, application)
         declared_inputs = value_inputs(application.spec)
         declared_inputs isa NamedTuple || (declared_inputs = NamedTuple())
         declared_names = Set(Symbol.(keys(declared_inputs)))
@@ -6950,7 +7012,7 @@ function _compile_model_input_plans(
                 _compiled_model_input_plan(
                     plans,
                     model,
-                    applications,
+                    writer_applications,
                     application,
                     input,
                     selector,
@@ -6958,12 +7020,13 @@ function _compile_model_input_plans(
                     applications_by_id,
                     distributed_output_plans,
                     local_output_names,
+                    variable_contracts_by_application,
                 ),
             )
         end
         for input in _model_input_names(application)
             input in declared_names && continue
-            for producer in applications
+            for producer in get(writer_applications, input, ())
                 producer.id == application.id && continue
                 local_output = input in canonical_output_names[producer.id] &&
                                _selector_labels_may_overlap(
@@ -6988,7 +7051,7 @@ function _compile_model_input_plans(
                     _compiled_model_input_plan(
                         plans,
                         model,
-                        applications,
+                        writer_applications,
                         application,
                         input,
                         selector,
@@ -6996,6 +7059,7 @@ function _compile_model_input_plans(
                         applications_by_id,
                         distributed_output_plans,
                         local_output_names,
+                        variable_contracts_by_application,
                     ),
                 )
             end
