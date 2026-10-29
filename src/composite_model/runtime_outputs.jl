@@ -7759,6 +7759,45 @@ function _mark_schedule_prefix_completed!(
     return completed_applications
 end
 
+# The heterogeneous batch vector is the dynamic dispatch boundary. Pass the
+# mutable Simulation reference across it, then unpack immutable runtime fields
+# only after specializing on the concrete batch and simulation types. Keeping
+# this barrier out of the group loop avoids boxing those fields at each call.
+@noinline function _run_scheduled_model_execution_batch!(
+    batch::CompiledExecutionBatch,
+    simulation::Simulation,
+    step::Integer,
+    ::Nothing,
+)
+    return _run_model_execution_batch!(
+        batch,
+        simulation.compiled,
+        simulation.environment_bindings,
+        step,
+        simulation.constants,
+        simulation.temporal_streams,
+        simulation.output_retention,
+    )
+end
+
+@noinline function _run_scheduled_model_execution_batch!(
+    batch::CompiledExecutionBatch,
+    simulation::Simulation,
+    step::Integer,
+    performance::RuntimePerformanceCounters,
+)
+    return _run_model_execution_batch_profiled!(
+        batch,
+        simulation.compiled,
+        simulation.environment_bindings,
+        step,
+        simulation.constants,
+        simulation.temporal_streams,
+        simulation.output_retention,
+        performance,
+    )
+end
+
 @inline function _run_model_execution_group!(
     group::CompiledApplicationExecutionGroup,
     simulation::Simulation,
@@ -7766,14 +7805,11 @@ end
     ::Nothing,
 )
     for batch in group.batches
-        _run_model_execution_batch!(
+        _run_scheduled_model_execution_batch!(
             batch,
-            simulation.compiled,
-            simulation.environment_bindings,
+            simulation,
             step,
-            simulation.constants,
-            simulation.temporal_streams,
-            simulation.output_retention,
+            nothing,
         )
     end
     return nothing
@@ -7790,14 +7826,10 @@ end
         :application_groups_considered,
     )
     for batch in group.batches
-        _run_model_execution_batch_profiled!(
+        _run_scheduled_model_execution_batch!(
             batch,
-            simulation.compiled,
-            simulation.environment_bindings,
+            simulation,
             step,
-            simulation.constants,
-            simulation.temporal_streams,
-            simulation.output_retention,
             performance,
         )
         _runtime_performance_count!(

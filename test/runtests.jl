@@ -251,6 +251,10 @@ else
         include("test-model-multirate-integration.jl")
     end
 
+    @testset "Simulation reference dispatch boundary" begin
+        include("test-model-simulation-dispatch-barrier.jl")
+    end
+
     @testset "Composite model configuration errors" begin
         include("test-model-configuration-errors.jl")
     end
