@@ -626,6 +626,8 @@ end
     @test getproperty.(rows, :object_id) == [:leaf_a, :leaf_b]
     @test getproperty.(rows, :value) == [1.0, 1.0]
     initial_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
+    @test length(initial_call_view) == 2
+    @test initial_call_view.execution_batches.target_count == 2
     initial_execution_targets = [
         target
         for batch in initial_call_view.execution_batches
@@ -655,6 +657,8 @@ end
     @test PlantSimEngine._call_bindings_signature((call_binding,)) !=
           initial_call_signature
     refreshed_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
+    @test length(initial_call_view) == 3
+    @test initial_call_view.execution_batches.target_count == 3
     refreshed_execution_targets = [
         target
         for batch in refreshed_call_view.execution_batches
@@ -670,6 +674,8 @@ end
 
     remove_object!(model, :leaf_b)
     continue!(simulation; steps=1)
+    @test length(initial_call_view) == 2
+    @test initial_call_view.execution_batches.target_count == 2
     rebuilt_observed_callee_target_index =
         simulation.compiled.observed_manual_call_binding_indices_by_callee_target
     @test rebuilt_observed_callee_target_index !== observed_callee_target_index
@@ -957,6 +963,7 @@ end
           ObjectId.(initial_leaf_ids)
     @test controller.ncalls == initial_count
     @test controller.total == initial_count
+    @test initial_call_view.execution_batches.target_count == initial_count
 
     added_leaf_id = :leaf_129
     register_object!(
@@ -966,6 +973,8 @@ end
     continue!(simulation)
 
     refreshed_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
+    @test length(initial_call_view) == initial_count + 1
+    @test initial_call_view.execution_batches.target_count == initial_count + 1
     refreshed_execution_targets = [
         target
         for batch in refreshed_call_view.execution_batches
@@ -1057,6 +1066,7 @@ end
         full_call_view,
     )
     @test length(full_call_view) == initial_count
+    @test full_call_view.execution_batches.target_count == initial_count
     @test PlantSimEngine._call_execution_batches_materialized(full_call_view)
     materialized_targets = collect(full_call_view)
     @test getproperty.(materialized_targets, :object_id) ==
@@ -1168,6 +1178,7 @@ end
     # incremental extension path for later objects.
     @test call_targets(LAZY_MANY_CALL_CONTEXT[], :children) === full_call_view
     @test length(full_call_view) == 1
+    @test full_call_view.execution_batches.target_count == 1
     @test PlantSimEngine._compiled_call_membership_is_observed(call_binding)
     @test getproperty.(collect(full_call_view), :object_id) ==
           ObjectId[ObjectId(:leaf_keep)]
@@ -1199,6 +1210,8 @@ end
     )
     continue!(simulation)
     @test call_targets(LAZY_MANY_CALL_CONTEXT[], :children) === full_call_view
+    @test length(full_call_view) == 2
+    @test full_call_view.execution_batches.target_count == 2
     @test getproperty.(collect(full_call_view), :object_id) ==
           ObjectId[
         ObjectId(:leaf_keep),
@@ -1376,6 +1389,8 @@ end
     @test current_binding !== initial_binding
     @test retained_view.binding === initial_binding
 
+    @test length(retained_view) == 1
+    @test retained_view.execution_batches.target_count == 1
     @test getproperty.(collect(retained_view), :object_id) ==
           ObjectId[ObjectId(:leaf_keep)]
     @test retained_view.binding === current_binding
@@ -1388,6 +1403,8 @@ end
     )
     continue!(simulation; steps=1)
     @test call_targets(LAZY_MANY_CALL_CONTEXT[], :children) !== retained_view
+    @test length(retained_view) == 2
+    @test retained_view.execution_batches.target_count == 2
     @test getproperty.(collect(retained_view), :object_id) ==
           ObjectId[ObjectId(:leaf_keep), ObjectId(:leaf_z_after_detach)]
     @test PlantSimEngine._cached_call_execution_batches(retained_view) !==
@@ -1432,6 +1449,7 @@ end
     @test !Advanced.bindings_dirty(model)
     @test Advanced.environment_bindings_dirty(model)
     @test length(retained_view) == 1
+    @test retained_view.execution_batches.target_count == 1
     @test !Advanced.environment_bindings_dirty(model)
     @test retained_view.environment_bindings !== initial_environment_bindings
     @test PlantSimEngine._cached_call_execution_batches(retained_view) !==
@@ -1706,6 +1724,9 @@ end
     @test schedule[:leaf_calls].manual_call_only
     @test !schedule[:leaf_calls].root_scheduled
     @test controller.ncalls == 0
+    retained_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
+    @test length(retained_call_view) == 0
+    @test retained_call_view.execution_batches.target_count == 0
     initial_observed_callee_target_index =
         simulation.compiled.observed_manual_call_binding_indices_by_callee_target
     @test isempty(initial_observed_callee_target_index)
@@ -1720,6 +1741,8 @@ end
     @test performance.counts[:selector_call_binding_candidates] == 1
     @test controller.ncalls == 1
     @test controller.total == 1.0
+    @test length(retained_call_view) == 1
+    @test retained_call_view.execution_batches.target_count == 1
     entered_observed_callee_target_index =
         simulation.compiled.observed_manual_call_binding_indices_by_callee_target
     @test entered_observed_callee_target_index !==
@@ -1740,6 +1763,8 @@ end
     @test performance.counts[:selector_call_binding_candidates] == 1
     @test controller.ncalls == 0
     @test controller.total == 0.0
+    @test length(retained_call_view) == 0
+    @test retained_call_view.execution_batches.target_count == 0
     left_observed_callee_target_index =
         simulation.compiled.observed_manual_call_binding_indices_by_callee_target
     @test left_observed_callee_target_index !==

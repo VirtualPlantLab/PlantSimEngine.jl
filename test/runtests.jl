@@ -87,6 +87,7 @@ else
 
     @testset "Composite model hard calls" begin
         include("test-model-hard-calls.jl")
+        include("test-model-call-target-cardinality.jl")
     end
 
     @testset "Accepted call evaluations" begin

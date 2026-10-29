@@ -544,6 +544,8 @@ mutable struct LazyCallExecutionBatches <: AbstractVector{AbstractExecutionBatch
     owner::Any
     batches::Any
     tracks_full_membership::Bool
+    # Read only after the batch cache has passed its current-membership checks.
+    target_count::Int
 end
 
 LazyCallExecutionBatches(; tracks_full_membership::Bool=true) =
@@ -551,6 +553,7 @@ LazyCallExecutionBatches(; tracks_full_membership::Bool=true) =
         nothing,
         nothing,
         tracks_full_membership,
+        0,
     )
 
 struct _TrackedCallExecutionBatchCache
@@ -822,6 +825,7 @@ function _record_call_execution_batch_cache!(
     batches,
 )
     targets.last_single_snapshot = nothing
+    cached.target_count = sum(batch -> length(batch.targets), batches; init=0)
     cached.batches = if cached.tracks_full_membership
         _TrackedCallExecutionBatchCache(
             batches,
@@ -848,6 +852,7 @@ function _record_extended_call_execution_batch_cache!(
     cached.tracks_full_membership || return targets
     batches = _cached_call_execution_batches(targets)
     isnothing(batches) && return targets
+    cached.target_count = sum(batch -> length(batch.targets), batches; init=0)
     cached.batches = _TrackedCallExecutionBatchCache(
         batches,
         binding,
@@ -5521,8 +5526,10 @@ _call_target_matches(targets::CallTargets, application, object_id::ObjectId) =
     _call_binding_target_matches(targets.binding, application, object_id)
 
 function Base.length(targets::CallTargets)
-    count = 0
     batches = _materialize_call_execution_batches!(targets)
+    cached = targets.execution_batches
+    cached isa LazyCallExecutionBatches && return cached.target_count
+    count = 0
     for batch in batches
         count += length(batch.targets)
     end
