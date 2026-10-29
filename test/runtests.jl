@@ -255,6 +255,10 @@ else
         include("test-model-simulation-dispatch-barrier.jl")
     end
 
+    @testset "Stable private status views" begin
+        include("test-model-stable-status-views.jl")
+    end
+
     @testset "Composite model configuration errors" begin
         include("test-model-configuration-errors.jl")
     end

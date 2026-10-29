@@ -7450,11 +7450,14 @@ function _refresh_simulation_runtime!(simulation::Simulation)
                 :status_views_constructed,
                 count(
                     key_and_view ->
-                        get(
-                            previous_status_views,
-                            first(key_and_view),
-                            nothing,
-                        ) !== last(key_and_view),
+                        !_same_model_status_view_payloads(
+                            get(
+                                previous_status_views,
+                                first(key_and_view),
+                                nothing,
+                            ),
+                            last(key_and_view),
+                        ),
                     simulation.compiled.status_views_by_target,
                 ),
             )
