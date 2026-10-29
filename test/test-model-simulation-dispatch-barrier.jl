@@ -56,7 +56,9 @@ function scheduled_dispatch_scene(::Type{T}) where {T}
                 on=One(scale=:Scene), every=Hour(2)),
             ModelSpec(ScheduledDispatchProbe(zero(T), log); name=:probe,
                 on=Many(scale=:Leaf), every=Hour(2),
-                inputs=(:seed => One(scale=:Scene, application=:source, var=:seed),)),
+                # Leaf inputs default to Self(); select their enclosing Scene.
+                inputs=(:seed => One(scale=:Scene, within=Ancestor(scale=:Scene),
+                    application=:source, var=:seed),)),
         ),
         environment=(driver=T(7), duration=Hour(1)),
     )
