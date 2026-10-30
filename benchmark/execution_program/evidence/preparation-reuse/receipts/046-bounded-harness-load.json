@@ -1,0 +1,22 @@
+{
+  "recorded_at": "2026-10-30T19:06:37.836697+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "6c932184",
+    "e": "include(\"benchmark/native_downstream/load_preparation_experiment.jl\"); for file in (\"lean_compiler.jl\",\"direct_calls.jl\",\"shared_call_program.jl\",\"tight_call_program.jl\"); include(joinpath(pwd(),\"benchmark/native_downstream\",file)); end; (pid=Base.getpid(),project=Base.active_project(),source=pathof(PlantSimEngine))",
+    "q": false,
+    "max_output": 2000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Session 'PSE preparation typed integration' (6c932184) is stalled \u2014 last seen 76s ago.\nProcess stats: 428.1 MB RSS, 0.0% CPU \u2014 process appears idle \u2014 may be deadlocked or waiting on I/O.\nA backtrace was sent to the session's terminal. Try again shortly or use manage_repl to restart it.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

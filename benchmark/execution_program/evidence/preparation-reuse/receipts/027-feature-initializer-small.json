@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T18:31:52.420766+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "b89c1299",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/newborn_preparation.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/newborn_preparation_checks.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/newborn_distributed_checks.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/newborn_fresh_distributed_checks.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/preparation_reuse_feature_checks.jl\")); f1=PreparationReuseFeatureChecks.preparation_feature_case(:initializer;arm=:bounded_preparation,steps=1); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/feature-initializer-small.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,f1,2); end; (passed=true,report=f1.report)",
+    "q": false,
+    "max_output": 3500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                         | Pass  Total  Time\nFocused preparation initializer/environment/Many case |   21     21  6.1s\n(passed = true, report = (bounded = (enabled = true, scene_entries = 1, scene_shells = 2, scenario_plans = 1, metadata_sequences = 13, metadata_id_sequences = 10, metadata_symbol_tables = 8, metadata_schedules = 1, selector_indexes = 1, maximum_table_entries = 4, metadata_only = true, cached_memberships = false, cached_sampled_environments = false, copied_scientific_values = false, scientific_payloads = :ordinary_concrete_model_status_and_carrier_objects, representation = :fixed_type_ordered_indexes_and_vectors_before_wide_construction), reuse = (enabled = false, recipe_builds = 0, recipe_hits = 0, recipe_view_assemblies = 0, ordinary_compiler_calls = 0, plain_preservations = 0, ordinary_preservations = 0, bound_interface_reuses = 0, recipe_entries = 0, fallback_reasons = Dict{Symbol, Int64}()), actual_reuse = 0, reuse_qualification = :no_recipe_reuse_claim_in_this_fixture, native_fields = 0, driver_units = 0, native_driver_units = 0))",
+          "type": "text"
+        }
+      ],
+      "eval_id": "9461feae"
+    }
+  }
+}

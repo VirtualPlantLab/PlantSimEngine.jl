@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T18:35:35.531481+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "b89c1299",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/lean_compiler.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/lean_checks.jl\")); spatial_gates=[PreparationReuseFeatureChecks.preparation_feature_case(:spatial;arm) for arm in (:bounded_preparation,:combined)]; open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/spatial-feature-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,spatial_gates,2); end; (passed=true,cases=length(spatial_gates))",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                                      | Pass  Total  Time\nFocused preparation mutable spatial environment and handle refresh |   17     17  2.4s\nTest Summary:                                                      | Pass  Total  Time\nFocused preparation mutable spatial environment and handle refresh |   18     18  0.0s\n(passed = true, cases = 2)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "5bed12f9"
+    }
+  }
+}

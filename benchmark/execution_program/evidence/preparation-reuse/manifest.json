@@ -1,0 +1,188 @@
+[
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/baseline-core-manifest.json",
+    "artifact": "baseline-core-manifest.json.gz",
+    "raw_sha256": "7564b0064f23c5c382133bd4583eef07658c61063507c85c6f000fa58ffbaf16",
+    "compressed_sha256": "62cc9daa08b58f327a51c825e8f3b32768b47ec3da0c52f590ae3bc1d249220a"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/baseline-pb-first-use.json",
+    "artifact": "baseline-pb-first-use.json.gz",
+    "raw_sha256": "a8eb8af0d20f9f8506be9cfbd4efd92aca6c1ecf49da0c1c4ef5a832b7b9e7e1",
+    "compressed_sha256": "a508c8837949164925f374757dbf262db92070abcd2a4a1f9cf8a73b7e0bcbf6"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/baseline-xp-warm-profile.json",
+    "artifact": "baseline-xp-warm-profile.json.gz",
+    "raw_sha256": "3bd4d75d9129972ed391bfd4e2d611386eb50480988b366581e598f6cbf02fbd",
+    "compressed_sha256": "cc4195f6957ac31f1bfad59c107b7df651baaebbf4b53c1e7efa109489740499"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/baseline-xp-warmed-profile.json",
+    "artifact": "baseline-xp-warmed-profile.json.gz",
+    "raw_sha256": "e34b0d422937f5edd729cb2232d99ba7059516a0aaae7574e9e09ea037c58af4",
+    "compressed_sha256": "8c873040fbe62ff8d9c76af6fed38f6360e6293f43dc65d13dc058684c18f46b"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/cold-helper-provenance.json",
+    "artifact": "cold-helper-provenance.json.gz",
+    "raw_sha256": "ade4dcb50ec93740e05ebaf8a308974a4bc3ee6c3108daf2b0e870d25474c2d1",
+    "compressed_sha256": "b4acf153d5e2bc25820e1b90ec7642c0074303bf9c035a2c57d13e458dbf4d81"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/cold-pb-bounded_preparation.json",
+    "artifact": "cold-pb-bounded_preparation.json.gz",
+    "raw_sha256": "0c47c35cc8b55b79189e2f4ebe07dbb8eda6e6ec7fc598d35108e5609d051482",
+    "compressed_sha256": "9188d3f9694131aeaa26b0ffaefcc214bb77f3f56886fe41f3de1231d5475d3a"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/cold-pb-combined.json",
+    "artifact": "cold-pb-combined.json.gz",
+    "raw_sha256": "85c1d25d66d4197536ace2dc72e7258aca2bc08545d20da69346d6801f18f347",
+    "compressed_sha256": "896d5028c0b2b36dfdf9fb382bcd46c58509dec4f73fcae31500bbfb533eddcd"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/cold-pb-plan_view_reuse.json",
+    "artifact": "cold-pb-plan_view_reuse.json.gz",
+    "raw_sha256": "03e3cc6bef10e80acbb0a6465a904c737afe6ee5df900b8d4f7329f857098b5d",
+    "compressed_sha256": "6593a6db538cb76381f503020f8b593a353147857942755de6bce07d7471e934"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/cold-pb-reference_executor.json",
+    "artifact": "cold-pb-reference_executor.json.gz",
+    "raw_sha256": "8ff5fdebd76ced60d10c25f8b7d49fb3cd8f92cf7f37202b29f90a0f6799dc14",
+    "compressed_sha256": "791121ef07e52e94347bc5e658a9b93685aab1d68066cd086abf15fd14d8a421"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/cold-xp-bounded_preparation.json",
+    "artifact": "cold-xp-bounded_preparation.json.gz",
+    "raw_sha256": "a59e8fa48e61eca1883834444c932cc87326cbfa6e261da797c5107b4fc20c3e",
+    "compressed_sha256": "4f99dc3431798ec9f409d77f6ff9d273dbc4b4e441a12f7c6416968fe32ac6eb"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/cold-xp-combined.json",
+    "artifact": "cold-xp-combined.json.gz",
+    "raw_sha256": "5b8b3aa6fed560083a6173b4f16fa1bd11cb0a6b259bd8fadf556718fa8f3ce6",
+    "compressed_sha256": "bcca35efe4bf2f91db04cc499ecf0bcb0c86a35e4190b55ec686028d89e1f727"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/cold-xp-plan_view_reuse.json",
+    "artifact": "cold-xp-plan_view_reuse.json.gz",
+    "raw_sha256": "77221edad925db054ef6e9b22bc5555d76e951c184de80c209a77d16a0b6c486",
+    "compressed_sha256": "a7bd3beee1306ee3c8794d0985cd52f8f196695bbd951e7fe089faf91d21252f"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/cold-xp-reference_executor.json",
+    "artifact": "cold-xp-reference_executor.json.gz",
+    "raw_sha256": "2b1918c1b0dc77c8a120d00d3b196877b0a3f9a5de403e8a2b983c1c95a7062a",
+    "compressed_sha256": "ae52da77dc21307160f603c88c0c760734bcb7233069ac0aeb4a49e90c9af113"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/control-interruption.json",
+    "artifact": "control-interruption.json.gz",
+    "raw_sha256": "15267a57b156712a45e6a9cac7aba8691f8de24ff5c56c684ccdef3290389a0f",
+    "compressed_sha256": "052cde8dd597ca9dea6a008a841d6c5e3dafe7147141d35be13685abb3d19104"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/factorial-xp-checks.json",
+    "artifact": "factorial-xp-checks.json.gz",
+    "raw_sha256": "c3bcbd78849f00b1a651ea427e32e5880d262d6f876c54c4ebb6ea3b4e9c7d7e",
+    "compressed_sha256": "10bcb28f2fbb9d8451730976e183dd561458597dff38e11975cecf8aa19114bf"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/feature-initializer-small.json",
+    "artifact": "feature-initializer-small.json.gz",
+    "raw_sha256": "d5b9b1ecac16fc755b7052ac1d98e84c4b98fc75801f7bcaf0b2e540d352f663",
+    "compressed_sha256": "9a7af229fbf12e9d0d81d172e2899f7ed8b665ac41a99b195d2854886275cdbe"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/first-reuse-pb-checks.json",
+    "artifact": "first-reuse-pb-checks.json.gz",
+    "raw_sha256": "7a92f35cc59a88cea596009a14b8a014321a353c2bcceaf87326ca9c1c79d7c2",
+    "compressed_sha256": "59f90384a0cf2bd83a5c62e2604535a026b8efb650425f060e6dfbf400d1798c"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/focused-feature-checks.json",
+    "artifact": "focused-feature-checks.json.gz",
+    "raw_sha256": "41a4408121afaa2f493a217154a05528ee1f2335d99b63addc647fa2d6a47233",
+    "compressed_sha256": "0d2da03b29c7b699711ef6b8942cfeff94720656b273041cec57c5699752599b"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/owned-worker-termination.json",
+    "artifact": "owned-worker-termination.json.gz",
+    "raw_sha256": "c8b4d80b5b94fb77da594406cec30852120efa4d901e9c1d16e33721cbb0f47b",
+    "compressed_sha256": "522e167354e03c010b81b2f21b92c13a6f47eecb0f5c3e5c67e4602dd57275f3"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/pb-medium-screen.json",
+    "artifact": "pb-medium-screen.json.gz",
+    "raw_sha256": "eefcda9c819b1509728b897aa9cb2c6a3007788c6e43e182ea740e1caf564d95",
+    "compressed_sha256": "8ad180a9851608a0726171ec2396471f6a6ded0ba10c0a881eb9c034b998dfed"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/pb-small-screen.json",
+    "artifact": "pb-small-screen.json.gz",
+    "raw_sha256": "4daf35627a4291d184813335de778b5a7855b12ed08a75d456b2f975b2ba0d40",
+    "compressed_sha256": "23b66e185d508156b64ad8e2b440c9614f27c8e1f137cb3e8dde883cf45747b2"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/prototype-core-manifest.json",
+    "artifact": "prototype-core-manifest.json.gz",
+    "raw_sha256": "ef39c808e4c238ac9126f963a0c0efd0bf36b8b8add1df0d11a1a08a2f41a02b",
+    "compressed_sha256": "b97dbdddb21ffb0f6efa8b4c32f1fc4a80fac3895ded404a69fd552c29f7e1b1"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/prototype-source-manifest.json",
+    "artifact": "prototype-source-manifest.json.gz",
+    "raw_sha256": "ea4d239fed10766709b863fc61e143df758a2e3d2c7dd57e2138b024332b8dff",
+    "compressed_sha256": "ca4d62743060c0a71c9b83278209f3fbb790e28430e7ce660730aa3bb3f21470"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/spatial-feature-checks.json",
+    "artifact": "spatial-feature-checks.json.gz",
+    "raw_sha256": "04a0f7416dc5111b523abb3e8544b2dfe50be98d8a17f3135128952fd24397ce",
+    "compressed_sha256": "c63a865a33ff137bb6d286c1d2c2804fed6dd809b8111f551f084c7ba524eaf8"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/temporal-identity-checks.json",
+    "artifact": "temporal-identity-checks.json.gz",
+    "raw_sha256": "9755e69853673a64762c98f925f5ac2de5c62aee31cb339319628b05dc0a43af",
+    "compressed_sha256": "49ef74c431a9091176840d2cdd19e241c4fd575bf6676a4baa9edec2d5fe25eb"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/typed-harness-qualification.json",
+    "artifact": "typed-harness-qualification.json.gz",
+    "raw_sha256": "23f2d84a2ba96be6ca74ab409e387e96e6add1483a7dc2ceeda14a1bb99f78e4",
+    "compressed_sha256": "4cba13dd4059dd952765ba0269b868bf1ae16b7007f744cce230f792d3acf69d"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/typed-integration-budget.json",
+    "artifact": "typed-integration-budget.json.gz",
+    "raw_sha256": "16a807a1bbe116c5620c269ceafd9443c03d4098a6548b2ad150e2b5175510d1",
+    "compressed_sha256": "42d7da481a736ced8c3d504e427a90693ff6b757980f3c2d77ad8de3ecd6194e"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/typed-integration-checks.json",
+    "artifact": "typed-integration-checks.json.gz",
+    "raw_sha256": "c446273722b63f00b3790d0d3cf048434bc3214f1bd23b18744e42d5d615a89c",
+    "compressed_sha256": "3dadcc14b5abe99acdc4ae20386110856a4e5eaf4da83ba91ac95520c2d397da"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/typed-stage-progress.jsonl",
+    "artifact": "typed-stage-progress.jsonl.gz",
+    "raw_sha256": "cb5f8ab7ae94ae8e239580dbaf1ee3b4e43493ea4cec060597f2579f4e429aa0",
+    "compressed_sha256": "b954bc665e766a8b5e2fa27691cdce4e4049f46cee3249deb814716dc7e99b25"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/width-checks.json",
+    "artifact": "width-checks.json.gz",
+    "raw_sha256": "1b1b1f8ac96528955c78a19c758d6cbb2d27753f9e17aeb99e92ae2bb480583d",
+    "compressed_sha256": "a9effab19b1e85288ecde014afaef5c37114a821e89d98aaaaf6a3933373bff0"
+  },
+  {
+    "source": "benchmark/native_downstream/results/preparation-reuse/xp-small-screen.json",
+    "artifact": "xp-small-screen.json.gz",
+    "raw_sha256": "fbfde32cdbf430c571672594eb04ce804a4409df6d3c7b441a412b04588acc7a",
+    "compressed_sha256": "290385d0c753b50223171c10196e4a5de1e119e5ed8ff1848d69da575d63d494"
+  }
+]

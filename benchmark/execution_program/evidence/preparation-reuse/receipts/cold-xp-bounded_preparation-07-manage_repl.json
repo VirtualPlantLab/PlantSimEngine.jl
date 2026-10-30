@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-30T18:49:29.255851+00:00",
+  "tool": "manage_repl",
+  "arguments": {
+    "session": "cc57c238",
+    "command": "shutdown"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Session cc57c238 shut down.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T18:21:58.866264+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "b89c1299",
+    "e": "@info \"Start four-day XPalm preparation correctness\"; xp_factorial=PreparationReuseChecks.preparation_xp_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/factorial-xp-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,xp_factorial,2); end; (passed=true,arms=[(arm=r.arm,reuse=r.coverage.reuse,bounded=r.coverage.bounded) for r in xp_factorial.reports])",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.1s.\nJob ID: f260fe9d\nSession: PSE static preparation baseline\nCode: @info \"Start four-day XPalm preparation correctness\"; xp_factorial=PreparationRe...\n\nUse `check_eval(eval_id=\"f260fe9d\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"f260fe9d\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "f260fe9d"
+    }
+  }
+}

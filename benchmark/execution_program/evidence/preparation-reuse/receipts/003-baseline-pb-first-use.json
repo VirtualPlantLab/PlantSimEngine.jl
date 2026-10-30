@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T16:10:06.282431+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "58e5babf",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/load_experiments.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/pure_julia_reference.jl\")); base_spec=PureJuliaReference.register_pure_pb_case!(:prep_baseline_pb;nobjects=2,steps=2,include_direct=false); base_cold=M.measure_case(base_spec,:reference_executor;temperature=:first_use,freshness=(new_process=true,no_prior_case_execution=true,no_prior_ir_probe=true,source_cohort=:before_preparation_hooks)); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/baseline-pb-first-use.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,base_cold,2); end; (pid=Base.getpid(),julia=string(VERSION),source=Base.pathof(PlantSimEngine),project=Base.active_project(),phases=base_cold.phases,digest=base_cold.digest)",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.1s.\nJob ID: ce41d4d1\nSession: PSE static preparation baseline\nCode: include(joinpath(pwd(),\"benchmark/native_downstream/load_experiments.jl\")); incl...\n\nUse `check_eval(eval_id=\"ce41d4d1\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"ce41d4d1\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "ce41d4d1"
+    }
+  }
+}

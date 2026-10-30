@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-30T19:04:06.181578+00:00",
+  "tool": "manage_repl",
+  "arguments": {
+    "session": "8f70c10f",
+    "command": "restart"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Error: Failed to send restart to session 8f70c10f",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

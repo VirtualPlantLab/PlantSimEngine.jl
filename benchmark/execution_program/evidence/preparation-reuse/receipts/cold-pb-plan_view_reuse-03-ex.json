@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T18:41:29.386841+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "afb32a82",
+    "e": "preparation_cold_arm=:plan_view_reuse; preparation_cold_package=:pb; preparation_cold_freshness=(new_process=Base.getpid()!=67083,pid=Base.getpid(),previous_pid=67083,no_prior_case_execution=true,no_prior_ir_probe=true,method=:fresh_Kaimon_worker); include(joinpath(pwd(),\"benchmark/native_downstream/preparation_reuse_cold_case.jl\")); (pid=Base.getpid(),arm=preparation_cold_arm,package=preparation_cold_package,phases=preparation_cold_record.phases,digest=preparation_cold_record.digest)",
+    "q": false,
+    "max_output": 3500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "(pid = 67267, arm = :plan_view_reuse, package = :pb, phases = (construction = (seconds = 1.95232775, allocated_bytes = 783348432, gc_seconds = 0.035574374, gc_stats = (allocd = 783348432, malloc = 9338, realloc = 0, poolalloc = 14526460, bigalloc = 42, freecall = 7387, total_time = 35574374, pause = 3, full_sweep = 0), compilation_seconds = 1.949809752, recompilation_seconds = 0.0), pse_preparation = (seconds = 10.759296083, allocated_bytes = 2900239712, gc_seconds = 0.201367668, gc_stats = (allocd = 2900239712, malloc = 60621, realloc = 0, poolalloc = 51545518, bigalloc = 199, freecall = 56359, total_time = 201367668, pause = 8, full_sweep = 2), compilation_seconds = 11.761261623, recompilation_seconds = 1.016407292), backend_lowering = (seconds = 4.2667e-5, allocated_bytes = 5568, gc_seconds = 0.0, gc_stats = (allocd = 5568, malloc = 0, realloc = 0, poolalloc = 94, bigalloc = 0, freecall = 0, total_time = 0, pause = 0, full_sweep = 0), compilation_seconds = 3.3291e-5, recompilation_seconds = 0.0), execution = (seconds = 0.627328458, allocated_bytes = 119166928, gc_seconds = 0.014444042, gc_stats = (allocd = 119166928, malloc = 2233, realloc = 0, poolalloc = 2142806, bigalloc = 23, freecall = 6138, total_time = 14444042, pause = 1, full_sweep = 0), compilation_seconds = 0.62713575, recompilation_seconds = 0.0)), digest = \"37bce5655c8115b3196c31bb141bbf61c8e3ddd044ca0fe7a9fcb241cf58f37e\")",
+          "type": "text"
+        }
+      ],
+      "eval_id": "df504e1a"
+    }
+  }
+}

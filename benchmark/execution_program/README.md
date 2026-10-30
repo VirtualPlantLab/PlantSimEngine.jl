@@ -12,6 +12,12 @@ percentages are not added to these results. PR #243 is investigated separately;
 its CI timeout has no established cause. Historical results from before this
 baseline are preserved in [historical-call-growth](evidence/historical-call-growth/index.json).
 
+The later [preparation-factorial screen](preparation_reuse.md) compares bounded
+scenario metadata and status-view recipe reuse separately and together. Bounded
+metadata reduces XPalm first preparation from 105.9 s to 73.3 s in one fresh-process
+screen; warm complete time is unchanged. View recipe reuse adds no convincing gain.
+The numerical executor and scientific kernels are ordinary in that comparison.
+
 ## What changed
 
 - `shared_call_program.jl` stores one immutable typed instruction tree per

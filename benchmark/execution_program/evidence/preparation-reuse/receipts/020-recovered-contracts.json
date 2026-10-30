@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T16:45:50.900809+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "b89c1299",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/load_preparation_experiment.jl\")); @info \"Width and original scientific layout checks\"; gwidth=BoundedPreparationChecks.bounded_width_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/width-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,gwidth,2); end; @info \"Growth/removal/movement checks\"; ggrowth=BoundedPreparationChecks.bounded_growth_checks(); @info \"Schema and temporal/private checks\"; gschema=PlanViewReuseChecks.plan_view_recipe_schema_checks(); gtemporal=PlanViewReuseChecks.plan_view_temporal_private_checks(); @info \"Retained call/status identity checks\"; gidentity=PreparationReuseChecks.preparation_identity_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/recovered-contract-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(growth=ggrowth,schema=gschema,temporal=gtemporal,identity=gidentity),2); end; (passed=true,pid=Base.getpid(),source=Base.pathof(PlantSimEngine))",
+    "q": false,
+    "max_output": 5000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.1s.\nJob ID: 561c5e32\nSession: PSE static preparation baseline\nCode: include(joinpath(pwd(),\"benchmark/native_downstream/load_preparation_experiment....\n\nUse `check_eval(eval_id=\"561c5e32\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"561c5e32\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "561c5e32"
+    }
+  }
+}

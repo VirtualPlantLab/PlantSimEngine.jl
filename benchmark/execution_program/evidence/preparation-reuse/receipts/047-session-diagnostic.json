@@ -1,0 +1,17 @@
+{
+  "recorded_at": "2026-10-30T19:07:39.223353+00:00",
+  "tool": "ping",
+  "arguments": {},
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u2713 MCP Server is healthy and responsive\n\n\nSessions: 4 connected / 5 total\n  \u25d1 6c932184 PSE preparation typed integration (stalled, up 2m, PID 71210, last seen 137s ago, 76.0MB/0.0% CPU)  \u2190 your session (default for unscoped tools/search; override with ses=)\n  \u25cf 35f665a6 pse-block-environment-candidate-2 (connected, up 30m, PID 66603, agent-spawned)\n  \u25cf 2a111af6 PlantSimEngine-2 (connected, up 34m, PID 65852, agent-spawned)\n  \u25cf 7c3f4654 pse-block-environment-baseline (connected, up 44m, PID 64601, agent-spawned)\n  \u25cf 99590006 pse-state-block-baseline-3d1e9e3 (connected, up 2h 21m, PID 58045, agent-spawned)",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

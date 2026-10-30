@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T16:18:29.487123+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "58e5babf",
+    "e": "profile_f2=NXP.xpalm_native_fixture(;steps=4,native=false); profile_s2=PlantSimEngine.run!(profile_f2;steps=0,outputs=:all,performance=true); PlantSimEngine.continue!(profile_s2;steps=4); profile2=PlantSimEngine.runtime_performance(profile_s2); @assert isequal(NXP.xp_portable_snapshot(profile_s2),xp_base_warm.snapshot); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/baseline-xp-warmed-profile.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(profile=profile2,counts_match_prior=profile2.counts==profile.counts,qualification=:separate_already_warmed_instrumented_timeline),2); end; (passed=true,elapsed=profile2.elapsed_seconds)",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "(passed = true, elapsed = Dict(:input_binding_compile => 0.016991333, :status_view_refresh => 0.001639166, :initial_composite_compile => 0.0801965, :status_view_compile => 0.002031083, :step_execution => 0.045912417, :initial_environment_compile => 0.003209125, :output_publication => 0.000177465, :initial_output_target_compile => 2.6334e-5, :application_target_refresh => 0.002896459, :temporal_input_materialization => 2.8207e-5, :initial_execution_plan_compile => 0.008578417, :application_target_compile => 0.003923084, :initial_binding_compile => 0.064311958, :binding_refresh => 0.016340209, :execution_plan_and_model_bundle_compile => 0.011604833, :environment_sampling => 5.839e-6, :environment_refresh => 0.001458375, :scientific_kernel_execution => 0.010079085, :call_binding_refresh => 0.001351917, :call_binding_compile => 0.000705917, :initial_output_retention_compile => 0.001766583, :execution_plan_compile => 0.011604542, :initial_execution_plan_and_model_bundle_compile => 0.008578875, :input_binding_refresh => 0.009864835, :scenario_plan_compile => 0.03330775))",
+          "type": "text"
+        }
+      ],
+      "eval_id": "6d3bf0a4"
+    }
+  }
+}

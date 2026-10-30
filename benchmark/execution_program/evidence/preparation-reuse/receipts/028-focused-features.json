@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T18:33:30.044902+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "b89c1299",
+    "e": "feature_results=Any[]; for arm in (:bounded_preparation,:combined); for case in (:initializer,:mixed_cadence,:distributed); @info \"Focused preparation feature\" arm case; r=PreparationReuseFeatureChecks.preparation_feature_case(case;arm); push!(feature_results,(;arm,case,result=r)); end; end; open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/focused-feature-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,feature_results,2); end; (passed=true,cases=length(feature_results))",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                         | Pass  Total  Time\nFocused preparation initializer/environment/Many case |   44     44  0.0s\nTest Summary:                                         | Pass  Total  Time\nFocused preparation initializer/environment/Many case |   58     58  1.6s\nTest Summary:                                       | Pass  Total  Time\nFocused preparation late distributed ownership case |   26     26  4.4s\nTest Summary:                                         | Pass  Total  Time\nFocused preparation initializer/environment/Many case |   45     45  0.0s\nTest Summary:                                         | Pass  Total  Time\nFocused preparation initializer/environment/Many case |   59     59  0.0s\nTest Summary:                                       | Pass  Total  Time\nFocused preparation late distributed ownership case |   27     27  0.0s\n(passed = true, cases = 6)\n\n\u26a0\ufe0f  Note: println/print/logging calls were removed. Use q=false with a final expression to see values.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "61820ea0"
+    }
+  }
+}

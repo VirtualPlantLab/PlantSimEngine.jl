@@ -504,7 +504,7 @@ function _application_target_candidate_index(model, application_plans)
             plan.slot,
         )
     end
-    return _freeze_selector_candidate_index(index)
+    return _scenario_metadata_selector_index(_scenario_metadata_policy(model), index)
 end
 
 function _exact_schedule_integer(value::Float64)
@@ -516,10 +516,28 @@ function _exact_schedule_integer(value::Float64)
     end
 end
 
+# The default preserves current immutable tuple metadata. Experimental policies
+# may bound cold planner container types while keeping scientific kernels typed.
+_scenario_metadata_policy(model) = Val(:ordinary)
+_scenario_metadata_sequence(::Val{:ordinary}, values) = Tuple(values)
+_scenario_metadata_ids(::Val{:ordinary}, values) = Tuple(values)
+function _scenario_metadata_symbol_table(::Val{:ordinary}, names, values, slots)
+    return NamedTuple{Tuple(names)}(Tuple(values))
+end
+_scenario_metadata_selector_index(::Val{:ordinary}, index) =
+    _freeze_selector_candidate_index(index)
+_scenario_metadata_scenario_plan(::Val{:ordinary}, args...) = CompiledScenarioPlan(args...)
+_scenario_metadata_compiled_scene(::Val{:ordinary}, model, args...) =
+    CompiledCompositeModel(model, args...)
+function _scenario_metadata_schedule(::Val{:ordinary}, entries, always, periodic, generic)
+    return CompiledApplicationSchedule(Tuple(entries), Tuple(always), Tuple(periodic), Tuple(generic))
+end
+
 function _compiled_application_schedule(
     applications_by_id,
     application_order,
     manual_application_ids,
+    metadata_policy=Val(:ordinary),
 )
     entries = CompiledApplicationScheduleEntry[]
     always_entry_indices = Int[]
@@ -562,11 +580,9 @@ function _compiled_application_schedule(
         end
         push!(entry_indices, length(entries))
     end
-    return CompiledApplicationSchedule(
-        Tuple(entries),
-        Tuple(always_entry_indices),
-        Tuple(periodic_entry_indices),
-        Tuple(generic_entry_indices),
+    return _scenario_metadata_schedule(
+        metadata_policy, entries, always_entry_indices,
+        periodic_entry_indices, generic_entry_indices,
     )
 end
 
@@ -592,21 +608,24 @@ struct CompiledScenarioPlan{AP,AI,ATI,IP,IPI,CP,CPI,DOP,CO,MA,AC,AO,OAP,AS,TL}
     timeline::TL
 end
 
-function _plans_by_application(applications, plans)
-    application_ids = Tuple(application.id for application in applications)
-    grouped = Tuple(
-        Tuple(plan for plan in plans if plan.application_id == application.id)
-        for application in applications
+function _plans_by_application(applications, plans, metadata_policy=Val(:ordinary))
+    return _scenario_metadata_symbol_table(
+        metadata_policy,
+        (application.id for application in applications),
+        (_scenario_metadata_sequence(metadata_policy,
+            (plan for plan in plans if plan.application_id == application.id))
+            for application in applications),
+        (application.slot for application in applications),
     )
-    return NamedTuple{application_ids}(grouped)
 end
 
-function _applications_by_id(applications)
-    application_ids = Tuple(application.id for application in applications)
-    return NamedTuple{application_ids}(Tuple(applications))
+function _applications_by_id(applications, metadata_policy=Val(:ordinary))
+    return _scenario_metadata_symbol_table(metadata_policy,
+        (application.id for application in applications), applications,
+        (application.slot for application in applications))
 end
 
-function _scenario_call_owners(applications, call_plans)
+function _scenario_call_owners(applications, call_plans, metadata_policy=Val(:ordinary))
     owners = Dict{Symbol,Set{Symbol}}()
     for plan in call_plans
         _compiled_call_mode(plan) === :manual || continue
@@ -614,16 +633,13 @@ function _scenario_call_owners(applications, call_plans)
             push!(get!(owners, callee_id, Set{Symbol}()), plan.application_id)
         end
     end
-    application_ids = Tuple(application.id for application in applications)
-    return NamedTuple{application_ids}(
-        Tuple(
-            Tuple(
-                application.id for application in applications
-                if application.id in get(owners, callee_id, Set{Symbol}())
-            )
-            for callee_id in application_ids
-        ),
-    )
+    return _scenario_metadata_symbol_table(metadata_policy,
+        (application.id for application in applications),
+        (_scenario_metadata_ids(metadata_policy,
+            (application.id for application in applications
+                if application.id in get(owners, callee.id, Set{Symbol}())))
+            for callee in applications),
+        (application.slot for application in applications))
 end
 
 function _initializer_call_application_ids(call_plans)
@@ -674,7 +690,7 @@ function _validate_initializer_call_plans!(
     ]
     isempty(initializer_plans) && return nothing
 
-    applications_by_id = _applications_by_id(applications)
+    applications_by_id = _applications_by_id(applications, _scenario_metadata_policy(model))
     manual_application_ids = Set{Symbol}()
     for plan in call_plans
         _compiled_call_mode(plan) === :manual || continue
@@ -1041,21 +1057,14 @@ function _scenario_update_order_edges!(
     return children
 end
 
-function _freeze_scenario_application_children(applications, children)
-    application_ids = Tuple(application.id for application in applications)
-    return NamedTuple{application_ids}(
-        Tuple(
-            Tuple(
-                application.id for application in applications
-                if application.id in get(
-                    children,
-                    parent_id,
-                    Set{Symbol}(),
-                )
-            )
-            for parent_id in application_ids
-        ),
-    )
+function _freeze_scenario_application_children(applications, children, metadata_policy=Val(:ordinary))
+    return _scenario_metadata_symbol_table(metadata_policy,
+        (application.id for application in applications),
+        (_scenario_metadata_ids(metadata_policy,
+            (application.id for application in applications
+                if application.id in get(children, parent.id, Set{Symbol}())))
+            for parent in applications),
+        (application.slot for application in applications))
 end
 
 function _compile_scenario_application_children(
@@ -1065,6 +1074,7 @@ function _compile_scenario_application_children(
     call_owners,
     manual_application_ids,
     distributed_output_plans,
+    metadata_policy=Val(:ordinary),
 )
     children = Dict{Symbol,Set{Symbol}}()
     _scenario_input_order_edges!(children, input_plans, call_owners)
@@ -1080,7 +1090,7 @@ function _compile_scenario_application_children(
         manual_application_ids,
         distributed_output_plans,
     )
-    return _freeze_scenario_application_children(applications, children)
+    return _freeze_scenario_application_children(applications, children, metadata_policy)
 end
 
 function _compiled_scenario_plan(
@@ -1091,8 +1101,9 @@ function _compiled_scenario_plan(
     distributed_output_plans,
     timeline,
 )
-    application_plans = Tuple(application.plan for application in applications)
-    application_ids = Tuple(plan.id for plan in application_plans)
+    metadata_policy = _scenario_metadata_policy(model)
+    application_plans = _scenario_metadata_sequence(metadata_policy,
+        (application.plan for application in applications))
     _validate_initializer_call_plans!(
         model,
         applications,
@@ -1100,10 +1111,10 @@ function _compiled_scenario_plan(
         call_plans,
         distributed_output_plans,
     )
-    call_owners = _scenario_call_owners(applications, call_plans)
-    manual_application_ids = Tuple(
-        application.id for application in applications
-        if !isempty(call_owners[application.id])
+    call_owners = _scenario_call_owners(applications, call_plans, metadata_policy)
+    manual_application_ids = _scenario_metadata_ids(metadata_policy,
+        (application.id for application in applications
+            if !isempty(call_owners[application.id]))
     )
     _validate_scenario_call_ownership!(
         call_owners,
@@ -1116,34 +1127,37 @@ function _compiled_scenario_plan(
         call_owners,
         manual_application_ids,
         distributed_output_plans,
+        metadata_policy,
     )
     application_order = _stable_topological_application_order(
         applications,
         application_children,
     )
-    application_plans_by_id = NamedTuple{application_ids}(application_plans)
+    application_plans_by_id = _scenario_metadata_symbol_table(metadata_policy,
+        (plan.id for plan in application_plans), application_plans,
+        (plan.slot for plan in application_plans))
     application_schedule = _compiled_application_schedule(
         application_plans_by_id,
         application_order,
         manual_application_ids,
+        metadata_policy,
     )
-    return CompiledScenarioPlan(
+    return _scenario_metadata_scenario_plan(metadata_policy,
         application_plans,
         application_plans_by_id,
         _application_target_candidate_index(model, application_plans),
-        Tuple(input_plans),
-        _plans_by_application(applications, input_plans),
-        Tuple(call_plans),
-        _plans_by_application(applications, call_plans),
+        _scenario_metadata_sequence(metadata_policy, input_plans),
+        _plans_by_application(applications, input_plans, metadata_policy),
+        _scenario_metadata_sequence(metadata_policy, call_plans),
+        _plans_by_application(applications, call_plans, metadata_policy),
         distributed_output_plans,
         call_owners,
         manual_application_ids,
         application_children,
-        Tuple(application_order),
-        Tuple(
-            application_plans_by_id[application_id]
-            for application_id in application_order
-        ),
+        _scenario_metadata_ids(metadata_policy, application_order),
+        _scenario_metadata_sequence(metadata_policy,
+            (application_plans_by_id[application_id]
+                for application_id in application_order)),
         application_schedule,
         timeline,
     )
@@ -1755,7 +1769,16 @@ function _model_timeline(model::CompositeModel)
     return _timeline_context(backend)
 end
 
-function _compile_scene(
+function _compile_scene(model::CompositeModel, raw_specs;
+    validate_required_inputs::Bool=true, performance=nothing)
+    return _compile_scene_with_metadata(_scenario_metadata_policy(model), model,
+        raw_specs; validate_required_inputs, performance)
+end
+function _compile_scene_with_metadata(::Val{:ordinary}, model, raw_specs; kwargs...)
+    return _compile_scene_impl(model, raw_specs; kwargs...)
+end
+
+function _compile_scene_impl(
     model::CompositeModel,
     raw_specs;
     validate_required_inputs::Bool=true,
@@ -1801,6 +1824,7 @@ function _compile_scene(
         applications,
         scenario_plan.call_plans,
         timeline,
+        _applications_by_id(applications, _scenario_metadata_policy(model)),
     )
     _runtime_performance_finish!(
         performance,
@@ -1854,11 +1878,10 @@ function _compile_scene(
     call_owners = scenario_plan.call_owners
     application_children = scenario_plan.application_children
     application_order = scenario_plan.application_order
-    applications_by_id = _applications_by_id(applications)
-    ordered_applications = Tuple(
-        applications_by_id[application_id]
-        for application_id in application_order
-    )
+    metadata_policy = _scenario_metadata_policy(model)
+    applications_by_id = _applications_by_id(applications, metadata_policy)
+    ordered_applications = _scenario_metadata_sequence(metadata_policy,
+        (applications_by_id[application_id] for application_id in application_order))
     started_at = _runtime_performance_start(performance)
     status_views_by_target = _compile_model_status_views(
         model,
@@ -1873,7 +1896,7 @@ function _compile_scene(
         :status_view_compile,
         started_at,
     )
-    return CompiledCompositeModel(
+    return _scenario_metadata_compiled_scene(_scenario_metadata_policy(model),
         model,
         scenario_plan,
         applications,
@@ -2746,7 +2769,8 @@ function _preserve_recompiled_model_status_views!(
         previous_view = get(previous.status_views_by_target, key, nothing)
         isnothing(previous_view) && continue
         current.status_views_by_target[key] =
-            _preserve_model_status_view_temporal_state!(
+            _prepare_preserved_model_status_view(
+                current.model,
                 current_view,
                 previous_view,
                 previous_temporal_sources,
@@ -2924,7 +2948,7 @@ function _extend_model_status_views(
                 end
             end
         end
-        current_view = _compile_model_status_view(
+        current_view = _prepare_compiled_model_status_view(
             model,
             application,
             object_id,
@@ -2935,7 +2959,8 @@ function _extend_model_status_views(
         )
         views[key] = isnothing(previous_view) ?
                      current_view :
-                     _preserve_model_status_view_temporal_state!(
+                     _prepare_preserved_model_status_view(
+            model,
             current_view,
             previous_view,
             previous_temporal_sources,
@@ -3176,7 +3201,7 @@ function _prepare_structural_compiled_delta(
     many_input_binding_cache =
         _many_input_binding_cache(model, input_bindings)
 
-    stripped = CompiledCompositeModel(
+    stripped = _scenario_metadata_compiled_scene(_scenario_metadata_policy(model),
         model,
         compiled.scenario_plan,
         compiled.applications,
@@ -3962,7 +3987,7 @@ function _extend_compiled_scene(
         changed_application_ids_seed,
     )
     status_view_refresh_is_pure_addition = pure_addition
-    return CompiledCompositeModel(
+    return _scenario_metadata_compiled_scene(_scenario_metadata_policy(model),
         model,
         compiled.scenario_plan,
         applications,
@@ -4032,8 +4057,8 @@ function _validate_model_call_cadence!(
     )
 end
 
-function _validate_model_call_plan_cadences!(applications, call_plans, timeline)
-    applications_by_id = _applications_by_id(applications)
+function _validate_model_call_plan_cadences!(applications, call_plans, timeline,
+    applications_by_id=_applications_by_id(applications))
     for plan in call_plans
         caller = applications_by_id[plan.application_id]
         for callee_id in plan.potential_callee_application_ids
@@ -6446,6 +6471,12 @@ function _validate_temporal_input_output_overlap!(
     return nothing
 end
 
+# Opt-in preparation experiments may reuse immutable assembly metadata while
+# retaining the ordinary compiler and preservation semantics for other cases.
+_prepare_compiled_model_status_view(args...) = _compile_model_status_view(args...)
+_prepare_preserved_model_status_view(model, args...) =
+    _preserve_model_status_view_temporal_state!(args...)
+
 Base.@nospecializeinfer function _compile_model_status_view(
     model::CompositeModel,
     application::CompiledModelApplication,
@@ -6580,7 +6611,7 @@ function _compile_model_status_views(
     for application in applications
         for object_id in application.target_ids
             key = (application.id, object_id)
-            views[key] = _compile_model_status_view(
+            views[key] = _prepare_compiled_model_status_view(
                 model,
                 application,
                 object_id,
@@ -7172,9 +7203,10 @@ function _compile_model_output_destination_plans(
         end
     end
     isempty(plans) && return NoCompiledDistributedOutputPlans()
+    metadata_policy = _scenario_metadata_policy(model)
     return CompiledDistributedOutputPlans(
-        Tuple(plans),
-        _plans_by_application(applications, plans),
+        _scenario_metadata_sequence(metadata_policy, plans),
+        _plans_by_application(applications, plans, metadata_policy),
     )
 end
 

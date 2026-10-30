@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T18:56:08.361005+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "8f70c10f",
+    "e": "include(\"benchmark/native_downstream/load_preparation_experiment.jl\");\nfor file in (\"lean_compiler.jl\",\"direct_calls.jl\",\"shared_call_program.jl\",\"tight_call_program.jl\",\"preparation_typed_integration_checks.jl\")\n    include(joinpath(pwd(),\"benchmark/native_downstream\",file))\nend;\npreparation_typed_checks=PreparationTypedIntegrationChecks.preparation_typed_integration_checks();\nopen(\"benchmark/native_downstream/results/preparation-reuse/typed-integration-checks.json\",\"w\") do io\n    PlantSimEngine.JSON.print(io,preparation_typed_checks,2)\nend;\n(passed=preparation_typed_checks.passed,arms=length(preparation_typed_checks.reports),pid=Base.getpid())",
+    "q": false,
+    "max_output": 3500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.0s.\nJob ID: 9e935870\nSession: PSE preparation typed integration\nCode: include(\"benchmark/native_downstream/load_preparation_experiment.jl\");\nfor file ...\n\nUse `check_eval(eval_id=\"9e935870\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"9e935870\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "9e935870"
+    }
+  }
+}

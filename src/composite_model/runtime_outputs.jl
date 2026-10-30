@@ -6782,7 +6782,7 @@ function _targeted_new_object_call_targets(
         application = compiled.applications_by_id[partial_application.id]
         for object_id in partial_application.target_ids
             key = (application.id, object_id)
-            status_view = _compile_model_status_view(
+            status_view = _prepare_compiled_model_status_view(
                 model,
                 partial_application,
                 object_id,
