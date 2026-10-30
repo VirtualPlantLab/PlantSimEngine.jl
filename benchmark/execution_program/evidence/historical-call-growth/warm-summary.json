@@ -1,0 +1,2276 @@
+{
+  "growth-small": [
+    {
+      "variant": "reference_executor",
+      "samples": 3,
+      "execution_ms": 17.722624999999997,
+      "complete_ms": 41.05425,
+      "prepare_ms": 19.6265,
+      "execution_ratio": 1.0,
+      "complete_ratio": 1.0,
+      "execution_bytes": 12167632,
+      "complete_bytes": 35851304,
+      "retained_bytes": 825921,
+      "digests": [
+        "dd6af9cf9aa6b61c1f26a34d5773cb7226844b6efeababf1e0ad4242b9671be8"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "storage": {
+          "strategy": "reference_cells",
+          "active_native_fields": 0,
+          "active_native_objects": 0
+        },
+        "ordinary_timeline_steps": 4
+      }
+    },
+    {
+      "variant": "native_executor",
+      "samples": 3,
+      "execution_ms": 18.816709,
+      "complete_ms": 40.673292,
+      "prepare_ms": 18.411584,
+      "execution_ratio": 0.9998383522848081,
+      "complete_ratio": 0.9681823684515003,
+      "execution_bytes": 13312656,
+      "complete_bytes": 37512520,
+      "retained_bytes": 950543,
+      "digests": [
+        "dd6af9cf9aa6b61c1f26a34d5773cb7226844b6efeababf1e0ad4242b9671be8"
+      ],
+      "coverage": {
+        "native_fields": 342,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 112,
+          "cohorts": 4,
+          "registered_objects": 20,
+          "native_allocations": 313,
+          "fallback_allocations": 67,
+          "preserved_references": 0,
+          "native_bytes": 4505,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 342,
+          "active_native_objects": 20
+        },
+        "ordinary_timeline_steps": 4
+      }
+    },
+    {
+      "variant": "prior_lean",
+      "samples": 3,
+      "execution_ms": 20.805500000000002,
+      "complete_ms": 43.338334,
+      "prepare_ms": 18.803333,
+      "execution_ratio": 1.0249140293833447,
+      "complete_ratio": 0.982861116693156,
+      "execution_bytes": 13801872,
+      "complete_bytes": 38044168,
+      "retained_bytes": 949087,
+      "digests": [
+        "dd6af9cf9aa6b61c1f26a34d5773cb7226844b6efeababf1e0ad4242b9671be8"
+      ],
+      "coverage": {
+        "native_fields": 16,
+        "driver_units": 7,
+        "native_driver_units": 7,
+        "report": {
+          "driver_batch_executions": 7,
+          "driver_row_executions": 7,
+          "native_row_executions": 7,
+          "executed_native_column_fields": 16,
+          "publication_rows": 0,
+          "lean_batches_prepared": 14,
+          "live_lean_batches": 0,
+          "skipped_rich_targets": 14,
+          "constructed_rich_targets": 25,
+          "lazy_target_snapshots": 0,
+          "ordinary_live_targets": 119,
+          "logical_status_views_retained": 46,
+          "lean_contexts_prepared": 14,
+          "refresh_fell_back_to_ordinary": true,
+          "logical_compiler_preserved": true,
+          "initial_eligible_rich_rows_retained": false,
+          "generated_outer_stack": false,
+          "numerical_scalar_copies": false,
+          "fallback_policy": "ordinary_on_unsupported_application_or_any_runtime_refresh",
+          "reasons": [
+            {
+              "application": "Scene__potential_evapotranspiration",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Scene__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Scene__phytomer_count",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Plant__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Phytomer__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Internode__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Leaf__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Male__thermal_time",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__thermal_time",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Internode__maintenance_respiration",
+              "targets": 1,
+              "reason": "temporal_input_boundary"
+            },
+            {
+              "application": "Leaf__maintenance_respiration",
+              "targets": 1,
+              "reason": "temporal_input_boundary"
+            },
+            {
+              "application": "Male__maintenance_respiration",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__maintenance_respiration",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Plant__plant_age",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Plant__phyllochron",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Plant__phytomer_emission",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Phytomer__sex_determination",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Phytomer__reproductive_organ_emission",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Plant__maintenance_respiration",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Phytomer__state",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Internode__internode_potential_dimensions",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Internode__carbon_demand",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Internode__reserve_filling",
+              "targets": 1,
+              "reason": "temporal_input_boundary"
+            },
+            {
+              "application": "Leaf__leaf_potential_area",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Leaf__state",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Leaf__leaf_area",
+              "targets": 1,
+              "reason": "temporal_input_boundary"
+            },
+            {
+              "application": "Plant__leaf_area",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Scene__lai_dynamic",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Scene__light_interception",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Plant__light_interception",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Plant__carbon_assimilation",
+              "targets": 1,
+              "reason": "temporal_input_boundary"
+            },
+            {
+              "application": "Plant__carbon_offer",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Leaf__carbon_demand",
+              "targets": 1,
+              "reason": "non_native_or_nonscalar_ports"
+            },
+            {
+              "application": "Leaf__reserve_filling",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Male__carbon_demand",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__number_spikelets",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__number_fruits",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__carbon_demand",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Plant__carbon_allocation",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Plant__reserve_filling",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Internode__biomass",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Internode__internode_dimensions",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Leaf__biomass",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Leaf__leaf_pruning",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Male__biomass",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__biomass",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__harvest",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Plant__harvest",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "RootSystem__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Soil__soil_water",
+              "targets": 1,
+              "reason": "unknown_effects"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 112,
+          "cohorts": 4,
+          "registered_objects": 20,
+          "native_allocations": 313,
+          "fallback_allocations": 67,
+          "preserved_references": 0,
+          "native_bytes": 4505,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 342,
+          "active_native_objects": 20
+        },
+        "qualification": "prior_lean_executed_work",
+        "extra_backend_lowering": false
+      }
+    },
+    {
+      "variant": "incremental_growth",
+      "samples": 3,
+      "execution_ms": 23.662540999999997,
+      "complete_ms": 46.914790999999994,
+      "prepare_ms": 19.556792,
+      "execution_ratio": 1.1837223323294377,
+      "complete_ratio": 1.079823258249755,
+      "execution_bytes": 13419248,
+      "complete_bytes": 37682312,
+      "retained_bytes": 912212,
+      "digests": [
+        "dd6af9cf9aa6b61c1f26a34d5773cb7226844b6efeababf1e0ad4242b9671be8"
+      ],
+      "coverage": {
+        "native_fields": 472,
+        "driver_units": 134,
+        "native_driver_units": 134,
+        "native_newborn_units": 78,
+        "report": {
+          "strategy": "direct_lean_incremental_addition",
+          "driver_batch_executions": 56,
+          "driver_row_executions": 134,
+          "native_row_executions": 134,
+          "executed_native_column_fields": 472,
+          "native_newborn_row_executions": 78,
+          "incremental_refreshes": 4,
+          "reused_batches": 56,
+          "reused_numeric_groups": 56,
+          "appended_rows": 36,
+          "coalesced_batches": 36,
+          "rebuilt_numeric_batches": 0,
+          "rebuilt_ordinary_groups": 96,
+          "reused_ordinary_groups": 48,
+          "rich_targets_constructed": 69,
+          "full_invalidations": 0,
+          "live_lean_batches": 14,
+          "live_native_rows": 50,
+          "lazy_target_snapshots": 0,
+          "initial_skipped_rich_targets": 14,
+          "source_facades_current": true,
+          "disabled": false,
+          "numerical_scalar_copies": false,
+          "fallback_policy": "ordinary_for_nonaddition_unknown_or_consumed_refresh",
+          "reasons": [
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 112,
+          "cohorts": 4,
+          "registered_objects": 20,
+          "native_allocations": 313,
+          "fallback_allocations": 67,
+          "preserved_references": 0,
+          "native_bytes": 4505,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 342,
+          "active_native_objects": 20
+        },
+        "qualification": "executed_incremental_newborn_native_work",
+        "extra_backend_lowering": false
+      }
+    }
+  ],
+  "direct-small": [
+    {
+      "variant": "reference_executor",
+      "samples": 3,
+      "execution_ms": 0.016333,
+      "complete_ms": 1.181875,
+      "prepare_ms": 0.979375,
+      "execution_ratio": 1.0,
+      "complete_ratio": 1.0,
+      "execution_bytes": 2336,
+      "complete_bytes": 408544,
+      "retained_bytes": 39511,
+      "digests": [
+        "37bce5655c8115b3196c31bb141bbf61c8e3ddd044ca0fe7a9fcb241cf58f37e"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "direct_driver_units": 0,
+        "report": null,
+        "storage": null
+      }
+    },
+    {
+      "variant": "native_executor",
+      "samples": 3,
+      "execution_ms": 0.017584,
+      "complete_ms": 1.2192910000000001,
+      "prepare_ms": 1.005208,
+      "execution_ratio": 1.033964155909262,
+      "complete_ratio": 1.026882338569437,
+      "execution_bytes": 2976,
+      "complete_bytes": 449648,
+      "retained_bytes": 48359,
+      "digests": [
+        "37bce5655c8115b3196c31bb141bbf61c8e3ddd044ca0fe7a9fcb241cf58f37e"
+      ],
+      "coverage": {
+        "native_fields": 36,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "direct_driver_units": 0,
+        "report": null,
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 2,
+          "native_allocations": 36,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 288,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows"
+        }
+      }
+    },
+    {
+      "variant": "prior_lean",
+      "samples": 3,
+      "execution_ms": 0.016084,
+      "complete_ms": 1.254332,
+      "prepare_ms": 1.0505410000000002,
+      "execution_ratio": 0.9745300924508663,
+      "complete_ratio": 1.0732936917192148,
+      "execution_bytes": 2976,
+      "complete_bytes": 466896,
+      "retained_bytes": 48359,
+      "digests": [
+        "37bce5655c8115b3196c31bb141bbf61c8e3ddd044ca0fe7a9fcb241cf58f37e"
+      ],
+      "coverage": {
+        "native_fields": 36,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "report": {
+          "driver_batch_executions": 0,
+          "driver_row_executions": 0,
+          "native_row_executions": 0,
+          "executed_native_column_fields": 0,
+          "publication_rows": 0,
+          "lean_batches_prepared": 0,
+          "live_lean_batches": 0,
+          "skipped_rich_targets": 0,
+          "constructed_rich_targets": 2,
+          "lazy_target_snapshots": 0,
+          "ordinary_live_targets": 2,
+          "logical_status_views_retained": 6,
+          "lean_contexts_prepared": 0,
+          "refresh_fell_back_to_ordinary": false,
+          "logical_compiler_preserved": true,
+          "initial_eligible_rich_rows_retained": false,
+          "generated_outer_stack": false,
+          "numerical_scalar_copies": false,
+          "fallback_policy": "ordinary_on_unsupported_application_or_any_runtime_refresh",
+          "reasons": [
+            {
+              "application": "energy",
+              "targets": 2,
+              "reason": "unknown_effects"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 2,
+          "native_allocations": 36,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 288,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 36,
+          "active_native_objects": 2
+        },
+        "qualification": "prior_lean_ordinary_fallback",
+        "extra_backend_lowering": false
+      }
+    },
+    {
+      "variant": "direct_reference",
+      "samples": 3,
+      "execution_ms": 0.032499999999999994,
+      "complete_ms": 1.463709,
+      "prepare_ms": 1.245,
+      "execution_ratio": 2.0365960646697583,
+      "complete_ratio": 1.1686691290246856,
+      "execution_bytes": 1888,
+      "complete_bytes": 437424,
+      "retained_bytes": 41512,
+      "digests": [
+        "37bce5655c8115b3196c31bb141bbf61c8e3ddd044ca0fe7a9fcb241cf58f37e"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 28,
+        "native_driver_units": 0,
+        "direct_root_units": 4,
+        "direct_child_units": 24,
+        "report": {
+          "executed_numerical_roots": 4,
+          "executed_numerical_calls": 24,
+          "executed_native_column_fields": 0,
+          "executed_numerical_fields": 504,
+          "typed_model_lookups": 12,
+          "fallback_calls": 0,
+          "ordinary_root_executions": 0,
+          "lazy_materializations": 0,
+          "skipped_rich_targets": 6,
+          "constructed_rich_targets": 0,
+          "logical_status_views_retained": 6,
+          "direct_batches_prepared": 1,
+          "live_direct_batches": 1,
+          "shared_graph_shapes": 3,
+          "numerical_scalar_copies": false,
+          "scientific_kernels": "original",
+          "initial_execution_plan": "direct_from_logical_bindings",
+          "ordinary_context_preparation": "lazy_on_public_fallback_or_materialization",
+          "public_target_materialization": "permanent_row_fallback_with_shared_ordinary_cache_tree",
+          "refresh_policy": "ordinary_complete_plan_on_runtime_refresh",
+          "reasons": [
+            {
+              "application": "energy",
+              "targets": 2,
+              "reason": "eligible"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "reference_cells",
+          "active_native_fields": 0,
+          "active_native_objects": 0
+        },
+        "qualification": "executed_direct_calls_with_original_references",
+        "extra_backend_lowering": false
+      }
+    },
+    {
+      "variant": "direct_calls",
+      "samples": 3,
+      "execution_ms": 0.018042000000000002,
+      "complete_ms": 1.5942079999999998,
+      "prepare_ms": 1.37575,
+      "execution_ratio": 1.1305928061160548,
+      "complete_ratio": 1.303037706653636,
+      "execution_bytes": 1888,
+      "complete_bytes": 505824,
+      "retained_bytes": 50856,
+      "digests": [
+        "37bce5655c8115b3196c31bb141bbf61c8e3ddd044ca0fe7a9fcb241cf58f37e"
+      ],
+      "coverage": {
+        "native_fields": 228,
+        "driver_units": 28,
+        "native_driver_units": 28,
+        "direct_root_units": 4,
+        "direct_child_units": 24,
+        "report": {
+          "executed_numerical_roots": 4,
+          "executed_numerical_calls": 24,
+          "executed_native_column_fields": 228,
+          "executed_numerical_fields": 228,
+          "typed_model_lookups": 12,
+          "fallback_calls": 0,
+          "ordinary_root_executions": 0,
+          "lazy_materializations": 0,
+          "skipped_rich_targets": 6,
+          "constructed_rich_targets": 0,
+          "logical_status_views_retained": 6,
+          "direct_batches_prepared": 1,
+          "live_direct_batches": 1,
+          "shared_graph_shapes": 3,
+          "numerical_scalar_copies": false,
+          "scientific_kernels": "original",
+          "initial_execution_plan": "direct_from_logical_bindings",
+          "ordinary_context_preparation": "lazy_on_public_fallback_or_materialization",
+          "public_target_materialization": "permanent_row_fallback_with_shared_ordinary_cache_tree",
+          "refresh_policy": "ordinary_complete_plan_on_runtime_refresh",
+          "reasons": [
+            {
+              "application": "energy",
+              "targets": 2,
+              "reason": "eligible"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 2,
+          "native_allocations": 36,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 288,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 36,
+          "active_native_objects": 2
+        },
+        "qualification": "executed_direct_calls_with_native_columns",
+        "extra_backend_lowering": false
+      }
+    }
+  ],
+  "direct-medium": [
+    {
+      "variant": "reference_executor",
+      "samples": 3,
+      "execution_ms": 4.189334000000001,
+      "complete_ms": 8.286709,
+      "prepare_ms": 3.65925,
+      "execution_ratio": 1.0,
+      "complete_ratio": 1.0,
+      "execution_bytes": 1487072,
+      "complete_bytes": 4662928,
+      "retained_bytes": 365353,
+      "digests": [
+        "a7584fc54dace146ea92b3787d84f4aadb0fc78cd9aa735b4d57843035501f34"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "direct_driver_units": 0,
+        "report": null,
+        "storage": null
+      }
+    },
+    {
+      "variant": "native_executor",
+      "samples": 3,
+      "execution_ms": 3.807167,
+      "complete_ms": 8.196249,
+      "prepare_ms": 3.706458,
+      "execution_ratio": 0.9431947655110581,
+      "complete_ratio": 0.989083724310821,
+      "execution_bytes": 2142432,
+      "complete_bytes": 5870096,
+      "retained_bytes": 434473,
+      "digests": [
+        "a7584fc54dace146ea92b3787d84f4aadb0fc78cd9aa735b4d57843035501f34"
+      ],
+      "coverage": {
+        "native_fields": 576,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "direct_driver_units": 0,
+        "report": null,
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 32,
+          "native_allocations": 576,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 4608,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows"
+        }
+      }
+    },
+    {
+      "variant": "prior_lean",
+      "samples": 3,
+      "execution_ms": 3.948584,
+      "complete_ms": 8.218751999999999,
+      "prepare_ms": 3.771334,
+      "execution_ratio": 0.9414501670895208,
+      "complete_ratio": 1.008935711286749,
+      "execution_bytes": 2142432,
+      "complete_bytes": 5878048,
+      "retained_bytes": 434473,
+      "digests": [
+        "a7584fc54dace146ea92b3787d84f4aadb0fc78cd9aa735b4d57843035501f34"
+      ],
+      "coverage": {
+        "native_fields": 576,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "report": {
+          "driver_batch_executions": 0,
+          "driver_row_executions": 0,
+          "native_row_executions": 0,
+          "executed_native_column_fields": 0,
+          "publication_rows": 0,
+          "lean_batches_prepared": 0,
+          "live_lean_batches": 0,
+          "skipped_rich_targets": 0,
+          "constructed_rich_targets": 32,
+          "lazy_target_snapshots": 0,
+          "ordinary_live_targets": 32,
+          "logical_status_views_retained": 96,
+          "lean_contexts_prepared": 0,
+          "refresh_fell_back_to_ordinary": false,
+          "logical_compiler_preserved": true,
+          "initial_eligible_rich_rows_retained": false,
+          "generated_outer_stack": false,
+          "numerical_scalar_copies": false,
+          "fallback_policy": "ordinary_on_unsupported_application_or_any_runtime_refresh",
+          "reasons": [
+            {
+              "application": "energy",
+              "targets": 32,
+              "reason": "unknown_effects"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 32,
+          "native_allocations": 576,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 4608,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 576,
+          "active_native_objects": 32
+        },
+        "qualification": "prior_lean_ordinary_fallback",
+        "extra_backend_lowering": false
+      }
+    },
+    {
+      "variant": "direct_calls",
+      "samples": 3,
+      "execution_ms": 3.696708,
+      "complete_ms": 11.139125,
+      "prepare_ms": 6.356042,
+      "execution_ratio": 0.8824094712906633,
+      "complete_ratio": 1.2731884273962075,
+      "execution_bytes": 174208,
+      "complete_bytes": 4537088,
+      "retained_bytes": 451578,
+      "digests": [
+        "a7584fc54dace146ea92b3787d84f4aadb0fc78cd9aa735b4d57843035501f34"
+      ],
+      "coverage": {
+        "native_fields": 233472,
+        "driver_units": 28672,
+        "native_driver_units": 28672,
+        "direct_root_units": 4096,
+        "direct_child_units": 24576,
+        "report": {
+          "executed_numerical_roots": 4096,
+          "executed_numerical_calls": 24576,
+          "executed_native_column_fields": 233472,
+          "executed_numerical_fields": 233472,
+          "typed_model_lookups": 12288,
+          "fallback_calls": 0,
+          "ordinary_root_executions": 0,
+          "lazy_materializations": 0,
+          "skipped_rich_targets": 96,
+          "constructed_rich_targets": 0,
+          "logical_status_views_retained": 96,
+          "direct_batches_prepared": 1,
+          "live_direct_batches": 1,
+          "shared_graph_shapes": 3,
+          "numerical_scalar_copies": false,
+          "scientific_kernels": "original",
+          "initial_execution_plan": "direct_from_logical_bindings",
+          "ordinary_context_preparation": "lazy_on_public_fallback_or_materialization",
+          "public_target_materialization": "permanent_row_fallback_with_shared_ordinary_cache_tree",
+          "refresh_policy": "ordinary_complete_plan_on_runtime_refresh",
+          "reasons": [
+            {
+              "application": "energy",
+              "targets": 32,
+              "reason": "eligible"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 32,
+          "native_allocations": 576,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 4608,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 576,
+          "active_native_objects": 32
+        },
+        "qualification": "executed_direct_calls_with_native_columns",
+        "extra_backend_lowering": false
+      }
+    }
+  ],
+  "growth-medium": [
+    {
+      "variant": "reference_executor",
+      "samples": 3,
+      "execution_ms": 61.511834,
+      "complete_ms": 87.87124899999999,
+      "prepare_ms": 22.797833999999998,
+      "execution_ratio": 1.0,
+      "complete_ratio": 1.0,
+      "execution_bytes": 50058640,
+      "complete_bytes": 73750760,
+      "retained_bytes": 2066695,
+      "digests": [
+        "742e1209a1f1b0d7afc64c4c63bce8a9c558fa7091470a634256f95b33cc93bf"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "storage": {
+          "strategy": "reference_cells",
+          "active_native_fields": 0,
+          "active_native_objects": 0
+        },
+        "ordinary_timeline_steps": 16
+      }
+    },
+    {
+      "variant": "native_executor",
+      "samples": 3,
+      "execution_ms": 66.14720799999999,
+      "complete_ms": 87.642999,
+      "prepare_ms": 18.260125,
+      "execution_ratio": 1.0214864656055547,
+      "complete_ratio": 0.9543435483439813,
+      "execution_bytes": 54666768,
+      "complete_bytes": 78875224,
+      "retained_bytes": 2401237,
+      "digests": [
+        "742e1209a1f1b0d7afc64c4c63bce8a9c558fa7091470a634256f95b33cc93bf"
+      ],
+      "coverage": {
+        "native_fields": 966,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 112,
+          "cohorts": 4,
+          "registered_objects": 56,
+          "native_allocations": 877,
+          "fallback_allocations": 211,
+          "preserved_references": 0,
+          "native_bytes": 13577,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 966,
+          "active_native_objects": 56
+        },
+        "ordinary_timeline_steps": 16
+      }
+    },
+    {
+      "variant": "prior_lean",
+      "samples": 3,
+      "execution_ms": 74.939083,
+      "complete_ms": 98.603959,
+      "prepare_ms": 19.862167,
+      "execution_ratio": 1.1891701989352805,
+      "complete_ratio": 1.122141316097601,
+      "execution_bytes": 55149744,
+      "complete_bytes": 79401176,
+      "retained_bytes": 2394981,
+      "digests": [
+        "742e1209a1f1b0d7afc64c4c63bce8a9c558fa7091470a634256f95b33cc93bf"
+      ],
+      "coverage": {
+        "native_fields": 16,
+        "driver_units": 7,
+        "native_driver_units": 7,
+        "report": {
+          "driver_batch_executions": 7,
+          "driver_row_executions": 7,
+          "native_row_executions": 7,
+          "executed_native_column_fields": 16,
+          "publication_rows": 0,
+          "lean_batches_prepared": 14,
+          "live_lean_batches": 0,
+          "skipped_rich_targets": 14,
+          "constructed_rich_targets": 25,
+          "lazy_target_snapshots": 0,
+          "ordinary_live_targets": 359,
+          "logical_status_views_retained": 46,
+          "lean_contexts_prepared": 14,
+          "refresh_fell_back_to_ordinary": true,
+          "logical_compiler_preserved": true,
+          "initial_eligible_rich_rows_retained": false,
+          "generated_outer_stack": false,
+          "numerical_scalar_copies": false,
+          "fallback_policy": "ordinary_on_unsupported_application_or_any_runtime_refresh",
+          "reasons": [
+            {
+              "application": "Scene__potential_evapotranspiration",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Scene__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Scene__phytomer_count",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Plant__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Phytomer__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Internode__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Leaf__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Male__thermal_time",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__thermal_time",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Internode__maintenance_respiration",
+              "targets": 1,
+              "reason": "temporal_input_boundary"
+            },
+            {
+              "application": "Leaf__maintenance_respiration",
+              "targets": 1,
+              "reason": "temporal_input_boundary"
+            },
+            {
+              "application": "Male__maintenance_respiration",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__maintenance_respiration",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Plant__plant_age",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Plant__phyllochron",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Plant__phytomer_emission",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Phytomer__sex_determination",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Phytomer__reproductive_organ_emission",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Plant__maintenance_respiration",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Phytomer__state",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Internode__internode_potential_dimensions",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Internode__carbon_demand",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Internode__reserve_filling",
+              "targets": 1,
+              "reason": "temporal_input_boundary"
+            },
+            {
+              "application": "Leaf__leaf_potential_area",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Leaf__state",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Leaf__leaf_area",
+              "targets": 1,
+              "reason": "temporal_input_boundary"
+            },
+            {
+              "application": "Plant__leaf_area",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Scene__lai_dynamic",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Scene__light_interception",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Plant__light_interception",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Plant__carbon_assimilation",
+              "targets": 1,
+              "reason": "temporal_input_boundary"
+            },
+            {
+              "application": "Plant__carbon_offer",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Leaf__carbon_demand",
+              "targets": 1,
+              "reason": "non_native_or_nonscalar_ports"
+            },
+            {
+              "application": "Leaf__reserve_filling",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Male__carbon_demand",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__number_spikelets",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__number_fruits",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__carbon_demand",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Plant__carbon_allocation",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Plant__reserve_filling",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Internode__biomass",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Internode__internode_dimensions",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Leaf__biomass",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Leaf__leaf_pruning",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "Male__biomass",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__biomass",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Female__harvest",
+              "targets": 0,
+              "reason": "empty_application"
+            },
+            {
+              "application": "Plant__harvest",
+              "targets": 1,
+              "reason": "unknown_effects"
+            },
+            {
+              "application": "RootSystem__thermal_time",
+              "targets": 1,
+              "reason": "eligible"
+            },
+            {
+              "application": "Soil__soil_water",
+              "targets": 1,
+              "reason": "unknown_effects"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 112,
+          "cohorts": 4,
+          "registered_objects": 56,
+          "native_allocations": 877,
+          "fallback_allocations": 211,
+          "preserved_references": 0,
+          "native_bytes": 13577,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 966,
+          "active_native_objects": 56
+        },
+        "qualification": "prior_lean_executed_work",
+        "extra_backend_lowering": false
+      }
+    },
+    {
+      "variant": "incremental_growth",
+      "samples": 3,
+      "execution_ms": 78.780709,
+      "complete_ms": 101.95183300000001,
+      "prepare_ms": 19.199208,
+      "execution_ratio": 1.2935351442355878,
+      "complete_ratio": 1.1602410818127782,
+      "execution_bytes": 55138048,
+      "complete_bytes": 79411240,
+      "retained_bytes": 2248210,
+      "digests": [
+        "742e1209a1f1b0d7afc64c4c63bce8a9c558fa7091470a634256f95b33cc93bf"
+      ],
+      "coverage": {
+        "native_fields": 4960,
+        "driver_units": 1400,
+        "native_driver_units": 1400,
+        "native_newborn_units": 1176,
+        "report": {
+          "strategy": "direct_lean_incremental_addition",
+          "driver_batch_executions": 224,
+          "driver_row_executions": 1400,
+          "native_row_executions": 1400,
+          "executed_native_column_fields": 4960,
+          "native_newborn_row_executions": 1176,
+          "incremental_refreshes": 16,
+          "reused_batches": 224,
+          "reused_numeric_groups": 224,
+          "appended_rows": 144,
+          "coalesced_batches": 144,
+          "rebuilt_numeric_batches": 0,
+          "rebuilt_ordinary_groups": 384,
+          "reused_ordinary_groups": 192,
+          "rich_targets_constructed": 201,
+          "full_invalidations": 0,
+          "live_lean_batches": 14,
+          "live_native_rows": 158,
+          "lazy_target_snapshots": 0,
+          "initial_skipped_rich_targets": 14,
+          "source_facades_current": true,
+          "disabled": false,
+          "numerical_scalar_copies": false,
+          "fallback_policy": "ordinary_for_nonaddition_unknown_or_consumed_refresh",
+          "reasons": [
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 112,
+          "cohorts": 4,
+          "registered_objects": 56,
+          "native_allocations": 877,
+          "fallback_allocations": 211,
+          "preserved_references": 0,
+          "native_bytes": 13577,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 966,
+          "active_native_objects": 56
+        },
+        "qualification": "executed_incremental_newborn_native_work",
+        "extra_backend_lowering": false
+      }
+    }
+  ],
+  "direct-long": [
+    {
+      "variant": "reference_executor",
+      "samples": 3,
+      "execution_ms": 66.922375,
+      "complete_ms": 74.82954100000002,
+      "prepare_ms": 3.905833,
+      "execution_ratio": 1.0,
+      "complete_ratio": 1.0,
+      "execution_bytes": 23838976,
+      "complete_bytes": 29395696,
+      "retained_bytes": 628393,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "direct_driver_units": 0,
+        "report": null,
+        "storage": null
+      }
+    },
+    {
+      "variant": "native_executor",
+      "samples": 3,
+      "execution_ms": 65.382458,
+      "complete_ms": 72.889707,
+      "prepare_ms": 4.1292919999999995,
+      "execution_ratio": 0.9385271973220576,
+      "complete_ratio": 0.9540379551309335,
+      "execution_bytes": 34324736,
+      "complete_bytes": 40431008,
+      "retained_bytes": 697513,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 576,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "direct_driver_units": 0,
+        "report": null,
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 32,
+          "native_allocations": 576,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 4608,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows"
+        }
+      }
+    },
+    {
+      "variant": "prior_lean",
+      "samples": 3,
+      "execution_ms": 62.627917000000004,
+      "complete_ms": 70.050543,
+      "prepare_ms": 4.259084,
+      "execution_ratio": 0.920734688199815,
+      "complete_ratio": 0.9330825369889743,
+      "execution_bytes": 34324736,
+      "complete_bytes": 40440128,
+      "retained_bytes": 697513,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 576,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "report": {
+          "driver_batch_executions": 0,
+          "driver_row_executions": 0,
+          "native_row_executions": 0,
+          "executed_native_column_fields": 0,
+          "publication_rows": 0,
+          "lean_batches_prepared": 0,
+          "live_lean_batches": 0,
+          "skipped_rich_targets": 0,
+          "constructed_rich_targets": 32,
+          "lazy_target_snapshots": 0,
+          "ordinary_live_targets": 32,
+          "logical_status_views_retained": 96,
+          "lean_contexts_prepared": 0,
+          "refresh_fell_back_to_ordinary": false,
+          "logical_compiler_preserved": true,
+          "initial_eligible_rich_rows_retained": false,
+          "generated_outer_stack": false,
+          "numerical_scalar_copies": false,
+          "fallback_policy": "ordinary_on_unsupported_application_or_any_runtime_refresh",
+          "reasons": [
+            {
+              "application": "energy",
+              "targets": 32,
+              "reason": "unknown_effects"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 32,
+          "native_allocations": 576,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 4608,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 576,
+          "active_native_objects": 32
+        },
+        "qualification": "prior_lean_ordinary_fallback",
+        "extra_backend_lowering": false
+      }
+    },
+    {
+      "variant": "direct_calls",
+      "samples": 3,
+      "execution_ms": 60.998166,
+      "complete_ms": 70.34870699999999,
+      "prepare_ms": 6.217708,
+      "execution_ratio": 0.904187500817178,
+      "complete_ratio": 0.9347015906458651,
+      "execution_bytes": 2859184,
+      "complete_bytes": 9601840,
+      "retained_bytes": 714106,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 3735552,
+        "driver_units": 458752,
+        "native_driver_units": 458752,
+        "direct_root_units": 65536,
+        "direct_child_units": 393216,
+        "report": {
+          "executed_numerical_roots": 65536,
+          "executed_numerical_calls": 393216,
+          "executed_native_column_fields": 3735552,
+          "executed_numerical_fields": 3735552,
+          "typed_model_lookups": 196608,
+          "fallback_calls": 0,
+          "ordinary_root_executions": 0,
+          "lazy_materializations": 0,
+          "skipped_rich_targets": 96,
+          "constructed_rich_targets": 0,
+          "logical_status_views_retained": 96,
+          "direct_batches_prepared": 1,
+          "live_direct_batches": 1,
+          "shared_graph_shapes": 3,
+          "numerical_scalar_copies": false,
+          "scientific_kernels": "original",
+          "initial_execution_plan": "direct_from_logical_bindings",
+          "ordinary_context_preparation": "lazy_on_public_fallback_or_materialization",
+          "public_target_materialization": "permanent_row_fallback_with_shared_ordinary_cache_tree",
+          "refresh_policy": "ordinary_complete_plan_on_runtime_refresh",
+          "reasons": [
+            {
+              "application": "energy",
+              "targets": 32,
+              "reason": "eligible"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 32,
+          "native_allocations": 576,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 4608,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 576,
+          "active_native_objects": 32
+        },
+        "qualification": "executed_direct_calls_with_native_columns",
+        "extra_backend_lowering": false
+      }
+    }
+  ],
+  "direct-balanced": [
+    {
+      "variant": "reference_executor",
+      "samples": 6,
+      "execution_ms": 66.2804585,
+      "complete_ms": 73.81918800000001,
+      "prepare_ms": 4.068771,
+      "execution_ratio": 1.0,
+      "complete_ratio": 1.0,
+      "execution_bytes": 23838976.0,
+      "complete_bytes": 29393440.0,
+      "retained_bytes": 628393,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "direct_driver_units": 0,
+        "report": null,
+        "storage": null
+      }
+    },
+    {
+      "variant": "native_executor",
+      "samples": 6,
+      "execution_ms": 68.515042,
+      "complete_ms": 76.62141749999999,
+      "prepare_ms": 4.380854,
+      "execution_ratio": 1.0314599173114312,
+      "complete_ratio": 1.034088147903963,
+      "execution_bytes": 34326992.0,
+      "complete_bytes": 40430464.0,
+      "retained_bytes": 697513,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 576,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "direct_driver_units": 0,
+        "report": null,
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 32,
+          "native_allocations": 576,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 4608,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows"
+        }
+      }
+    },
+    {
+      "variant": "direct_reference",
+      "samples": 6,
+      "execution_ms": 61.4660625,
+      "complete_ms": 70.97552,
+      "prepare_ms": 6.2658335,
+      "execution_ratio": 0.9244717061468768,
+      "complete_ratio": 0.9614566477378692,
+      "execution_bytes": 2859184.0,
+      "complete_bytes": 8605856.0,
+      "retained_bytes": 637562,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 458752,
+        "native_driver_units": 0,
+        "direct_root_units": 65536,
+        "direct_child_units": 393216,
+        "report": {
+          "executed_numerical_roots": 65536,
+          "executed_numerical_calls": 393216,
+          "executed_native_column_fields": 0,
+          "executed_numerical_fields": 3735552,
+          "typed_model_lookups": 196608,
+          "fallback_calls": 0,
+          "ordinary_root_executions": 0,
+          "lazy_materializations": 0,
+          "skipped_rich_targets": 96,
+          "constructed_rich_targets": 0,
+          "logical_status_views_retained": 96,
+          "direct_batches_prepared": 1,
+          "live_direct_batches": 1,
+          "shared_graph_shapes": 3,
+          "numerical_scalar_copies": false,
+          "scientific_kernels": "original",
+          "initial_execution_plan": "direct_from_logical_bindings",
+          "ordinary_context_preparation": "lazy_on_public_fallback_or_materialization",
+          "public_target_materialization": "permanent_row_fallback_with_shared_ordinary_cache_tree",
+          "refresh_policy": "ordinary_complete_plan_on_runtime_refresh",
+          "reasons": [
+            {
+              "application": "energy",
+              "targets": 32,
+              "reason": "eligible"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "reference_cells",
+          "active_native_fields": 0,
+          "active_native_objects": 0
+        },
+        "qualification": "executed_direct_calls_with_original_references",
+        "extra_backend_lowering": false
+      }
+    },
+    {
+      "variant": "direct_calls",
+      "samples": 6,
+      "execution_ms": 62.13427050000001,
+      "complete_ms": 72.643457,
+      "prepare_ms": 6.5655,
+      "execution_ratio": 0.9387983141990849,
+      "complete_ratio": 0.9779129920770853,
+      "execution_bytes": 2859184.0,
+      "complete_bytes": 9602384.0,
+      "retained_bytes": 714618,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 3735552,
+        "driver_units": 458752,
+        "native_driver_units": 458752,
+        "direct_root_units": 65536,
+        "direct_child_units": 393216,
+        "report": {
+          "executed_numerical_roots": 65536,
+          "executed_numerical_calls": 393216,
+          "executed_native_column_fields": 3735552,
+          "executed_numerical_fields": 3735552,
+          "typed_model_lookups": 196608,
+          "fallback_calls": 0,
+          "ordinary_root_executions": 0,
+          "lazy_materializations": 0,
+          "skipped_rich_targets": 96,
+          "constructed_rich_targets": 0,
+          "logical_status_views_retained": 96,
+          "direct_batches_prepared": 1,
+          "live_direct_batches": 1,
+          "shared_graph_shapes": 3,
+          "numerical_scalar_copies": false,
+          "scientific_kernels": "original",
+          "initial_execution_plan": "direct_from_logical_bindings",
+          "ordinary_context_preparation": "lazy_on_public_fallback_or_materialization",
+          "public_target_materialization": "permanent_row_fallback_with_shared_ordinary_cache_tree",
+          "refresh_policy": "ordinary_complete_plan_on_runtime_refresh",
+          "reasons": [
+            {
+              "application": "energy",
+              "targets": 32,
+              "reason": "eligible"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 32,
+          "native_allocations": 576,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 4608,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 576,
+          "active_native_objects": 32
+        },
+        "qualification": "executed_direct_calls_with_native_columns",
+        "extra_backend_lowering": false
+      }
+    }
+  ],
+  "growth-factorial": [
+    {
+      "variant": "reference_executor",
+      "samples": 3,
+      "execution_ms": 24.401042,
+      "complete_ms": 55.55479,
+      "prepare_ms": 26.073791,
+      "execution_ratio": 1.0,
+      "complete_ratio": 1.0,
+      "execution_bytes": 12167632,
+      "complete_bytes": 35851304,
+      "retained_bytes": 825921,
+      "digests": [
+        "dd6af9cf9aa6b61c1f26a34d5773cb7226844b6efeababf1e0ad4242b9671be8"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "storage": {
+          "strategy": "reference_cells",
+          "active_native_fields": 0,
+          "active_native_objects": 0
+        },
+        "ordinary_timeline_steps": 4
+      }
+    },
+    {
+      "variant": "native_executor",
+      "samples": 3,
+      "execution_ms": 19.941333,
+      "complete_ms": 48.862166,
+      "prepare_ms": 23.597458000000003,
+      "execution_ratio": 0.9538749205874076,
+      "complete_ratio": 0.8795311079386674,
+      "execution_bytes": 13310400,
+      "complete_bytes": 37512216,
+      "retained_bytes": 950543,
+      "digests": [
+        "dd6af9cf9aa6b61c1f26a34d5773cb7226844b6efeababf1e0ad4242b9671be8"
+      ],
+      "coverage": {
+        "native_fields": 342,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 112,
+          "cohorts": 4,
+          "registered_objects": 20,
+          "native_allocations": 313,
+          "fallback_allocations": 67,
+          "preserved_references": 0,
+          "native_bytes": 4505,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 342,
+          "active_native_objects": 20
+        },
+        "ordinary_timeline_steps": 4
+      }
+    },
+    {
+      "variant": "incremental_reference",
+      "samples": 3,
+      "execution_ms": 32.168875,
+      "complete_ms": 60.58870699999999,
+      "prepare_ms": 23.686291,
+      "execution_ratio": 1.3183402167825455,
+      "complete_ratio": 1.1005651897883153,
+      "execution_bytes": 12134368,
+      "complete_bytes": 35841208,
+      "retained_bytes": 802310,
+      "digests": [
+        "dd6af9cf9aa6b61c1f26a34d5773cb7226844b6efeababf1e0ad4242b9671be8"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 134,
+        "native_driver_units": 0,
+        "native_newborn_units": 0,
+        "initial_driver_row_execution_upper_bound": 56,
+        "newborn_driver_units_lower_bound": 78,
+        "newborn_bound_assumption": "initial_numerical_roots_run_at_most_once_per_base_step_without_manual_calls",
+        "report": {
+          "strategy": "direct_lean_incremental_addition",
+          "driver_batch_executions": 56,
+          "driver_row_executions": 134,
+          "native_row_executions": 0,
+          "executed_native_column_fields": 0,
+          "native_newborn_row_executions": 0,
+          "incremental_refreshes": 4,
+          "reused_batches": 56,
+          "reused_numeric_groups": 56,
+          "appended_rows": 36,
+          "coalesced_batches": 36,
+          "rebuilt_numeric_batches": 0,
+          "rebuilt_ordinary_groups": 96,
+          "reused_ordinary_groups": 48,
+          "rich_targets_constructed": 69,
+          "full_invalidations": 0,
+          "live_lean_batches": 14,
+          "live_native_rows": 0,
+          "lazy_target_snapshots": 0,
+          "initial_skipped_rich_targets": 14,
+          "source_facades_current": true,
+          "disabled": false,
+          "numerical_scalar_copies": false,
+          "fallback_policy": "ordinary_for_nonaddition_unknown_or_consumed_refresh",
+          "reasons": [
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "reference_cells",
+          "active_native_fields": 0,
+          "active_native_objects": 0
+        },
+        "qualification": "reference_driver_growth_with_conservative_newborn_lower_bound",
+        "extra_backend_lowering": false
+      }
+    },
+    {
+      "variant": "incremental_growth",
+      "samples": 3,
+      "execution_ms": 22.568917000000003,
+      "complete_ms": 48.028957999999996,
+      "prepare_ms": 21.118209,
+      "execution_ratio": 0.8961639246255427,
+      "complete_ratio": 0.8911390358959147,
+      "execution_bytes": 13417168,
+      "complete_bytes": 37682552,
+      "retained_bytes": 913236,
+      "digests": [
+        "dd6af9cf9aa6b61c1f26a34d5773cb7226844b6efeababf1e0ad4242b9671be8"
+      ],
+      "coverage": {
+        "native_fields": 472,
+        "driver_units": 134,
+        "native_driver_units": 134,
+        "native_newborn_units": 78,
+        "report": {
+          "strategy": "direct_lean_incremental_addition",
+          "driver_batch_executions": 56,
+          "driver_row_executions": 134,
+          "native_row_executions": 134,
+          "executed_native_column_fields": 472,
+          "native_newborn_row_executions": 78,
+          "incremental_refreshes": 4,
+          "reused_batches": 56,
+          "reused_numeric_groups": 56,
+          "appended_rows": 36,
+          "coalesced_batches": 36,
+          "rebuilt_numeric_batches": 0,
+          "rebuilt_ordinary_groups": 96,
+          "reused_ordinary_groups": 48,
+          "rich_targets_constructed": 69,
+          "full_invalidations": 0,
+          "live_lean_batches": 14,
+          "live_native_rows": 50,
+          "lazy_target_snapshots": 0,
+          "initial_skipped_rich_targets": 14,
+          "source_facades_current": true,
+          "disabled": false,
+          "numerical_scalar_copies": false,
+          "fallback_policy": "ordinary_for_nonaddition_unknown_or_consumed_refresh",
+          "reasons": [
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            },
+            {
+              "event": "incremental_addition",
+              "added_objects": 3,
+              "appended_rows": 9,
+              "reused_numeric_batches": 14,
+              "rebuilt_numeric_batches": 0
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 112,
+          "cohorts": 4,
+          "registered_objects": 20,
+          "native_allocations": 313,
+          "fallback_allocations": 67,
+          "preserved_references": 0,
+          "native_bytes": 4505,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 342,
+          "active_native_objects": 20
+        },
+        "qualification": "executed_incremental_newborn_native_work",
+        "extra_backend_lowering": false
+      }
+    }
+  ],
+  "direct-final": [
+    {
+      "variant": "reference_executor",
+      "samples": 6,
+      "execution_ms": 65.20181250000002,
+      "complete_ms": 72.2191245,
+      "prepare_ms": 3.85,
+      "execution_ratio": 1.0,
+      "complete_ratio": 1.0,
+      "execution_bytes": 23838976.0,
+      "complete_bytes": 29397232.0,
+      "retained_bytes": 628393,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "direct_driver_units": 0,
+        "report": null,
+        "storage": null
+      }
+    },
+    {
+      "variant": "native_executor",
+      "samples": 6,
+      "execution_ms": 68.392771,
+      "complete_ms": 75.9328755,
+      "prepare_ms": 4.1846045,
+      "execution_ratio": 1.053421312648024,
+      "complete_ratio": 1.0558669078175438,
+      "execution_bytes": 34324736.0,
+      "complete_bytes": 40428928.0,
+      "retained_bytes": 697001,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 576,
+        "driver_units": 0,
+        "native_driver_units": 0,
+        "direct_driver_units": 0,
+        "report": null,
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 32,
+          "native_allocations": 576,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 4608,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows"
+        }
+      }
+    },
+    {
+      "variant": "direct_reference",
+      "samples": 6,
+      "execution_ms": 58.5324375,
+      "complete_ms": 67.61318750000001,
+      "prepare_ms": 5.905749999999999,
+      "execution_ratio": 0.8984783395921105,
+      "complete_ratio": 0.9368198599335915,
+      "execution_bytes": 2859184.0,
+      "complete_bytes": 8607392.0,
+      "retained_bytes": 637050,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 0,
+        "driver_units": 458752,
+        "native_driver_units": 0,
+        "direct_root_units": 65536,
+        "direct_child_units": 393216,
+        "report": {
+          "executed_numerical_roots": 65536,
+          "executed_numerical_calls": 393216,
+          "executed_native_column_fields": 0,
+          "executed_numerical_fields": 3735552,
+          "typed_model_lookups": 196608,
+          "fallback_calls": 0,
+          "ordinary_root_executions": 0,
+          "lazy_materializations": 0,
+          "skipped_rich_targets": 96,
+          "constructed_rich_targets": 0,
+          "logical_status_views_retained": 96,
+          "direct_batches_prepared": 1,
+          "live_direct_batches": 1,
+          "shared_graph_shapes": 3,
+          "numerical_scalar_copies": false,
+          "scientific_kernels": "original",
+          "initial_execution_plan": "direct_from_logical_bindings",
+          "ordinary_context_preparation": "lazy_on_public_fallback_or_materialization",
+          "public_target_materialization": "permanent_row_fallback_with_shared_ordinary_cache_tree",
+          "refresh_policy": "retire_original_owner_tree_then_ordinary_refresh",
+          "reasons": [
+            {
+              "application": "energy",
+              "targets": 32,
+              "reason": "eligible"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "reference_cells",
+          "active_native_fields": 0,
+          "active_native_objects": 0
+        },
+        "qualification": "executed_direct_calls_with_original_references",
+        "extra_backend_lowering": false
+      }
+    },
+    {
+      "variant": "direct_calls",
+      "samples": 6,
+      "execution_ms": 61.8190835,
+      "complete_ms": 71.927521,
+      "prepare_ms": 6.5880625,
+      "execution_ratio": 0.9483105837673775,
+      "complete_ratio": 0.9962615364046088,
+      "execution_bytes": 2859184.0,
+      "complete_bytes": 9600648.0,
+      "retained_bytes": 714618,
+      "digests": [
+        "0e95156d129ad48fc5b3f59356a69c575a4847a52ebda74fe245f60fb9581b15"
+      ],
+      "coverage": {
+        "native_fields": 3735552,
+        "driver_units": 458752,
+        "native_driver_units": 458752,
+        "direct_root_units": 65536,
+        "direct_child_units": 393216,
+        "report": {
+          "executed_numerical_roots": 65536,
+          "executed_numerical_calls": 393216,
+          "executed_native_column_fields": 3735552,
+          "executed_numerical_fields": 3735552,
+          "typed_model_lookups": 196608,
+          "fallback_calls": 0,
+          "ordinary_root_executions": 0,
+          "lazy_materializations": 0,
+          "skipped_rich_targets": 96,
+          "constructed_rich_targets": 0,
+          "logical_status_views_retained": 96,
+          "direct_batches_prepared": 1,
+          "live_direct_batches": 1,
+          "shared_graph_shapes": 3,
+          "numerical_scalar_copies": false,
+          "scientific_kernels": "original",
+          "initial_execution_plan": "direct_from_logical_bindings",
+          "ordinary_context_preparation": "lazy_on_public_fallback_or_materialization",
+          "public_target_materialization": "permanent_row_fallback_with_shared_ordinary_cache_tree",
+          "refresh_policy": "retire_original_owner_tree_then_ordinary_refresh",
+          "reasons": [
+            {
+              "application": "energy",
+              "targets": 32,
+              "reason": "eligible"
+            }
+          ]
+        },
+        "storage": {
+          "strategy": "canonical_columns_from_allocation",
+          "pools": 18,
+          "cohorts": 1,
+          "registered_objects": 32,
+          "native_allocations": 576,
+          "fallback_allocations": 0,
+          "preserved_references": 0,
+          "native_bytes": 4608,
+          "canonical_references_replaced": false,
+          "canonical_scalar_copy_retained": false,
+          "removal_policy": "append_only_stable_rows",
+          "active_native_fields": 576,
+          "active_native_objects": 32
+        },
+        "qualification": "executed_direct_calls_with_native_columns",
+        "extra_backend_lowering": false
+      }
+    }
+  ]
+}

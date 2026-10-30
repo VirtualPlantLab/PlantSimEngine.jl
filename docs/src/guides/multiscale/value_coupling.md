@@ -14,9 +14,11 @@ the value, for example when using the same process more than once.
 
 PlantSimEngine shares these values by reference: the receiving model reads
 the current source values without copying them. A collection with the same
-value type throughout uses `RefVector`; one with different types uses
-`ObjectRefVector`. These collections are called **input carriers** in the
-diagnostics. Use `Diagnostics.input_value` to read the values,
+concrete value type and compatible concrete reference storage throughout
+uses `RefVector`. A collection with different value types or a mix of
+individual reference cells and array-backed references uses `ObjectRefVector`.
+Both keep live references to the sources. These collections are called
+**input carriers** in the diagnostics. Use `Diagnostics.input_value` to read the values,
 `Diagnostics.input_carrier` to inspect their container, and
 `Diagnostics.explain_bindings` to see where they come from.
 
@@ -282,13 +284,14 @@ the objects or their order change, provide a new ID vector. After an object
 is added, removed, or reparented, PlantSimEngine automatically rebuilds the
 match on the next call.
 
-When all destination values have the same concrete Julia type, PlantSimEngine
-uses `RefVector` columns. With a stable ID order that already matches the
-destinations, assignments can run without new memory allocations after
-compilation. If the destinations hold different types, PlantSimEngine uses
-`ObjectRefVector` and converts each value to its destination type. Both use
-the same API; keeping types consistent is preferable when assigning results
-to many organs.
+When destination values and their reference storage each have one compatible
+concrete Julia type, PlantSimEngine uses `RefVector` columns. For ordinary
+individual reference cells, a stable ID order that already matches the
+destinations allows assignments without new memory allocations after
+compilation. Mixed value types or reference storage use `ObjectRefVector`,
+which checks conversion to each destination type before writing any values.
+Both use the same API; keeping value types and storage consistent is
+preferable when assigning results to many organs.
 
 Call `output_targets` each time your model runs, just as with `bound_input`.
 Do not store the returned `OutputTargets` in the model: the selected objects

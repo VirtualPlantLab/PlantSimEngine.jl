@@ -1,10 +1,11 @@
 """
     RefVector(field::Symbol, sts...)
     RefVector(field::Symbol, sts::Vector{<:Status})
-    RefVector(v::Vector{Base.RefValue{T}})
+    RefVector(v::Vector{R}) where {T,R<:Ref{T}}
 
 A vector of references to a field of a vector of structs.
 This is used to efficiently pass the values between scales.
+The reference type is retained, including references into a backing array.
 
 # Arguments
 
@@ -32,7 +33,7 @@ We can make a RefVector of the field `a` of the structs `st1` and `st2`:
 
 ```jldoctest mylabel
 julia> rv = PlantSimEngine.RefVector(:a, status1, status2)
-2-element PlantSimEngine.RefVector{Float64}:
+2-element PlantSimEngine.RefVector{Float64, Base.RefValue{Float64}}:
  1.0
  2.0
 ```
@@ -41,7 +42,7 @@ Which is equivalent to:
 
 ```jldoctest mylabel
 julia> rv = PlantSimEngine.RefVector(:a, [status1, status2])
-2-element PlantSimEngine.RefVector{Float64}:
+2-element PlantSimEngine.RefVector{Float64, Base.RefValue{Float64}}:
  1.0
  2.0
 ```
@@ -77,7 +78,7 @@ julia> vec = [Ref(1.0), Ref(2.0), Ref(3.0)]
 
 ```jldoctest mylabel
 julia> rv = PlantSimEngine.RefVector(vec)
-3-element PlantSimEngine.RefVector{Float64}:
+3-element PlantSimEngine.RefVector{Float64, Base.RefValue{Float64}}:
  1.0
  2.0
  3.0
@@ -88,9 +89,14 @@ julia> rv[1]
 1.0
 ```
 """
-struct RefVector{T} <: AbstractVector{T}
-    v::Vector{Base.RefValue{T}}
+struct RefVector{T,R<:Ref{T}} <: AbstractVector{T}
+    v::Vector{R}
+
+    RefVector{T,R}(v::Vector{R}) where {T,R<:Ref{T}} = new{T,R}(v)
 end
+
+RefVector(v::Vector{R}) where {T,R<:Ref{T}} = RefVector{T,R}(v)
+RefVector{T}(v::Vector{R}) where {T,R<:Ref{T}} = RefVector{T,R}(v)
 
 function Base.getindex(rv::RefVector, i::Int)
     return rv.v[i][]
@@ -102,9 +108,87 @@ end
 
 Base.size(rv::RefVector) = size(rv.v)
 Base.length(rv::RefVector) = length(rv.v)
-Base.eltype(::Type{RefVector{T}}) where {T} = T
+Base.eltype(::Type{<:RefVector{T}}) where {T} = T
 Base.parent(v::RefVector) = v.v
-Base.dataids(v::RefVector) = Base.dataids(parent(v))
+
+_reference_backing_dataids(reference::Ref) = ()
+_reference_backing_dataids(reference::Base.RefArray) =
+    Base.dataids(getfield(reference, :x))
+
+# Reference-vector storage alone does not identify the live cells of an
+# array-backed status. Deduplicate backing segments so a million references
+# into one column still describe just that column and the reference vector.
+function _reference_vector_dataids(references)
+    return _mixed_reference_vector_dataids(references)
+end
+
+function _mixed_reference_vector_dataids(references)
+    ids = UInt[Base.dataids(references)...]
+    seen = Set(ids)
+    for reference in references
+        for id in _reference_backing_dataids(reference)
+            if !(id in seen)
+                push!(seen, id)
+                push!(ids, id)
+            end
+        end
+    end
+    return Tuple(ids)
+end
+
+_reference_vector_dataids(references::Vector{<:Base.RefValue}) =
+    Base.dataids(references)
+
+function _reference_vector_dataids(references::Vector{<:Base.RefArray})
+    isempty(references) && return Base.dataids(references)
+    backing = getfield(first(references), :x)
+    for reference in references
+        getfield(reference, :x) === backing ||
+            return _mixed_reference_vector_dataids(references)
+    end
+    return (Base.dataids(references)..., Base.dataids(backing)...)
+end
+
+Base.dataids(v::RefVector) = _reference_vector_dataids(parent(v))
+
+# Julia's broadcast alias protection requires a copy of the same array type.
+# Copy reference storage only on that path; normal carriers keep live cells.
+# Restore the selected values shallowly, preserving mutable value identities.
+function _unalias_reference_vector(references)
+    copied = deepcopy(references)
+    for i in eachindex(references)
+        copied[i][] = references[i][]
+    end
+    return copied
+end
+
+function _unalias_reference_vector(references::Vector{Base.RefValue{T}}) where {T}
+    copied = similar(references)
+    for i in eachindex(references)
+        copied[i] = Ref{T}(references[i][])
+    end
+    return copied
+end
+
+function _unalias_reference_vector(
+    references::Vector{Base.RefArray{T,Vector{T},Roots}},
+) where {T,Roots}
+    # A gathered view may touch only a few entries of a very large column.
+    # Copy those entries into dense independent storage, retaining the exact
+    # reference type and shallow value identities required by broadcast.
+    values = Vector{T}(undef, length(references))
+    copied = similar(references)
+    for i in eachindex(references)
+        reference = references[i]
+        values[i] = reference[]
+        copied[i] = Base.RefArray{T,Vector{T},Roots}(
+            values, i, getfield(reference, :roots),
+        )
+    end
+    return copied
+end
+
+Base.unaliascopy(v::RefVector) = RefVector(_unalias_reference_vector(parent(v)))
 
 Base.resize!(v::RefVector, nl::Integer) = (resize!(parent(v), nl); v)
 Base.push!(v::RefVector, x...) = (push!(parent(v), x...); v)

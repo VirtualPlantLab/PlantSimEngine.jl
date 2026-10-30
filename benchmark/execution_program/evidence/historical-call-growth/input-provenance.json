@@ -1,0 +1,16 @@
+{
+  "xpalm_weather": {
+    "path": "/Users/rvezy/Documents/dev/XPalm/0-data/meteo.csv",
+    "sha256": "3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653",
+    "bytes": 776752,
+    "used_rows": [
+      4,
+      16
+    ],
+    "recorded": "at close of experiments; original package file, loaded before each registration timer"
+  },
+  "pb_weather": "Programmatic Weather defined in pb_native_fixture; varying five-step temperatures, other forcing fixed",
+  "xpalm_seed": 1,
+  "xpalm_phyllochron_speed": 0.2,
+  "xpalm_fixture_interpretation": "accelerated diagnostic growth, not calibrated biological scenario"
+}

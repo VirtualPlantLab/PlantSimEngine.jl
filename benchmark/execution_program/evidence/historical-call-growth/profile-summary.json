@@ -1,0 +1,38 @@
+[
+  {
+    "variant": "reference_executor",
+    "cases": 4,
+    "selected_active_samples": 1625,
+    "unresolved_ips": 0,
+    "trailing_ips": 0,
+    "digest": "742e1209a1f1b0d7afc64c4c63bce8a9c558fa7091470a634256f95b33cc93bf",
+    "sampled_shares": {
+      "_refresh_simulation_runtime!": 0.7316923076923076,
+      "_extend_compiled_scene": 0.48123076923076924,
+      "_refresh_model_execution_plan": 0.18830769230769231,
+      "_try_refresh_execution_batch_plan": 0.0,
+      "_targeted_new_object_call_targets": 0.20861538461538462,
+      "_compile_added_consumer_bindings!": 0.14953846153846154
+    },
+    "categories_overlap": true,
+    "meaning": "broad inclusive sampling evidence, not exact phase timings"
+  },
+  {
+    "variant": "incremental_growth",
+    "cases": 4,
+    "selected_active_samples": 1953,
+    "unresolved_ips": 0,
+    "trailing_ips": 0,
+    "digest": "742e1209a1f1b0d7afc64c4c63bce8a9c558fa7091470a634256f95b33cc93bf",
+    "sampled_shares": {
+      "_refresh_simulation_runtime!": 0.7649769585253456,
+      "_extend_compiled_scene": 0.427547363031234,
+      "_refresh_model_execution_plan": 0.2749615975422427,
+      "_try_refresh_execution_batch_plan": 0.2749615975422427,
+      "_targeted_new_object_call_targets": 0.1930363543266769,
+      "_compile_added_consumer_bindings!": 0.13876088069636458
+    },
+    "categories_overlap": true,
+    "meaning": "broad inclusive sampling evidence, not exact phase timings"
+  }
+]

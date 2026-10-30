@@ -248,6 +248,7 @@ function _model_graph_compiled(
         scenario_plan.application_order,
         model.revision,
         UInt64(0),
+        _execution_policy_for_model(model),
     )
 end
 

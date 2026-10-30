@@ -60,9 +60,20 @@ struct Status{N,T<:Tuple{Vararg{Ref}}}
     # identity. Keep an opaque token so every runtime status, including an empty
     # one created before compilation adds variables, has a distinct identity.
     identity::Base.RefValue{Nothing}
+    # A kernel-local view keeps only its declared reference fields in `vars`.
+    # The erased backing preserves whole-status access and undeclared fields
+    # without making unrelated canonical fields part of the kernel's type.
+    # Ordinary registry statuses have no backing.
+    backing::Any
 
     function Status(vars::NamedTuple{N,T}) where {N,T<:Tuple{Vararg{Ref}}}
-        return new{N,T}(vars, Ref(nothing))
+        return new{N,T}(vars, Ref(nothing), nothing)
+    end
+
+    function Status(
+        vars::NamedTuple{N,T}, identity::Base.RefValue{Nothing}, backing::Status,
+    ) where {N,T<:Tuple{Vararg{Ref}}}
+        return new{N,T}(vars, identity, backing)
     end
 end
 
@@ -75,7 +86,10 @@ function Status(nt::NamedTuple{names}) where {names}
     Status(NamedTuple{names}(Ref.(values(nt))))
 end
 
-_status_vars(status) = getfield(status, :vars)
+function _status_vars(status::Status)
+    backing = getfield(status, :backing)
+    return isnothing(backing) ? getfield(status, :vars) : _status_vars(backing)
+end
 _status_values(status) = getindex.(values(_status_vars(status)))
 _status_namedtuple(status) = NamedTuple{keys(status)}(values(status))
 _status_tuple(status) = values(status)
@@ -84,11 +98,19 @@ _status_firstindex(status) = 1
 _status_lastindex(status) = lastindex(NamedTuple(status))
 _status_indexed_iterate(status, i::Int, state=1) = Base.indexed_iterate(NamedTuple(status), i, state)
 
-Base.keys(::Status{names}) where {names} = names
+function Base.keys(status::Status{names}) where {names}
+    backing = getfield(status, :backing)
+    return isnothing(backing) ? names : keys(backing)
+end
 Base.values(st::Status) = _status_values(st)
 _status_identity(status::Status) = getfield(status, :identity)
-refvalues(mnt::Status) = values(getfield(mnt, :vars))
-Base.@constprop :aggressive @inline refvalue(mnt::Status, key::Symbol) = getfield(getfield(mnt, :vars), key)
+refvalues(mnt::Status) = values(_status_vars(mnt))
+Base.@constprop :aggressive @inline function refvalue(mnt::Status, key::Symbol)
+    vars = getfield(mnt, :vars)
+    backing = getfield(mnt, :backing)
+    return hasproperty(vars, key) || isnothing(backing) ? getfield(vars, key) :
+           refvalue(backing, key)
+end
 
 Base.NamedTuple(mnt::Status) = _status_namedtuple(mnt)
 Base.Tuple(mnt::Status) = _status_tuple(mnt)
@@ -109,18 +131,24 @@ function Base.show(io::IO, t::Status)
     print(io, "Status", NamedTuple(t))
 end
 
-Base.@constprop :aggressive @inline Base.getproperty(mnt::Status, s::Symbol) = getproperty(getfield(mnt, :vars), s)[]
-Base.@constprop :aggressive @inline Base.getindex(mnt::Status, i::Int) = getfield(getfield(mnt, :vars), i)[]
+Base.@constprop :aggressive @inline Base.getproperty(mnt::Status, s::Symbol) = refvalue(mnt, s)[]
+Base.@constprop :aggressive @inline function Base.getindex(mnt::Status, i::Int)
+    backing = getfield(mnt, :backing)
+    return isnothing(backing) ? getfield(getfield(mnt, :vars), i)[] : backing[i]
+end
 Base.@constprop :aggressive @inline Base.getindex(mnt::Status, i::Symbol) = getproperty(mnt, i)
 
 Base.@constprop :aggressive @inline function Base.setproperty!(mnt::Status, s::Symbol, x)
-    nt = getfield(mnt, :vars)
-    getfield(nt, s)[] = x
+    refvalue(mnt, s)[] = x
 end
 
 Base.@constprop :aggressive @inline function Base.setproperty!(mnt::Status, i::Int, x)
-    nt = getfield(mnt, :vars)
-    getindex(nt, i)[] = x
+    backing = getfield(mnt, :backing)
+    if isnothing(backing)
+        getindex(getfield(mnt, :vars), i)[] = x
+    else
+        backing[i] = x
+    end
 end
 
 Base.@constprop :aggressive @inline function Base.setindex!(mnt::Status, x, i::Symbol)
@@ -131,9 +159,13 @@ Base.@constprop :aggressive @inline function Base.setindex!(mnt::Status, x, i::I
     setproperty!(mnt, i, x)
 end
 
-Base.propertynames(::Status{T,R}) where {T,R} = T
-Base.length(mnt::Status) = length(getfield(mnt, :vars))
+Base.propertynames(mnt::Status) = keys(mnt)
+Base.length(mnt::Status) = length(keys(mnt))
 Base.eltype(::Type{Status{N,T}}) where {N,T} = eltype.(eltype(T))
+function Base.eltype(status::Status)
+    backing = getfield(status, :backing)
+    return isnothing(backing) ? eltype(typeof(status)) : eltype(backing)
+end
 
 Base.iterate(mnt::Status, iter=1) = _status_iterate(mnt, iter)
 

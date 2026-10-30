@@ -301,11 +301,11 @@ end
     return nothing
 end
 
-@inline _validate_output_reference_value(::Base.RefValue{T}, ::T) where {T} =
+@inline _validate_output_reference_value(::Ref{T}, ::T) where {T} =
     nothing
 
 @inline function _validate_output_reference_value(
-    reference::Base.RefValue{T},
+    reference::Ref{T},
     value,
 ) where {T}
     convert(T, value)

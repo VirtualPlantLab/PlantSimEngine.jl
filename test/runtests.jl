@@ -37,6 +37,14 @@ else
         include("test-unified-model-object-api.jl")
     end
 
+    @testset "Experimental local execution interfaces" begin
+        include("test-model-execution-interfaces.jl")
+    end
+
+    @testset "Experimental shared execution plans" begin
+        include("test-model-shared-plan-prototype.jl")
+    end
+
     @testset "Registered object identity" begin
         include("test-model-object-id.jl")
     end
@@ -69,6 +77,10 @@ else
         include("test-model-lifecycle-empty-targets.jl")
     end
 
+    @testset "Cold execution target identity scans" begin
+        include("test-execution-target-identities.jl")
+    end
+
     @testset "Public model authoring API" begin
         include("test-authoring-api.jl")
     end
@@ -96,6 +108,10 @@ else
 
     @testset "Prepared environment inputs" begin
         include("test-prepared-environment-inputs.jl")
+    end
+
+    @testset "Coalesced growth and environment invalidation" begin
+        include("test-model-coalesced-growth-environment.jl")
     end
 
     @testset "Transient manual-call context reuse" begin
@@ -228,6 +244,10 @@ else
 
     @testset "Identity-aware Many inputs" begin
         include("test-model-bound-many.jl")
+    end
+
+    @testset "Column-backed reference carriers" begin
+        include("test-model-column-reference-carriers.jl")
     end
 
     @testset "Distributed output declarations" begin

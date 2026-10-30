@@ -383,6 +383,7 @@ export call_targets, with_call_targets, call_model, run_call!, run_initializer!,
 export CallEvaluation, evaluate_call!, accept_call!
 export bound_input, output_targets, assign_outputs!
 export Status
+export NativeColumnStorage, native_storage_report
 export Required, Default, Distributed
 export VariableContract, variable_contracts
 export @process, process

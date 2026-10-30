@@ -939,7 +939,7 @@ end
 function _compiled_source_prepare_target!(
     simulation::Simulation,
     application::CompiledModelApplication,
-    target::CompiledExecutionTarget,
+    target::RootExecutionTarget,
     time::Real,
     shared_environment,
 )
@@ -977,7 +977,7 @@ function _compiled_source_prepare_target!(
 end
 
 function _compiled_source_publish_target!(
-    target::CompiledExecutionTarget,
+    target::RootExecutionTarget,
     time::Real,
     publish_outputs::Bool,
 )

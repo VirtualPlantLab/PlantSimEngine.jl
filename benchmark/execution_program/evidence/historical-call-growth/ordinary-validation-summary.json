@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "core_assertions": 7406,
+  "additional_assertions": 1800,
+  "total": 9206,
+  "core_receipt": "receipts/091-final-core-complete.json",
+  "additional_unaffected_eight": 1344,
+  "additional_unaffected_log": "before-geometry-harness/ordinary-regressions.log",
+  "additional_corrected_environment_testsets": 456,
+  "environment_receipt": "receipts/099-env-main-rerun.json",
+  "tests_modified": false,
+  "runner_repairs": [
+    "Kaimon fd-backed stdio",
+    "standard Main test namespace",
+    "explicit PSE geometry import to resolve benchmark-loader collision"
+  ],
+  "full_pkg_test": false
+}

@@ -275,6 +275,10 @@ mutable struct RunContext{CS,A,CT,BI,OT,TS,OR,C,E}
     environment::E
 end
 
+# Defined after RunContext so the local constructor can instantiate the same
+# supported model-facing context with a smaller specialization surface.
+include("kernel_interfaces.jl")
+
 # A manual target owns its execution shells. Keep the normal typed context and
 # at most one transient specialization; materialized views share this lease.
 mutable struct CallContextCache{C}
@@ -300,7 +304,7 @@ function RunContext(
     publication_allowed,
     environment,
 )
-    return RunContext(
+    return _execution_run_context(
         compiled,
         environment_bindings,
         application,
@@ -331,7 +335,7 @@ function RunContext(
     publication_allowed,
     environment,
 )
-    return RunContext(
+    return _execution_run_context(
         compiled,
         environment_bindings,
         application,
@@ -999,10 +1003,11 @@ struct CachedGlobalModelEnvironment{B}
     binding::B
 end
 
-mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OT,OB,CB,EB,RC}
+mutable struct CompiledExecutionTarget{M,S,KS,CS,IB,BI,OT,OB,CB,EB,RC}
     object_id::ObjectId
     model::M
     status::S
+    kernel_status::KS
     canonical_status::CS
     input_bindings::IB
     bound_inputs::BI
@@ -1014,6 +1019,53 @@ mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OT,OB,CB,EB,RC}
     context::RC
     call_context_cache::CallContextCache{RC}
 end
+
+# A root-only plan shares the model payload across its organ rows. The wrapper
+# has identity even when the model is an immutable value, so storing the plan
+# in a row stores one pointer rather than copying the model's fields.
+mutable struct SharedRootTargetPlan{M}
+    const model::M
+end
+
+# Compact rows retain their own mutable context and all owner-specific bound
+# views. They never share call leases. The compiler only selects this layout
+# when runtime and canonical status are identical, with no temporal inputs or
+# declared calls, so neither a second Status nor a call-context cache is needed.
+struct SharedRootExecutionTarget{P,S,KS,BI,OT,OB,EB,RC}
+    plan::P
+    object_id::ObjectId
+    status::S
+    kernel_status_storage::KS
+    bound_inputs::BI
+    output_targets::OT
+    output_bindings::OB
+    environment_binding::EB
+    context::RC
+end
+
+@inline function Base.getproperty(target::SharedRootExecutionTarget, name::Symbol)
+    name === :model && return getfield(getfield(target, :plan), :model)
+    name === :canonical_status && return getfield(target, :status)
+    if name === :kernel_status
+        stored = getfield(target, :kernel_status_storage)
+        return stored === nothing ? getfield(target, :status) : stored
+    end
+    name === :input_bindings && return ()
+    name === :call_bindings && return ()
+    name === :call_bindings_signature && return _call_bindings_signature(())
+    return getfield(target, name)
+end
+
+function Base.propertynames(::SharedRootExecutionTarget, private::Bool=false)
+    names = (
+        :object_id, :model, :status, :kernel_status, :canonical_status,
+        :input_bindings, :bound_inputs, :output_targets, :output_bindings,
+        :call_bindings, :call_bindings_signature, :environment_binding, :context,
+    )
+    return private ? (names..., :plan, :kernel_status_storage) : names
+end
+
+const RootExecutionTarget = Union{CompiledExecutionTarget,SharedRootExecutionTarget}
 
 function _call_bindings_signature(call_bindings)
     signature = hash(length(call_bindings))
@@ -1077,6 +1129,7 @@ struct CompiledExecutionPlan{G,B,I,S}
     schedule::S
     model_revision::Int
     environment_revision::Int
+    shared_target_plans::Union{Nothing,IdDict{Any,Any}}
 end
 
 function _periodic_schedule_due_on_or_after(
@@ -2668,7 +2721,7 @@ end
         publication_allowed,
         environment,
     )
-    return RunContext(
+    return _execution_run_context(
         compiled,
         environment_bindings,
         application,
@@ -2756,7 +2809,7 @@ end
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
-    target::CompiledExecutionTarget,
+    target::RootExecutionTarget,
     time::Real,
     constants,
     temporal_streams,
@@ -2785,7 +2838,7 @@ end
         target.context.time = time
         target.context
     else
-        RunContext(
+        _execution_run_context(
             compiled,
             env_bindings,
             application,
@@ -2801,7 +2854,7 @@ end
             _NO_ENVIRONMENT_OVERRIDE,
         )
     end
-    run!(target.model, status, environment_value, constants, context)
+    run!(target.model, _execution_kernel_status(target), environment_value, constants, context)
     if publish_outputs
         isempty(target.output_bindings) ||
             _model_publish_runtime_outputs!(target.output_bindings, time)
@@ -2813,7 +2866,7 @@ end
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
-    target::CompiledExecutionTarget,
+    target::RootExecutionTarget,
     time::Real,
     constants,
     temporal_streams,
@@ -2868,7 +2921,7 @@ end
             constants,
         )
     end
-    run!(target.model, status, environment_value, constants, context)
+    run!(target.model, _execution_kernel_status(target), environment_value, constants, context)
     if publish_outputs
         isempty(target.output_bindings) ||
             _model_publish_runtime_outputs!(target.output_bindings, time)
@@ -3006,7 +3059,7 @@ end
             end
             run!(
                 target.model,
-                status,
+                _execution_kernel_status(target),
                 environment_value,
                 constants,
                 context,
@@ -3125,7 +3178,7 @@ function _run_model_execution_batch_profiled!(
         started_at = _runtime_performance_start(performance)
         run!(
             target.model,
-            status,
+            _execution_kernel_status(target),
             environment_value,
             constants,
             context,
@@ -3523,7 +3576,7 @@ function _compiled_model_execution_context(
         true,
         _NO_ENVIRONMENT_OVERRIDE,
     )
-    return RunContext(
+    return _execution_run_context(
         compiled,
         env_bindings,
         application,
@@ -3547,7 +3600,8 @@ function _compiled_model_execution_target(
     object_id::ObjectId,
     temporal_streams=nothing,
     output_retention=nothing,
-    constants=nothing,
+    constants=nothing;
+    shared_plan_cache=nothing,
 )
     status_view = _model_status_view_for_application(
         compiled,
@@ -3602,10 +3656,32 @@ function _compiled_model_execution_target(
         local_output_bindings...,
         distributed_output_bindings...,
     )
+    kernel_status = _kernel_execution_status(
+        compiled, application, model, status_view.status,
+    )
+    if !isnothing(shared_plan_cache) && isempty(call_bindings) &&
+       isempty(status_view.temporal_inputs) &&
+       status_view.status === status_view.canonical_status
+        plan = get!(shared_plan_cache, model) do
+            SharedRootTargetPlan(model)
+        end
+        return SharedRootExecutionTarget(
+            plan,
+            object_id,
+            status_view.status,
+            kernel_status === status_view.status ? nothing : kernel_status,
+            bound_inputs,
+            distributed_targets,
+            output_bindings,
+            environment_binding,
+            context,
+        )
+    end
     return CompiledExecutionTarget(
         object_id,
         model,
         status_view.status,
+        kernel_status === status_view.status ? nothing : kernel_status,
         status_view.canonical_status,
         _runtime_model_temporal_inputs(
             status_view.temporal_inputs,
@@ -3635,7 +3711,7 @@ end
 function _compiled_model_execution_environment_provider(
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
-    target::CompiledExecutionTarget,
+    target::RootExecutionTarget,
 )
     binding = target.environment_binding
     isnothing(binding) && return nothing
@@ -3757,6 +3833,8 @@ function compile_model_execution_plan(
     output_retention=nothing,
     constants=nothing,
 )
+    shared_plan_cache = compiled.execution_policy.shared_plans ?
+                        IdDict{Any,Any}() : nothing
     manual_application_ids = _manual_call_application_ids(compiled)
     groups = CompiledApplicationExecutionGroup[]
     batches = AbstractExecutionBatch[]
@@ -3771,7 +3849,8 @@ function compile_model_execution_plan(
                 object_id,
                 temporal_streams,
                 output_retention,
-                constants,
+                constants;
+                shared_plan_cache=shared_plan_cache,
             )
             for object_id in application.target_ids
         ]
@@ -3801,6 +3880,7 @@ function compile_model_execution_plan(
         ),
         compiled.revision,
         env_bindings.environment_revision,
+        shared_plan_cache,
     )
 end
 
@@ -4059,7 +4139,7 @@ function _manual_call_binding_has_changed_target(
 end
 
 function _model_execution_target_change_reason(
-    target::CompiledExecutionTarget,
+    target::RootExecutionTarget,
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
@@ -4185,6 +4265,11 @@ function _model_execution_group_reusable(
     return target_index == length(application.target_ids)
 end
 
+# Cold refresh scans often need only identity. Specialized target containers
+# can expose it without materializing a rich execution snapshot, including
+# rows whose object or application membership has just been retired.
+@inline _model_execution_target_id(targets, index) = targets[index].object_id
+
 function _sorted_execution_target_position(
     targets,
     object_id::ObjectId,
@@ -4193,7 +4278,7 @@ function _sorted_execution_target_position(
     upper = lastindex(targets)
     while lower <= upper
         middle = (lower + upper) >>> 1
-        candidate_id = @inbounds targets[middle].object_id
+        candidate_id = @inbounds _model_execution_target_id(targets, middle)
         candidate_id == object_id && return (true, middle)
         if _object_id_isless(candidate_id, object_id)
             lower = middle + 1
@@ -4222,7 +4307,8 @@ function _model_execution_target_insertion(
 )
     for (batch_index, batch) in pairs(group.batches)
         isempty(batch.targets) && continue
-        if !_object_id_isless(last(batch.targets).object_id, object_id)
+        if !_object_id_isless(_model_execution_target_id(batch.targets,
+            lastindex(batch.targets)), object_id)
             _, target_index =
                 _sorted_execution_target_position(
                     batch.targets,
@@ -4241,7 +4327,7 @@ end
 
 function _model_execution_batch_accepts_target(
     batch::CompiledExecutionBatch,
-    target::CompiledExecutionTarget,
+    target::RootExecutionTarget,
     env_bindings,
     application,
 )
@@ -4427,7 +4513,8 @@ function _extend_execution_target_call_batches_for_pure_addition!(
             if batch.application.id == application_id
         ]
         isempty(batches) && return false
-        last_old_id = last(last(batches).targets).object_id
+        last_targets = last(batches).targets
+        last_old_id = _model_execution_target_id(last_targets, lastindex(last_targets))
         all(
             object_id -> _object_id_isless(last_old_id, object_id),
             changed_ids,
@@ -4530,6 +4617,20 @@ function _extend_execution_target_call_batches!(
     )
 end
 
+# A compact row has no call state to extend. If a refreshed binding introduces
+# a call, the normal transactional group rebuild selects a rich target.
+function _extend_execution_target_call_batches!(
+    target::SharedRootExecutionTarget,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    temporal_streams,
+    output_retention,
+    constants,
+    performance=nothing,
+)
+    return false
+end
+
 function _refresh_model_execution_group_delta!(
     previous_group::CompiledApplicationExecutionGroup,
     compiled::CompiledCompositeModel,
@@ -4540,6 +4641,7 @@ function _refresh_model_execution_group_delta!(
     constants,
     performance,
     changed_object_ids,
+    shared_plan_cache=nothing,
 )
     previous_group.application === application || return nothing
     isempty(changed_object_ids) && return nothing
@@ -4606,7 +4708,8 @@ function _refresh_model_execution_group_delta!(
             object_id,
             temporal_streams,
             output_retention,
-            constants,
+            constants;
+            shared_plan_cache=shared_plan_cache,
         )
         insertion = isnothing(location) ?
                     _model_execution_target_insertion(
@@ -4697,6 +4800,26 @@ function _changed_execution_target_ids_by_application(
     return changed_by_application
 end
 
+# A specialized group can stage an append without retaining rich target rows.
+# `nothing` selects ordinary target staging; `false` rejects this transaction.
+# A successful stage must remain inert until the matching commit hook is called.
+_stage_model_execution_group_pure_addition(
+    group::CompiledApplicationExecutionGroup,
+    compiled, env_bindings, application, temporal_streams, output_retention,
+    constants, performance, object_ids, shared_plan_cache,
+) = nothing
+
+function _commit_model_execution_group_pure_addition! end
+
+# Compact executors may retain only control records for otherwise reused groups.
+# Stage those updates before a transaction commits. `false` asks the ordinary
+# refresh to rebuild that group rather than assigning incompatible field types.
+_stage_model_execution_group_control_refresh(
+    group::CompiledApplicationExecutionGroup, compiled, env_bindings,
+    temporal_streams, output_retention, constants,
+) = nothing
+function _commit_model_execution_group_control_refresh! end
+
 function _try_refresh_model_execution_plan_for_pure_addition!(
     previous::CompiledExecutionPlan,
     compiled::CompiledCompositeModel,
@@ -4758,7 +4881,8 @@ function _try_refresh_model_execution_plan_for_pure_addition!(
             plan=nothing,
             staged_targets=staged_targets,
         )
-        last_existing_id = last(last_batch.targets).object_id
+        last_existing_id = _model_execution_target_id(last_batch.targets,
+            lastindex(last_batch.targets))
         _object_id_isless(last_existing_id, first(changed_object_ids)) ||
             return (
                 plan=nothing,
@@ -4802,14 +4926,36 @@ function _try_refresh_model_execution_plan_for_pure_addition!(
             candidates,
             (
                 application=application,
+                group=previous_group,
                 batch=last_batch,
                 object_ids=changed_object_ids,
             ),
         )
     end
 
+    staged_controls = Any[]
+    for group in previous.groups
+        control = _stage_model_execution_group_control_refresh(group,
+            compiled, env_bindings, temporal_streams, output_retention, constants)
+        control === false && return (plan=nothing, staged_targets=staged_targets)
+        isnothing(control) || push!(staged_controls, control)
+    end
     staged_appends = NamedTuple[]
+    staged_specializations = Any[]
     for candidate in candidates
+        specialized = _stage_model_execution_group_pure_addition(
+            candidate.group, compiled, env_bindings, candidate.application,
+            temporal_streams, output_retention, constants, performance,
+            candidate.object_ids, previous.shared_target_plans,
+        )
+        specialized === false && return (
+            plan=nothing,
+            staged_targets=staged_targets,
+        )
+        if !isnothing(specialized)
+            push!(staged_specializations, specialized)
+            continue
+        end
         targets = Any[]
         for object_id in candidate.object_ids
             target = _compiled_model_execution_target(
@@ -4819,7 +4965,8 @@ function _try_refresh_model_execution_plan_for_pure_addition!(
                 object_id,
                 temporal_streams,
                 output_retention,
-                constants,
+                constants;
+                shared_plan_cache=previous.shared_target_plans,
             )
             staged_targets[(candidate.application.id, object_id)] = target
             _model_execution_batch_accepts_target(
@@ -4843,6 +4990,12 @@ function _try_refresh_model_execution_plan_for_pure_addition!(
         )
     end
 
+    for control in staged_controls
+        _commit_model_execution_group_control_refresh!(control)
+    end
+    for staged in staged_specializations
+        _commit_model_execution_group_pure_addition!(staged)
+    end
     for staged in staged_appends
         for target in staged.targets
             push!(staged.batch.targets, target)
@@ -4862,10 +5015,13 @@ function _try_refresh_model_execution_plan_for_pure_addition!(
             previous.schedule,
             compiled.revision,
             env_bindings.environment_revision,
+            previous.shared_target_plans,
         ),
-        targets_constructed=length(staged_targets),
+        targets_constructed=length(staged_targets) + sum(
+            staged -> staged.targets_constructed, staged_specializations; init=0),
         batches_constructed=0,
-        groups_reused=length(previous.groups) - length(staged_appends),
+        groups_reused=length(previous.groups) - length(staged_appends) -
+            length(staged_specializations),
     )
 end
 
@@ -4880,6 +5036,32 @@ function _refresh_model_execution_plan(
     changed_application_ids=nothing,
     changed_execution_target_ids=compiled.changed_execution_target_ids,
 )
+    # Alternative execution representations may omit rich target/cache rows.
+    # Rebuild transactionally before ordinary incremental refresh inspects
+    # those rows. Keep the live schedule so cadence progress is not reset.
+    if any(_execution_batch_requires_full_refresh, previous.batches)
+        for batch in previous.batches
+            alternative = _try_refresh_execution_batch_plan(
+                batch, previous, compiled, env_bindings, temporal_streams,
+                output_retention, constants, performance,
+                changed_application_ids, changed_execution_target_ids,
+            )
+            isnothing(alternative) || return alternative
+        end
+        fresh = compile_model_execution_plan(
+            compiled, env_bindings, temporal_streams, output_retention, constants,
+        )
+        return (
+            plan=CompiledExecutionPlan(
+                fresh.groups, fresh.batches, fresh.groups_by_application_slot,
+                previous.schedule, fresh.model_revision, fresh.environment_revision,
+                fresh.shared_target_plans,
+            ),
+            targets_constructed=sum((length(batch.targets) for batch in fresh.batches); init=0),
+            batches_constructed=length(fresh.batches),
+            groups_reused=0,
+        )
+    end
     manual_application_ids = _manual_call_application_ids(compiled)
     changed_targets_by_application = isnothing(changed_application_ids) ?
                                      nothing :
@@ -4936,12 +5118,23 @@ function _refresh_model_execution_plan(
         if !isnothing(previous_group)
             if !isnothing(changed_application_ids)
                 if !(application.id in changed_application_ids)
-                    push!(groups, previous_group)
-                    append!(batches, previous_group.batches)
-                    groups_reused += 1
-                    continue
+                    control = _stage_model_execution_group_control_refresh(
+                        previous_group, compiled, env_bindings, temporal_streams,
+                        output_retention, constants)
+                    if control !== false
+                        isnothing(control) ||
+                            _commit_model_execution_group_control_refresh!(control)
+                        push!(groups, previous_group)
+                        append!(batches, previous_group.batches)
+                        groups_reused += 1
+                        continue
+                    end
+                    # A compact control record cannot hold the new graph's
+                    # field types. Do not reconstruct old lazy snapshots and
+                    # accidentally carry that obsolete graph into rich rows.
+                    previous_group = nothing
                 end
-                if !force_general_changed_groups
+                if !force_general_changed_groups && !isnothing(previous_group)
                     delta_group = _refresh_model_execution_group_delta!(
                         previous_group,
                         compiled,
@@ -4956,6 +5149,7 @@ function _refresh_model_execution_plan(
                             application.id,
                             (),
                         ),
+                        previous.shared_target_plans,
                     )
                     if !isnothing(delta_group)
                         if !isnothing(delta_group.group)
@@ -4998,13 +5192,15 @@ function _refresh_model_execution_plan(
                     previous_target_index = 1
                     continue
                 end
-                candidate =
-                    previous_batch.targets[previous_target_index]
-                if candidate.object_id == object_id
-                    previous_target = candidate
+                candidate_id = _model_execution_target_id(
+                    previous_batch.targets,
+                    previous_target_index,
+                )
+                if candidate_id == object_id
+                    previous_target = previous_batch.targets[previous_target_index]
                     previous_target_index += 1
                     break
-                elseif _object_id_isless(candidate.object_id, object_id)
+                elseif _object_id_isless(candidate_id, object_id)
                     previous_target_index += 1
                     continue
                 end
@@ -5014,7 +5210,7 @@ function _refresh_model_execution_plan(
             change_reason = if isnothing(previous_target)
                 :new_target
             elseif !isnothing(changed_application_ids) &&
-                   !(target_key in compiled.changed_execution_target_ids)
+                   !(target_key in changed_execution_target_ids)
                 nothing
             else
                 _model_execution_target_change_reason(
@@ -5044,7 +5240,8 @@ function _refresh_model_execution_plan(
                         object_id,
                         temporal_streams,
                         output_retention,
-                        constants,
+                        constants;
+                        shared_plan_cache=previous.shared_target_plans,
                     )
                 end
                 push!(
@@ -5090,6 +5287,7 @@ function _refresh_model_execution_plan(
             previous.schedule,
             compiled.revision,
             env_bindings.environment_revision,
+            _active_shared_target_plans(previous.shared_target_plans, batches),
         ),
         targets_constructed=targets_constructed,
         batches_constructed=batches_constructed,
@@ -5097,19 +5295,42 @@ function _refresh_model_execution_plan(
     )
 end
 
-function explain_execution_plan(plan::CompiledExecutionPlan)
-    return [
-        (
+# General refresh may retire model variants or remove their last object. Rebuild
+# only the cold plan index after the new batches have been assembled, so obsolete
+# model/cache graphs are not retained for the rest of a long simulation. The
+# pure-addition fast path above keeps its existing index and avoids this scan.
+function _active_shared_target_plans(previous, batches)
+    isnothing(previous) && return nothing
+    active = IdDict{Any,Any}()
+    for batch in batches
+        for target in batch.targets
+            target isa SharedRootExecutionTarget || continue
+            active[target.model] = target.plan
+        end
+    end
+    return active
+end
+
+_execution_batch_requires_full_refresh(::AbstractExecutionBatch) = false
+
+# Alternative representations can inspect the unconsumed lifecycle event and
+# offer a complete transactional refresh. Default batches keep the ordinary
+# path; these hooks are visited only when runtime bindings are already dirty.
+_capture_execution_batch_refresh_state!(::AbstractExecutionBatch, model) = nothing
+_try_refresh_execution_batch_plan(::AbstractExecutionBatch, args...) = nothing
+
+function _explain_execution_batch(batch::AbstractExecutionBatch, index)
+    return (
             batch_index=index,
             application_id=batch.application.id,
             process=batch.application.process,
             object_ids=[target.object_id.value for target in batch.targets],
             batch_size=length(batch.targets),
             target_type=eltype(batch.targets),
-            model_type=fieldtype(eltype(batch.targets), :model),
+            model_type=typeof(first(batch.targets).model),
             status_type=fieldtype(eltype(batch.targets), :status),
-            input_bindings_type=fieldtype(eltype(batch.targets), :input_bindings),
-            call_bindings_type=fieldtype(eltype(batch.targets), :call_bindings),
+            input_bindings_type=typeof(first(batch.targets).input_bindings),
+            call_bindings_type=typeof(first(batch.targets).call_bindings),
             call_capability=isempty(first(batch.targets).call_bindings) ?
                             :no_calls :
                             :compiled_calls,
@@ -5122,9 +5343,57 @@ function explain_execution_plan(plan::CompiledExecutionPlan)
                 :environment_binding,
             ),
             inner_loop_dispatch=:concrete_homogeneous_batch,
-        )
-        for (index, batch) in pairs(plan.batches)
-    ]
+    )
+end
+
+function explain_execution_plan(plan::CompiledExecutionPlan)
+    return [_explain_execution_batch(batch, index)
+        for (index, batch) in pairs(plan.batches)]
+end
+
+# Untimed experiment diagnostics. Count the selected representation rather than
+# inferring eligibility from requested policy flags or a favorable fixture.
+function _execution_strategy_counts(simulation::Simulation)
+    plan = simulation.execution_plan
+    shared_targets = 0
+    rich_targets = 0
+    shared_batches = 0
+    rich_batches = 0
+    reasons = Dict{Symbol,Int}()
+    for batch in plan.batches
+        compact = eltype(batch.targets) <: SharedRootExecutionTarget
+        compact ? (shared_batches += 1) : (rich_batches += 1)
+        for target in batch.targets
+            if target isa SharedRootExecutionTarget
+                shared_targets += 1
+                continue
+            end
+            rich_targets += 1
+            reason = if isnothing(plan.shared_target_plans)
+                :policy_disabled
+            elseif !isempty(target.call_bindings)
+                :calls
+            elseif !isempty(target.input_bindings)
+                :temporal_inputs
+            elseif target.status !== target.canonical_status
+                :private_status
+            else
+                :other
+            end
+            reasons[reason] = get(reasons, reason, 0) + 1
+        end
+    end
+    return (
+        scheduled_targets=shared_targets + rich_targets,
+        shared_targets=shared_targets,
+        rich_targets=rich_targets,
+        shared_batches=shared_batches,
+        rich_batches=rich_batches,
+        shared_plans=isnothing(plan.shared_target_plans) ?
+                     0 : length(plan.shared_target_plans),
+        root_call_caches=rich_targets,
+        rich_reasons=reasons,
+    )
 end
 
 function explain_execution_plan(sim::Simulation)
@@ -6459,9 +6728,13 @@ function _targeted_new_object_call_targets(
             # Targeted newborns have no ordinary compiled execution owner yet.
             # Keep only their exact application-local payload, without adding
             # a second mutable CompiledExecutionTarget allocation.
+            execution_model = _application_model(application, object_id)
             execution_target = (
-                model=_application_model(application, object_id),
+                model=execution_model,
                 status=status_view.status,
+                kernel_status=_kernel_execution_status(
+                    compiled, application, execution_model, status_view.status,
+                ),
                 canonical_status=status_view.canonical_status,
                 input_bindings=status_view.temporal_inputs,
                 output_bindings=_runtime_model_output_streams(
@@ -6833,11 +7106,11 @@ end
     # here instead of boxing model/status/output tuples as dispatch arguments.
     if frame === nothing
         _run_call_kernel!(
-            owner.model, owner.status, environment, context, owner.output_bindings,
+            owner.model, _execution_kernel_status(owner), environment, context, owner.output_bindings,
         )
     else
         _run_evaluated_call_kernel!(
-            owner.model, owner.status, environment, context, owner.output_bindings, frame,
+            owner.model, _execution_kernel_status(owner), environment, context, owner.output_bindings, frame,
         )
     end
     return nothing
@@ -6879,18 +7152,20 @@ end
         )
         if target.execution_target isa CompiledExecutionTarget
             # Input materialization above updates this owner's references and
-            # returns the same Status. Targeted newborns have a distinct payload
-            # and retain the original dispatch path below.
+            # returns the same full Status. Targeted newborns have a lightweight
+            # owner with the same cached kernel-interface field below.
             _run_materialized_call_kernel!(
                 target.execution_target, environment_value, context, frame,
             )
         elseif frame === nothing
             _run_call_kernel!(
-                target.model, status, environment_value, context, target.output_bindings,
+                target.model, _execution_kernel_status(target.execution_target),
+                environment_value, context, target.output_bindings,
             )
         else
             _run_evaluated_call_kernel!(
-                target.model, status, environment_value, context, target.output_bindings, frame,
+                target.model, _execution_kernel_status(target.execution_target),
+                environment_value, context, target.output_bindings, frame,
             )
         end
     finally
@@ -7019,11 +7294,11 @@ end
         end
         if frame === nothing
             _run_call_kernel!(
-                target.model, status, environment_value, context, target.output_bindings,
+                target.model, _execution_kernel_status(target), environment_value, context, target.output_bindings,
             )
         else
             _run_evaluated_call_kernel!(
-                target.model, status, environment_value, context, target.output_bindings, frame,
+                target.model, _execution_kernel_status(target), environment_value, context, target.output_bindings, frame,
             )
         end
     finally
@@ -7326,10 +7601,75 @@ function _runtime_performance_count_lifecycle_delta!(performance, delta)
     return nothing
 end
 
+function _execution_refresh_with_environment_dirty_targets(
+    compiled::CompiledCompositeModel,
+    changed_application_ids,
+    changed_target_ids,
+    dirty_environment_object_ids,
+    performance=nothing,
+)
+    # Keep the original changed-target set by identity for a pure newborn
+    # addition. Only explicit invalidation of an additional existing target
+    # requires a separate set and disables the append-only transaction.
+    applications = changed_application_ids
+    targets = changed_target_ids
+    for object_id in dirty_environment_object_ids
+        for application in get(compiled.applications_by_object, object_id, ())
+            key = (application.id, object_id)
+            key in targets && continue
+            if targets === changed_target_ids
+                targets = copy(changed_target_ids)
+                isnothing(applications) || (applications = copy(changed_application_ids))
+            end
+            push!(targets, key)
+            isnothing(applications) || push!(applications, application.id)
+        end
+    end
+    if targets !== changed_target_ids
+        # Singular manual calls retain eager callee batches. Their owner rows
+        # and prefix-extension checks consult the compiled execution-change
+        # metadata, so a local root-plan overlay alone cannot invalidate those
+        # old handles. Use the existing observed callee-to-owner propagation,
+        # including nested manual owners, for this combined runtime event.
+        _propagate_changed_manual_call_owners!(
+            targets, targets, compiled.call_bindings,
+            compiled.observed_manual_call_binding_indices_by_callee_target,
+            performance,
+        )
+        compiled.changed_execution_target_ids = targets
+        compiled.changed_execution_application_ids = union(
+            compiled.changed_execution_application_ids,
+            Set(first(key) for key in targets),
+        )
+        isnothing(applications) || union!(applications,
+            compiled.changed_execution_application_ids)
+        compiled.status_view_refresh_is_pure_addition = false
+    end
+    return applications, targets
+end
+
+function _recover_alternative_output_retention!(simulation::Simulation)
+    refreshed_retention = compile_model_output_retention(
+        simulation.compiled, simulation.output_requests;
+        retain_all=simulation.output_retention.retain_all,
+        accepted_call_times=simulation.output_retention.accepted_call_times,
+    )
+    _same_model_output_retention(simulation.output_retention, refreshed_retention) ||
+        (simulation.output_retention = refreshed_retention)
+    _initialize_model_output_streams!(
+        simulation.temporal_streams, simulation.compiled,
+        simulation.output_retention, 0,
+    )
+    return nothing
+end
+
 function _refresh_simulation_runtime!(simulation::Simulation)
     model = simulation.model
     if bindings_dirty(model) ||
        simulation.compiled.revision != model_revision(model)
+        for batch in simulation.execution_plan.batches
+            _capture_execution_batch_refresh_state!(batch, model)
+        end
         lifecycle = lifecycle_delta(model)
         _runtime_performance_count_lifecycle_delta!(
             simulation.performance,
@@ -7504,6 +7844,26 @@ function _refresh_simulation_runtime!(simulation::Simulation)
         changed_execution_application_ids = output_retention_reused ?
                                             simulation.compiled.changed_execution_application_ids :
                                             nothing
+        changed_execution_target_ids = simulation.compiled.changed_execution_target_ids
+        if lifecycle.full_environment
+            # Coalesced full environment invalidation affects existing handles
+            # even when the structural part of this event only adds objects.
+            changed_execution_application_ids = nothing
+            _, changed_execution_target_ids =
+                _execution_refresh_with_environment_dirty_targets(
+                    simulation.compiled, nothing, changed_execution_target_ids,
+                    keys(simulation.compiled.applications_by_object), simulation.performance,
+                )
+        else
+            changed_execution_application_ids, changed_execution_target_ids =
+                _execution_refresh_with_environment_dirty_targets(
+                    simulation.compiled,
+                    changed_execution_application_ids,
+                    changed_execution_target_ids,
+                    lifecycle.environment_dirty_ids,
+                    simulation.performance,
+                )
+        end
         started_at = _runtime_performance_start(simulation.performance)
         execution_refresh = _refresh_model_execution_plan(
             simulation.execution_plan,
@@ -7514,6 +7874,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.constants,
             simulation.performance,
             changed_execution_application_ids,
+            changed_execution_target_ids,
         )
         simulation.execution_plan = execution_refresh.plan
         _runtime_performance_finish!(
@@ -7548,6 +7909,9 @@ function _refresh_simulation_runtime!(simulation::Simulation)
     elseif environment_bindings_dirty(model) ||
            simulation.environment_bindings.environment_revision !=
            environment_revision(model)
+        for batch in simulation.execution_plan.batches
+            _capture_execution_batch_refresh_state!(batch, model)
+        end
         _runtime_performance_count_lifecycle_delta!(
             simulation.performance,
             lifecycle_delta(model),
@@ -7556,27 +7920,31 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             lifecycle_delta(model).full_environment ?
             nothing :
             copy(lifecycle_delta(model).environment_dirty_ids)
+        lost_alternative_structure =
+            simulation.execution_plan.model_revision != simulation.compiled.revision &&
+            any(_execution_batch_requires_full_refresh, simulation.execution_plan.batches)
         changed_execution_application_ids = nothing
         changed_execution_target_ids =
             Set{Tuple{Symbol,ObjectId}}()
         if !isnothing(dirty_environment_object_ids)
-            changed_execution_application_ids = Set{Symbol}()
-            for object_id in dirty_environment_object_ids
-                for application in get(
-                    simulation.compiled.applications_by_object,
-                    object_id,
-                    (),
+            changed_execution_application_ids, changed_execution_target_ids =
+                _execution_refresh_with_environment_dirty_targets(
+                    simulation.compiled, Set{Symbol}(), changed_execution_target_ids,
+                    dirty_environment_object_ids, simulation.performance,
                 )
-                    push!(
-                        changed_execution_application_ids,
-                        application.id,
-                    )
-                    push!(
-                        changed_execution_target_ids,
-                        (application.id, object_id),
-                    )
-                end
-            end
+        else
+            _, changed_execution_target_ids =
+                _execution_refresh_with_environment_dirty_targets(
+                    simulation.compiled, nothing, changed_execution_target_ids,
+                    keys(simulation.compiled.applications_by_object), simulation.performance,
+                )
+        end
+        if lost_alternative_structure
+            # An external structural refresh may have consumed its delta while
+            # leaving this simulation's environment container at the old epoch.
+            # Retained newborn streams still need preparation before targets.
+            _recover_alternative_output_retention!(simulation)
+            changed_execution_application_ids = nothing
         end
         previous_environment_bindings = isnothing(simulation.performance) ?
                                         nothing :
@@ -7657,6 +8025,24 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             :execution_groups_reused,
             execution_refresh.groups_reused,
         )
+    elseif simulation.runtime_revision != model.runtime_revision &&
+           any(_execution_batch_requires_full_refresh, simulation.execution_plan.batches)
+        # Public binding refreshes can consume the lifecycle event before a
+        # simulation advances. An alternative plan cannot treat that missing
+        # event as a proof that its captured columns and call graph survived.
+        for batch in simulation.execution_plan.batches
+            _capture_execution_batch_refresh_state!(batch, model)
+        end
+        simulation.compiled = refresh_bindings!(model; performance=simulation.performance)
+        simulation.environment_bindings = refresh_environment_bindings!(model, simulation.compiled)
+        _recover_alternative_output_retention!(simulation)
+        execution_refresh = _refresh_model_execution_plan(
+            simulation.execution_plan, simulation.compiled,
+            simulation.environment_bindings, simulation.temporal_streams,
+            simulation.output_retention, simulation.constants,
+            simulation.performance, nothing,
+        )
+        simulation.execution_plan = execution_refresh.plan
     end
     simulation.runtime_revision = model.runtime_revision
     return simulation
@@ -8097,6 +8483,7 @@ function run!(
     constants=PlantMeteo.Constants(),
     outputs=:none,
     performance::Bool=false,
+    _execution_plan_compiler=compile_model_execution_plan,
 )
     performance_counters = performance ? RuntimePerformanceCounters() : nothing
     initial_composite_started_at =
@@ -8180,7 +8567,7 @@ function run!(
         steps,
     )
     started_at = _runtime_performance_start(performance_counters)
-    execution_plan = compile_model_execution_plan(
+    execution_plan = _execution_plan_compiler(
         compiled,
         env_bindings,
         temporal_streams,
