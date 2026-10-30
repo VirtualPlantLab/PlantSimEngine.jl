@@ -182,7 +182,7 @@ After the two-line adapter and a fresh Julia image, the same 22 + 11 assertions
 passed ([adapted gates](current-programs/pr243-adapted-gates.json.gz)). A Main
 sentinel confirmed that the prior image's variables did not survive restart.
 [Source cohort hashes](current-programs/pr243-source-cohorts.json.gz) and
-[the reviewed source patch](pr243-reviewed-source.patch) preserve this separate
+[the reviewed source patch](pr243-reviewed-source.patch.gz) preserve this separate
 experiment. These checks do not establish a runtime speedup or explain the
 full CI cancellation. The source layer is not selected into the current
 prototype baseline; its adapter remains a separate reviewable patch.
