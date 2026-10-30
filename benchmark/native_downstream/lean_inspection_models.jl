@@ -26,4 +26,3 @@ function PlantSimEngine.run!(model::LeanReadableConsumer, status, environment, c
 end
 # This consumer deliberately has no optimization capability. It exercises an
 # ordinary batch interleaved with a genuinely lean source batch in one plan.
-

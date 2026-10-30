@@ -1,13 +1,16 @@
 # Run only in a Kaimon-controlled session for this checkout. Optional package
 # paths are local experiment inputs, not default benchmark dependencies.
 using PlantSimEngine
-for path in (
-    "/Users/rvezy/Documents/dev/PlantSimEngine/benchmark",
-    "/Users/rvezy/Documents/dev/PlantGeom",
-    "/Users/rvezy/Documents/dev/PlantBiophysics",
-    "/Users/rvezy/Documents/dev/XPalm",
-)
-    path in LOAD_PATH || push!(LOAD_PATH, path)
+let devroot=get(ENV, "PSE_DOWNSTREAM_DEV_ROOT", joinpath(homedir(), "Documents", "dev"))
+    for (key, fallback) in (
+        ("PSE_BENCHMARK_ENV_PATH", joinpath(devroot, "PlantSimEngine", "benchmark")),
+        ("PSE_PLANTGEOM_PATH", joinpath(devroot, "PlantGeom")),
+        ("PSE_PLANTBIOPHYSICS_PATH", joinpath(devroot, "PlantBiophysics")),
+        ("PSE_XPALM_PATH", joinpath(devroot, "XPalm")),
+    )
+        path=get(ENV,key,fallback)
+        isdir(path) && !(path in LOAD_PATH) && push!(LOAD_PATH,path)
+    end
 end
 using PlantGeom, PlantBiophysics, XPalm
 include(joinpath(@__DIR__, "../compiled_regions/CompiledRegionsExperiment.jl"))

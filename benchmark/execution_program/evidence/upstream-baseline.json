@@ -1,0 +1,348 @@
+{
+  "baseline": [
+    240,
+    241,
+    242
+  ],
+  "separate_experiment": [
+    243
+  ],
+  "reviews": [
+    {
+      "pr": 240,
+      "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/pull/240",
+      "head": "66c9f876a9207112c39c9968dc2f62500b72903d",
+      "base": "3d1e9e3f17d626ee0146c4253f201bf858cb4600",
+      "selected_for_ordinary_baseline": true,
+      "checks": [
+        {
+          "name": "Julia 1.10 - windows-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752348706/job/123042861805"
+        },
+        {
+          "name": "Graph editor E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752348706/job/123042861677"
+        },
+        {
+          "name": "Documentation",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752348706/job/123042861650"
+        },
+        {
+          "name": "Julia 1 - windows-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752348706/job/123042861575"
+        },
+        {
+          "name": "Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752348706/job/123042861551"
+        },
+        {
+          "name": "Julia 1 - macOS-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752348706/job/123042861475"
+        },
+        {
+          "name": "Julia 1.10 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752348706/job/123042861438"
+        },
+        {
+          "name": "Julia 1.10 - macOS-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752348706/job/123042861090"
+        },
+        {
+          "name": "PlantGeom - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752349152/job/123042099163"
+        },
+        {
+          "name": "XPalm - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752349152/job/123042098930"
+        },
+        {
+          "name": "PlantBiophysics - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752349152/job/123042098620"
+        },
+        {
+          "name": "full-performance",
+          "status": "completed",
+          "conclusion": "skipped",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752345677/job/123042091167"
+        },
+        {
+          "name": "PlantBiophysics multi-timestep",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752345677/job/123042089024"
+        },
+        {
+          "name": "Julia 1.12.1 - ubuntu-latest - x64 - pull_request_target",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40752345677/job/123042088622"
+        }
+      ]
+    },
+    {
+      "pr": 241,
+      "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/pull/241",
+      "head": "592307c5123aab35d4b7305c6181fb9d910d1f53",
+      "base": "3d1e9e3f17d626ee0146c4253f201bf858cb4600",
+      "selected_for_ordinary_baseline": true,
+      "checks": [
+        {
+          "name": "Julia 1 - windows-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829507826/job/123300222745"
+        },
+        {
+          "name": "Julia 1.10 - windows-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829507826/job/123300222738"
+        },
+        {
+          "name": "Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829507826/job/123300222733"
+        },
+        {
+          "name": "Julia 1.10 - macOS-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829507826/job/123300222691"
+        },
+        {
+          "name": "Julia 1 - macOS-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829507826/job/123300222658"
+        },
+        {
+          "name": "Julia 1.10 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829507826/job/123300222627"
+        },
+        {
+          "name": "XPalm - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829507798/job/123300222531"
+        },
+        {
+          "name": "Documentation",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829507826/job/123300222506"
+        },
+        {
+          "name": "PlantBiophysics - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829507798/job/123300222503"
+        },
+        {
+          "name": "Graph editor E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829507826/job/123300222385"
+        },
+        {
+          "name": "PlantGeom - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829507798/job/123300222257"
+        },
+        {
+          "name": "full-performance",
+          "status": "completed",
+          "conclusion": "skipped",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829505852/job/123300218629"
+        },
+        {
+          "name": "PlantBiophysics multi-timestep",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829505852/job/123300217180"
+        },
+        {
+          "name": "Julia 1.12.1 - ubuntu-latest - x64 - pull_request_target",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40829505852/job/123300216845"
+        }
+      ]
+    },
+    {
+      "pr": 242,
+      "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/pull/242",
+      "head": "6e75ae16369c4827b5284bb5ff15b898e71c4f37",
+      "base": "66c9f876a9207112c39c9968dc2f62500b72903d",
+      "selected_for_ordinary_baseline": true,
+      "checks": [
+        {
+          "name": "XPalm - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40797074226/job/123196012485"
+        },
+        {
+          "name": "PlantBiophysics - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40797074226/job/123196012440"
+        },
+        {
+          "name": "PlantGeom - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40797074226/job/123196012095"
+        },
+        {
+          "name": "Julia 1.10 - windows-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40797073821/job/123196010940"
+        },
+        {
+          "name": "Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40797073821/job/123196010888"
+        },
+        {
+          "name": "Julia 1 - windows-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40797073821/job/123196010822"
+        },
+        {
+          "name": "Documentation",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40797073821/job/123196010793"
+        },
+        {
+          "name": "Julia 1.10 - macOS-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40797073821/job/123196010761"
+        },
+        {
+          "name": "Julia 1.10 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40797073821/job/123196010727"
+        },
+        {
+          "name": "Julia 1 - macOS-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40797073821/job/123196010711"
+        },
+        {
+          "name": "Graph editor E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40797073821/job/123196010566"
+        }
+      ]
+    },
+    {
+      "pr": 243,
+      "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/pull/243",
+      "head": "d7a5d0be48fae8fb95ce276e9bf545d5b11dc3ee",
+      "base": "6e75ae16369c4827b5284bb5ff15b898e71c4f37",
+      "selected_for_ordinary_baseline": false,
+      "checks": [
+        {
+          "name": "Julia 1.10 - macOS-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40837039155/job/123324129510"
+        },
+        {
+          "name": "PlantBiophysics - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40837039133/job/123324129489"
+        },
+        {
+          "name": "Julia 1.10 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40837039155/job/123324129443"
+        },
+        {
+          "name": "Julia 1 - macOS-latest - pull_request",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40837039155/job/123324129431"
+        },
+        {
+          "name": "Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40837039155/job/123324129416"
+        },
+        {
+          "name": "XPalm - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40837039133/job/123324129332"
+        },
+        {
+          "name": "Julia 1.10 - windows-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40837039155/job/123324129319"
+        },
+        {
+          "name": "Julia 1 - windows-latest - pull_request",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40837039155/job/123324129305"
+        },
+        {
+          "name": "Graph editor E2E",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40837039155/job/123324129263"
+        },
+        {
+          "name": "PlantGeom - Julia 1 - ubuntu-latest - pull_request",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40837039133/job/123324128964"
+        },
+        {
+          "name": "Documentation",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/40837039155/job/123324128954"
+        }
+      ]
+    }
+  ]
+}
