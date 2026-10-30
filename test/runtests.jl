@@ -57,6 +57,10 @@ else
         include("test-lifecycle-snapshot-allocations.jl")
     end
 
+    @testset "Structural delta binding intersection" begin
+        include("test-structural-delta-intersection.jl")
+    end
+
     @testset "Organ status assembly" begin
         include("test-organ-status-assembly.jl")
     end
