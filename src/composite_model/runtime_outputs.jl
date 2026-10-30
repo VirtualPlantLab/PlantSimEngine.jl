@@ -511,6 +511,13 @@ end
 const _SingleCallTargetView{T,CS,EB,A,TS,OR,C} =
     CallTarget{T,CS,EB,A,CT,TS,OR,C,E} where {CT,E}
 
+# V fixes caller metadata while allowing descendant and environment types to change.
+# The concrete mutable slot crosses the dispatch boundary without unboxing its
+# immutable snapshot or erasing the metadata types needed by the caller.
+mutable struct _TransientSingleCallSlot{V}
+    snapshot::V
+end
+
 @inline function Base.getproperty(target::CallTarget, name::Symbol)
     name === :model && return getfield(getfield(target, :execution_target), :model)
     name === :status && return getfield(getfield(target, :execution_target), :status)
@@ -610,7 +617,7 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C,BT} <: AbstractVector{CallTarget}
     execution_batches::BT
     evaluation::Union{Nothing,CallEvaluationFrame}
     target_buffer_cache::Union{Nothing,_CallTargetBufferCache}
-    # One immutable singular snapshot; numerical state remains in its owner.
+    # One singular snapshot or transient slot; numerical state stays in its owner.
     last_single_snapshot::Any
 end
 
@@ -6036,6 +6043,50 @@ end
     return CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
 end
 
+@noinline function _transient_single_call_target_slot(
+    targets::CallTargets{CS,EB,B,TS,OR,C},
+    application::A,
+    target::T,
+    context::RC,
+    environment::E,
+) where {CS,EB,B,TS,OR,C,A,T<:CompiledExecutionTarget,RC<:RunContext,E}
+    # The collection stores override metadata behind Any. Cross that boundary
+    # once so this specialization knows the actual environment type while
+    # checking and constructing cached immutable views.
+    CT = fieldtype(RC, :calls)
+    Slot = _TransientSingleCallSlot{_SingleCallTargetView{T,CS,EB,A,TS,OR,C}}
+    View = CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
+    previous = targets.last_single_snapshot
+    if previous isa Slot
+        snapshot = previous.snapshot
+        if snapshot isa View &&
+           _single_call_snapshot_matches(snapshot, targets, application, target, context)
+            return previous::Slot
+        end
+    end
+    snapshot = View(
+        target,
+        targets.compiled,
+        targets.environment_bindings,
+        application,
+        target.object_id,
+        context.calls,
+        targets.temporal_streams,
+        targets.output_retention,
+        targets.time,
+        targets.constants,
+        targets.publication_allowed,
+        environment,
+    )
+    if previous isa Slot
+        previous.snapshot = snapshot
+        return previous::Slot
+    end
+    slot = Slot(snapshot)
+    targets.last_single_snapshot = slot
+    return slot
+end
+
 @inline function _single_call_target_snapshot(
     targets::CallTargets{CS,EB,B,TS,OR,C},
     application::A,
@@ -6062,7 +6113,7 @@ end
             targets, application, target, context,
         )
         # Exact default metadata permits a concrete type check instead of
-        # existential subtyping; changed environment types keep the general path.
+        # existential subtyping without crossing a dynamic override boundary.
         if isconcretetype(ConcreteView) &&
            isconcretetype(CS) && isconcretetype(EB) &&
            isconcretetype(TS) && isconcretetype(OR) && isconcretetype(C) &&
@@ -6088,6 +6139,15 @@ end
             )
             targets.last_single_snapshot = snapshot
             return snapshot
+        end
+        if isconcretetype(CS) && isconcretetype(EB) &&
+           isconcretetype(TS) && isconcretetype(OR) && isconcretetype(C) &&
+           isconcretetype(fieldtype(typeof(context), :calls))
+            # A concrete mutable slot preserves the cached box and the known
+            # metadata types without an existential view check at this boundary.
+            return _transient_single_call_target_slot(
+                targets, application, target, context, targets.environment,
+            ).snapshot
         end
         if previous isa View &&
            _single_call_snapshot_matches(previous, targets, application, target, context)
