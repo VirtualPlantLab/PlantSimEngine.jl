@@ -1,0 +1,17 @@
+{
+  "recorded_at": "2026-10-30T13:35:36.479580+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "2db56e7b",
+    "ses": "2d1e83af",
+    "max_output": 4500
+  },
+  "response": {
+    "error": {
+      "code": -32602,
+      "message": "Unknown parameter(s): max_output, ses. Valid parameters are: eval_id"
+    },
+    "id": 1,
+    "jsonrpc": "2.0"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:11:03.741900+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/tight_call_program.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/tight_call_program_checks.jl\")); tight_gate=TightCallProgramChecks.tight_pb_checks(header_strategies=(:projected,),counter_modes=(false,true)); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/tight-projected-tiny.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,tight_gate,2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                                | Pass  Total  Time\nPrivate unpublished typed calls and independent union header |  124    124  3.1s\n(passed = true, pid = 53643)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "e93412d0"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T12:53:18.673833+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "PureJuliaReference.register_pure_pb_case!(:pure_medium;nobjects=32,steps=128); pure_medium_screen=M.screen_case(:pure_medium;repetitions=3); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/pure_medium.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,pure_medium_screen,2); end; [(variant=x.variant,exec_ms=x.execution_seconds*1000,complete_ms=x.complete_seconds*1000,exec_ratio=x.execution_ratio,bytes=x.execution_allocated_bytes) for x in M.summarize_screen(pure_medium_screen)]",
+    "q": false,
+    "max_output": 3200
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "3-element Vector{@NamedTuple{variant::Symbol, exec_ms::Float64, complete_ms::Float64, exec_ratio::Float64, bytes::Float64}}:\n (variant = :reference_executor, exec_ms = 4.057167000000001, complete_ms = 8.438875, exec_ratio = 1.0, bytes = 1.486992e6)\n (variant = :direct_reference, exec_ms = 3.865792, complete_ms = 10.187709, exec_ratio = 0.9723349353076111, bytes = 174128.0)\n (variant = :pure_julia, exec_ms = 2.629208, complete_ms = 2.883375, exec_ratio = 0.642040065600608, bytes = 48.0)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "f0a7cee9"
+    }
+  }
+}

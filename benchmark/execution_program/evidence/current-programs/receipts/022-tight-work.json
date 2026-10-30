@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:33:48.325362+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "using Test,SHA; tight_medium_work=Any[]; @testset \"Medium tight actual work companion\" begin; for native in (false,true), header_strategy in (:projected,:same_object_union); f=NPB.pb_native_fixture(;native,nobjects=32,steps=128); s=TightCallProgram.prepare_tight_calls(f.model;steps=0,outputs=:none,state_strategy=native ? :native : :references,header_strategy,count_calls=true); PlantSimEngine.continue!(s;steps=128); r=TightCallProgram.tight_call_report(s); d=bytes2hex(sha256(repr(CR.portable_downstream_snapshot(s)))); @test d==tight_medium_screen.expected_digest; @test r.executed_numerical_roots==4096; @test r.executed_numerical_calls==24576; @test r.typed_model_lookups==12288; @test r.fallback_batch_executions==0; @test (r.executed_native_column_fields>0)==native; push!(tight_medium_work,(;native,header_strategy,digest=d,report=r)); end; end; open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/tight-medium-work.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,tight_medium_work,2); end; (passed=true,arms=length(tight_medium_work))",
+    "q": false,
+    "max_output": 2500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "(passed = true, arms = 4)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "7180135d"
+    }
+  }
+}

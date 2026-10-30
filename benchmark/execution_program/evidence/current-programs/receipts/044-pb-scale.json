@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:49:28.559293+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "sp=TightNativeGapBenchmarks.register_tight_native_gap_case!(:pb_scale;nobjects=256,steps=128); sc=M.screen_case(sp;variants=(:reference_executor,:tight_projected,:pure_noinline),repetitions=3); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/pb-scale.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,sc,2); end; [(variant=r.variant,execute_ms=1e3*r.execution_seconds,ratio=r.execution_ratio,complete_ms=1e3*r.complete_seconds,complete_ratio=r.complete_ratio) for r in M.summarize_screen(sc)]",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "3-element Vector{@NamedTuple{variant::Symbol, execute_ms::Float64, ratio::Float64, complete_ms::Float64, complete_ratio::Float64}}:\n (variant = :reference_executor, execute_ms = 32.340791, ratio = 1.0, complete_ms = 55.436127, complete_ratio = 1.0)\n (variant = :tight_projected, execute_ms = 21.906041000000002, ratio = 0.6693943431791912, complete_ms = 55.739916, complete_ratio = 1.005479982394874)\n (variant = :pure_noinline, execute_ms = 22.415625000000002, ratio = 0.687096676144996, complete_ms = 22.646041000000004, complete_ratio = 0.4090797512410877)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "600aa2e9"
+    }
+  }
+}

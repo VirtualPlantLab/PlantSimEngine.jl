@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:46:41.882651+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/pure_julia_reference.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/pure_julia_boundaries.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/shared_call_program.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/tight_call_program.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/gap_benchmarks.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/tight_gap_benchmarks.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/tight_native_gap_benchmarks.jl\")); native_preflight=TightNativeGapBenchmarks.tight_native_gap_preflight(); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/native-preflight.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,native_preflight,2); end; (passed=true,pid=Base.getpid()); include(joinpath(pwd(),\"benchmark/native_downstream/shared_tight_fallback_checks.jl\")); fallback_checks=SharedTightFallbackChecks.borrowed_fallback_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/shared-tight-borrowed-fallback.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,fallback_checks,2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.2s.\nJob ID: 86a67917\nSession: PSE pure Julia gap and shared programs\nCode: include(joinpath(pwd(),\"benchmark/native_downstream/pure_julia_reference.jl\")); ...\n\nUse `check_eval(eval_id=\"86a67917\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"86a67917\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "86a67917"
+    }
+  }
+}

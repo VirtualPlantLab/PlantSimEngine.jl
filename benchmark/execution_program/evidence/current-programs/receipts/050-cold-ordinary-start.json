@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-30T13:57:17.362730+00:00",
+  "tool": "start_session",
+  "arguments": {
+    "project_path": "/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine",
+    "name": "PSE cold ordinary execution program"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Session started. Session key: cbf8eb76",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T13:34:19.020342+00:00",
+  "tool": "investigate_environment",
+  "arguments": {
+    "session": "2d1e83af"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "ERROR: No session matched '2d1e83af'. Available: 3b3718db (PlantSimEngine), 8debc92c (docs), bc4ef4a0 (PlantBiophysics), e38755bb (demo), f855fcfd (archimedlight-cache-fixed-diffuse), b60beb87 (test), 992b1d66 (test), f2732cce (test), f90c851f (visualization), 0dc7d9da (docs), 4af0ba8c (test), 432f89be (plantbiophysics), 664a99a2 (docs), 410c7e4f (benchmark), 1b037cb7 (test), 100ae0db (visualization), 16db0c15 (PlantGeom), 35d42da5 (test), 066e3608 (Belinga native benchmark), 279024d9 (test), f69ff2ff (ArchimedLight factorization), e1665da6 (test), fda817b8 (docs), c7bcd165 (plantsimengine), bba1be93 (test), 11a2a238 (AMAPSim coupled viewer \u2014 manual carbon exploration), 282f9a06 (PR63 updated release fixtures), 37802b4f (live_wheat), 2d8efec4 (docs), f48e47f6 (docs), a253a0ee (test), 0838f6d9 (MAESPA profile export development), 9e3e4473 (test), c444c592 (test), 27900acb (voxel-models-no-legacy-docs), 4b65258d (live_wheat), 94618c72 (ArchimedLight), 233872c6 (test), afaa7710 (live_wheat), 755be85b (make_video), ea86753d (pse235-ci-repair-20261028), c06b121f (pse236-ci-repair-20261028), 3ed922e4 (rxp), 8e684475 (test), 54724de6 (3-3D_light_inter), d8be6eec (interactive_growth), 25e933ff (parent), 7b08aa77 (candidate), 779ca8e0 (parent), 76f53928 (candidate). If the project you need isn't listed, start it with start_session(project_path=\u2026).",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:21:09.720283+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "tight_more=(union=TightCallProgramChecks.tight_pb_checks(header_strategies=(:same_object_union,),counter_modes=(false,true)),exceptions=TightCallProgramChecks.tight_exception_checks(),boundaries=TightCallProgramChecks.tight_union_boundary_checks(),public=TightCallProgramChecks.tight_public_fallback_checks(),retirement=TightCallProgramChecks.tight_retirement_checks(),environment=TightCallProgramChecks.tight_environment_checks()); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/tight-feature-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,tight_more,2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 5500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                                | Pass  Total  Time\nPrivate unpublished typed calls and independent union header |  124    124  2.7s\nTest Summary:                                                   | Pass  Total  Time\nTight noinline child boundaries preserve nested throw and retry |   48     48  5.1s\nTest Summary:                                     | Pass  Total  Time\nUnion header requires one proven canonical object |   10     10  3.2s\nTest Summary:                                                               | Pass  Total  Time\nRetained results and all public/evaluation calls retain their full protocol |   20     20  6.7s\nTest Summary:                                                                 | Pass  Total  Time\nTight external materialization and lifecycle regain current ordinary metadata |   24     24  1.7s\nTest Summary:                                                             | Pass  Total  Time\nTight missing sampled row uses fresh mutable committed environment values |    6      6  4.4s\n(passed = true, pid = 53643)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "76c417b8"
+    }
+  }
+}

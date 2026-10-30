@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:59:58.633868+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "cbf8eb76",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/pr243_dispatch_checks.jl\")); dispatch_baseline=PR243DispatchChecks.pr243_dispatch_checks(); views_baseline=PR243DispatchChecks.pr243_existing_status_view_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/pr243-baseline-gates.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(dispatch=dispatch_baseline,views=views_baseline),2); end; (passed=true,views=views_baseline)",
+    "q": false,
+    "max_output": 3500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                                             | Pass  Total  Time\nAbstract batch dispatch delegates genuine ordinary and profiled execution |   22     22  4.1s\nTest Summary:                                   | Pass  Total  Time\nUnchanged focused status-view lifecycle testset |   11     11  6.6s\n(passed = true, views = (passed = true, passes = 11, failures = 0, errors = 0, source = \"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/test/test-model-output-destination-declarations.jl\", testsets = (\"empty and lifecycle-refreshed output destinations\",), whole_file = false))",
+          "type": "text"
+        }
+      ],
+      "eval_id": "d472dbe1"
+    }
+  }
+}

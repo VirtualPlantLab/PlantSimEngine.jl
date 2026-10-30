@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T13:48:02.665345+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "86a67917"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "86a67917 on 2d1e83af\ncompleted, 31.2s\nTest Summary:                                                      | Pass  Total   Time\nCounter-free native batch boundary proof and actual-work companion |   19     19  11.9s\nTest Summary:                                                                 | Pass  Total  Time\nExplicit borrowed capability preserves retained singleton Many through growth |  232    232  8.7s\nTest Summary:                                                           | Pass  Total  Time\nRetained borrowed One uses Shared full protocol and retires live owners |  272    272  6.3s\n(passed = true, pid = 53643)",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

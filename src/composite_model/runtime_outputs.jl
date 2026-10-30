@@ -6358,7 +6358,12 @@ mutable struct _TargetedTopologyRuntime{CS,MA} <:
     manual_application_ids::MA
     application_positions::Dict{Symbol,Int}
     call_context_caches::Dict{Tuple{Symbol,ObjectId},CallContextCache}
+    # Optional event-owned logical preparation. It never caches sampled values.
+    preparation_cache::Any
 end
+
+_record_newborn_input_preparation!(args...) = nothing
+_try_promote_newborn_input_bindings!(args...) = false
 
 @inline function Base.get(
     applications::_ApplicationsByObjectOverlay,
@@ -6397,6 +6402,7 @@ function _targeted_topology_runtime!(
             for (index, application_id) in pairs(compiled.application_order)
         ),
         Dict{Tuple{Symbol,ObjectId},CallContextCache}(),
+        nothing,
     )
     delta.targeted_topology_runtime = runtime
     return runtime
@@ -6847,6 +6853,9 @@ function _targeted_new_object_call_targets(
             "for one newborn object; resolved $(length(targets)).",
         )
     end
+    _record_newborn_input_preparation!(
+        model, context, targeted_runtime, callee_applications, input_bindings,
+    )
     return targets
 end
 

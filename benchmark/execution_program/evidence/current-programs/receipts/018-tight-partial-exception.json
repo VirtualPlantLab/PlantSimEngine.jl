@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:27:45.158241+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(\"/private/tmp/pse_gap_reload_tight_partial.jl\"); include(joinpath(pwd(),\"benchmark/native_downstream/tight_partial_exception_checks.jl\")); tight_partial=TightPartialExceptionChecks.tight_partial_exception_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/tight-partial-exception-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,tight_partial,2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                                        | Pass  Total  Time\nUnhandled tight row failure preserves prior epochs of unentered rows |  116    116  6.2s\n(passed = true, pid = 53643)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "127e3851"
+    }
+  }
+}

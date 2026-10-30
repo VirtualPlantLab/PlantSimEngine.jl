@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T12:39:32.851870+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/load_experiments.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/lean_compiler.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/direct_calls.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/lean_growth.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/direct_calls_checks.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/call_growth_checks.jl\")); CGC=CallGrowthChecks; include(joinpath(pwd(),\"benchmark/native_downstream/pure_julia_reference.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/pure_julia_reference_checks.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/shared_call_program.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/shared_call_program_checks.jl\")); (pid=Base.getpid(),source=Base.pathof(PlantSimEngine),project=Base.active_project())",
+    "q": false,
+    "max_output": 2500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "[ Info: Precompiling PlantGeomPlantSimEngineExt [c9a4c484-8bb1-5ea7-b0d2-1896fe064249] (caches not reused: 9 for different dependency version already loaded)\n  1 dependency successfully precompiled in 3 seconds\n[ Info: Precompiling PlantBiophysics [7ae8fcfa-76ad-4ec6-9ea7-5f8f5e2d6ec9] (caches not reused: 8 for different dependency version already loaded, 1 for different compilation options)\n  1 dependency successfully precompiled in 4 seconds\n[ Info: Precompiling XPalm [6b523e1e-d512-416c-8e51-a8fbef0064e7] (caches not reused: 7 for different dependency version already loaded, 2 for different compilation options)\n  1 dependency successfully precompiled in 5 seconds\n(pid = 53643, source = \"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/src/PlantSimEngine.jl\", project = \"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/Project.toml\")",
+          "type": "text"
+        }
+      ],
+      "eval_id": "2a48415a"
+    }
+  }
+}

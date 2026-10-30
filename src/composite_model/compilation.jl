@@ -3750,22 +3750,29 @@ function _extend_compiled_scene(
     for application in added_applications
         for consumer_id in application.target_ids
             first_new_binding = length(input_bindings) + 1
-            _compile_added_consumer_bindings!(
-                input_bindings,
-                model,
-                application,
-                consumer_id,
-                _application_plans(
-                    compiled.scenario_plan.input_plans_by_application,
-                    application.slot,
-                ),
-                manual_application_ids,
-                applications_by_object,
-                applications_by_id,
-                distributed_outputs,
-                many_binding_cache,
-                performance,
+            input_plans = _application_plans(
+                compiled.scenario_plan.input_plans_by_application,
+                application.slot,
             )
+            promoted = pure_addition && _try_promote_newborn_input_bindings!(
+                input_bindings, model, compiled, application, consumer_id,
+                input_plans, distributed_outputs, performance,
+            )
+            if !promoted
+                _compile_added_consumer_bindings!(
+                    input_bindings,
+                    model,
+                    application,
+                    consumer_id,
+                    input_plans,
+                    manual_application_ids,
+                    applications_by_object,
+                    applications_by_id,
+                    distributed_outputs,
+                    many_binding_cache,
+                    performance,
+                )
+            end
             last_new_binding = length(input_bindings)
             if first_new_binding <= last_new_binding
                 for binding_index in first_new_binding:last_new_binding

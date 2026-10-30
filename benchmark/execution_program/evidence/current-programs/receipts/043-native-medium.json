@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:48:39.377845+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "sp=TightNativeGapBenchmarks.register_tight_native_gap_case!(:native_medium;nobjects=32,steps=128); sc=M.screen_case(sp;variants=(:reference_executor,:tight_projected,:tight_union,:native_executor,:tight_native_projected,:tight_native_union,:pure_noinline),repetitions=3); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/native-medium.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,sc,2); end; [(variant=r.variant,execute_ms=1e3*r.execution_seconds,ratio=r.execution_ratio,complete_ms=1e3*r.complete_seconds,complete_ratio=r.complete_ratio) for r in M.summarize_screen(sc)]",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "7-element Vector{@NamedTuple{variant::Symbol, execute_ms::Float64, ratio::Float64, complete_ms::Float64, complete_ratio::Float64}}:\n (variant = :reference_executor, execute_ms = 4.090792, ratio = 1.0, complete_ms = 8.045874, complete_ratio = 1.0)\n (variant = :tight_projected, execute_ms = 2.7664999999999997, ratio = 0.6835296126224881, complete_ms = 8.424833, complete_ratio = 1.0470997930119215)\n (variant = :tight_union, execute_ms = 2.876, ratio = 0.7030423448564483, complete_ms = 8.579333000000002, complete_ratio = 1.0742100858154129)\n (variant = :native_executor, execute_ms = 4.227792, ratio = 1.0108678221723324, complete_ms = 8.379042, complete_ratio = 1.0489705669528582)\n (variant = :tight_native_projected, execute_ms = 3.0044999999999997, ratio = 0.7344543550490955, complete_ms = 10.130959, complete_ratio = 1.2443249515904231)\n (variant = :tight_native_union, execute_ms = 3.15975, ratio = 0.8015769992112974, complete_ms = 10.531417000000001, complete_ratio = 1.3236777999173814)\n (variant = :pure_noinline, execute_ms = 2.7980840000000002, ratio = 0.6839956663648507, complete_ms = 3.0157510000000003, complete_ratio = 0.3748195659042138)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "8b6d3157"
+    }
+  }
+}

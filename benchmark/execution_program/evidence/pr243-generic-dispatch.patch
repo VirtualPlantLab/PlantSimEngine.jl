@@ -1,0 +1,23 @@
+diff --git a/src/composite_model/runtime_outputs.jl b/src/composite_model/runtime_outputs.jl
+--- a/src/composite_model/runtime_outputs.jl
++++ b/src/composite_model/runtime_outputs.jl
+@@ -7769,8 +7769,8 @@
+ @noinline function _run_scheduled_model_execution_batch!(
+-    batch::CompiledExecutionBatch,
++    batch::AbstractExecutionBatch,
+     simulation::Simulation,
+     step::Integer,
+     ::Nothing,
+ )
+     return _run_model_execution_batch!(
+         batch,
+@@ -7786,8 +7786,8 @@
+ @noinline function _run_scheduled_model_execution_batch!(
+-    batch::CompiledExecutionBatch,
++    batch::AbstractExecutionBatch,
+     simulation::Simulation,
+     step::Integer,
+     performance::RuntimePerformanceCounters,
+ )
+     return _run_model_execution_batch_profiled!(
+         batch,

@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:53:32.627479+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/newborn_preparation_benchmarks.jl\")); nx_small=NewbornPreparationBenchmarks.register_newborn_xp_case!(:newborn_xp_small;steps=4,outputs=:none); nx_small_screen=M.screen_case(nx_small;repetitions=3); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/newborn-xp-small.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,nx_small_screen,2); end; [(variant=r.variant,execute_ms=1e3*r.execution_seconds,ratio=r.execution_ratio,complete_ms=1e3*r.complete_seconds,complete_ratio=r.complete_ratio) for r in M.summarize_screen(nx_small_screen)]",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "4-element Vector{@NamedTuple{variant::Symbol, execute_ms::Float64, ratio::Float64, complete_ms::Float64, complete_ratio::Float64}}:\n (variant = :reference_executor, execute_ms = 13.699041000000001, ratio = 1.0, complete_ms = 30.150333, complete_ratio = 1.0)\n (variant = :newborn_preparation, execute_ms = 14.389667, ratio = 1.0847744902343033, complete_ms = 30.710998999999997, complete_ratio = 1.042094356250101)\n (variant = :incremental_reference, execute_ms = 23.567041, ratio = 1.7784656834146422, complete_ms = 42.33375, complete_ratio = 1.4341126821268717)\n (variant = :incremental_reference_newborn, execute_ms = 24.969542, ratio = 1.8154561009412147, complete_ms = 43.184917000000006, complete_ratio = 1.4653628910224983)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "1396f289"
+    }
+  }
+}

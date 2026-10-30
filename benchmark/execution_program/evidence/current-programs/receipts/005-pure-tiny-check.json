@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T12:41:27.367353+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "pure_gate=PureJuliaReferenceChecks.pure_pb_checks(nobjects=2,steps=2); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/pure-tiny-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,pure_gate,2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 3500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                                         | Pass  Total  Time\nPure Julia reference executes the original complete PB numerical task |  546    546  1.6s\n(passed = true, pid = 53643)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "b587bf2b"
+    }
+  }
+}

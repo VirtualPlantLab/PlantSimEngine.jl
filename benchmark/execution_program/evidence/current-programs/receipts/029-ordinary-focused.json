@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:36:30.692202+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(\"/private/tmp/pse_extra_regressions.jl\"); focused_regressions=run_execution_program_regressions((\"test-model-input-plan-output-metadata.jl\",\"test-model-coalesced-growth-environment.jl\",\"test-model-status-type-temporal.jl\",\"test-model-initializers.jl\",\"test-model-newborn-retention.jl\");logfile=joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/ordinary-focused.log\")); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/ordinary-focused.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,focused_regressions,2); end; focused_regressions",
+    "q": false,
+    "max_output": 3500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.1s.\nJob ID: c80dafb4\nSession: PSE pure Julia gap and shared programs\nCode: include(\"/private/tmp/pse_extra_regressions.jl\"); focused_regressions=run_execut...\n\nUse `check_eval(eval_id=\"c80dafb4\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"c80dafb4\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "c80dafb4"
+    }
+  }
+}
