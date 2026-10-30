@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T21:19:33.917685+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "aee1e900"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "aee1e900 on 4e8bb781\ncompleted, 2m 21s\n(pid = 82598, arm = :reference_executor, kind = :xp, complete_seconds = 128.25399745800001, digest = \"7f7e8c62acad07068ad60587ad908797c8b7990b55923a05b6452f66c7aecf26\")",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

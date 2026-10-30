@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T20:27:00.917962+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "7f912cc6",
+    "e": "using PlantSimEngine; @assert startswith(pathof(PlantSimEngine),\"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine\"); include(\"/private/tmp/pse_future_generic_checks.jl\"); (pid=Base.getpid(),completed=true)",
+    "q": false,
+    "max_output": 2500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "ERROR: LoadError: Some tests did not pass: 18 passed, 1 failed, 0 errored, 0 broken.\nin expression starting at /private/tmp/pse_future_generic_checks.jl:8",
+          "type": "text"
+        }
+      ],
+      "eval_id": "cd1d3b2f"
+    }
+  }
+}

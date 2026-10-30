@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-30T20:36:27.010962+00:00",
+  "tool": "manage_repl",
+  "arguments": {
+    "session": "54d9784d",
+    "command": "shutdown"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Session 54d9784d was stalled/unreachable \u2014 force-removed from the registry and cleaned up.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

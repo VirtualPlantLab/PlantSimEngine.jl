@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T20:23:07.991988+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "a195bc62",
+    "e": "using PlantSimEngine; @assert startswith(pathof(PlantSimEngine),\"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine\"); include(\"/private/tmp/pse_future_generic_checks.jl\"); (pid=Base.getpid(),completed=true)",
+    "q": false,
+    "max_output": 2500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "ERROR: LoadError: @nospecialize annotation applied to a non-argument\nStacktrace:\n  [1] top-level scope\n    @ ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/future_call_layouts.jl:169\n  [2] include(mapexpr::Function, mod::Module, _path::String)\n    @ Base ./Base.jl:310\n  [3] top-level scope\n    @ ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/load_future_layout_experiment.jl:8\n  [4] include(mapexpr::Function, mod::Module, _path::String)\n    @ Base ./Base.jl:310\n  [5] top-level scope\n    @ /private/tmp/pse_future_generic_checks.jl:1\n  [6] include(mapexpr::Function, mod::Module, _path::String)\n    @ Base ./Base.jl:310\n  [7] top-level scope\n    @ none:1\n  [8] eval(m::Module, e::Any)\n    @ Core ./boot.jl:489\n  [9] #_eval_cell##0\n    @ ~/.julia/packages/KaimonGate/KJHLs/src/gate_stream.jl:655 [inlined]\n [10] _with_uncaptured_streams(f::KaimonGate.var\"#_eval_cell##0#_eval_cell##1\"{Expr})\n    @ KaimonGate ~/.julia/packages/KaimonGate/KJHLs/src/gate_stream.jl:471\n [11] _eval_cell(expr::Expr)\n    @ KaimonGate ~/.julia/packages/KaimonGate/KJHLs/src/gate_stream.jl:654\n [12] _eval_with_capture(expr::Expr; mirror::Bool)\n    @ KaimonGate ~/.julia/packages/KaimonGate/KJHLs/src/gate_stream.jl:689\n [13] gate_eval(code::String; _mod::Module, display_code::String)\n    @ KaimonGate ~/.julia/packages/KaimonGate/KJHLs/src/gate_eval.jl:83\n [14] gate_eval\n    @ ~/.julia/packages/KaimonGate/KJHLs/src/gate_eval.jl:17 [inlined]\n [15] (::KaimonGate.var\"#_do_async_eval#handle_message##0\")()\n    @ KaimonGate ~/.julia/packages/KaimonGate/KJHLs/src/gate_protocol.jl:377\n [16] (::KaimonGate.var\"#handle_message##5#handle_message##6\"{KaimonGate.var\"#_do_async_eval#handle_message##0\"})()\n    @ KaimonGate ~/.julia/packages/KaimonGate/KJHLs/src/gate_protocol.jl:416\nin expression starting at /Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/future_call_layouts.jl:1\nin expression starting at /Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/load_future_layout_experiment.jl:6\nin expression starting at /private/tmp/pse_future_generic_checks.jl:1",
+          "type": "text"
+        }
+      ],
+      "eval_id": "72e7ac6c"
+    }
+  }
+}

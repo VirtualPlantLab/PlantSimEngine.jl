@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T21:01:49.157717+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "ee13eeea"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "ee13eeea on e9ebe138\ncompleted, 33.2s\n(pid = 81467, completed = true)",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

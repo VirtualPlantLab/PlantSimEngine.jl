@@ -18,6 +18,12 @@ metadata reduces XPalm first preparation from 105.9 s to 73.3 s in one fresh-pro
 screen; warm complete time is unchanged. View recipe reuse adds no convincing gain.
 The numerical executor and scientific kernels are ordinary in that comparison.
 
+The [future-layout precompilation experiment](future_layouts.md) prepares known
+status and call types before growth, including targetless applications. The small
+PB/XP screen preserves scientific behavior, but its upfront catalogue cost exceeds
+the saved first-growth work. Bounded specialization alone remains the best
+complete-cost arm; the report retains the negative future-precompile results.
+
 ## What changed
 
 - `shared_call_program.jl` stores one immutable typed instruction tree per

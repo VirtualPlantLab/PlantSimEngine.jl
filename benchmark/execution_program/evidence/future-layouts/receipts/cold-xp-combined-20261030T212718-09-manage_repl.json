@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-30T21:30:09.071590+00:00",
+  "tool": "manage_repl",
+  "arguments": {
+    "session": "6faedf20",
+    "command": "shutdown"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Session 6faedf20 shut down.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

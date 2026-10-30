@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T21:23:03.947767+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "757298a5"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "757298a5 on fb100b55\ncompleted, 2m 36s\n(pid = 83168, arm = :future_precompile, kind = :xp, complete_seconds = 138.250152875, digest = \"7f7e8c62acad07068ad60587ad908797c8b7990b55923a05b6452f66c7aecf26\")",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

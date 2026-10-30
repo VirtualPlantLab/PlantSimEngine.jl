@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-30T21:19:43.953829+00:00",
+  "tool": "manage_repl",
+  "arguments": {
+    "session": "4e8bb781",
+    "command": "shutdown"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Session 4e8bb781 was stalled/unreachable \u2014 force-removed from the registry and cleaned up.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

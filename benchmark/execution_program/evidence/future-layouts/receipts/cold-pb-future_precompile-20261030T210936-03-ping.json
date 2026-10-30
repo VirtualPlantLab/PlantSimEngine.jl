@@ -1,0 +1,17 @@
+{
+  "recorded_at": "2026-10-30T21:09:56.355168+00:00",
+  "tool": "ping",
+  "arguments": {},
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u2713 MCP Server is healthy and responsive\n\n\nSessions: 1 connected / 1 total\n  \u25cf b82d3f7f PlantSimEngine (connected, up 3s, PID 82012, agent-spawned)  \u2190 your session (default for unscoped tools/search; override with ses=)",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

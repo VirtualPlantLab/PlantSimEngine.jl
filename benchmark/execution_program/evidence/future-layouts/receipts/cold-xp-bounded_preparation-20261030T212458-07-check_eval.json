@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T21:27:18.780552+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "ec255be5"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "ec255be5 on 106b1a0e\ncompleted, 1m 47s\n(pid = 83505, arm = :bounded_preparation, kind = :xp, complete_seconds = 93.661733168, digest = \"7f7e8c62acad07068ad60587ad908797c8b7990b55923a05b6452f66c7aecf26\")",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

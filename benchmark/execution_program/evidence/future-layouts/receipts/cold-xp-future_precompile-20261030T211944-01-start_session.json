@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-30T21:20:03.207265+00:00",
+  "tool": "start_session",
+  "arguments": {
+    "project_path": "/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine",
+    "name": "PSE future cold-xp-future_precompile"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Session started. Session key: fb100b55",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}
