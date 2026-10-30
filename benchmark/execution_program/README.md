@@ -107,6 +107,25 @@ after Kaimon's project import/startup. The long-run runtime gain does not imply
 a faster first short simulation. Avoiding duplicate backend preparation and
 bounding scenario metadata specialization remain important next hypotheses.
 
+## Next bounded experiments
+
+1. Construct the selected typed program directly and materialize full fallback
+   frames only when needed. Measure preparation independently: the current
+   backend prepares Shared fallback structure as well as Tight frames.
+2. Keep scenario-wide planning metadata behind bounded dynamic interfaces while
+   specializing numerical batch types. Vary application count separately from
+   organ count; use fresh 4/16-model cases before attempting hundreds. The
+   [width audit](evidence/pr243-and-compiler-width.md) identifies concrete tuple
+   and NamedTuple surfaces, without attributing the observed delay to them.
+3. Profile XPalm's ordinary logical extension and view/index reconstruction,
+   then reuse unaffected compiler structures under explicit mutation proofs.
+   Reusing a few newborn bindings alone has insufficient benefit here.
+4. For independently proven common-cadence graphs, isolate scheduler cost with
+   a time-blocked driver before changing scientific kernels. Keep full scheduling
+   for temporal coupling, commits, lifecycle or output requirements that prevent
+   reordering. Native column-header compression is a separate experiment, not
+   a prerequisite for the current reference-backed candidate.
+
 ## Correctness and scope
 
 Small gates compare complete typed scientific state, topology, every retained
@@ -125,6 +144,11 @@ budget; it has no final aggregate result and is not counted as passed. Exact
 smaller existing tests and the independent PR243 investigation are recorded in
 [the compiler-width note](evidence/pr243-and-compiler-width.md). These are bounded
 prototype checks, not a completed full-suite or scientific validation claim.
+
+The separate PR243 protocol investigation reproduced both extension failures;
+the generic adapter passes 22 protocol and 11 unchanged lifecycle assertions.
+Its tiny PB typed/native preflight also passes 19 assertions. The source layer
+was removed after testing, and is retained as independent patches and evidence.
 
 ## Reproduce and inspect
 

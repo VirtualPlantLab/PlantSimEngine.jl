@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T14:08:05.654397+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "5b970a58",
+    "e": "@assert !isdefined(Main,:failures); using PlantSimEngine; include(joinpath(pwd(),\"benchmark/native_downstream/pr243_dispatch_checks.jl\")); dispatch_adapted=PR243DispatchChecks.pr243_dispatch_checks(); views_adapted=PR243DispatchChecks.pr243_existing_status_view_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/pr243-adapted-gates.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(dispatch=dispatch_adapted,views=views_adapted,fresh_image_sentinel=true),2); end; (passed=true,views=views_adapted,pid=Base.getpid())",
+    "q": false,
+    "max_output": 3500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "(passed = true, views = (passed = true, passes = 11, failures = 0, errors = 0, source = \"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/test/test-model-output-destination-declarations.jl\", testsets = (\"empty and lifecycle-refreshed output destinations\",), whole_file = false), pid = 76152)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "816f11f0"
+    }
+  }
+}

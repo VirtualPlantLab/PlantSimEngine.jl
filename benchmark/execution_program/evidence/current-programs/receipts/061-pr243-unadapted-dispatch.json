@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T14:05:52.293979+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "5b970a58",
+    "e": "using PlantSimEngine; include(joinpath(pwd(),\"benchmark/native_downstream/pr243_dispatch_checks.jl\")); failures=Any[]; for instrumented in (false,true); probe=try; PR243DispatchChecks.pr243_dispatch_probe(;performance=instrumented); (expected=false,type=\"unexpected_success\"); catch err; (expected=err isa MethodError && err.f===PlantSimEngine._run_scheduled_model_execution_batch!,type=string(typeof(err))); end; @assert probe.expected; push!(failures,(performance=instrumented,probe=probe)); end; open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/pr243-unadapted-dispatch.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(expected_rejection=true,failures=failures,pid=Base.getpid(),julia=string(VERSION),source=Base.pathof(PlantSimEngine)),2); end; (expected_rejection=true,failures=failures,pid=Base.getpid())",
+    "q": false,
+    "max_output": 3000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "(expected_rejection = true, failures = Any[(performance = false, probe = (expected = true, type = \"MethodError\")), (performance = true, probe = (expected = true, type = \"MethodError\"))], pid = 76152)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "707dceb2"
+    }
+  }
+}

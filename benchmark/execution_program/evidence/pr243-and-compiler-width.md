@@ -1,10 +1,9 @@
 # PR243 dispatch and compiler-width investigation
 
-This is an independent **source review**, dated 2026-10-30. It identifies one
+This began as an independent **source review**, dated 2026-10-30; the final section records subsequent bounded execution. It identifies one
 dispatch gap and candidate compiler-cost surfaces. It does not establish the
 cause or active location of either the PR243 CI cancellation or the bounded
-local run. No Julia was executed for this review, no core representation was
-changed, and no whole-file or aggregate regression pass is credited here.
+local run. The initial review ran no Julia and changed no core representation. No whole-file or aggregate regression pass is credited here.
 
 ## Two distinct incomplete runs
 
@@ -57,8 +56,7 @@ concrete batch. The profiled path continues to require the batch's
 select ordinary execution for `performance=true` retain that policy. This
 patch does not invent profiling semantics for unknown batch layouts.
 
-The patch was parsed with `git apply --stat`, but has **not been applied or
-executed** in the current source tree. Normal core plans use
+At initial review the patch was parsed with `git apply --stat` only. The bounded follow-up below subsequently applied and checked it independently. Normal core plans use
 `CompiledExecutionBatch`; experimental backends are not loaded by the standard
 suite. Consequently, this confirmed extension gap does not explain the CI
 timeout. PR243 also changes status-view mutability, caches `CallTargets`
@@ -149,7 +147,9 @@ retention, or any particular function.
 The retained-result and singleton-Many experimental fallback checks are
 separately defined in
 [shared_tight_fallback_checks.jl](../../native_downstream/shared_tight_fallback_checks.jl).
-Their source availability is not a runtime pass.
+Their initial source availability was not a runtime pass. Root subsequently ran
+the 232 + 272 retained-call fallback assertions successfully; see
+[receipt 042](current-programs/receipts/042-native-fallback-result.json).
 
 ## Reviewed source provenance
 
@@ -165,5 +165,32 @@ Their source availability is not a runtime pass.
   `070c379c463e7788d909eb7f813b3e886b03f78af1ce644e6203cc9d76585e75`.
 
 Code links and line numbers describe this reviewed snapshot; subsequent source
-changes require fresh provenance. The independent adapter and diagnostic plan
-have source-only status.
+changes require fresh provenance. The initial adapter and diagnostic plan were
+source-only; subsequent executed checks are separated below.
+
+## Executed bounded follow-up
+
+The [baseline protocol gates](current-programs/pr243-baseline-gates.json.gz)
+passed 22 ordinary/profiled extension assertions and 11 assertions in the
+unchanged focused status-view lifecycle testset. The tests use one object and
+one scientific model; no whole test file or suite is credited.
+
+Applying the reviewed PR243 source changes independently to commit `2a2fa499`
+reproduced the predicted `MethodError` at the new scheduled barrier in both
+ordinary and profiled modes ([negative probe](current-programs/pr243-unadapted-dispatch.json.gz)).
+After the two-line adapter and a fresh Julia image, the same 22 + 11 assertions
+passed ([adapted gates](current-programs/pr243-adapted-gates.json.gz)). A Main
+sentinel confirmed that the prior image's variables did not survive restart.
+[Source cohort hashes](current-programs/pr243-source-cohorts.json.gz) and
+[the reviewed source patch](pr243-reviewed-source.patch) preserve this separate
+experiment. These checks do not establish a runtime speedup or explain the
+full CI cancellation. The source layer is not selected into the current
+prototype baseline; its adapter remains a separate reviewable patch.
+
+A [tiny original-kernel PB preflight](current-programs/pr243-native-preflight.json.gz)
+also passed 19 assertions on adapted PR243, including native canonical payloads
+and separate actual-child work. The first attempt omitted the downstream loader
+and failed to locate PB; the rerun used the existing compatible local checkout
+paths without installing or changing dependencies (receipts 065–067). The
+adapted source process was shut down, and the exact temporary source diff was
+reversed. Production source then matched selected commit `2a2fa499` byte-for-byte.

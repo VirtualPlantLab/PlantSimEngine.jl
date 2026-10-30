@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T14:11:30.582621+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "5b970a58",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/load_experiments.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/lean_compiler.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/direct_calls.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/pure_julia_reference.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/pure_julia_boundaries.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/shared_call_program.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/tight_call_program.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/gap_benchmarks.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/tight_gap_benchmarks.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/tight_native_gap_benchmarks.jl\")); native_preflight=TightNativeGapBenchmarks.tight_native_gap_preflight(); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/pr243-native-preflight.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,native_preflight,2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.2s.\nJob ID: fbcbb078\nSession: PSE isolated PR243 protocol gates\nCode: include(joinpath(pwd(),\"benchmark/native_downstream/load_experiments.jl\")); incl...\n\nUse `check_eval(eval_id=\"fbcbb078\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"fbcbb078\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "fbcbb078"
+    }
+  }
+}

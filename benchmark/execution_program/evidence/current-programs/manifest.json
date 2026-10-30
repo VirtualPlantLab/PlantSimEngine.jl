@@ -60,10 +60,34 @@
     "compressed_sha256": "1e523950d186921ecae2b8dbe800c5ef63343dc04c74b879d604b69430145232"
   },
   {
+    "source": "benchmark/native_downstream/results/pure-gap/pr243-adapted-gates.json",
+    "artifact": "pr243-adapted-gates.json.gz",
+    "raw_sha256": "2a02280760feea2bcb0c012fcf37ffb40bc8aca3712d6a59ed4d1fcfdc35304a",
+    "compressed_sha256": "725533d3bc57b7ba751caeff0e301761a10cf0dcc6655b87e0c72907ebcf3635"
+  },
+  {
     "source": "benchmark/native_downstream/results/pure-gap/pr243-baseline-gates.json",
     "artifact": "pr243-baseline-gates.json.gz",
     "raw_sha256": "f89baa4d6d0a95c6f1b0fc588e95af0f54b23439088ee3d15b357d3c3540defe",
     "compressed_sha256": "4882a52ba8bedc6be63a365afa66a10fedb552976072ab6c7f061adafa6d8b86"
+  },
+  {
+    "source": "benchmark/native_downstream/results/pure-gap/pr243-native-preflight.json",
+    "artifact": "pr243-native-preflight.json.gz",
+    "raw_sha256": "6e1cdc20865d4d8eca2d181f24d211417aeaf1f9f235725c253b7c595c029c94",
+    "compressed_sha256": "67a54ef2f40191dd2135e229135d941f439304104713e9a216634cacafe01767"
+  },
+  {
+    "source": "benchmark/native_downstream/results/pure-gap/pr243-source-cohorts.json",
+    "artifact": "pr243-source-cohorts.json.gz",
+    "raw_sha256": "ba985f5ee4a02d6be7a617654b178c12a51ebcb1985963967f8961ba72987c94",
+    "compressed_sha256": "71d351cac2ce85b56d4a953024e7c5a35e414514293cacc43f727b3cf6a9b895"
+  },
+  {
+    "source": "benchmark/native_downstream/results/pure-gap/pr243-unadapted-dispatch.json",
+    "artifact": "pr243-unadapted-dispatch.json.gz",
+    "raw_sha256": "952065c115ba7103c92b403e8cb0684abf9e1efc8f4ee5e879e885ccfc402b2c",
+    "compressed_sha256": "29682b2904dfb90ef53ffaa50a565b8b49f57f760d18d8f17ab1f6ae94886000"
   },
   {
     "source": "benchmark/native_downstream/results/pure-gap/pure-boundary-checks.json",
