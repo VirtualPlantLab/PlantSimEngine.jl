@@ -50,13 +50,31 @@ Both scan all applications again for every graph row and evaluate empty-set
 defaults inside that scan. Execution sampling also identifies reconstruction of
 the previous-group ID dictionary, despite an existing application-slot index.
 
-## Narrow hypotheses
+## Independently gated candidates
 
-One candidate projects actual graph neighbours into authored application order
-instead of repeatedly scanning the whole application set. Another uses the
-existing execution-group slot index only on an exact application-identity match,
-with a lazy original ID dictionary for misses. They preserve scientific values,
-declarations, target construction and all downstream validation/reuse rules.
+`GraphRowProjection` projects actual graph neighbours into authored application
+order instead of repeatedly scanning the whole application set. It passes 1,079
+metadata assertions, including non-dense slots, sparse/dense graphs, changing
+relations, unknown IDs and identical bounded factory/counter shapes. Short
+original XP/PB checks pass separately and in composition. XP preparation really
+projects two tables with 122 rows and 110 edges; PB projects six rows/four edges.
+
+`ExecutionGroupLookup` uses the existing execution-group slot index only on an
+exact application-identity match, with a lazy original ID dictionary for misses.
+Growth, heterogeneity, movement, removal/re-addition, distributed and temporal
+checks pass, together with original XP/PB parity. Reorder/replacement is tested
+with bounded metadata in both arms; the ordinary unbounded control cannot retain
+its old concrete compiled-scene field across that test's changed layout. An
+initializer fixture correctly takes the existing pure-append path without
+entering this lookup experiment; it receives no optimization credit.
+
+The first lookup implementation is scientifically correct but does not avoid
+XP's dictionary construction: two-day coverage has 78 identity hits and 22
+absent-slot misses, building two dictionaries in two refreshes. A refined
+per-refresh identity check for the full slot index is being tested so proven
+empty slots can return absence directly. Uncertain application epochs retain
+the original ID fallback. None of these changes replace scientific values,
+declarations, target construction or downstream validation/reuse decisions.
 
 Correctness and independent/combined timing qualification follow these profiles.
 No new cold-compilation, peak-RSS, full-suite or production-adoption claim is made.

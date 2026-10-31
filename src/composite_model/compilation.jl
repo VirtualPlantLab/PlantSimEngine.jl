@@ -703,6 +703,8 @@ function _applications_by_id(applications, metadata_policy=Val(:ordinary))
         (application.slot for application in applications))
 end
 
+_try_freeze_scenario_relation_rows(applications, relations, metadata_policy) = nothing
+
 function _scenario_call_owners(applications, call_plans, metadata_policy=Val(:ordinary))
     owners = Dict{Symbol,Set{Symbol}}()
     for plan in call_plans
@@ -711,6 +713,8 @@ function _scenario_call_owners(applications, call_plans, metadata_policy=Val(:or
             push!(get!(owners, callee_id, Set{Symbol}()), plan.application_id)
         end
     end
+    projected = _try_freeze_scenario_relation_rows(applications, owners, metadata_policy)
+    isnothing(projected) || return projected
     return _scenario_metadata_symbol_table(metadata_policy,
         (application.id for application in applications),
         (_scenario_metadata_ids(metadata_policy,
@@ -1136,6 +1140,8 @@ function _scenario_update_order_edges!(
 end
 
 function _freeze_scenario_application_children(applications, children, metadata_policy=Val(:ordinary))
+    projected = _try_freeze_scenario_relation_rows(applications, children, metadata_policy)
+    isnothing(projected) || return projected
     return _scenario_metadata_symbol_table(metadata_policy,
         (application.id for application in applications),
         (_scenario_metadata_ids(metadata_policy,
