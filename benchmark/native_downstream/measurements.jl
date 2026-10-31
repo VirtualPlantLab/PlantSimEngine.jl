@@ -113,11 +113,19 @@ function source_manifest(root::AbstractString; directories=("src", "benchmark/na
     for directory in directories
         full = joinpath(root, directory)
         isdir(full) || continue
-        for (parent, children, files) in walkdir(full)
-            filter!(child -> !(child in exclude_directories), children)
-            for file in files
-                endswith(file, ".jl") || continue
-                push!(paths, joinpath(parent, file))
+        # Explicit traversal keeps archived result trees out of provenance
+        # without depending on mutation of walkdir's producer-owned child list.
+        pending = String[full]
+        while !isempty(pending)
+            parent = pop!(pending)
+            for path in readdir(parent; join=true)
+                if isdir(path)
+                    islink(path) && continue
+                    basename(path) in exclude_directories && continue
+                    push!(pending, path)
+                elseif endswith(path, ".jl")
+                    push!(paths, path)
+                end
             end
         end
     end

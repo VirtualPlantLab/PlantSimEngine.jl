@@ -211,3 +211,8 @@ full snapshots, coverage, work and source provenance; use `gzip -dc` to inspect.
 Receipts and source snapshots are adjacent. The original local result archives
 remain unchanged. `python3 benchmark/execution_program/summarize_evidence.py`
 rebuilds this evidence archive from the local raw files without changing them.
+# XPalm attribution follow-up
+
+See [XPalm CPU attribution and framework fixes](xp_attribution.md) for the
+profiling follow-up to reusable newborn binding instructions.
+
