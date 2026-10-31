@@ -9,23 +9,27 @@ const CR=Main.CompiledRegionsExperiment
 const PB=Main.NativePBDriver
 const XP=Main.NativeXPDriver
 
-export GROWTH_INPUT_ARMS, growth_input_policies, prepare_growth_input_arm,
+export GROWTH_INPUT_ARMS, PREBOXED_ARMS, growth_input_policies, prepare_growth_input_arm,
     growth_input_coverage, register_growth_input_case!
 
 const GROWTH_INPUT_ARMS=(:reference_executor,:partition,:heap_plan,:heap_partition,
     :bounded_preparation,:bounded_heap,:bounded_all)
-const OPTIONAL_ARMS=(:typed_driver,:typed_heap,:typed_heap_partition)
+const PREBOXED_ARMS=(:preboxed_plan,:bounded_preboxed,:preboxed_partition)
+const OPTIONAL_ARMS=(:typed_driver,:typed_heap,:typed_heap_partition,:typed_preboxed)
 _partition()=getfield(Main,:GrowthInputReuse)
 _heap()=getfield(Main,:GrowthPlanStorage)
 
 function growth_input_policies(arm::Symbol)
-    arm in (GROWTH_INPUT_ARMS...,OPTIONAL_ARMS...) ||
+    arm in (GROWTH_INPUT_ARMS...,PREBOXED_ARMS...,OPTIONAL_ARMS...) ||
         throw(ArgumentError("Unknown growth-input arm: $arm"))
-    bounded=arm in (:bounded_preparation,:bounded_heap,:bounded_all)
+    bounded=arm in (:bounded_preparation,:bounded_heap,:bounded_all,:bounded_preboxed)
     typed=arm in OPTIONAL_ARMS
-    return (partition=arm in (:partition,:heap_partition,:bounded_all,:typed_heap_partition),
-        heap_plan=arm in (:heap_plan,:heap_partition,:bounded_heap,:bounded_all,
-            :typed_heap,:typed_heap_partition),bounded,
+    preboxed=arm in (PREBOXED_ARMS...,:typed_preboxed)
+    heap_plan=preboxed || arm in (:heap_plan,:heap_partition,:bounded_heap,:bounded_all,
+        :typed_heap,:typed_heap_partition)
+    return (partition=arm in (:partition,:heap_partition,:bounded_all,:typed_heap_partition,
+            :preboxed_partition),heap_plan,
+        payload=preboxed ? :preboxed : heap_plan ? :concrete : :none,bounded,
         underlying_arm=typed ? :selected_driver : bounded ? :bounded_preparation : :reference_executor)
 end
 
@@ -40,15 +44,20 @@ Base.@nospecializeinfer @noinline function prepare_growth_input_arm(model,arm::S
     @nospecialize model outputs constants
     policy=growth_input_policies(arm)
     policy.partition && Base.invokelatest(_partition().enable_growth_input_reuse!,model)
-    policy.heap_plan && Base.invokelatest(_heap().enable_growth_plan_storage!,model)
+    policy.heap_plan && Base.invokelatest(_heap().enable_growth_plan_storage!,model;
+        payload=policy.payload)
     return Base.invokelatest(H.prepare_arm,model,policy.underlying_arm;
         outputs,performance,count_calls,constants)
 end
 
 # Explicitly named by the heap module's report contract once its source is
 # frozen. Do not count model size or an allocated pool as optimized execution.
-function _heap_positive_work(report)
-    return report.enabled && report.heap_plans_constructed>0 && report.current_heap_plans>0
+function _heap_positive_work(report,payload)
+    report.enabled && report.heap_plans_constructed>0 && report.current_heap_plans>0 || return false
+    report.payload_mode===payload || return false
+    return payload===:preboxed ? report.preboxed_plans_constructed>0 && report.current_preboxed_plans>0 :
+        report.concrete_plans_constructed>0 && report.current_concrete_heap_plans>0 &&
+        iszero(report.preboxed_plans_constructed) && iszero(report.current_preboxed_plans)
 end
 
 Base.@nospecializeinfer @noinline function growth_input_coverage(simulation,arm::Symbol,kind;
@@ -67,11 +76,13 @@ Base.@nospecializeinfer @noinline function growth_input_coverage(simulation,arm:
         iszero(partition.partition_hits) || error("Partition control has reuse work")
     end
     if policy.heap_plan
-        _heap_positive_work(heap) || error("Heap-plan policy performed no reported work")
+        _heap_positive_work(heap,policy.payload) || error("Heap-plan payload performed no reported work")
     else
         heap.enabled && error("Heap-plan policy contaminated control")
         iszero(heap.heap_plans_constructed) && iszero(heap.current_heap_plans) ||
             error("Ordinary heap-plan control contains heap plan rows")
+        iszero(heap.preboxed_plans_constructed) && iszero(heap.current_preboxed_plans) ||
+            error("Preboxed plan payload contaminated ordinary control")
     end
     return merge(base,(growth_input_arm=arm,growth_input_policies=policy,
         partition,heap,nonempty_partition_reuses=partition.partition_hits,
@@ -87,6 +98,9 @@ copies it for each independently allocated model/tree/RNG. Complete cost include
 enablement, normal preparation and any selected-driver construction. Scientific
 snapshots/types/history/topology and copied model RNG next draws are compared
 after timing. Existing feature gates must pass before a larger warm screen.
+
+Preboxed payload variants form a separate explicit cohort; select the desired
+PREBOXED_ARMS when registering it. Existing arm names keep concrete payloads.
 """
 Base.@nospecializeinfer @noinline function register_growth_input_case!(name::Symbol,kind::Symbol;
     steps::Int=kind===:xp ? 4 : 2,nobjects::Int=2,additions::Int=3,
