@@ -71,10 +71,18 @@ entering this lookup experiment; it receives no optimization credit.
 The first lookup implementation is scientifically correct but does not avoid
 XP's dictionary construction: two-day coverage has 78 identity hits and 22
 absent-slot misses, building two dictionaries in two refreshes. A refined
-per-refresh identity check for the full slot index is being tested so proven
-empty slots can return absence directly. Uncertain application epochs retain
+per-refresh identity check for the full slot index now allows proven empty
+slots to return absence directly. It passes 2,585 focused assertions, including
+wrong-index/ghost-group rejection, lifecycle and original XP/PB cases. Two-day
+XP coverage validates both refreshes, returns 78 actual groups and 22 trusted
+empty slots, and builds zero dictionaries. The reference snapshot, index scan
+and coverage checks remain real work and are included in candidate timing.
+Uncertain application epochs retain
 the original ID fallback. None of these changes replace scientific values,
 declarations, target construction or downstream validation/reuse decisions.
 
-Correctness and independent/combined timing qualification follow these profiles.
+Four two-day scientific composition checks also pass after refinement. The
+metadata-only helper checks extend to 32/128/512 synthetic application records;
+they preserve table/factory work, include fresh layout setup, and receive no
+application-performance credit. Independent/combined XP timing follows these gates.
 No new cold-compilation, peak-RSS, full-suite or production-adoption claim is made.

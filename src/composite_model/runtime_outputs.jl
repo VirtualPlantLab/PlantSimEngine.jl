@@ -5032,6 +5032,13 @@ function _try_refresh_model_execution_plan_for_pure_addition!(
     )
 end
 
+@inline function _previous_execution_groups_for_refresh(previous, compiled)
+    return Dict(group.application.id => group for group in previous.groups)
+end
+
+@inline _previous_execution_group(groups, application) =
+    get(groups, application.id, nothing)
+
 function _refresh_model_execution_plan(
     previous::CompiledExecutionPlan,
     compiled::CompiledCompositeModel,
@@ -5108,9 +5115,7 @@ function _refresh_model_execution_plan(
                 !isempty(staged_execution_targets)
         end
     end
-    previous_groups = Dict(
-        group.application.id => group for group in previous.groups
-    )
+    previous_groups = _previous_execution_groups_for_refresh(previous, compiled)
     groups = CompiledApplicationExecutionGroup[]
     batches = AbstractExecutionBatch[]
     sizehint!(groups, length(previous.groups))
@@ -5121,7 +5126,7 @@ function _refresh_model_execution_plan(
 
     for application in _ordered_model_applications(compiled)
         application.id in manual_application_ids && continue
-        previous_group = get(previous_groups, application.id, nothing)
+        previous_group = _previous_execution_group(previous_groups, application)
         if !isnothing(previous_group)
             if !isnothing(changed_application_ids)
                 if !(application.id in changed_application_ids)
