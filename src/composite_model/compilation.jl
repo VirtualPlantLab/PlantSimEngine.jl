@@ -519,6 +519,81 @@ end
 # The default preserves current immutable tuple metadata. Experimental policies
 # may bound cold planner container types while keeping scientific kernels typed.
 _scenario_metadata_policy(model) = Val(:ordinary)
+
+# Cold planner specialization is independent of metadata representation. The
+# experiment supplies a per-model policy; normal preparation selects ordinary
+# fully specialized phase bodies. Both policies share the three small dynamic
+# entry calls so inference cannot eagerly compile the unselected alternative.
+struct _ColdPlannerBoundaryPolicy end
+_cold_planner_policy(model) = Val(:ordinary)
+_cold_planner_enter!(model, phase::Symbol) = nothing
+Base.@nospecializeinfer @noinline function _cold_planner_invoke(f, policy, args...; kwargs...)
+    @nospecialize f policy args
+    return Base.invokelatest(f, policy, args...; kwargs...)
+end
+
+"""
+Define one cold phase body with ordinary and opt-in bounded inference methods.
+
+This private macro is restricted to the three simple planner signatures below:
+named positional arguments, a first `model` argument and optional named keyword
+defaults. It keeps one source body, leaves the ordinary body fully specialized,
+and never changes scientific constructors or numerical batch dispatch.
+"""
+macro _with_cold_planner_boundary(definition)
+    definition isa Expr && definition.head === :function ||
+        error("Expected a long-form cold planner function")
+    signature, body = definition.args
+    signature isa Expr && signature.head === :call ||
+        error("Expected a simple cold planner signature")
+    name = signature.args[1]
+    name isa Symbol || error("Expected a named cold planner function")
+    parameters = length(signature.args) >= 2 && signature.args[2] isa Expr &&
+        signature.args[2].head === :parameters ? signature.args[2] : nothing
+    first_argument = isnothing(parameters) ? 2 : 3
+    argument_names = Symbol[]
+    for argument in signature.args[first_argument:end]
+        argument_name = argument isa Symbol ? argument :
+            argument isa Expr && argument.head === :(::) ? first(argument.args) : nothing
+        argument_name isa Symbol || error("Expected named cold planner arguments")
+        push!(argument_names, argument_name)
+    end
+    first(argument_names) === :model || error("The first cold planner argument must be model")
+    keyword_names = Symbol[]
+    if !isnothing(parameters)
+        for parameter in parameters.args
+            parameter isa Expr && parameter.head === :kw ||
+                error("Expected named cold planner keyword defaults")
+            key = parameter.args[1]
+            key = key isa Expr && key.head === :(::) ? first(key.args) : key
+            key isa Symbol || error("Expected named cold planner keywords")
+            push!(keyword_names, key)
+        end
+    end
+    dispatch_name = Symbol(name, :_planner_dispatch)
+    forwarded_keywords = Expr(:parameters,
+        (Expr(:kw, key, key) for key in keyword_names)...)
+    invoke = Expr(:call, :_cold_planner_invoke, forwarded_keywords,
+        dispatch_name, Expr(:call, :_cold_planner_policy, :model), argument_names...)
+    annotation = Expr(:macrocall, GlobalRef(Base, Symbol("@nospecialize")),
+        __source__, argument_names...)
+    wrapper = Expr(:function, deepcopy(signature), Expr(:block, annotation, :(return $invoke)))
+    ordinary_signature = deepcopy(signature)
+    ordinary_signature.args[1] = dispatch_name
+    insert!(ordinary_signature.args, first_argument, :(::Val{:ordinary}))
+    ordinary = Expr(:function, ordinary_signature, deepcopy(body))
+    bounded_signature = deepcopy(signature)
+    bounded_signature.args[1] = dispatch_name
+    insert!(bounded_signature.args, first_argument, :(::_ColdPlannerBoundaryPolicy))
+    bounded = Expr(:function, bounded_signature, Expr(:block, deepcopy(annotation),
+        :(_cold_planner_enter!(model, $(QuoteNode(name)))), deepcopy(body)))
+    bounded = Expr(:macrocall, GlobalRef(Base, Symbol("@nospecializeinfer")), __source__,
+        Expr(:macrocall, GlobalRef(Base, Symbol("@noinline")), __source__, bounded))
+    wrapper = Expr(:macrocall, GlobalRef(Base, Symbol("@nospecializeinfer")), __source__,
+        Expr(:macrocall, GlobalRef(Base, Symbol("@noinline")), __source__, wrapper))
+    return esc(Expr(:block, wrapper, ordinary, bounded))
+end
+
 _scenario_metadata_sequence(::Val{:ordinary}, values) = Tuple(values)
 _scenario_metadata_ids(::Val{:ordinary}, values) = Tuple(values)
 function _scenario_metadata_symbol_table(::Val{:ordinary}, names, values, slots)
@@ -1093,7 +1168,7 @@ function _compile_scenario_application_children(
     return _freeze_scenario_application_children(applications, children, metadata_policy)
 end
 
-function _compiled_scenario_plan(
+@_with_cold_planner_boundary function _compiled_scenario_plan(
     model::CompositeModel,
     applications,
     input_plans,
@@ -1778,7 +1853,7 @@ function _compile_scene_with_metadata(::Val{:ordinary}, model, raw_specs; kwargs
     return _compile_scene_impl(model, raw_specs; kwargs...)
 end
 
-function _compile_scene_impl(
+@_with_cold_planner_boundary function _compile_scene_impl(
     model::CompositeModel,
     raw_specs;
     validate_required_inputs::Bool=true,
@@ -4425,7 +4500,7 @@ function explain_initialization(model::CompositeModel)
     return rows
 end
 
-function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
+@_with_cold_planner_boundary function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
     specs = [as_model_spec(raw_spec) for raw_spec in raw_specs]
     process_counts = Dict{Symbol,Int}()
     for spec in specs

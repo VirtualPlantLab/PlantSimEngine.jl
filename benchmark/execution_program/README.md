@@ -24,6 +24,14 @@ PB/XP screen preserves scientific behavior, but its upfront catalogue cost excee
 the saved first-growth work. Bounded specialization alone remains the best
 complete-cost arm; the report retains the negative future-precompile results.
 
+The [direct-construction/planner-boundary comparison](direct_planner.md) preserves
+the longer PB typed-execution benefit with a small incremental change over the
+previous driver. New cold planner boundaries give no convincing further gain;
+bounded metadata remains the strongest XP first-use candidate. A separate
+local-port admission bridge executes original XP kernels correctly but gives
+no whole-run improvement after growth retirement. The growth diagnostics
+identify XP input-binding fan-out as the next measured target.
+
 ## What changed
 
 - `shared_call_program.jl` stores one immutable typed instruction tree per
