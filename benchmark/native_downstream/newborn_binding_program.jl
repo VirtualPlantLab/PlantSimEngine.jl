@@ -55,6 +55,10 @@ ProgramState() = ProgramState(WeakKeyDict{Any,BindingProgram}(), Dict{Tuple{Any,
     Dict{Tuple{Symbol,Symbol},Int}(), WeakRef(nothing), 0, Set{PSE.ObjectId}())
 const _enabled = WeakKeyDict{Any,ProgramState}()
 
+# Optional consumer-sequence companion receives only the freshly compiled
+# metadata. It may prepare its ordered layout before any consumer is visited.
+_binding_program_prepared!(args...) = nothing
+
 function enable_newborn_binding_program!(model::PSE.CompositeModel)
     haskey(_enabled, model) && return model
     isnothing(model.binding_cache) || throw(ArgumentError(
@@ -214,6 +218,7 @@ Base.@nospecializeinfer @noinline function PSE._prepare_newborn_binding_program!
         state.programs[application] = program
     end
     _count!(state, :programs_built)
+    _binding_program_prepared!(model, state, program, applications, plans_by_application)
     return nothing
 end
 
@@ -290,6 +295,20 @@ Base.@nospecializeinfer @noinline function PSE._try_newborn_binding_instruction!
     program.world == Base.get_world_counter() || return _miss!(state, :method_world_changed)
     op = get(program.instructions, plan.slot, nothing)
     op === nothing && return _miss!(state, :unsupported_instruction)
+    return _execute_prepared_instruction!(state, program, op, bindings, model,
+        application, consumer_id, plan, applications_by_object, applications_by_id,
+        source_ids_override, distributed_outputs, object_query_cache)
+end
+
+# The sequence companion acquires the state/program once per consumer, while
+# retaining this same live-reference/writer/policy implementation for each op.
+# The caller must check the method world immediately before this helper.
+Base.@nospecializeinfer @noinline function _execute_prepared_instruction!(
+    state, program::BindingProgram, op::ScalarInstruction, bindings, model,
+    application, consumer_id, plan, applications_by_object, applications_by_id,
+    source_ids_override, distributed_outputs, object_query_cache,
+)
+    @nospecialize bindings model application plan applications_by_object applications_by_id source_ids_override distributed_outputs object_query_cache
     _same_header(op, plan) || return _miss!(state, :plan_header_changed)
     _count!(state, :instruction_cache_hits)
     source = nothing
@@ -322,6 +341,20 @@ Base.@nospecializeinfer @noinline function PSE._try_newborn_binding_instruction!
     producer_ids = op.producer === nothing ? Symbol[] : Symbol[op.producer]
     push!(bindings, PSE.CompiledModelInputBinding(plan, consumer_id, source_ids,
         producer_ids, policy, :shared_ref, carrier))
+    _record_success!(state, op, model, consumer_id, applications_by_object)
+    return true
+end
+
+function _record_input_execution!(state, application_id, input)
+    key = (application_id, input)
+    state.per_input[key] = get(state.per_input, key, 0) + 1
+    return nothing
+end
+
+Base.@nospecializeinfer function _record_success!(
+    state, op::ScalarInstruction, model, consumer_id, applications_by_object,
+)
+    @nospecialize model applications_by_object
     _count!(state, :instruction_executions)
     _count!(state, :synthesized_bindings)
     _count!(state, op.producer === nothing ? :status_instruction_executions : :producer_instruction_executions)
@@ -336,9 +369,8 @@ Base.@nospecializeinfer @noinline function PSE._try_newborn_binding_instruction!
     else
         _count!(state, :existing_positive_executions)
     end
-    key = (op.application_id, op.input)
-    state.per_input[key] = get(state.per_input, key, 0) + 1
-    return true
+    _record_input_execution!(state, op.application_id, op.input)
+    return nothing
 end
 
 Base.@nospecializeinfer @noinline function newborn_binding_program_report(value)

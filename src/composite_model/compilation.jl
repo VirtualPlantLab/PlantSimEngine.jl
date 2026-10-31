@@ -2178,6 +2178,7 @@ end
 # Optional metadata interpretation experiment. The ordinary path remains the
 # reference implementation; extensions must resolve current sources and refs.
 _try_reuse_input_plan_partition!(args...) = false
+_try_newborn_binding_sequence!(args...) = false
 
 Base.@nospecializeinfer function _compile_added_consumer_bindings!(
     bindings,
@@ -2194,6 +2195,11 @@ Base.@nospecializeinfer function _compile_added_consumer_bindings!(
 )
     # Cold assembly must not specialize on each application × input-plan tuple.
     @nospecialize application input_plans
+    _try_newborn_binding_sequence!(
+        bindings, model, application, consumer_id, input_plans,
+        manual_application_ids, applications_by_object, applications_by_id,
+        distributed_outputs, many_binding_cache, performance,
+    ) && return bindings
     _try_reuse_input_plan_partition!(
         bindings, model, application, consumer_id, input_plans,
         manual_application_ids, applications_by_object, applications_by_id,
@@ -7436,6 +7442,26 @@ Base.@nospecializeinfer function _push_model_input_binding!(
     )
     instruction === true && return bindings
     instruction isa Vector{ObjectId} && (source_ids_override = instruction)
+    return _push_model_input_binding_ordinary!(
+        bindings, model, application, consumer_id, plan,
+        applications_by_object, applications_by_id, source_ids_override,
+        distributed_outputs; object_query_cache,
+    )
+end
+
+Base.@nospecializeinfer function _push_model_input_binding_ordinary!(
+    bindings,
+    model::CompositeModel,
+    application::CompiledModelApplication,
+    consumer_id::ObjectId,
+    plan::CompiledModelInputPlan,
+    applications_by_object,
+    applications_by_id,
+    source_ids_override=nothing,
+    distributed_outputs=NoCompiledDistributedOutputs(),
+    ; object_query_cache=nothing,
+)
+    @nospecialize application plan
     input_sym = plan.input
     selector = plan.selector
     source_var = plan.source_var

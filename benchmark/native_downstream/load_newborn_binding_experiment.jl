@@ -5,6 +5,8 @@ isdefined(Main, :DirectPlannerMeasurements) ||
 for (name, file) in (
     (:NewbornBindingProgram, "newborn_binding_program.jl"),
     (:NewbornBindingMeasurements, "newborn_binding_measurements.jl"),
+    (:NewbornBindingSequence, "newborn_binding_sequence.jl"),
+    (:NewbornBindingSequenceMeasurements, "newborn_binding_sequence_measurements.jl"),
 )
     isdefined(Main, name) || include(joinpath(@__DIR__, file))
 end

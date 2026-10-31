@@ -65,7 +65,58 @@ newborn consumers. Prepared programs, empty consumers and initial bindings do
 not count as a newborn optimization. Numerical typed-driver entries remain a
 separate measure.
 
-No runtime, compilation, large-scale or production-adoption claim is made at
-this checkpoint. PB's static fixture executes no binding instruction and is
-reported as a preservation/control case. The full regression suite has not
-been run.
+## First small timing screen
+
+Four balanced cycles use independently constructed scenes, `outputs=:none`,
+and exact post-run state, topology, type, RNG and work fingerprints. CPU
+monitoring found no competing Julia process above the observation threshold.
+Ratios below are medians of paired candidate/reference ratios; lower is better.
+Complete cost includes construction, preparation, lowering and execution.
+
+| Fixture | Candidate | Execution ratio | Complete ratio |
+|---|---|---:|---:|
+| Generic, 32 initial objects, two steps, three additions | Instructions | 1.120 | 1.051 |
+| Same | Bounded metadata | 1.065 | 0.999 |
+| Same | Bounded + instructions | 0.951 | 1.035 |
+| XP, four days | Instructions | 1.010 | 1.060 |
+| Same | Bounded metadata | 0.971 | 0.961 |
+| Same | Bounded + instructions | 0.960 | 1.052 |
+| PB, 32 objects, 128 steps | Previous typed driver | 0.688 | 1.070 |
+| Same | Typed driver + instructions | 0.695 | 1.100 |
+
+Individual instructions do not establish a runtime improvement. On XP,
+execution allocations change only from 12.36 MB to 12.26 MB, while complete
+allocations rise from 24.46 MB to 26.99 MB. Bounded metadata alone uses 7.07 MB
+in execution and 13.65 MB complete; adding instructions uses 7.10 MB and
+15.21 MB. Declaration certificates and per-binding bookkeeping cost more than
+this first lowering saves. Small preparation compilation/effects-query events
+remain recorded; no execution compilation or GC occurred in this screen.
+
+PB's static fixture executes no instruction. Its driver results are control
+measurements of the previous numerical optimization and receive no credit for
+newborn binding work. No cold-compilation, large-scale or production-adoption
+claim follows from this screen. The full regression suite has not been run.
+
+## Consumer-sequence prototype
+
+`NewbornBindingSequence` reuses an ordered instruction sequence for a whole
+consumer, hoists program lookups out of individual bindings, and avoids
+rebuilding proven singleton inferred groups. The scalar executor and strict
+declaration certificates are shared with the first prototype. Fixed aggregate
+completion counters remain enabled; optional detailed reason/per-input
+dictionaries are disabled in timing runs and checked separately.
+
+A singleton shortcut requires current **global** local-producer membership.
+Targeted overlay membership alone cannot make an inferred producer match.
+Explicit bindings run first, authored inferred-group order and manual-call
+suppression are preserved, and unsupported operations fall back at their
+original position. A late error retains the same partially appended bindings.
+No consumer can fall back and replay its preceding successful bindings.
+
+The sequence passes 793 focused assertions covering Float32/RNG and live
+references, births/removal/reparenting, order and overlay membership, dynamic
+declarations, initialization, mixed cadence, distributed sources, fresh
+recompilation and stale headers/method worlds. Its generic fixture also passes
+independently and with bounded preparation. The initial negative timing result
+above remains a separate source cohort; sequence timing qualification follows
+these gates.
