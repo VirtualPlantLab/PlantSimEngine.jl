@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T16:33:18.237454+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "58e5babf",
+    "e": "include(\"/private/tmp/pse_reload_preparation_identity.jl\"); identity_reuse=PreparationReuseChecks.preparation_identity_checks(;arms=(:plan_view_reuse,)); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/identity-reuse-corrected.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,identity_reuse,2); end; (passed=true)",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\nPreparation reuse preserves affected local-view and saved-target identity epochs: Test Failed at /Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/preparation_reuse_checks.jl:207\n  Expression: new_left.status !== left_local\n   Evaluated: Status(total = 3.0f0, reader_visits = 2, signals = RefVector{Float32}[1.0, 2.0]) !== Status(total = 3.0f0, reader_visits = 2, signals = RefVector{Float32}[1.0, 2.0])\n  Stacktrace:\n   [1] macro expansion\n     @ ~/.julia/juliaup/julia-1.13.1+0.aarch64.apple.darwin14/share/julia/stdlib/v1.13/Test/src/Test.jl:758 [inlined]\n   [2] macro expansion\n     @ ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/preparation_reuse_checks.jl:207 [inlined]\n   [3] macro expansion\n     @ ~/.julia/juliaup/julia-1.13.1+0.aarch64.apple.darwin14/share/julia/stdlib/v1.13/Test/src/Test.jl:1967 [inlined]\n   [4] preparation_identity_checks(; arms::Tuple{Symbol}, consume_refresh::Bool, transition::Symbol)\n     @ Main.PreparationReuseChecks ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/preparation_reuse_checks.jl:173\n\nPreparation reuse preserves affected local-view and saved-target identity epochs: Test Failed at /Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/preparation_reuse_checks.jl:208\n  Expression: new_right.status !== right_local\n   Evaluated: Status(total = 3.0f0, reader_visits = 2, signals = RefVector{Float32}[1.0, 2.0]) !== Status(total = 3.0f0, reader_visits = 2, signals = RefVector{Float32}[1.0, 2.0])\n  Stacktrace:\n   [1] macro expansion\n     @ ~/.julia/juliaup/julia-1.13.1+0.aarch64.apple.darwin14/share/julia/stdlib/v1.13/Test/src/Test.jl:758 [inlined]\n   [2] macro expansion\n     @ ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/preparation_reuse_checks.jl:208 [inlined]\n   [3] macro expansion\n     @ ~/.julia/juliaup/julia-1.13.1+0.aarch64.apple.darwin14/share/julia/stdlib/v1.13/Test/src/Test.jl:1967 [inlined]\n   [4] preparation_identity_checks(; arms::Tuple{Symbol}, consume_refresh::Bool, transition::Symbol)\n     @ Main.PreparationReuseChecks ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/preparation_reuse_checks.jl:173\nTest Summary:                                                                    | Pass  Fail  Total  Time\nPreparation reuse preserves affected local-view and saved-target identity epochs |   20     2     22  4.6s\nRNG of the outermost testset: Random.Xoshiro(0x3b92977d58cb4449, 0x2d14cdedf77ca347, 0xe49bfc3472f15949, 0xcb6a56e471c3a1fb, 0xc9c54e8c9a515a68)\nERROR: Some tests did not pass: 20 passed, 2 failed, 0 errored, 0 broken.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "542691f2"
+    }
+  }
+}

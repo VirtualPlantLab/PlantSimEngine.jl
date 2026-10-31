@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T21:11:59.677541+00:00",
+  "tool": "investigate_environment",
+  "arguments": {
+    "session": "eacd5b39"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.1s.\nJob ID: bbb31399\nSession: PSE future cold-pb-combined\nCode: begin\n    import Pkg\n    import TOML\n\n    io = IOBuffer()\n\n    # Project info\n  ...\n\nUse `check_eval(eval_id=\"bbb31399\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"bbb31399\")` to cancel if needed.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

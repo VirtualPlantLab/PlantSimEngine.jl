@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T21:28:08.875612+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "6faedf20",
+    "e": "future_case_kind=:xp; future_case_arm=:combined; future_case_freshness=(new_process=Base.getpid()!=83505,pid=Base.getpid(),previous_pid=83505,no_prior_case_execution=true,no_prior_ir_probe=true,method=:fresh_Kaimon_worker); future_case_output_path=\"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/results/future-layouts/cold-xp-combined.json\"; using PlantSimEngine; @assert startswith(pathof(PlantSimEngine),\"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine\"); include(joinpath(pwd(),\"benchmark/native_downstream/future_layout_cold_case.jl\")); (pid=getpid(),arm=future_case_arm,kind=future_case_kind,complete_seconds=future_case_record.complete_seconds,digest=future_case_record.digest)",
+    "q": false,
+    "max_output": 2500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.0s.\nJob ID: aa03b1f2\nSession: PSE future cold-xp-combined\nCode: future_case_kind=:xp; future_case_arm=:combined; future_case_freshness=(new_proc...\n\nUse `check_eval(eval_id=\"aa03b1f2\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"aa03b1f2\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "aa03b1f2"
+    }
+  }
+}

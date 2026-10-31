@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:44:29.279759+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(\"/private/tmp/pse_reload_newborn_checks.jl\"); newborn_generic=NewbornPreparationChecks.newborn_generic_checks(); newborn_multirate=NewbornPreparationChecks.newborn_multirate_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/newborn-generic-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(generic=newborn_generic,multirate=newborn_multirate),2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "ERROR: LoadError: Expected exactly three fixture definitions\nStacktrace:\n  [1] error(s::String)\n    @ Base ./error.jl:44\n  [2] top-level scope\n    @ /private/tmp/pse_reload_newborn_checks.jl:15\n  [3] include(mapexpr::Function, mod::Module, _path::String)\n    @ Base ./Base.jl:310\n  [4] top-level scope\n    @ none:1\n  [5] eval(m::Module, e::Any)\n    @ Core ./boot.jl:489\n  [6] _eval_with_capture(expr::Expr; mirror::Bool)\n    @ KaimonGate ~/.julia/packages/KaimonGate/YvD3m/src/gate_stream.jl:664\n  [7] gate_eval(code::String; _mod::Module, display_code::String)\n    @ KaimonGate ~/.julia/packages/KaimonGate/YvD3m/src/gate_eval.jl:64\n  [8] gate_eval\n    @ ~/.julia/packages/KaimonGate/YvD3m/src/gate_eval.jl:17 [inlined]\n  [9] (::KaimonGate.var\"#_do_async_eval#handle_message##0\")()\n    @ KaimonGate ~/.julia/packages/KaimonGate/YvD3m/src/gate_protocol.jl:376\n [10] (::KaimonGate.var\"#handle_message##5#handle_message##6\"{KaimonGate.var\"#_do_async_eval#handle_message##0\"})()\n    @ KaimonGate ~/.julia/packages/KaimonGate/YvD3m/src/gate_protocol.jl:415\nin expression starting at /private/tmp/pse_reload_newborn_checks.jl:1",
+          "type": "text"
+        }
+      ],
+      "eval_id": "6a3f18b3"
+    }
+  }
+}

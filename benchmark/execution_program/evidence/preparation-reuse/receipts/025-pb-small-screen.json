@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T18:25:15.992083+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "b89c1299",
+    "e": "sp=PreparationReuseMeasurements.register_preparation_pb_case!(:prep_pb_small;nobjects=2,steps=2); sc=M.screen_case(sp;repetitions=3); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/pb-small-screen.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,sc,2); end; [(variant=r.variant,prepare_ms=1000*M.median(s.phases.pse_preparation.seconds for s in sc.samples if s.variant===r.variant),execution_ms=1000*r.execution_seconds,execution_ratio=r.execution_ratio,complete_ms=1000*r.complete_seconds,complete_ratio=r.complete_ratio) for r in M.summarize_screen(sc)]",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "[ Warning: median is defined in Statistics and is not public in Main.NativeDownstreamMeasurements\n4-element Vector{@NamedTuple{variant::Symbol, prepare_ms::Float64, execution_ms::Float64, execution_ratio::Float64, complete_ms::Float64, complete_ratio::Float64}}:\n (variant = :reference_executor, prepare_ms = 0.914584, execution_ms = 0.015000000000000001, execution_ratio = 1.0, complete_ms = 1.119126, complete_ratio = 1.0)\n (variant = :plan_view_reuse, prepare_ms = 1.0406250000000001, execution_ms = 0.01575, execution_ratio = 1.0250000000000001, complete_ms = 1.2627909999999998, complete_ratio = 1.1082308873174245)\n (variant = :bounded_preparation, prepare_ms = 0.969375, execution_ms = 0.016291, execution_ratio = 1.1741261261261262, complete_ms = 1.1664999999999999, complete_ratio = 1.042331247777283)\n (variant = :combined, prepare_ms = 1.08, execution_ms = 0.016042, execution_ratio = 0.9278000000000001, complete_ms = 1.2840829999999999, complete_ratio = 1.0384228406810314)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "a03729bf"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:32:25.933972+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "tg_medium=TightGapBenchmarks.register_tight_gap_case!(:tight_gap_medium;nobjects=32,steps=128); tight_medium_screen=M.screen_case(tg_medium;repetitions=3); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/tight-medium.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,tight_medium_screen,2); end; [(variant=r.variant,execute_ms=1e3*r.execution_seconds,ratio=r.execution_ratio,complete_ms=1e3*r.complete_seconds,allocated=r.execution_allocated_bytes) for r in M.summarize_screen(tight_medium_screen)]",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "7-element Vector{@NamedTuple{variant::Symbol, execute_ms::Float64, ratio::Float64, complete_ms::Float64, allocated::Float64}}:\n (variant = :reference_executor, execute_ms = 4.6225830000000006, ratio = 1.0, complete_ms = 8.903417000000001, allocated = 1.48744e6)\n (variant = :direct_reference, execute_ms = 4.172167, ratio = 0.9109625505913036, complete_ms = 10.643459000000002, allocated = 174576.0)\n (variant = :shared_reference, execute_ms = 4.561292, ratio = 0.9824052915869763, complete_ms = 10.837624, allocated = 512496.0)\n (variant = :pure_julia, execute_ms = 2.9117919999999997, ratio = 0.6299058340326176, complete_ms = 3.157793, allocated = 496.0)\n (variant = :tight_projected, execute_ms = 3.278333, ratio = 0.7209694016319129, complete_ms = 9.715958, allocated = 190960.0)\n (variant = :tight_union, execute_ms = 3.241291, ratio = 0.7011861117474796, complete_ms = 9.708209, allocated = 190960.0)\n (variant = :pure_noinline, execute_ms = 2.9319580000000003, ratio = 0.6342592442363933, complete_ms = 3.180501, allocated = 496.0)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "500a1703"
+    }
+  }
+}

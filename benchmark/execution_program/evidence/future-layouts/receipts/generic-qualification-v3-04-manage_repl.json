@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-30T20:32:38.528477+00:00",
+  "tool": "manage_repl",
+  "arguments": {
+    "session": "bbba9507",
+    "command": "shutdown"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Session bbba9507 shut down.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

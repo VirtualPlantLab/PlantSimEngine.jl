@@ -825,3 +825,30 @@ end
         collect_outputs(normal_simulation; sink=nothing),
     )
 end
+
+@testset "Readable source executes shared root plans" begin
+    generated_simulation = PlantSimEngine._with_execution_policy(shared_plans=true) do
+        run!(source_compiler_distributed_fixture(); steps=0, outputs=:all)
+    end
+    @test PlantSimEngine._execution_strategy_counts(generated_simulation).shared_targets == 1
+    source = Authoring.compiled_model_source(
+        generated_simulation;
+        function_name=:shared_root_source_model!,
+    )
+    generated_module = Module(gensym(:SharedRootSourceModel))
+    Base.include_string(generated_module, source, "shared-root-source-model.jl")
+    generated_run = Core.eval(generated_module, :shared_root_source_model!)
+    Base.invokelatest(generated_run, generated_simulation; steps=2)
+
+    normal_simulation = PlantSimEngine._with_execution_policy(shared_plans=true) do
+        run!(source_compiler_distributed_fixture(); steps=2, outputs=:all)
+    end
+    @test final_state(generated_simulation, :scene).local_value === Float32(2)
+    @test final_state(generated_simulation, :leaf_1).distributed_value === Float32(3)
+    @test final_state(generated_simulation, :leaf_2).distributed_value === Float32(4)
+    @test isequal(
+        collect_outputs(generated_simulation; sink=nothing),
+        collect_outputs(normal_simulation; sink=nothing),
+    )
+    @test PlantSimEngine._execution_strategy_counts(generated_simulation).shared_targets == 1
+end

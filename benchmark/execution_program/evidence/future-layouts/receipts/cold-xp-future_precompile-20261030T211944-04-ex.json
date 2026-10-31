@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T21:20:33.878422+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "fb100b55",
+    "e": "future_case_kind=:xp; future_case_arm=:future_precompile; future_case_freshness=(new_process=Base.getpid()!=82598,pid=Base.getpid(),previous_pid=82598,no_prior_case_execution=true,no_prior_ir_probe=true,method=:fresh_Kaimon_worker); future_case_output_path=\"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/results/future-layouts/cold-xp-future_precompile.json\"; using PlantSimEngine; @assert startswith(pathof(PlantSimEngine),\"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine\"); include(joinpath(pwd(),\"benchmark/native_downstream/future_layout_cold_case.jl\")); (pid=getpid(),arm=future_case_arm,kind=future_case_kind,complete_seconds=future_case_record.complete_seconds,digest=future_case_record.digest)",
+    "q": false,
+    "max_output": 2500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.0s.\nJob ID: 757298a5\nSession: PSE future cold-xp-future_precompile\nCode: future_case_kind=:xp; future_case_arm=:future_precompile; future_case_freshness=...\n\nUse `check_eval(eval_id=\"757298a5\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"757298a5\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "757298a5"
+    }
+  }
+}

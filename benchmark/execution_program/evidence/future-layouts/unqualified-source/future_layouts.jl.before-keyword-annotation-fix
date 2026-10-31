@@ -1,0 +1,355 @@
+module FutureLayouts
+
+using PlantSimEngine, Random, SHA
+const PSE = PlantSimEngine
+
+export FutureArchetype, FutureLayoutCatalogue, precompile_future_layouts!,
+    future_layout_report, match_future_status_layouts,
+    match_observed_kernel_layouts, call_layout_catalogues
+
+"""A finite, explicit, independently allocated future scenario.
+
+`builder()` must construct a NEW CompositeModel containing representative future
+organs without running model/growth kernels or touching live state. Declaration
+and zero-step preparation effects belong exclusively to that disposable model.
+Mutable defaults, parameters, RNGs and environment backends must be independent.
+The builder is an explicit author contract, not inferred purity. Global task RNG
+state is restored around the complete discovery/precompile phase.
+"""
+struct FutureArchetype{F,E}
+    name::Symbol
+    builder::F
+    environment_types::E
+end
+FutureArchetype(name::Symbol, builder; environment_types=Dict()) =
+    FutureArchetype(name, builder, environment_types)
+
+mutable struct FutureLayoutCatalogue
+    layouts::Vector{NamedTuple}
+    status_requests::Vector{Any}
+    status_results::Vector{NamedTuple}
+    call_catalogues::Vector{Any}
+    call_reports::Vector{Any}
+    phases::Vector{NamedTuple}
+    scenarios::Vector{NamedTuple}
+    targetless_applications::Vector{Symbol}
+    max_requests::Int
+    max_layouts::Int
+    skipped_status_requests::Int
+end
+FutureLayoutCatalogue(targetless, max_requests, max_layouts) = FutureLayoutCatalogue(
+    NamedTuple[], Any[], NamedTuple[], Any[], Any[], NamedTuple[], NamedTuple[],
+    targetless, max_requests, max_layouts, 0)
+
+_calls() = getfield(Main, :FutureCallLayouts)
+call_layout_catalogues(catalogue::FutureLayoutCatalogue) = copy(catalogue.call_catalogues)
+
+function _phase(name, sample)
+    return (; name, seconds=sample.time, allocated_bytes=sample.bytes,
+        gc_seconds=sample.gctime,
+        compilation_seconds=hasproperty(sample, :compile_time) ? sample.compile_time : nothing,
+        recompilation_seconds=hasproperty(sample, :recompile_time) ? sample.recompile_time : nothing)
+end
+
+# Identity traversal uses fields, not arbitrary array/property accessors, so it
+# cannot materialize lazy CallTargets or sample environments. Scientific value
+# graphs are inspected transiently; no such objects enter the returned catalog.
+Base.@nospecializeinfer @noinline function _mutable_graph!(out, seen, value, limit)
+    @nospecialize value
+    value === nothing && return nothing
+    value isa Union{Type,TypeVar,Module,AbstractString,Symbol,Char,Task,IO} &&
+        return nothing
+    isbits(value) && return nothing
+    haskey(seen, value) && return nothing
+    length(seen) < limit || throw(ArgumentError("Future ownership proof exceeded its node budget"))
+    seen[value] = nothing
+    ismutabletype(typeof(value)) && (out[value] = nothing)
+    if value isa Array
+        isbitstype(eltype(value)) && return nothing
+        for item in value
+            _mutable_graph!(out, seen, item, limit)
+        end
+    elseif value isa Union{Dict,IdDict}
+        for (key, item) in value
+            _mutable_graph!(out, seen, key, limit)
+            _mutable_graph!(out, seen, item, limit)
+        end
+    else
+        for index in 1:fieldcount(typeof(value))
+            isdefined(value, index) || continue
+            _mutable_graph!(out, seen, getfield(value, index), limit)
+        end
+    end
+    return nothing
+end
+function _mutable_graph(value; max_nodes=100_000)
+    out = IdDict{Any,Nothing}()
+    _mutable_graph!(out, IdDict{Any,Nothing}(), value, max_nodes)
+    return out
+end
+function _assert_independent(live_mutables, future; max_nodes=100_000)
+    for value in keys(_mutable_graph(future; max_nodes))
+        haskey(live_mutables, value) && throw(ArgumentError(
+            "Future builder shares mutable model/status/environment storage with the live scenario"))
+    end
+    return nothing
+end
+
+_epoch(simulation) = (simulation.current_step, simulation.model.revision,
+    simulation.model.runtime_revision, simulation.model.environment_revision,
+    simulation.compiled.execution_generation, length(simulation.model.registry.objects))
+
+function _push_request!(catalogue, function_object, argument_types, label)
+    all(type -> type isa Type && isconcretetype(type), argument_types) || return false
+    key = (function_object, argument_types)
+    any(request -> request.function_object === function_object &&
+        request.argument_types == argument_types, catalogue.status_requests) && return false
+    push!(catalogue.status_requests, (; function_object, argument_types, label))
+    return true
+end
+
+Base.@nospecializeinfer @noinline function _collect_status_layouts!(catalogue, simulation,
+    scenario_label, application_filter)
+    @nospecialize simulation application_filter
+    for ((application_id, object_id), view) in simulation.compiled.status_views_by_target
+        isempty(application_filter) || application_id in application_filter || continue
+        canonical = view.canonical_status
+        canonical isa PSE.Status || continue
+        application = simulation.compiled.applications_by_id[application_id]
+        model = PSE._application_model(application, object_id)
+        kernel_status = PSE._kernel_execution_status(simulation.compiled,
+            application, model, view.status)
+        key = (application_id, typeof(canonical), typeof(view.status), typeof(view),
+            typeof(kernel_status), typeof(view.bound_inputs))
+        if !any(layout -> layout.key == key, catalogue.layouts)
+            length(catalogue.layouts) < catalogue.max_layouts || continue
+            push!(catalogue.layouts, (key=key, application=application_id,
+                scenario=scenario_label, canonical_type=typeof(canonical),
+                status_type=typeof(view.status), view_type=typeof(view),
+                kernel_status_type=typeof(kernel_status),
+                bound_inputs_type=typeof(view.bound_inputs),
+                temporal_inputs_type=typeof(view.temporal_inputs),
+                private_outputs_type=typeof(view.private_outputs),
+                canonical_fields=Tuple(propertynames(canonical)),
+                canonical_reference_types=Tuple(typeof(PSE.refvalue(canonical, name))
+                    for name in propertynames(canonical))))
+        end
+        # The ordinary one-argument constructor allocates a new identity.
+        # A backed canonical Status has an extra representation boundary; leave
+        # that constructor shape to ordinary first-use compilation.
+        if getfield(canonical, :backing) === nothing
+            _push_request!(catalogue, PSE.Status,
+                (typeof(getfield(canonical, :vars)),), :canonical_status_constructor)
+        end
+        _push_request!(catalogue, PSE.CompiledModelStatusView,
+            (typeof(view.status), typeof(canonical), typeof(view.temporal_inputs),
+                typeof(view.private_outputs), typeof(view.bound_inputs)), :status_view_constructor)
+        for name in propertynames(view.bound_inputs)
+            bound = getproperty(view.bound_inputs, name)
+            _push_request!(catalogue, PSE._compiled_bound_many,
+                (typeof(bound.ids.ids), typeof(bound.values)), :bound_many_constructor)
+        end
+    end
+    return nothing
+end
+
+function _precompile_status_requests!(catalogue, limit)
+    attempted = 0
+    for request in catalogue.status_requests
+        attempted < limit || break
+        success = Base.precompile(request.function_object, request.argument_types)
+        push!(catalogue.status_results, (label=request.label, accepted=success,
+            function_type=Core.Typeof(request.function_object),
+            argument_types=request.argument_types))
+        attempted += 1
+    end
+    catalogue.skipped_status_requests = length(catalogue.status_requests) - attempted
+    return attempted
+end
+
+"""
+    precompile_future_layouts!(live, archetypes; bounded=false, max_requests=24,
+        status_max_requests=min(8,max_requests), application_filter=(), ...)
+
+Discover exact types only in independently allocated, zero-step scenarios and
+issue type-only Julia precompile requests. Actual simulation always uses its
+ordinary constructors, bindings, kernels and runtime. Unknown future layouts
+simply compile ordinarily; this catalog never installs live state or runtime
+cache hooks. Upfront builder/preparation/precompile costs are all returned.
+
+`environment_types` belong to each FutureArchetype and are explicit descriptors;
+no environment sampling is used for signature discovery. This does not promise
+that a complete future scene covers transient targeted-newborn layouts.
+"""
+Base.@nospecializeinfer @noinline function precompile_future_layouts!(live::PSE.Simulation, archetypes;
+    bounded::Bool=false, outputs=:none, constants=live.constants,
+    max_requests::Int=24, status_max_requests::Int=min(8,max_requests),
+    max_layouts::Int=256, max_collected_requests::Int=128,
+    max_targets::Int=256, max_depth::Int=16,
+    max_ownership_nodes::Int=100_000, application_filter=(), include_calls::Bool=true)
+    @nospecialize live archetypes constants application_filter
+    live.current_step == 0 || throw(ArgumentError("Prepare future layouts before simulation growth starts"))
+    max_requests >= 0 && 0 <= status_max_requests <= max_requests ||
+        throw(ArgumentError("Precompile request budgets must be nonnegative and nested"))
+    specs = archetypes isa FutureArchetype ? (archetypes,) : Tuple(archetypes)
+    length(specs) <= 32 || throw(ArgumentError("Use a finite future archetype catalog (at most 32 scenarios)"))
+    all(spec -> spec isa FutureArchetype, specs) || throw(ArgumentError("Use FutureArchetype entries"))
+    include_calls && !isdefined(Main, :FutureCallLayouts) &&
+        throw(ArgumentError("Load FutureCallLayouts before requesting call signatures"))
+    targetless = Symbol[application.id for application in live.compiled.applications
+        if isempty(application.target_ids)]
+    catalogue = FutureLayoutCatalogue(targetless, max_requests, max_layouts)
+    saved_rng = copy(Random.default_rng())
+    before_epoch = _epoch(live)
+    try
+        ownership = @timed _mutable_graph((live.model, live.constants); max_nodes=max_ownership_nodes)
+        push!(catalogue.phases, _phase(:live_ownership_proof, ownership))
+        live_mutables = ownership.value
+        for spec in specs
+            built = @timed Base.invokelatest(spec.builder)
+            push!(catalogue.phases, _phase(Symbol(spec.name, :_builder), built))
+            future = built.value
+            future isa PSE.CompositeModel || throw(ArgumentError("A future builder must return a fresh CompositeModel"))
+            future !== live.model || throw(ArgumentError("Future builder returned the live model"))
+            copied_constants = @timed deepcopy(constants)
+            push!(catalogue.phases, _phase(Symbol(spec.name, :_constant_copy), copied_constants))
+            future_constants = copied_constants.value
+            _assert_independent(live_mutables, (future, future_constants); max_nodes=max_ownership_nodes)
+            if bounded
+                isdefined(Main, :BoundedPreparation) || throw(ArgumentError("Load BoundedPreparation first"))
+                getfield(Main, :BoundedPreparation).enable_bounded_preparation!(future)
+            end
+            prepared = @timed Base.invokelatest(PSE.run!, future;
+                steps=0, outputs, constants=future_constants, performance=false)
+            push!(catalogue.phases, _phase(Symbol(spec.name, :_zero_step_preparation), prepared))
+            disposable = prepared.value
+            _assert_independent(live_mutables, (disposable.model, disposable.constants);
+                max_nodes=max_ownership_nodes)
+            collected = @timed _collect_status_layouts!(catalogue, disposable,
+                spec.name, application_filter)
+            push!(catalogue.phases, _phase(Symbol(spec.name, :_status_collection), collected))
+            push!(catalogue.scenarios, (name=spec.name,
+                objects=length(future.registry.objects), applications=length(disposable.compiled.applications),
+                represented_targetless_applications=Symbol[id for id in targetless
+                    if haskey(disposable.compiled.applications_by_id,id) &&
+                        !isempty(disposable.compiled.applications_by_id[id].target_ids)]))
+            if include_calls
+                call_collected = @timed Base.invokelatest(_calls().collect_call_layouts, disposable;
+                    environment_types=spec.environment_types, scenario_label=spec.name,
+                    disposable=true, mandatory_applications=targetless,
+                    max_requests=max_collected_requests, max_targets=max_targets, max_depth=max_depth)
+                push!(catalogue.call_catalogues, call_collected.value)
+                push!(catalogue.phases, _phase(Symbol(spec.name, :_call_collection), call_collected))
+            end
+        end
+        requested = @timed _precompile_status_requests!(catalogue, status_max_requests)
+        push!(catalogue.phases, _phase(:status_precompile, requested))
+        remaining = max_requests - requested.value
+        if include_calls
+            for call_catalogue in catalogue.call_catalogues
+                attempts_before = _calls().call_layout_report(call_catalogue).precompile_attempts
+                requested_calls = @timed Base.invokelatest(_calls().precompile_call_layouts!, call_catalogue;
+                    categories=(:kernel,:batch,:step), max_requests=remaining)
+                push!(catalogue.call_reports, requested_calls.value)
+                push!(catalogue.phases, _phase(:call_precompile, requested_calls))
+                # Consume only hints actually attempted by this call, not a
+                # conservative whole-budget estimate or cumulative prior work.
+                report = _calls().call_layout_report(call_catalogue)
+                attempted_delta = report.precompile_attempts - attempts_before
+                0 <= attempted_delta <= remaining || error("Call precompile exceeded its budget")
+                remaining -= attempted_delta
+            end
+        end
+        _epoch(live) == before_epoch || error("Future preparation changed the live simulation epoch/topology")
+        return catalogue
+    finally
+        copy!(Random.default_rng(), saved_rng)
+    end
+end
+
+function _describe_type(type)
+    rendered = string(type)
+    return (prefix=first(rendered, min(length(rendered), 320)),
+        bytes=ncodeunits(rendered), sha256=bytes2hex(sha256(rendered)))
+end
+function future_layout_report(catalogue::FutureLayoutCatalogue)
+    return (archetypes=length(catalogue.scenarios), scenarios=copy(catalogue.scenarios),
+        targetless_before=copy(catalogue.targetless_applications),
+        status_layouts=length(catalogue.layouts), status_requests_collected=length(catalogue.status_requests),
+        status_requests_attempted=length(catalogue.status_results),
+        status_requests_accepted=count(result -> result.accepted, catalogue.status_results),
+        status_requests_skipped_budget=catalogue.skipped_status_requests,
+        total_requests_attempted=length(catalogue.status_results) +
+            sum(_calls().call_layout_report(item).precompile_attempts
+                for item in catalogue.call_catalogues; init=0),
+        total_requests_accepted=count(result -> result.accepted, catalogue.status_results) +
+            sum(_calls().call_layout_report(item).precompile_accepted
+                for item in catalogue.call_catalogues; init=0),
+        max_requests=catalogue.max_requests,
+        call_reports=[_calls().call_layout_report(call_catalogue)
+            for call_catalogue in catalogue.call_catalogues], phases=copy(catalogue.phases),
+        status_types=[(application=layout.application, scenario=layout.scenario,
+            canonical=_describe_type(layout.canonical_type),
+            local_status=_describe_type(layout.status_type),
+            kernel_status=_describe_type(layout.kernel_status_type),
+            view=_describe_type(layout.view_type), canonical_fields=layout.canonical_fields)
+            for layout in catalogue.layouts],
+        scientific_kernels_executed=false, sampled_for_signature_discovery=false,
+        task_rng_restored=true, retained_scientific_state=false,
+        runtime_policy=:ordinary_preparation_and_execution_for_all_layouts,
+        scope=:explicit_disposable_archetypes_not_all_possible_future_states)
+end
+
+function match_future_status_layouts(catalogue::FutureLayoutCatalogue,
+    simulation::PSE.Simulation; object_ids=nothing)
+    selected = object_ids === nothing ? nothing : Set(PSE.ObjectId(id) for id in object_ids)
+    rows = NamedTuple[]
+    for ((application_id, object_id), view) in simulation.compiled.status_views_by_target
+        selected === nothing || object_id in selected || continue
+        application = simulation.compiled.applications_by_id[application_id]
+        model = PSE._application_model(application, object_id)
+        kernel_status = PSE._kernel_execution_status(simulation.compiled,
+            application, model, view.status)
+        matched = any(layout -> layout.application === application_id &&
+            layout.canonical_type === typeof(view.canonical_status) &&
+            layout.status_type === typeof(view.status) && layout.view_type === typeof(view) &&
+            layout.kernel_status_type === typeof(kernel_status), catalogue.layouts)
+        push!(rows, (; application=application_id, object_id=repr(object_id.value), matched,
+            canonical=_describe_type(typeof(view.canonical_status)),
+            local_status=_describe_type(typeof(view.status)), kernel_status=_describe_type(typeof(kernel_status))))
+    end
+    return (; observed=length(rows), matched=count(row -> row.matched, rows),
+        missed=count(row -> !row.matched, rows), rows,
+        meaning=:exact_type_and_application_match_not_a_compiler_cache_hit)
+end
+
+function match_observed_kernel_layouts(catalogue::FutureLayoutCatalogue, observations)
+    reports = [_calls().match_observed_layouts(call_catalogue, observations)
+        for call_catalogue in catalogue.call_catalogues]
+    rows = NamedTuple[]
+    by_application = Dict{Symbol,NamedTuple}()
+    for (index, observation) in pairs(observations)
+        individual = [_calls().match_observed_layouts(call_catalogue, (observation,))
+            for call_catalogue in catalogue.call_catalogues]
+        requested = any(report -> report.requested_matches == 1, individual)
+        accepted = any(report -> report.accepted_matches == 1, individual)
+        application = hasproperty(observation, :application) ? Symbol(observation.application) : :unknown
+        push!(rows, (; observation=index, application, requested, accepted))
+        previous = get(by_application, application,
+            (observations=0, requested_matches=0, accepted_matches=0))
+        by_application[application] = (observations=previous.observations + 1,
+            requested_matches=previous.requested_matches + Int(requested),
+            accepted_matches=previous.accepted_matches + Int(accepted))
+    end
+    requested = count(row -> row.requested, rows)
+    accepted = count(row -> row.accepted, rows)
+    return (; observations=length(rows), requested_matches=requested,
+        accepted_matches=accepted, by_application,
+        unmatched=filter(row -> !row.requested, rows),
+        all_requested=!isempty(rows) && requested == length(rows),
+        all_precompile_accepted=!isempty(rows) && accepted == length(rows),
+        catalogue_reports=reports,
+        meaning=:exact_observed_signature_match_not_a_compiler_cache_hit)
+end
+
+end # module

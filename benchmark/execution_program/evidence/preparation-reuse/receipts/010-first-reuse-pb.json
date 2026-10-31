@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T16:23:57.216662+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "58e5babf",
+    "e": "@assert !isdefined(Main,:base_spec); include(joinpath(pwd(),\"benchmark/native_downstream/load_experiments.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/plan_view_reuse.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/bounded_preparation.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/plan_view_reuse_checks.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/bounded_preparation_checks.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/preparation_reuse_measurements.jl\")); include(joinpath(pwd(),\"benchmark/native_downstream/preparation_reuse_checks.jl\")); table_gate=BoundedPreparationChecks.bounded_table_checks(); pb_reuse=PreparationReuseChecks.preparation_pb_checks(;arms=(:plan_view_reuse,)); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/first-reuse-pb-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(tables=table_gate,pb=pb_reuse),2); end; (passed=true,pid=Base.getpid(),source=Base.pathof(PlantSimEngine))",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.2s.\nJob ID: 2dfd9f68\nSession: PSE static preparation baseline\nCode: @assert !isdefined(Main,:base_spec); include(joinpath(pwd(),\"benchmark/native_do...\n\nUse `check_eval(eval_id=\"2dfd9f68\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"2dfd9f68\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "2dfd9f68"
+    }
+  }
+}

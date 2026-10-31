@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:55:58.041609+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/newborn_fresh_distributed_checks.jl\")); late_owner=NewbornFreshDistributedChecks.newborn_fresh_distributed_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/newborn-late-owner.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,late_owner,2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                                             | Pass  Total  Time\nNewborn from_status capture rejects newly refreshed distributed ownership |   44     44  6.8s\n(passed = true, pid = 53643)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "562cfef6"
+    }
+  }
+}

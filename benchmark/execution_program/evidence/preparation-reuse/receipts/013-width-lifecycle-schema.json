@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T16:29:52.114322+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "58e5babf",
+    "e": "@info \"Start bounded small-width and lifecycle gates\"; width_gate=BoundedPreparationChecks.bounded_width_checks(); growth_gate=BoundedPreparationChecks.bounded_growth_checks(); schemas=PlanViewReuseChecks.plan_view_recipe_schema_checks(); temporal=PlanViewReuseChecks.plan_view_temporal_private_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/width-lifecycle-schema-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(width=width_gate,growth=growth_gate,schemas=schemas,temporal=temporal),2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.0s.\nJob ID: 9fc1faed\nSession: PSE static preparation baseline\nCode: @info \"Start bounded small-width and lifecycle gates\"; width_gate=BoundedPrepara...\n\nUse `check_eval(eval_id=\"9fc1faed\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"9fc1faed\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "9fc1faed"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "passed": true,
+  "prototype_assertions": {
+    "direct_own": 136,
+    "direct_public": 40,
+    "direct_active_targets": 15,
+    "direct_transitive": 40,
+    "consumed_refresh": 44,
+    "instrumentation": 6,
+    "retained_many": 46,
+    "retained_singular_refresh": 72,
+    "growth_all": 273,
+    "growth_xp_reference": 96,
+    "growth_public": 11
+  },
+  "prototype_total": 779,
+  "existing_ordinary_core_assertions": 7406,
+  "existing_ordinary_additional_assertions": 1800,
+  "existing_ordinary_total": 9206,
+  "total_assertions": 9985,
+  "full_pkg_test": false,
+  "source_files": 214,
+  "julia_version": "1.13.1",
+  "kaimon_session": "9c33513e",
+  "pid": 51898,
+  "scientific_packages_edited": false,
+  "default_dependencies_changed": false,
+  "source_hash_mismatches": [],
+  "qualification": "Focused serial correctness and warmed performance screening; not cold compilation, biological, concurrent, million-organ or dense-call-DAG qualification.",
+  "ordinary_validation": "ordinary-validation-summary.json",
+  "prototype_validation": [
+    "final-retirement-correctness.json",
+    "singular-retirement-checks.json",
+    "growth-final-checks.json",
+    "growth-xp-reference-checks.json",
+    "growth-public-checks.json"
+  ],
+  "runner_repairs": "No test/runtime changes. fd-backed stdio, Main namespace, and explicit PSE geometry import resolved harness errors; all four environment testsets reran unchanged."
+}

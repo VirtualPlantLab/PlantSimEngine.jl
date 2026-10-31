@@ -1,0 +1,387 @@
+module FutureCallLayouts
+
+using PlantSimEngine
+const PSE=PlantSimEngine
+
+export collect_call_layouts, collect_call_layouts!, precompile_call_layouts!,
+    call_layout_report, match_observed_layouts, requested_signatures, FutureCallCatalog
+
+mutable struct SignatureRequest
+    signature::Type
+    category::Symbol
+    labels::Vector{NamedTuple}
+    mandatory::Bool
+end
+mutable struct FutureCallCatalog
+    requests::Vector{SignatureRequest}
+    positions::Dict{Type,Int}
+    results::Dict{Type,Symbol}
+    skipped::Vector{NamedTuple}
+    scenarios::Int
+    root_batches::Int
+    manual_batches::Int
+    targets::Int
+    contexts::Int
+    initializer_partial_gaps::Int
+    requests_seen::Int
+    request_budget::Int
+    collection_world::UInt
+    precompile_attempts::Int
+    precompile_accepted::Int
+    precompile_rejected::Int
+    precompile_errors::Int
+    precompile_budget_skipped::Int
+end
+FutureCallCatalog(;max_requests::Int=128)=FutureCallCatalog(
+    SignatureRequest[],Dict{Type,Int}(),Dict{Type,Symbol}(),NamedTuple[],
+    0,0,0,0,0,0,0,max_requests,Base.get_world_counter(),0,0,0,0,0)
+
+# Types and immutable labels only survive collection. All simulation, model,
+# environment, context, target and scientific references are local temporaries.
+function _skip!(catalog,reason,label)
+    push!(catalog.skipped,(;reason,label))
+    return nothing
+end
+function _request!(catalog,signature::Type,category::Symbol,label,mandatory=false)
+    catalog.requests_seen+=1
+    signature<:Tuple && isconcretetype(signature) ||
+        return _skip!(catalog,:nonconcrete_signature,label)
+    existing=get(catalog.positions,signature,0)
+    if !iszero(existing)
+        request=catalog.requests[existing]
+        label in request.labels || push!(request.labels,label)
+        request.mandatory|=mandatory
+        return nothing
+    end
+    request=SignatureRequest(signature,category,NamedTuple[label],mandatory)
+    if length(catalog.requests)>=catalog.request_budget
+        # Late-discovered mandatory manual children must displace optional
+        # repeated-root helpers, rather than losing the finite future budget.
+        candidates=Int[index for (index,old) in pairs(catalog.requests)
+            if !haskey(catalog.results,old.signature)]
+        isempty(candidates) && return _skip!(catalog,:collection_request_budget,label)
+        victim=candidates[argmax(_priority(catalog.requests[index]) for index in candidates)]
+        isless(_priority(request),_priority(catalog.requests[victim])) ||
+            return _skip!(catalog,:collection_request_budget,label)
+        old=catalog.requests[victim]
+        for old_label in old.labels
+            _skip!(catalog,:collection_evicted_for_future_priority,old_label)
+        end
+        delete!(catalog.positions,old.signature)
+        catalog.requests[victim]=request
+        catalog.positions[signature]=victim
+        return nothing
+    end
+    push!(catalog.requests,request)
+    catalog.positions[signature]=length(catalog.requests)
+    return nothing
+end
+_sig(f,types...)=Tuple{typeof(f),types...}
+_label(scenario,application,role,path,row)=(;scenario=Symbol(scenario),
+    application=Symbol(application),role,path=Tuple(path),row=Int(row))
+
+function _declared_types(declarations,application,object_id)
+    value=get(declarations,(application.id,object_id),
+        get(declarations,application.id,nothing))
+    value===nothing && return Type[]
+    values=value isa Type ? (value,) : value
+    values isa Union{Tuple,AbstractVector} || throw(ArgumentError(
+        "Environment declarations must be a concrete Type or tuple/vector of Types"))
+    types=Type[]
+    for type in values
+        type isa Type && isconcretetype(type) || throw(ArgumentError(
+            "Environment declarations must contain concrete Types, never sampled values"))
+        type in types || push!(types,type)
+    end
+    return types
+end
+function _context_types(context,override_types)
+    types=Type[typeof(context)]
+    context isa PSE.RunContext || return types
+    parameters=typeof(context).parameters
+    for override in override_types
+        # Same rule as _call_context_type, with no override value constructed.
+        type=Core.apply_type(PSE.RunContext,parameters[1:8]...,override)
+        isconcretetype(type) || continue
+        type in types || push!(types,type)
+    end
+    return types
+end
+
+Base.@nospecializeinfer @noinline function _context(simulation,application,target)
+    @nospecialize simulation application target
+    target.context isa PSE.RunContext && return target.context
+    return Base.invokelatest(PSE._prepare_model_execution_context!,target.context,
+        simulation.compiled,simulation.environment_bindings,application,
+        target.object_id,target.bound_inputs,target.output_targets,
+        simulation.temporal_streams,simulation.output_retention,0.0,
+        simulation.constants)
+end
+
+function _record_scene_entries!(catalog,simulation,scenario)
+    label=_label(scenario,:__scene__,:scheduler,(),0)
+    simulation_type=typeof(simulation)
+    _request!(catalog,_sig(PSE._run_model_execution_step!,simulation_type,Int),:step,label)
+    _request!(catalog,_sig(PSE._continue_scene!,simulation_type,Int),:continuation,label)
+    _request!(catalog,_sig(PSE.step!,simulation_type),:continuation,label)
+    _request!(catalog,_sig(PSE.continue!,simulation_type),:continuation,label)
+end
+function _record_batch!(catalog,simulation,batch,role,label,mandatory)
+    types=(typeof(batch),typeof(simulation.compiled),typeof(simulation.environment_bindings),
+        role===:root ? Int : Float64,typeof(simulation.constants),
+        typeof(simulation.temporal_streams),typeof(simulation.output_retention))
+    _request!(catalog,_sig(PSE._run_model_execution_batch!,types...),:batch,label,mandatory)
+    if simulation.performance!==nothing
+        _request!(catalog,_sig(PSE._run_model_execution_batch_profiled!,types...,
+            typeof(simulation.performance)),:profiled_batch,label,mandatory)
+    end
+end
+function _record_target!(catalog,simulation,application,target,context,
+    environment_types,context_environment_types,label,mandatory)
+    kernel_status=Base.invokelatest(PSE._execution_kernel_status,target)
+    override_types=_declared_types(context_environment_types,application,target.object_id)
+    contexts=_context_types(context,override_types)
+    isempty(environment_types) && _skip!(catalog,:environment_type_not_declared,label)
+    for environment_type in environment_types, context_type in contexts
+        _request!(catalog,_sig(PSE.run!,typeof(target.model),typeof(kernel_status),
+            environment_type,typeof(simulation.constants),context_type),:kernel,label,mandatory)
+        _request!(catalog,_sig(PSE._run_call_kernel!,typeof(target.model),typeof(kernel_status),
+            environment_type,context_type,typeof(target.output_bindings)),:call_kernel,label,mandatory)
+    end
+    # Root batch target helpers always receive a Float64 batch_time; the shared
+    # sampled argument is a declared row or the framework's unspecified marker.
+    samples=Type[PSE.UnspecifiedModelEnvironment]
+    append!(samples,environment_types)
+    for sampled in samples
+        args=(typeof(simulation.compiled),typeof(simulation.environment_bindings),
+            typeof(application),typeof(target),Float64,typeof(simulation.constants),
+            typeof(simulation.temporal_streams),typeof(simulation.output_retention),sampled,Bool)
+        if isempty(target.call_bindings)
+            _request!(catalog,_sig(PSE._run_model_execution_target_without_calls!,args...),
+                :target,label,mandatory)
+        else
+            _request!(catalog,_sig(PSE._run_model_execution_target!,args...),:target,label,mandatory)
+        end
+    end
+    return nothing
+end
+
+Base.@nospecializeinfer @noinline function _collect_batch!(catalog,simulation,batch;
+    environment_types,context_environment_types,scenario,mandatory_applications,
+    role=:root,path=(),max_targets=256,max_depth=16,depth=0,seen_contexts=IdDict{Any,Bool}())
+    @nospecialize simulation batch environment_types context_environment_types
+    batch isa PSE.CompiledExecutionBatch || return _skip!(catalog,:nonordinary_batch,
+        _label(scenario,:__unknown__,role,path,0))
+    application=batch.application
+    mandatory=application.id in mandatory_applications
+    label=_label(scenario,application.id,role,path,0)
+    _record_batch!(catalog,simulation,batch,role,label,mandatory)
+    for (row,target) in enumerate(batch.targets)
+        target_label=_label(scenario,application.id,role,path,row)
+        if catalog.targets>=max_targets
+            _skip!(catalog,:target_collection_budget,target_label)
+            break
+        end
+        catalog.targets+=1
+        context=Base.invokelatest(_context,simulation,application,target)
+        context isa PSE.RunContext || begin
+            _skip!(catalog,:nonordinary_context,target_label)
+            continue
+        end
+        env_types=_declared_types(environment_types,application,target.object_id)
+        _record_target!(catalog,simulation,application,target,context,env_types,
+            context_environment_types,target_label,mandatory)
+        haskey(seen_contexts,context) && continue
+        seen_contexts[context]=true
+        catalog.contexts+=1
+        for targets in context.calls
+            targets isa PSE.CallTargets || begin
+                _skip!(catalog,:nonordinary_call_collection,target_label)
+                continue
+            end
+            name=PSE._compiled_call_name(targets.binding)
+            call_path=(path...,name)
+            call_label=_label(scenario,application.id,:call,call_path,row)
+            if PSE._compiled_call_mode(targets.binding)===:initializer
+                catalog.initializer_partial_gaps+=1
+                _skip!(catalog,:partial_newborn_initializer_layout_not_constructed,call_label)
+                continue
+            end
+            _request!(catalog,_sig(PSE._run_call_targets!,typeof(targets),Bool,
+                PSE.UnspecifiedModelEnvironment,PSE.NoEnvironmentOverride),:call,call_label,mandatory)
+            if depth>=max_depth
+                _skip!(catalog,:call_depth_budget,call_label)
+                continue
+            end
+            child_batches=Base.invokelatest(PSE._materialize_call_execution_batches!,targets)
+            for child in child_batches
+                catalog.manual_batches+=1
+                _collect_batch!(catalog,simulation,child;environment_types,
+                    context_environment_types,scenario,mandatory_applications,
+                    role=:manual,path=call_path,max_targets,max_depth,depth=depth+1,seen_contexts)
+                for child_target in child.targets
+                    for sampled in _declared_types(environment_types,child.application,child_target.object_id)
+                        _request!(catalog,_sig(PSE._run_call_targets!,typeof(targets),Bool,
+                            sampled,PSE.NoEnvironmentOverride),:call,call_label,mandatory)
+                        _request!(catalog,_sig(PSE._run_compiled_call_batch!,typeof(targets),
+                            typeof(child),Bool,sampled,PSE.NoEnvironmentOverride,Nothing),
+                            :call_batch,call_label,mandatory)
+                    end
+                end
+            end
+        end
+    end
+    return nothing
+end
+
+"""Collect only from an explicitly disposable, prepared zero-step simulation.
+
+No scientific kernel, step, RNG call, environment sampler or commit is invoked.
+Cold call/context metadata may be materialized in this disposable. Concrete
+model-facing environment Types are caller declarations, not sampled row caches.
+Targetless live applications need representative objects in a supplied future
+scene. Missing declarations and partial initializer paths remain reported gaps.
+"""
+function collect_call_layouts(simulation::PSE.Simulation;
+    environment_types=Dict(),context_environment_types=Dict(),scenario_label=:future,
+    disposable::Bool=false,mandatory_applications=Symbol[],max_requests::Int=128,
+    max_targets::Int=256,max_depth::Int=16)
+    catalog=FutureCallCatalog(;max_requests)
+    return collect_call_layouts!(catalog,simulation;environment_types,
+        context_environment_types,scenario_label,disposable,mandatory_applications,
+        max_targets,max_depth)
+end
+function collect_call_layouts!(catalog::FutureCallCatalog,simulation::PSE.Simulation;
+    environment_types=Dict(),context_environment_types=Dict(),scenario_label=:future,
+    disposable::Bool=false,mandatory_applications=Symbol[],max_targets::Int=256,max_depth::Int=16)
+    disposable || throw(ArgumentError("Explicit disposable=true attestation required; live traversal is forbidden"))
+    PSE.current_step(simulation)==0 || throw(ArgumentError("Future layout collection requires a zero-step disposable"))
+    catalog.scenarios+=1
+    # Mandatory future/targetless families precede initial repeated roots.
+    groups=Any[group for group in simulation.execution_plan.groups]
+    sort!(groups;by=group->group.application.id in mandatory_applications ? 0 : 1,alg=Base.Sort.MergeSort)
+    for group in groups
+        label=_label(scenario_label,group.application.id,:root,(),0)
+        mandatory=group.application.id in mandatory_applications
+        _request!(catalog,_sig(PSE._run_model_execution_group!,typeof(group),
+            typeof(simulation),Int,typeof(simulation.performance)),:group,label,mandatory)
+        for batch in group.batches
+            catalog.root_batches+=1
+            Base.invokelatest(_collect_batch!,catalog,simulation,batch;
+                environment_types,context_environment_types,scenario=Symbol(scenario_label),
+                mandatory_applications,role=:root,max_targets,max_depth)
+        end
+    end
+    _record_scene_entries!(catalog,simulation,scenario_label)
+    return catalog
+end
+
+requested_signatures(catalog::FutureCallCatalog)=Type[request.signature for request in catalog.requests]
+function _priority(request)
+    category=request.category===:kernel ? 0 : request.category===:batch ? 1 : 2
+    tier=request.mandatory && category<2 ? 0 : request.category===:step ? 1 :
+        request.mandatory ? 2 : 3
+    return (tier,category)
+end
+"""Request type-only compilation; accepted requests are not code-cache-hit proofs.
+
+All catalogue preparation and precompile cost belongs upfront in measurements.
+The finite request budget is explicit; mandatory future families are selected
+first. Scientific execution and numerical/RNG state mutation are absent here.
+"""
+function precompile_call_layouts!(catalog::FutureCallCatalog;
+    categories=(:kernel,:batch,:step),max_requests::Int=12)
+    max_requests>=0 || throw(ArgumentError("Nonnegative precompile budget required"))
+    order=sortperm(catalog.requests;by=_priority,alg=Base.Sort.MergeSort)
+    selected=0
+    for index in order
+        request=catalog.requests[index]
+        request.category in categories || continue
+        haskey(catalog.results,request.signature) && continue
+        if selected>=max_requests
+            catalog.precompile_budget_skipped+=1
+            continue
+        end
+        selected+=1
+        catalog.precompile_attempts+=1
+        accepted=try
+            Base.invokelatest(Base.precompile,request.signature)
+        catch
+            catalog.precompile_errors+=1
+            catalog.results[request.signature]=:error
+            continue
+        end
+        catalog.results[request.signature]=accepted ? :accepted : :rejected
+        accepted ? (catalog.precompile_accepted+=1) : (catalog.precompile_rejected+=1)
+    end
+    return call_layout_report(catalog)
+end
+function call_layout_report(catalog::FutureCallCatalog)
+    by_category=Dict{Symbol,Int}()
+    mandatory_by_category=Dict{Symbol,Int}()
+    for request in catalog.requests
+        by_category[request.category]=get(by_category,request.category,0)+1
+        request.mandatory && (mandatory_by_category[request.category]=
+            get(mandatory_by_category,request.category,0)+1)
+    end
+    return (scenarios=catalog.scenarios,root_batches=catalog.root_batches,
+        manual_batches=catalog.manual_batches,targets=catalog.targets,contexts=catalog.contexts,
+        initializer_partial_gaps=catalog.initializer_partial_gaps,
+        requests_seen=catalog.requests_seen,unique_requests=length(catalog.requests),
+        by_category,mandatory_by_category,request_budget=catalog.request_budget,
+        precompile_attempts=catalog.precompile_attempts,
+        precompile_accepted=catalog.precompile_accepted,
+        precompile_rejected=catalog.precompile_rejected,precompile_errors=catalog.precompile_errors,
+        precompile_budget_skipped=catalog.precompile_budget_skipped,
+        collection_world=catalog.collection_world,current_world=Base.get_world_counter(),
+        skipped=copy(catalog.skipped),retained_data=:types_and_labels_only,
+        environment_types=:explicit_declarations_no_sampling,
+        kernel_execution=false,rng_calls=false,
+        interpretation=:requested_type_signatures_not_methodinstance_or_cache_hit_evidence)
+end
+
+"""Compare fixture-owned ACTUAL kernel entry types with requested signatures.
+
+Observations supply `.signature` as Tuple{model,status,environment,constants,
+context}, or include typeof(PSE.run!) first. This function neither executes nor
+wraps/overrides any kernel. A type match is reported separately from accepted
+precompile requests and is never called a MethodInstance/code-cache hit.
+"""
+function match_observed_layouts(catalog::FutureCallCatalog,observations)
+    requested=accepted=total=0
+    unmatched=NamedTuple[]
+    counts=Dict{Symbol,Vector{Int}}()
+    for observation in observations
+        total+=1
+        application=observation isa Type ? :__unlabelled__ :
+            hasproperty(observation,:application) ? Symbol(observation.application) : :__unlabelled__
+        row=get!(counts,application,zeros(Int,3))
+        row[1]+=1
+        signature=observation isa Type ? observation : observation.signature
+        signature isa DataType && signature<:Tuple ||
+            throw(ArgumentError("Observation signature must be a concrete Tuple Type"))
+        parameters=signature.parameters
+        length(parameters) in (5,6) ||
+            throw(ArgumentError("Expected five kernel argument Types or six Types including run!"))
+        full=length(parameters)==5 ? Tuple{typeof(PSE.run!),parameters...} : signature
+        full.parameters[1]===typeof(PSE.run!) && isconcretetype(full) ||
+            throw(ArgumentError("Observation must identify concrete PSE.run! entry Types"))
+        if haskey(catalog.positions,full)
+            requested+=1;row[2]+=1
+            if get(catalog.results,full,:not_requested)===:accepted
+                accepted+=1;row[3]+=1
+            end
+        else
+            push!(unmatched,(observation=total,application,
+                reason=:actual_signature_not_requested))
+        end
+    end
+    by_application=Dict(application=>(observations=row[1],requested_matches=row[2],
+        accepted_matches=row[3]) for (application,row) in counts)
+    return (observations=total,requested_matches=requested,accepted_matches=accepted,
+        unmatched,by_application,all_requested=total>0 && requested==total,
+        all_precompile_accepted=total>0 && accepted==total,
+        interpretation=:actual_entry_type_match_not_methodinstance_or_cache_hit)
+end
+
+end # module

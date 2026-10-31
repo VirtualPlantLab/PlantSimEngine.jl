@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:51:51.396784+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(\"/private/tmp/pse_reload_newborn_guard.jl\"); include(joinpath(pwd(),\"benchmark/native_downstream/newborn_distributed_checks.jl\")); new_generic=NewbornPreparationChecks.newborn_generic_checks(); new_multirate=NewbornPreparationChecks.newborn_multirate_checks(); new_dist=NewbornDistributedChecks.newborn_distributed_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/newborn-narrowed-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(generic=new_generic,multirate=new_multirate,distributed=new_dist),2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                     | Pass  Total  Time\nEvent-owned newborn logical preparation promotion |  384    384  1.4s\nTest Summary:                                                    | Pass  Total  Time\nNewborn preparation preserves mixed cadence and live source refs |   17     17  0.8s\nTest Summary:                                               | Pass  Total   Time\nPer-binding newborn promotion alongside distributed outputs |   44     44  21.9s\n\u250c Warning: Replacing docs for `PlantSimEngine._record_newborn_input_preparation! :: Tuple{CompositeModel, RunContext, Any, Any, Any}` in module `Main.NewbornPreparation`\n\u2514 @ Base.Docs docs/Docs.jl:253\n\u250c Warning: Replacing docs for `PlantSimEngine._try_promote_newborn_input_bindings! :: Tuple{Any, CompositeModel, PlantSimEngine.CompiledCompositeModel, PlantSimEngine.CompiledModelApplication, ObjectId, Any, Any, Any}` in module `Main.NewbornPreparation`\n\u2514 @ Base.Docs docs/Docs.jl:253\n(passed = true, pid = 53643)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "4209deef"
+    }
+  }
+}

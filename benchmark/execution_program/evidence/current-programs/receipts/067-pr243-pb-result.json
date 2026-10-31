@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T14:13:23.840340+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "fbcbb078"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "fbcbb078 on 5b970a58\ncompleted, 36.8s\nTest Summary:                                                      | Pass  Total   Time\nCounter-free native batch boundary proof and actual-work companion |   19     19  12.6s\n[ Info: Precompiling PlantGeomPlantSimEngineExt [c9a4c484-8bb1-5ea7-b0d2-1896fe064249] (caches not reused: 9 for different dependency version already loaded)\n  1 dependency successfully precompiled in 4 seconds\n[ Info: Precompiling PlantBiophysics [7ae8fcfa-76ad-4ec6-9ea7-5f8f5e2d6ec9] (caches not reused: 8 for different dependency version already loaded, 1 for different compilation options)\n  1 dependency successfully precompiled in 4 seconds\n[ Info: Precompiling XPalm [6b523e1e-d512-416c-8e51-a8fbef0064e7] (caches not reused: 7 for different dependency version already loaded, 2 for different compilation options)\n  1 dependency successfully precompiled in 5 seconds\n(passed = true, pid = 76152)",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

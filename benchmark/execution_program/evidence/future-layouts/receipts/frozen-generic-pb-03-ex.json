@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T20:35:46.967078+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "54d9784d",
+    "e": "using PlantSimEngine; @assert startswith(pathof(PlantSimEngine),\"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine\"); include(\"/private/tmp/pse_future_frozen_pb.jl\"); (pid=Base.getpid(),completed=true)",
+    "q": false,
+    "max_output": 2500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.0s.\nJob ID: 11e08b52\nSession: PSE future frozen-generic-pb\nCode: using PlantSimEngine; @assert startswith(pathof(PlantSimEngine),\"/Users/rvezy/.c...\n\nUse `check_eval(eval_id=\"11e08b52\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"11e08b52\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "11e08b52"
+    }
+  }
+}

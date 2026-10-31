@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T18:20:38.739030+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "b89c1299",
+    "e": "let ast=Meta.parseall(read(joinpath(pwd(),\"benchmark/native_downstream/plan_view_reuse_checks.jl\"),String)); body=only(x for x in ast.args if x isa Expr && x.head===:module).args[3]; for x in body.args; if x isa Expr && x.head===:function && x.args[1] isa Expr && x.args[1].head===:call && x.args[1].args[1]===:_temporal_fixture; Core.eval(PlanViewReuseChecks,x); end; end; end; temporal_gate=PlanViewReuseChecks.plan_view_temporal_private_checks(); identity_gate=PreparationReuseChecks.preparation_identity_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/temporal-identity-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(temporal=temporal_gate,identity=identity_gate),2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                               | Pass  Total  Time\nTemporal private cells and growth keep ordinary preparation |    9      9  0.4s\nTest Summary:                                                                    | Pass  Total  Time\nPreparation reuse preserves affected local-view and saved-target identity epochs |  113    113  9.8s\n(passed = true, pid = 54450)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "063fc5f0"
+    }
+  }
+}

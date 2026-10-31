@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:59:22.284439+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "cbf8eb76",
+    "e": "arm=:reference_executor; cold_freshness=(new_process=Base.getpid()!=53643,pid=Base.getpid(),previous_pid=53643,no_prior_case_execution=true,no_prior_ir_probe=true,method=:explicit_Kaimon_shutdown_then_start_with_distinct_PID); include(joinpath(pwd(),\"benchmark/native_downstream/cold_gap_case.jl\")); (pid=Base.getpid(),source=Base.pathof(PlantSimEngine),project=Base.active_project(),loader_seconds=cold_loader_seconds,phases=cold_record.phases,digest=cold_record.digest)",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "(pid = 72693, source = \"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/src/PlantSimEngine.jl\", project = \"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/Project.toml\", loader_seconds = 7.346190542, phases = (construction = (seconds = 1.941337292, allocated_bytes = 827959024, gc_seconds = 0.051761041, gc_stats = (allocd = 827959024, malloc = 10363, realloc = 0, poolalloc = 15313309, bigalloc = 52, freecall = 9661, total_time = 51761041, pause = 6, full_sweep = 1), compilation_seconds = 2.121661505, recompilation_seconds = 0.182319958), pse_preparation = (seconds = 10.561288375, allocated_bytes = 3289608672, gc_seconds = 0.250100583, gc_stats = (allocd = 3289608672, malloc = 73177, realloc = 0, poolalloc = 57782261, bigalloc = 255, freecall = 71024, total_time = 250100583, pause = 16, full_sweep = 1), compilation_seconds = 10.55041137, recompilation_seconds = 0.0), backend_lowering = (seconds = 3.6208e-5, allocated_bytes = 5552, gc_seconds = 0.0, gc_stats = (allocd = 5552, malloc = 0, realloc = 0, poolalloc = 93, bigalloc = 0, freecall = 0, total_time = 0, pause = 0, full_sweep = 0), compilation_seconds = 2.8792e-5, recompilation_seconds = 0.0), execution = (seconds = 0.592905334, allocated_bytes = 121934752, gc_seconds = 0.0, gc_stats = (allocd = 121934752, malloc = 2235, realloc = 0, poolalloc = 2177162, bigalloc = 22, freecall = 0, total_time = 0, pause = 0, full_sweep = 0), compilation_seconds = 0.592740209, recompilation_seconds = 0.0)), digest = \"37bce5655c8115b3196c31bb141bbf61c8e3ddd044ca0fe7a9fcb241cf58f37e\")",
+          "type": "text"
+        }
+      ],
+      "eval_id": "a4917c8b"
+    }
+  }
+}

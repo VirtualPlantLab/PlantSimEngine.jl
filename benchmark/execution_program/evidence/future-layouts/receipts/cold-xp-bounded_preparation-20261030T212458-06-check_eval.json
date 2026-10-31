@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T21:26:48.762488+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "ec255be5"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "ec255be5 on 106b1a0e\nrunning, 1m 30s",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T13:43:52.003428+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "0eb2b4ac"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "0eb2b4ac on 2d1e83af\nfailed, 1m 48s\n\nXPalm newborn preparation with full retained output parity: Test Failed at /Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/newborn_preparation_checks.jl:229\n  Expression: report.captured_bindings > 0\n   Evaluated: 0 > 0\n  Stacktrace:\n   [1] macro expansion\n     @ ~/.julia/juliaup/julia-1.13.1+0.aarch64.apple.darwin14/share/julia/stdlib/v1.13/Test/src/Test.jl:758 [inlined]\n   [2] macro expansion\n     @ ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/newborn_preparation_checks.jl:229 [inlined]\n   [3] macro expansion\n     @ ~/.julia/juliaup/julia-1.13.1+0.aarch64.apple.darwin14/share/julia/stdlib/v1.13/Test/src/Test.jl:1967 [inlined]\n   [4] newborn_xp_checks(; steps::Int64, incremental::Bool)\n     @ Main.NewbornPreparationChecks ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/newborn_preparation_checks.jl:221\n\nXPalm newborn preparation with full retained output parity: Test Failed at /Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/newborn_preparation_checks.jl:230\n  Expression: report.promoted_targets > 0\n   Evaluated: 0 > 0\n  Stacktrace:\n   [1] macro expansion\n     @ ~/.julia/juliaup/julia-1.13.1+0.aarch64.apple.darwin14/share/julia/stdlib/v1.13/Test/src/Test.jl:758 [inlined]\n   [2] macro expansion\n     @ ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/newborn_preparation_checks.jl:230 [inlined]\n   [3] macro expansion\n     @ ~/.julia/juliaup/julia-1.13.1+0.aarch64.apple.darwin14/share/julia/stdlib/v1.13/Test/src/Test.jl:1967 [inlined]\n   [4] newborn_xp_checks(; steps::Int64, incremental::Bool)\n     @ Main.NewbornPreparationChecks ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/newborn_preparation_checks.jl:221\n\nXPalm newborn preparation with full retained output parity: Test Failed at /Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/newborn_preparation_checks.jl:231\n  Expression: report.promoted_bindings > 0\n   Evaluated: 0 > 0\n  Stacktrace:\n   [1] macro expansion\n     @ ~/.julia/juliaup/julia-1.13.1+0.aarch64.apple.darwin14/share/julia/stdlib/v1.13/Test/src/Test.jl:758 [inlined]\n   [2] macro expansion\n     @ ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/newborn_preparation_checks.jl:231 [inlined]\n   [3] macro expansion\n     @ ~/.julia/juliaup/julia-1.13.1+0.aarch64.apple.darwin14/share/julia/stdlib/v1.13/Test/src/Test.jl:1967 [inlined]\n   [4] newborn_xp_checks(; steps::Int64, incremental::Bool)\n     @ Main.NewbornPreparationChecks ~/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/newborn_preparation_checks.jl:221\nTest Summary:                                              | Pass  Fail  Total   Time\nXPalm newborn preparation with full retained output parity |    7     3     10  18.7s\nRNG of the outermost testset: Random.Xoshiro(0xfff0241072ddab67, 0xc53bc12f4c3f0b4e, 0x56d451780b2dd4ba, 0x50a4aa153d208dd8, 0x3649a58b3b63d5db)\nERROR: Some tests did not pass: 7 passed, 3 failed, 0 errored, 0 broken.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

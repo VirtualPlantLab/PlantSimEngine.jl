@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:05:36.153713+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/gap_benchmarks.jl\")); GB=GapBenchmarks; GB.register_gap_pb_case!(:shared_small;nobjects=2,steps=2); shared_small_screen=M.screen_case(:shared_small;repetitions=3); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/shared_small.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,shared_small_screen,2); end; [(variant=x.variant,exec_ms=x.execution_seconds*1000,complete_ms=x.complete_seconds*1000,exec_ratio=x.execution_ratio,bytes=x.execution_allocated_bytes) for x in M.summarize_screen(shared_small_screen)]",
+    "q": false,
+    "max_output": 4200
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "6-element Vector{@NamedTuple{variant::Symbol, exec_ms::Float64, complete_ms::Float64, exec_ratio::Float64, bytes::Float64}}:\n (variant = :reference_executor, exec_ms = 0.017209000000000002, complete_ms = 1.2532070000000002, exec_ratio = 1.0, bytes = 2256.0)\n (variant = :direct_reference, exec_ms = 0.017167, complete_ms = 1.5058760000000002, exec_ratio = 0.9242433736449651, bytes = 1808.0)\n (variant = :shared_reference, exec_ms = 0.046959, complete_ms = 1.8086669999999998, exec_ratio = 2.4866058457783717, bytes = 23408.0)\n (variant = :native_executor, exec_ms = 0.017708, complete_ms = 1.3096670000000004, exec_ratio = 0.9588006275785926, bytes = 2896.0)\n (variant = :shared_native, exec_ms = 0.051415999999999996, complete_ms = 1.9454580000000001, exec_ratio = 2.3125305239656737, bytes = 23408.0)\n (variant = :pure_julia, exec_ms = 0.008457999999999999, complete_ms = 0.054791000000000006, exec_ratio = 0.47213667267127657, bytes = 48.0)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "2b55da18"
+    }
+  }
+}

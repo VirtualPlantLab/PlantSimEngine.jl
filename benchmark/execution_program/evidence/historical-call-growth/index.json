@@ -1,0 +1,39 @@
+{
+  "cohort": "original task source, before improved ordinary baseline",
+  "base": "3d1e9e3f17d626ee0146c4253f201bf858cb4600",
+  "records": {
+    "direct-small": {
+      "original_sha256": "a3c387bacff36ac00fa233b3a5f589bdf521fd2b3786c877cd9c6d6c66210007",
+      "gzip_file": "direct-small.json.gz"
+    },
+    "direct-medium": {
+      "original_sha256": "9467bda647937aec1ecc2149714895a2abe84714258f646c7265c9c9f35e75bc",
+      "gzip_file": "direct-medium.json.gz"
+    },
+    "direct-long": {
+      "original_sha256": "9a1f58bc7f92647bb26d7f7f1c429b88a47b48c9097f0895d10301fcb08bba30",
+      "gzip_file": "direct-long.json.gz"
+    },
+    "direct-balanced": {
+      "original_sha256": "22a068e4071857788aae7e801cc74505e91dcfee5bf26fb7395987f5560f3136",
+      "gzip_file": "direct-balanced.json.gz"
+    },
+    "direct-final": {
+      "original_sha256": "03b709852df5b0cd431f7e8a2b4065b682dc3a1851cef1dd850979285e60899a",
+      "gzip_file": "direct-final.json.gz"
+    },
+    "growth-small": {
+      "original_sha256": "83c32f3f5658b0584423e0d91e16da764f4237b901dfcaf94cac5df48822dffd",
+      "gzip_file": "growth-small.json.gz"
+    },
+    "growth-medium": {
+      "original_sha256": "f2ddbc30bbc76f3d5fc6542f387e6d7ee15f94c1f188257d3869c859740acc78",
+      "gzip_file": "growth-medium.json.gz"
+    },
+    "growth-factorial": {
+      "original_sha256": "5e404d7603ba43e5a0f846fc26795076a459802d058a47a0641d20f9b897b783",
+      "gzip_file": "growth-factorial.json.gz"
+    }
+  },
+  "interpretation": "Historical warmed serial cohorts only; do not pool with later source versions. Full original JSON is preserved losslessly in gzip records."
+}

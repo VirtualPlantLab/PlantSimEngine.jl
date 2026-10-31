@@ -10,7 +10,9 @@ Base.length(v::ObjectRefVector) = length(v.refs)
 Base.getindex(v::ObjectRefVector, i::Int) = v.refs[i][]
 Base.setindex!(v::ObjectRefVector, value, i::Int) = (v.refs[i][] = value)
 Base.parent(v::ObjectRefVector) = v.refs
-Base.dataids(v::ObjectRefVector) = Base.dataids(parent(v))
+Base.dataids(v::ObjectRefVector) = _reference_vector_dataids(parent(v))
+Base.unaliascopy(v::ObjectRefVector) =
+    ObjectRefVector(_unalias_reference_vector(parent(v)))
 
 """
     ObjectId(value)
@@ -381,6 +383,7 @@ mutable struct CompositeModel{R,A,E,I,SA,SC}
     instances::I
     source_adapter::SA
     status_conversion::SC
+    status_storage::Any
     status_conversion_records::Dict{Any,Any}
     status_source_owners::IdDict{Base.RefValue{Nothing},ObjectId}
     status_source_identities::Dict{ObjectId,Base.RefValue{Nothing}}
@@ -505,8 +508,15 @@ function _register_objects!(
     return model
 end
 
-_register_model_objects!(model::CompositeModel, objects; kwargs...) =
-    _register_objects!(model, objects; kwargs...)
+function _register_model_objects!(model::CompositeModel, objects; kwargs...)
+    # Parent-safe registration may visit pending objects in reverse order.
+    # Define native physical rows from the caller's construction order before
+    # that traversal, independently of compiler-default allocation order.
+    for object in objects
+        _register_status_storage_cohort!(model, object.id, object.status)
+    end
+    return _register_objects!(model, objects; kwargs...)
+end
 
 """
     CompositeModel(items...; applications=(), instances=(), environment=nothing,
@@ -531,6 +541,7 @@ function CompositeModel(
     source_adapter=nothing,
     type_promotion=nothing,
     status_transform=nothing,
+    status_storage=nothing,
     _status_conversion=nothing,
     _status_values_materialized::Bool=false,
     _status_conversion_records=nothing,
@@ -560,6 +571,7 @@ function CompositeModel(
         mounted_instances,
         source_adapter,
         status_conversion,
+        status_storage,
         conversion_records,
         IdDict{Base.RefValue{Nothing},ObjectId}(),
         Dict{ObjectId,Base.RefValue{Nothing}}(),
@@ -611,6 +623,7 @@ function CompositeModel(
     source_adapter=nothing,
     type_promotion=nothing,
     status_transform=nothing,
+    status_storage=nothing,
 )
     inferred_name = if !isnothing(name)
         Symbol(name)
@@ -634,6 +647,7 @@ function CompositeModel(
         source_adapter=source_adapter,
         type_promotion=type_promotion,
         status_transform=status_transform,
+        status_storage=status_storage,
     )
 end
 
@@ -665,11 +679,11 @@ function CompositeModel(
     timestep=nothing,
     type_promotion=nothing,
     status_transform=nothing,
+    status_storage=nothing,
 )
-    object_status = if status isa Status || isnothing(status)
+    object_status = if status isa Status || isnothing(status) ||
+                       status isa Union{NamedTuple,AbstractDict,Base.Pairs}
         status
-    elseif status isa Union{NamedTuple,AbstractDict,Base.Pairs}
-        Status((; (Symbol(key) => value for (key, value) in pairs(status))...))
     else
         error(
             "One-object `CompositeModel(...; status=...)` requires a `Status`, `NamedTuple`, ",
@@ -692,6 +706,7 @@ function CompositeModel(
         environment=environment,
         type_promotion=type_promotion,
         status_transform=status_transform,
+        status_storage=status_storage,
     )
 end
 
@@ -803,6 +818,7 @@ function CompositeModel(
     status=_no_mtg_status,
     type_promotion=nothing,
     status_transform=nothing,
+    status_storage=nothing,
 )
     adapter = MTGObjectAdapter(
         root,
@@ -826,6 +842,7 @@ function CompositeModel(
         source_adapter=adapter,
         type_promotion=type_promotion,
         status_transform=status_transform,
+        status_storage=status_storage,
     )
 end
 
@@ -1323,9 +1340,12 @@ function _register_object_without_lifecycle!(
     end
     source_status = object.status
     _validate_status_source_identity_available!(model, source_status, object.id)
-    object.status = status_values_materialized ?
-                    source_status :
-                    _convert_registered_status(model, object.id, source_status)
+    object.status = if status_values_materialized
+        _register_status_storage_cohort!(model, object.id, source_status)
+        source_status
+    else
+        _materialize_initial_status(model, object.id, source_status)
+    end
     _validate_status_identity_available!(registry, object.status, object.id)
     instance = isnothing(parent_id) ? nothing : _instance_for_object(model, parent_id)
     _apply_instance_labels!(object, instance)
@@ -1406,7 +1426,7 @@ end
     return Status(NamedTuple{names}(Ref.(values)))
 end
 
-function _organ_status(
+function _organ_status_values(
     adapter::MTGObjectAdapter,
     node,
     initial_status;
@@ -1423,7 +1443,13 @@ function _organ_status(
     data[:node] = node
     status_names = Tuple(keys(data))
     status_values = Tuple(values(data))
-    return _organ_status_from_values(Val(status_names), status_values)
+    return NamedTuple{status_names}(status_values)
+end
+
+function _organ_status(adapter::MTGObjectAdapter, node, initial_status;
+    use_status_adapter::Bool=true)
+    values_ = _organ_status_values(adapter, node, initial_status; use_status_adapter)
+    return _organ_status_from_values(Val(keys(values_)), Tuple(values_))
 end
 
 """
@@ -1501,7 +1527,9 @@ function add_organ!(
     )
     try
         new_object_id = _register_mtg_object_identity!(adapter, node)
-        status = _organ_status(
+        status_constructor = model.status_storage isa NativeColumnStorage ?
+                             _organ_status_values : _organ_status
+        status = status_constructor(
             adapter,
             node,
             initial_status;
@@ -1589,6 +1617,7 @@ function remove_object!(model::CompositeModel, id; recursive::Bool=true)
             _unregister_mtg_object_identity!(adapter, object_id)
         _deindex_object!(model.registry, removed)
         _delete_status_source_identity!(model, object_id)
+        _retire_status_storage_object!(model, object_id)
         delete!(model.registry.objects, object_id)
         delete!(model.registry.ancestor_ids_by_object, object_id)
         delete!(model.input_default_status_variables, object_id)

@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T13:36:50.443064+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "c80dafb4"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "c80dafb4 on 2d1e83af\nrunning, 49.8s",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

@@ -3,7 +3,9 @@
 # abstraction boundary.
 include("composite_model/status_conversion.jl")
 include("composite_model/registry_topology.jl")
+include("composite_model/native_status_storage.jl")
 include("composite_model/selectors.jl")
+include("composite_model/execution_policy.jl")
 include("composite_model/compilation.jl")
 include("composite_model/bound_many.jl")
 include("composite_model/output_targets.jl")

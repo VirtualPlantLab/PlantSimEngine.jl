@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T18:24:58.501918+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "f260fe9d"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "f260fe9d on b89c1299\ncompleted, 2m 46s\nTest Summary:                                                                | Pass  Total     Time\nXP preparation factorial: growth, full history, topology and Ref transitions | 3399   3399  2m38.8s\n(passed = true, arms = NamedTuple{(:arm, :reuse, :bounded)}[(arm = :plan_view_reuse, reuse = (enabled = true, recipes = true, views = true, recipe_builds = 37, recipe_hits = 96, recipe_view_assemblies = 133, ordinary_compiler_calls = 45, plain_preservations = 0, ordinary_preservations = 0, bound_interface_reuses = 0, recipe_entries = 37, fallback_reasons = Dict(:temporal_or_duplicate_many_boundary => 45), cached_scientific_values = false, cached_status_references = false, cached_environment_samples = false, affected_view_identity = :fresh_as_ordinary, reuse = :symbolic_plain_view_recipes_and_current_bound_interfaces), bounded = (enabled = false, scene_entries = 0, scene_shells = 0, scenario_plans = 0, metadata_sequences = 0, metadata_id_sequences = 0, metadata_symbol_tables = 0, metadata_schedules = 0, selector_indexes = 0, maximum_table_entries = 0, metadata_only = true, cached_memberships = false, cached_sampled_environments = false, copied_scientific_values = false, scientific_payloads = :ordinary_concrete_model_status_and_carrier_objects, representation = :fixed_type_ordered_indexes_and_vectors_before_wide_construction)), (arm = :bounded_preparation, reuse = (enabled = false, recipe_builds = 0, recipe_hits = 0, recipe_view_assemblies = 0, ordinary_compiler_calls = 0, plain_preservations = 0, ordinary_preservations = 0, bound_interface_reuses = 0, recipe_entries = 0, fallback_reasons = Dict{Symbol, Int64}()), bounded = (enabled = true, scene_entries = 1, scene_shells = 5, scenario_plans = 1, metadata_sequences = 189, metadata_id_sequences = 124, metadata_symbol_tables = 9, metadata_schedules = 1, selector_indexes = 1, maximum_table_entries = 61, metadata_only = true, cached_memberships = false, cached_sampled_environments = false, copied_scientific_values = false, scientific_payloads = :ordinary_concrete_model_status_and_carrier_objects, representation = :fixed_type_ordered_indexes_and_vectors_before_wide_construction)), (arm = :combined, reuse = (enabled = true, recipes = true, views = true, recipe_builds = 37, recipe_hits = 96, recipe_view_assemblies = 133, ordinary_compiler_calls = 45, plain_preservations = 0, ordinary_preservations = 0, bound_interface_reuses = 0, recipe_entries = 37, fallback_reasons = Dict(:temporal_or_duplicate_many_boundary => 45), cached_scientific_values = false, cached_status_references = false, cached_environment_samples = false, affected_view_identity = :fresh_as_ordinary, reuse = :symbolic_plain_view_recipes_and_current_bound_interfaces), bounded = (enabled = true, scene_entries = 1, scene_shells = 5, scenario_plans = 1, metadata_sequences = 189, metadata_id_sequences = 124, metadata_symbol_tables = 9, metadata_schedules = 1, selector_indexes = 1, maximum_table_entries = 61, metadata_only = true, cached_memberships = false, cached_sampled_environments = false, copied_scientific_values = false, scientific_payloads = :ordinary_concrete_model_status_and_carrier_objects, representation = :fixed_type_ordered_indexes_and_vectors_before_wide_construction))])\n\n\u26a0\ufe0f  Note: println/print/logging calls were removed. Use q=false with a final expression to see values.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

@@ -37,6 +37,14 @@ else
         include("test-unified-model-object-api.jl")
     end
 
+    @testset "Experimental local execution interfaces" begin
+        include("test-model-execution-interfaces.jl")
+    end
+
+    @testset "Experimental shared execution plans" begin
+        include("test-model-shared-plan-prototype.jl")
+    end
+
     @testset "Registered object identity" begin
         include("test-model-object-id.jl")
     end
@@ -47,6 +55,10 @@ else
 
     @testset "Lifecycle snapshot allocations" begin
         include("test-lifecycle-snapshot-allocations.jl")
+    end
+
+    @testset "Structural delta binding intersection" begin
+        include("test-structural-delta-intersection.jl")
     end
 
     @testset "Organ status assembly" begin
@@ -67,6 +79,10 @@ else
 
     @testset "Lifecycle without target additions" begin
         include("test-model-lifecycle-empty-targets.jl")
+    end
+
+    @testset "Cold execution target identity scans" begin
+        include("test-execution-target-identities.jl")
     end
 
     @testset "Public model authoring API" begin
@@ -98,6 +114,10 @@ else
         include("test-prepared-environment-inputs.jl")
     end
 
+    @testset "Coalesced growth and environment invalidation" begin
+        include("test-model-coalesced-growth-environment.jl")
+    end
+
     @testset "Transient manual-call context reuse" begin
         include("test-model-call-context-cache.jl")
     end
@@ -124,6 +144,10 @@ else
 
     @testset "Singular manual-call target access" begin
         include("test-model-only-call-targets.jl")
+    end
+
+    @testset "Transient singular manual-call views" begin
+        include("test-model-transient-single-call-views.jl")
     end
 
     @testset "Individual manual-call environments" begin
@@ -228,6 +252,10 @@ else
 
     @testset "Identity-aware Many inputs" begin
         include("test-model-bound-many.jl")
+    end
+
+    @testset "Column-backed reference carriers" begin
+        include("test-model-column-reference-carriers.jl")
     end
 
     @testset "Distributed output declarations" begin

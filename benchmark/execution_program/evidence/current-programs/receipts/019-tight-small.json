@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:32:09.657718+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(joinpath(pwd(),\"benchmark/native_downstream/tight_gap_benchmarks.jl\")); tg_small=TightGapBenchmarks.register_tight_gap_case!(:tight_gap_small;nobjects=2,steps=2); tight_small_screen=M.screen_case(tg_small;repetitions=3); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/tight-small.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,tight_small_screen,2); end; [(variant=r.variant,execute_us=1e6*r.execution_seconds,ratio=r.execution_ratio,complete_us=1e6*r.complete_seconds) for r in M.summarize_screen(tight_small_screen)]",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "7-element Vector{@NamedTuple{variant::Symbol, execute_us::Float64, ratio::Float64, complete_us::Float64}}:\n (variant = :reference_executor, execute_us = 16.25, ratio = 1.0, complete_us = 1085.833)\n (variant = :direct_reference, execute_us = 15.875, ratio = 0.9724192799840881, complete_us = 1350.458)\n (variant = :shared_reference, execute_us = 40.916, ratio = 2.5055360339455017, complete_us = 1519.708)\n (variant = :pure_julia, execute_us = 8.583, ratio = 0.5690512497513758, complete_us = 47.37500000000001)\n (variant = :tight_projected, execute_us = 19.0, ratio = 1.0580123317642378, complete_us = 1543.374)\n (variant = :tight_union, execute_us = 22.209, ratio = 1.4724524298879533, complete_us = 1554.625)\n (variant = :pure_noinline, execute_us = 9.208, ratio = 0.6104886295829742, complete_us = 48.249)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "802df610"
+    }
+  }
+}

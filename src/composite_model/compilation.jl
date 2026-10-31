@@ -15,6 +15,9 @@ struct CompiledApplicationPlan{S,AT,TM,TS,CL,MO}
     model_overrides::MO
 end
 
+# Cold construction boundary for the optional read-only plan storage experiment.
+_compiled_application_plan(model, args...) = CompiledApplicationPlan(args...)
+
 """
 Object-dependent runtime state for one compiled application.
 """
@@ -504,7 +507,7 @@ function _application_target_candidate_index(model, application_plans)
             plan.slot,
         )
     end
-    return _freeze_selector_candidate_index(index)
+    return _scenario_metadata_selector_index(_scenario_metadata_policy(model), index)
 end
 
 function _exact_schedule_integer(value::Float64)
@@ -516,10 +519,103 @@ function _exact_schedule_integer(value::Float64)
     end
 end
 
+# The default preserves current immutable tuple metadata. Experimental policies
+# may bound cold planner container types while keeping scientific kernels typed.
+_scenario_metadata_policy(model) = Val(:ordinary)
+
+# Cold planner specialization is independent of metadata representation. The
+# experiment supplies a per-model policy; normal preparation selects ordinary
+# fully specialized phase bodies. Both policies share the three small dynamic
+# entry calls so inference cannot eagerly compile the unselected alternative.
+struct _ColdPlannerBoundaryPolicy end
+_cold_planner_policy(model) = Val(:ordinary)
+_cold_planner_enter!(model, phase::Symbol) = nothing
+Base.@nospecializeinfer @noinline function _cold_planner_invoke(f, policy, args...; kwargs...)
+    @nospecialize f policy args
+    return Base.invokelatest(f, policy, args...; kwargs...)
+end
+
+"""
+Define one cold phase body with ordinary and opt-in bounded inference methods.
+
+This private macro is restricted to the three simple planner signatures below:
+named positional arguments, a first `model` argument and optional named keyword
+defaults. It keeps one source body, leaves the ordinary body fully specialized,
+and never changes scientific constructors or numerical batch dispatch.
+"""
+macro _with_cold_planner_boundary(definition)
+    definition isa Expr && definition.head === :function ||
+        error("Expected a long-form cold planner function")
+    signature, body = definition.args
+    signature isa Expr && signature.head === :call ||
+        error("Expected a simple cold planner signature")
+    name = signature.args[1]
+    name isa Symbol || error("Expected a named cold planner function")
+    parameters = length(signature.args) >= 2 && signature.args[2] isa Expr &&
+        signature.args[2].head === :parameters ? signature.args[2] : nothing
+    first_argument = isnothing(parameters) ? 2 : 3
+    argument_names = Symbol[]
+    for argument in signature.args[first_argument:end]
+        argument_name = argument isa Symbol ? argument :
+            argument isa Expr && argument.head === :(::) ? first(argument.args) : nothing
+        argument_name isa Symbol || error("Expected named cold planner arguments")
+        push!(argument_names, argument_name)
+    end
+    first(argument_names) === :model || error("The first cold planner argument must be model")
+    keyword_names = Symbol[]
+    if !isnothing(parameters)
+        for parameter in parameters.args
+            parameter isa Expr && parameter.head === :kw ||
+                error("Expected named cold planner keyword defaults")
+            key = parameter.args[1]
+            key = key isa Expr && key.head === :(::) ? first(key.args) : key
+            key isa Symbol || error("Expected named cold planner keywords")
+            push!(keyword_names, key)
+        end
+    end
+    dispatch_name = Symbol(name, :_planner_dispatch)
+    forwarded_keywords = Expr(:parameters,
+        (Expr(:kw, key, key) for key in keyword_names)...)
+    invoke = Expr(:call, :_cold_planner_invoke, forwarded_keywords,
+        dispatch_name, Expr(:call, :_cold_planner_policy, :model), argument_names...)
+    annotation = Expr(:macrocall, GlobalRef(Base, Symbol("@nospecialize")),
+        __source__, argument_names...)
+    wrapper = Expr(:function, deepcopy(signature), Expr(:block, annotation, :(return $invoke)))
+    ordinary_signature = deepcopy(signature)
+    ordinary_signature.args[1] = dispatch_name
+    insert!(ordinary_signature.args, first_argument, :(::Val{:ordinary}))
+    ordinary = Expr(:function, ordinary_signature, deepcopy(body))
+    bounded_signature = deepcopy(signature)
+    bounded_signature.args[1] = dispatch_name
+    insert!(bounded_signature.args, first_argument, :(::_ColdPlannerBoundaryPolicy))
+    bounded = Expr(:function, bounded_signature, Expr(:block, deepcopy(annotation),
+        :(_cold_planner_enter!(model, $(QuoteNode(name)))), deepcopy(body)))
+    bounded = Expr(:macrocall, GlobalRef(Base, Symbol("@nospecializeinfer")), __source__,
+        Expr(:macrocall, GlobalRef(Base, Symbol("@noinline")), __source__, bounded))
+    wrapper = Expr(:macrocall, GlobalRef(Base, Symbol("@nospecializeinfer")), __source__,
+        Expr(:macrocall, GlobalRef(Base, Symbol("@noinline")), __source__, wrapper))
+    return esc(Expr(:block, wrapper, ordinary, bounded))
+end
+
+_scenario_metadata_sequence(::Val{:ordinary}, values) = Tuple(values)
+_scenario_metadata_ids(::Val{:ordinary}, values) = Tuple(values)
+function _scenario_metadata_symbol_table(::Val{:ordinary}, names, values, slots)
+    return NamedTuple{Tuple(names)}(Tuple(values))
+end
+_scenario_metadata_selector_index(::Val{:ordinary}, index) =
+    _freeze_selector_candidate_index(index)
+_scenario_metadata_scenario_plan(::Val{:ordinary}, args...) = CompiledScenarioPlan(args...)
+_scenario_metadata_compiled_scene(::Val{:ordinary}, model, args...) =
+    CompiledCompositeModel(model, args...)
+function _scenario_metadata_schedule(::Val{:ordinary}, entries, always, periodic, generic)
+    return CompiledApplicationSchedule(Tuple(entries), Tuple(always), Tuple(periodic), Tuple(generic))
+end
+
 function _compiled_application_schedule(
     applications_by_id,
     application_order,
     manual_application_ids,
+    metadata_policy=Val(:ordinary),
 )
     entries = CompiledApplicationScheduleEntry[]
     always_entry_indices = Int[]
@@ -562,11 +658,9 @@ function _compiled_application_schedule(
         end
         push!(entry_indices, length(entries))
     end
-    return CompiledApplicationSchedule(
-        Tuple(entries),
-        Tuple(always_entry_indices),
-        Tuple(periodic_entry_indices),
-        Tuple(generic_entry_indices),
+    return _scenario_metadata_schedule(
+        metadata_policy, entries, always_entry_indices,
+        periodic_entry_indices, generic_entry_indices,
     )
 end
 
@@ -592,21 +686,26 @@ struct CompiledScenarioPlan{AP,AI,ATI,IP,IPI,CP,CPI,DOP,CO,MA,AC,AO,OAP,AS,TL}
     timeline::TL
 end
 
-function _plans_by_application(applications, plans)
-    application_ids = Tuple(application.id for application in applications)
-    grouped = Tuple(
-        Tuple(plan for plan in plans if plan.application_id == application.id)
-        for application in applications
+function _plans_by_application(applications, plans, metadata_policy=Val(:ordinary))
+    return _scenario_metadata_symbol_table(
+        metadata_policy,
+        (application.id for application in applications),
+        (_scenario_metadata_sequence(metadata_policy,
+            (plan for plan in plans if plan.application_id == application.id))
+            for application in applications),
+        (application.slot for application in applications),
     )
-    return NamedTuple{application_ids}(grouped)
 end
 
-function _applications_by_id(applications)
-    application_ids = Tuple(application.id for application in applications)
-    return NamedTuple{application_ids}(Tuple(applications))
+function _applications_by_id(applications, metadata_policy=Val(:ordinary))
+    return _scenario_metadata_symbol_table(metadata_policy,
+        (application.id for application in applications), applications,
+        (application.slot for application in applications))
 end
 
-function _scenario_call_owners(applications, call_plans)
+_try_freeze_scenario_relation_rows(applications, relations, metadata_policy) = nothing
+
+function _scenario_call_owners(applications, call_plans, metadata_policy=Val(:ordinary))
     owners = Dict{Symbol,Set{Symbol}}()
     for plan in call_plans
         _compiled_call_mode(plan) === :manual || continue
@@ -614,16 +713,15 @@ function _scenario_call_owners(applications, call_plans)
             push!(get!(owners, callee_id, Set{Symbol}()), plan.application_id)
         end
     end
-    application_ids = Tuple(application.id for application in applications)
-    return NamedTuple{application_ids}(
-        Tuple(
-            Tuple(
-                application.id for application in applications
-                if application.id in get(owners, callee_id, Set{Symbol}())
-            )
-            for callee_id in application_ids
-        ),
-    )
+    projected = _try_freeze_scenario_relation_rows(applications, owners, metadata_policy)
+    isnothing(projected) || return projected
+    return _scenario_metadata_symbol_table(metadata_policy,
+        (application.id for application in applications),
+        (_scenario_metadata_ids(metadata_policy,
+            (application.id for application in applications
+                if application.id in get(owners, callee.id, Set{Symbol}())))
+            for callee in applications),
+        (application.slot for application in applications))
 end
 
 function _initializer_call_application_ids(call_plans)
@@ -674,7 +772,7 @@ function _validate_initializer_call_plans!(
     ]
     isempty(initializer_plans) && return nothing
 
-    applications_by_id = _applications_by_id(applications)
+    applications_by_id = _applications_by_id(applications, _scenario_metadata_policy(model))
     manual_application_ids = Set{Symbol}()
     for plan in call_plans
         _compiled_call_mode(plan) === :manual || continue
@@ -1041,21 +1139,16 @@ function _scenario_update_order_edges!(
     return children
 end
 
-function _freeze_scenario_application_children(applications, children)
-    application_ids = Tuple(application.id for application in applications)
-    return NamedTuple{application_ids}(
-        Tuple(
-            Tuple(
-                application.id for application in applications
-                if application.id in get(
-                    children,
-                    parent_id,
-                    Set{Symbol}(),
-                )
-            )
-            for parent_id in application_ids
-        ),
-    )
+function _freeze_scenario_application_children(applications, children, metadata_policy=Val(:ordinary))
+    projected = _try_freeze_scenario_relation_rows(applications, children, metadata_policy)
+    isnothing(projected) || return projected
+    return _scenario_metadata_symbol_table(metadata_policy,
+        (application.id for application in applications),
+        (_scenario_metadata_ids(metadata_policy,
+            (application.id for application in applications
+                if application.id in get(children, parent.id, Set{Symbol}())))
+            for parent in applications),
+        (application.slot for application in applications))
 end
 
 function _compile_scenario_application_children(
@@ -1065,6 +1158,7 @@ function _compile_scenario_application_children(
     call_owners,
     manual_application_ids,
     distributed_output_plans,
+    metadata_policy=Val(:ordinary),
 )
     children = Dict{Symbol,Set{Symbol}}()
     _scenario_input_order_edges!(children, input_plans, call_owners)
@@ -1080,10 +1174,10 @@ function _compile_scenario_application_children(
         manual_application_ids,
         distributed_output_plans,
     )
-    return _freeze_scenario_application_children(applications, children)
+    return _freeze_scenario_application_children(applications, children, metadata_policy)
 end
 
-function _compiled_scenario_plan(
+@_with_cold_planner_boundary function _compiled_scenario_plan(
     model::CompositeModel,
     applications,
     input_plans,
@@ -1091,8 +1185,9 @@ function _compiled_scenario_plan(
     distributed_output_plans,
     timeline,
 )
-    application_plans = Tuple(application.plan for application in applications)
-    application_ids = Tuple(plan.id for plan in application_plans)
+    metadata_policy = _scenario_metadata_policy(model)
+    application_plans = _scenario_metadata_sequence(metadata_policy,
+        (application.plan for application in applications))
     _validate_initializer_call_plans!(
         model,
         applications,
@@ -1100,10 +1195,10 @@ function _compiled_scenario_plan(
         call_plans,
         distributed_output_plans,
     )
-    call_owners = _scenario_call_owners(applications, call_plans)
-    manual_application_ids = Tuple(
-        application.id for application in applications
-        if !isempty(call_owners[application.id])
+    call_owners = _scenario_call_owners(applications, call_plans, metadata_policy)
+    manual_application_ids = _scenario_metadata_ids(metadata_policy,
+        (application.id for application in applications
+            if !isempty(call_owners[application.id]))
     )
     _validate_scenario_call_ownership!(
         call_owners,
@@ -1116,34 +1211,37 @@ function _compiled_scenario_plan(
         call_owners,
         manual_application_ids,
         distributed_output_plans,
+        metadata_policy,
     )
     application_order = _stable_topological_application_order(
         applications,
         application_children,
     )
-    application_plans_by_id = NamedTuple{application_ids}(application_plans)
+    application_plans_by_id = _scenario_metadata_symbol_table(metadata_policy,
+        (plan.id for plan in application_plans), application_plans,
+        (plan.slot for plan in application_plans))
     application_schedule = _compiled_application_schedule(
         application_plans_by_id,
         application_order,
         manual_application_ids,
+        metadata_policy,
     )
-    return CompiledScenarioPlan(
+    return _scenario_metadata_scenario_plan(metadata_policy,
         application_plans,
         application_plans_by_id,
         _application_target_candidate_index(model, application_plans),
-        Tuple(input_plans),
-        _plans_by_application(applications, input_plans),
-        Tuple(call_plans),
-        _plans_by_application(applications, call_plans),
+        _scenario_metadata_sequence(metadata_policy, input_plans),
+        _plans_by_application(applications, input_plans, metadata_policy),
+        _scenario_metadata_sequence(metadata_policy, call_plans),
+        _plans_by_application(applications, call_plans, metadata_policy),
         distributed_output_plans,
         call_owners,
         manual_application_ids,
         application_children,
-        Tuple(application_order),
-        Tuple(
-            application_plans_by_id[application_id]
-            for application_id in application_order
-        ),
+        _scenario_metadata_ids(metadata_policy, application_order),
+        _scenario_metadata_sequence(metadata_policy,
+            (application_plans_by_id[application_id]
+                for application_id in application_order)),
         application_schedule,
         timeline,
     )
@@ -1431,6 +1529,7 @@ mutable struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,
     application_order::AO
     revision::Int
     execution_generation::UInt64
+    execution_policy::_ExecutionPolicy
 end
 
 function _index_dynamic_input_binding!(
@@ -1754,7 +1853,16 @@ function _model_timeline(model::CompositeModel)
     return _timeline_context(backend)
 end
 
-function _compile_scene(
+function _compile_scene(model::CompositeModel, raw_specs;
+    validate_required_inputs::Bool=true, performance=nothing)
+    return _compile_scene_with_metadata(_scenario_metadata_policy(model), model,
+        raw_specs; validate_required_inputs, performance)
+end
+function _compile_scene_with_metadata(::Val{:ordinary}, model, raw_specs; kwargs...)
+    return _compile_scene_impl(model, raw_specs; kwargs...)
+end
+
+@_with_cold_planner_boundary function _compile_scene_impl(
     model::CompositeModel,
     raw_specs;
     validate_required_inputs::Bool=true,
@@ -1800,6 +1908,7 @@ function _compile_scene(
         applications,
         scenario_plan.call_plans,
         timeline,
+        _applications_by_id(applications, _scenario_metadata_policy(model)),
     )
     _runtime_performance_finish!(
         performance,
@@ -1853,11 +1962,10 @@ function _compile_scene(
     call_owners = scenario_plan.call_owners
     application_children = scenario_plan.application_children
     application_order = scenario_plan.application_order
-    applications_by_id = _applications_by_id(applications)
-    ordered_applications = Tuple(
-        applications_by_id[application_id]
-        for application_id in application_order
-    )
+    metadata_policy = _scenario_metadata_policy(model)
+    applications_by_id = _applications_by_id(applications, metadata_policy)
+    ordered_applications = _scenario_metadata_sequence(metadata_policy,
+        (applications_by_id[application_id] for application_id in application_order))
     started_at = _runtime_performance_start(performance)
     status_views_by_target = _compile_model_status_views(
         model,
@@ -1872,7 +1980,7 @@ function _compile_scene(
         :status_view_compile,
         started_at,
     )
-    return CompiledCompositeModel(
+    return _scenario_metadata_compiled_scene(_scenario_metadata_policy(model),
         model,
         scenario_plan,
         applications,
@@ -1904,6 +2012,7 @@ function _compile_scene(
         application_order,
         model.revision,
         UInt64(0),
+        _execution_policy_for_model(model),
     )
 end
 
@@ -2072,6 +2181,11 @@ function _insert_sorted_object_ids!(ids, added_ids)
     return ids
 end
 
+# Optional metadata interpretation experiment. The ordinary path remains the
+# reference implementation; extensions must resolve current sources and refs.
+_try_reuse_input_plan_partition!(args...) = false
+_try_newborn_binding_sequence!(args...) = false
+
 Base.@nospecializeinfer function _compile_added_consumer_bindings!(
     bindings,
     model,
@@ -2087,6 +2201,16 @@ Base.@nospecializeinfer function _compile_added_consumer_bindings!(
 )
     # Cold assembly must not specialize on each application × input-plan tuple.
     @nospecialize application input_plans
+    _try_newborn_binding_sequence!(
+        bindings, model, application, consumer_id, input_plans,
+        manual_application_ids, applications_by_object, applications_by_id,
+        distributed_outputs, many_binding_cache, performance,
+    ) && return bindings
+    _try_reuse_input_plan_partition!(
+        bindings, model, application, consumer_id, input_plans,
+        manual_application_ids, applications_by_object, applications_by_id,
+        distributed_outputs, many_binding_cache, performance,
+    ) && return bindings
     # One consumer's inputs often select the same objects for different
     # variables/producers. Keep this cache local to this invocation so neither
     # scene identity nor lifecycle invalidation needs persistent cache state.
@@ -2744,7 +2868,8 @@ function _preserve_recompiled_model_status_views!(
         previous_view = get(previous.status_views_by_target, key, nothing)
         isnothing(previous_view) && continue
         current.status_views_by_target[key] =
-            _preserve_model_status_view_temporal_state!(
+            _prepare_preserved_model_status_view(
+                current.model,
                 current_view,
                 previous_view,
                 previous_temporal_sources,
@@ -2922,7 +3047,7 @@ function _extend_model_status_views(
                 end
             end
         end
-        current_view = _compile_model_status_view(
+        current_view = _prepare_compiled_model_status_view(
             model,
             application,
             object_id,
@@ -2933,7 +3058,8 @@ function _extend_model_status_views(
         )
         views[key] = isnothing(previous_view) ?
                      current_view :
-                     _preserve_model_status_view_temporal_state!(
+                     _prepare_preserved_model_status_view(
+            model,
             current_view,
             previous_view,
             previous_temporal_sources,
@@ -3071,6 +3197,22 @@ function _changed_previous_time_step_targets(
     return changed_target_ids
 end
 
+function _sorted_object_ids_intersect_set(sorted_ids, ids::AbstractSet)
+    # A large lifecycle delta must not be scanned once for every singular
+    # input/call binding. Probe the set from a shorter source list; otherwise
+    # binary-search the sorted source list from the smaller dirty set.
+    if length(sorted_ids) <= length(ids)
+        for object_id in sorted_ids
+            object_id in ids && return true
+        end
+    else
+        for object_id in ids
+            first(_sorted_object_id_position(sorted_ids, object_id)) && return true
+        end
+    end
+    return false
+end
+
 function _prepare_structural_compiled_delta(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -3113,7 +3255,7 @@ function _prepare_structural_compiled_delta(
         Vector{ObjectId},
     }()
     for binding in input_bindings
-        any(dirty_id -> first(_sorted_object_id_position(binding.source_ids, dirty_id)), dirty) ||
+        _sorted_object_ids_intersect_set(binding.source_ids, dirty) ||
             continue
         key = (binding.application_id, binding.consumer_id, binding.input)
         push!(forced_input_binding_keys, key)
@@ -3141,15 +3283,7 @@ function _prepare_structural_compiled_delta(
     forced_call_target_keys = Set{Tuple{Symbol,ObjectId}}()
     for binding in call_bindings
         _compiled_call_membership_is_observed(binding) || continue
-        any(
-            dirty_id -> first(
-                _sorted_object_id_position(
-                    binding.callee_object_ids,
-                    dirty_id,
-                ),
-            ),
-            dirty,
-        ) ||
+        _sorted_object_ids_intersect_set(binding.callee_object_ids, dirty) ||
             continue
         push!(
             forced_call_target_keys,
@@ -3166,7 +3300,7 @@ function _prepare_structural_compiled_delta(
     many_input_binding_cache =
         _many_input_binding_cache(model, input_bindings)
 
-    stripped = CompiledCompositeModel(
+    stripped = _scenario_metadata_compiled_scene(_scenario_metadata_policy(model),
         model,
         compiled.scenario_plan,
         compiled.applications,
@@ -3198,6 +3332,7 @@ function _prepare_structural_compiled_delta(
         compiled.application_order,
         model.revision,
         compiled.execution_generation,
+        compiled.execution_policy,
     )
     result = (
         compiled=stripped,
@@ -3739,22 +3874,29 @@ function _extend_compiled_scene(
     for application in added_applications
         for consumer_id in application.target_ids
             first_new_binding = length(input_bindings) + 1
-            _compile_added_consumer_bindings!(
-                input_bindings,
-                model,
-                application,
-                consumer_id,
-                _application_plans(
-                    compiled.scenario_plan.input_plans_by_application,
-                    application.slot,
-                ),
-                manual_application_ids,
-                applications_by_object,
-                applications_by_id,
-                distributed_outputs,
-                many_binding_cache,
-                performance,
+            input_plans = _application_plans(
+                compiled.scenario_plan.input_plans_by_application,
+                application.slot,
             )
+            promoted = pure_addition && _try_promote_newborn_input_bindings!(
+                input_bindings, model, compiled, application, consumer_id,
+                input_plans, distributed_outputs, performance,
+            )
+            if !promoted
+                _compile_added_consumer_bindings!(
+                    input_bindings,
+                    model,
+                    application,
+                    consumer_id,
+                    input_plans,
+                    manual_application_ids,
+                    applications_by_object,
+                    applications_by_id,
+                    distributed_outputs,
+                    many_binding_cache,
+                    performance,
+                )
+            end
             last_new_binding = length(input_bindings)
             if first_new_binding <= last_new_binding
                 for binding_index in first_new_binding:last_new_binding
@@ -3944,7 +4086,7 @@ function _extend_compiled_scene(
         changed_application_ids_seed,
     )
     status_view_refresh_is_pure_addition = pure_addition
-    return CompiledCompositeModel(
+    return _scenario_metadata_compiled_scene(_scenario_metadata_policy(model),
         model,
         compiled.scenario_plan,
         applications,
@@ -3969,6 +4111,7 @@ function _extend_compiled_scene(
         application_order,
         model.revision,
         compiled.execution_generation,
+        compiled.execution_policy,
     )
 end
 
@@ -4013,8 +4156,8 @@ function _validate_model_call_cadence!(
     )
 end
 
-function _validate_model_call_plan_cadences!(applications, call_plans, timeline)
-    applications_by_id = _applications_by_id(applications)
+function _validate_model_call_plan_cadences!(applications, call_plans, timeline,
+    applications_by_id=_applications_by_id(applications))
     for plan in call_plans
         caller = applications_by_id[plan.application_id]
         for callee_id in plan.potential_callee_application_ids
@@ -4381,7 +4524,7 @@ function explain_initialization(model::CompositeModel)
     return rows
 end
 
-function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
+@_with_cold_planner_boundary function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
     specs = [as_model_spec(raw_spec) for raw_spec in raw_specs]
     process_counts = Dict{Symbol,Int}()
     for spec in specs
@@ -4421,7 +4564,8 @@ function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
         push!(
             applications,
             CompiledModelApplication(
-                CompiledApplicationPlan(
+                _compiled_application_plan(
+                    model,
                     slot,
                     app_id,
                     spec,
@@ -5035,7 +5179,7 @@ function _status_ref_or_nothing(status, var::Symbol)
 end
 
 function _input_carrier(model::CompositeModel, selector::AbstractObjectMultiplicity, source_ids::Vector{ObjectId}, source_var::Symbol)
-    refs = Base.RefValue[]
+    refs = Ref[]
     selector isa Many && sizehint!(refs, length(source_ids) + 1)
     for source_id in source_ids
         object = _model_object(model, source_id)
@@ -5105,7 +5249,7 @@ function _stream_only_initial_carrier(
     source_var::Symbol,
     applications_by_id,
 )
-    references = Base.RefValue[]
+    references = Ref[]
     for source_id in source_ids
         reference = _stream_only_initial_reference(
             model,
@@ -5126,10 +5270,12 @@ end
 
 function _ref_vector_carrier(refs)
     T = typeof(refs[1][])
-    typed_refs = Base.RefValue{T}[]
+    R = typeof(refs[1])
+    isconcretetype(R) && R <: Ref{T} || return ObjectRefVector(refs)
+    typed_refs = R[]
     sizehint!(typed_refs, length(refs) + 1)
     for source_ref in refs
-        source_ref isa Base.RefValue{T} || return ObjectRefVector(refs)
+        typeof(source_ref) === R || return ObjectRefVector(refs)
         push!(typed_refs, source_ref)
     end
     return RefVector(typed_refs)
@@ -5207,6 +5353,9 @@ function _status_recipe_set_reference!(
     reference::Ref,
 )
     position = _status_recipe_position(recipe, variable)
+    if !(reference isa Base.RefValue) && recipe.references isa Vector{Base.RefValue}
+        recipe.references = Ref[recipe.references...]
+    end
     if iszero(position)
         push!(recipe.names, variable)
         push!(recipe.references, reference)
@@ -5250,7 +5399,9 @@ function _status_recipe_add_default!(
         private_copy=true,
         conversion_records=conversion_records,
     )
-    return _status_recipe_set_reference!(recipe, variable, Ref(initial))
+    return _status_recipe_set_reference!(
+        recipe, variable, _allocate_status_reference(model, object_id, variable, initial),
+    )
 end
 
 function _finish_status_recipe(recipe::_CanonicalStatusRecipe)
@@ -5335,7 +5486,7 @@ function _apply_status_recipes!(
     return model
 end
 
-function _status_with_reference(status::Status, variable::Symbol, reference::Base.RefValue)
+function _status_with_reference(status::Status, variable::Symbol, reference::Ref)
     names = propertynames(status)
     if variable in names
         references = ntuple(
@@ -5368,7 +5519,9 @@ function _status_with_default(
         origin=origin,
         private_copy=true,
     )
-    return _status_with_reference(status, variable, Ref(initial))
+    return _status_with_reference(
+        status, variable, _allocate_status_reference(model, object_id, variable, initial),
+    )
 end
 
 function _ensure_model_object_status!(model::CompositeModel, object_id::ObjectId)
@@ -5583,7 +5736,7 @@ function _model_output_destination_columns(
     declarations = resolved.plan.declarations
     names = Tuple(Symbol.(keys(declarations)))
     columns = map(names) do variable
-        refs = Base.RefValue[
+        refs = Ref[
             refvalue(
                 _model_object(model, destination_id).status,
                 variable,
@@ -5976,7 +6129,7 @@ function _refresh_model_distributed_outputs(
 end
 
 _model_input_status_reference(binding) =
-    binding.carrier isa Base.RefValue ?
+    binding.carrier isa Ref ?
     binding.carrier : Ref(binding.carrier)
 
 function _model_input_status_references(bindings)
@@ -6418,6 +6571,12 @@ function _validate_temporal_input_output_overlap!(
     return nothing
 end
 
+# Opt-in preparation experiments may reuse immutable assembly metadata while
+# retaining the ordinary compiler and preservation semantics for other cases.
+_prepare_compiled_model_status_view(args...) = _compile_model_status_view(args...)
+_prepare_preserved_model_status_view(model, args...) =
+    _preserve_model_status_view_temporal_state!(args...)
+
 Base.@nospecializeinfer function _compile_model_status_view(
     model::CompositeModel,
     application::CompiledModelApplication,
@@ -6552,7 +6711,7 @@ function _compile_model_status_views(
     for application in applications
         for object_id in application.target_ids
             key = (application.id, object_id)
-            views[key] = _compile_model_status_view(
+            views[key] = _prepare_compiled_model_status_view(
                 model,
                 application,
                 object_id,
@@ -6570,7 +6729,7 @@ input_carrier(binding::CompiledModelInputBinding) = binding.carrier
 has_reference_carrier(binding::CompiledModelInputBinding) = !isnothing(binding.carrier)
 input_value(binding::CompiledModelInputBinding) = _input_value(binding.carrier)
 _input_value(::Nothing) = nothing
-_input_value(carrier::Base.RefValue) = carrier[]
+_input_value(carrier::Ref) = carrier[]
 _input_value(carrier::RefVector) = carrier
 _input_value(carrier::ObjectRefVector) = carrier
 
@@ -6739,7 +6898,7 @@ function _selector_labels_may_overlap(left, right)
 end
 
 function _potential_input_source_application_ids(
-    applications,
+    writer_applications,
     consumer_application,
     selector,
     source_var::Symbol,
@@ -6753,7 +6912,7 @@ function _potential_input_source_application_ids(
     source_selector = origin == :inferred_same_object ?
                       consumer_application.applies_to : selector
     return Tuple(
-        application.id for application in applications
+        application.id for application in get(writer_applications, source_var, ())
         if (isnothing(process_filter) ||
             application.process == process_filter) &&
            (isnothing(application_filter) ||
@@ -6766,6 +6925,34 @@ function _potential_input_source_application_ids(
                distributed_output_plans,
            )
     )
+end
+
+function _input_plan_writer_applications(
+    applications,
+    local_output_names,
+    distributed_output_plans,
+)
+    writers = Dict{Symbol,Vector{CompiledModelApplication}}()
+    for application in applications
+        for variable in local_output_names[application.id]
+            push!(get!(Vector{CompiledModelApplication}, writers, variable), application)
+        end
+        distributed_output_plans isa NoCompiledDistributedOutputPlans && continue
+        for plan in get(
+            distributed_output_plans.by_application,
+            application.id,
+            (),
+        )
+            for variable in keys(plan.declarations)
+                candidates = get!(Vector{CompiledModelApplication}, writers, variable)
+                # An application can write the same name through several
+                # destination plans. Keep it once, in application order.
+                (isempty(candidates) || last(candidates).id != application.id) &&
+                    push!(candidates, application)
+            end
+        end
+    end
+    return writers
 end
 
 function _application_may_output_variable(
@@ -6836,10 +7023,23 @@ Base.@nospecializeinfer function _potential_call_application_ids(
     )
 end
 
+Base.@nospecializeinfer function _input_plan_variable_contracts!(
+    contracts_by_application::Dict{Symbol,NamedTuple},
+    application,
+)
+    @nospecialize application
+    application_id = application.id
+    schema = get(contracts_by_application, application_id, nothing)
+    isnothing(schema) || return schema
+    schema = _variable_contract_schema(application.spec)
+    contracts_by_application[application_id] = schema
+    return schema
+end
+
 Base.@nospecializeinfer function _compiled_model_input_plan(
     plans,
     model,
-    applications,
+    writer_applications,
     application,
     input::Symbol,
     selector,
@@ -6847,6 +7047,7 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
     applications_by_id,
     distributed_output_plans,
     local_output_names,
+    variable_contracts_by_application,
 )
     # Selector and application values still determine the concrete final plan.
     @nospecialize application selector
@@ -6862,7 +7063,7 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
     )
     potential_source_application_ids =
         _potential_input_source_application_ids(
-        applications,
+        writer_applications,
         application,
         selector,
         source_var,
@@ -6878,6 +7079,11 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
             input,
             applications_by_id[producer_id],
             source_var,
+            variable_contracts_by_application[application.id],
+            _input_plan_variable_contracts!(
+                variable_contracts_by_application,
+                applications_by_id[producer_id],
+            ),
         )
     end
     policy = _selector_has_policy(selector) ? _selector_policy(selector) : nothing
@@ -6928,14 +7134,29 @@ function _compile_model_input_plans(
         application.id => _model_output_names(application)
         for application in applications
     )
+    # Restrict producer scans by declared variable, before applying selectors
+    # and process/application filters. This remains a compile-pass inventory:
+    # retain empty applications, stream-only local outputs, and distributed
+    # declarations regardless of their current destination membership.
+    writer_applications = _input_plan_writer_applications(
+        applications,
+        local_output_names,
+        distributed_output_plans,
+    )
     canonical_output_names = Dict(
         application.id => Symbol[
             variable for variable in local_output_names[application.id]
             if _publish_mode_for_output(application.spec, variable) == :canonical
         ] for application in applications
     )
+    # Contract-name validation reads full declarations, which may allocate
+    # array defaults. Validate each exact application once in this pass and
+    # reuse only its contract metadata for every producer/consumer comparison.
+    # Fill lazily to preserve declaration/endpoint error ordering. Do not retain
+    # initialization values or cache across compilations.
+    variable_contracts_by_application = Dict{Symbol,NamedTuple}()
     for application in applications
-        _variable_contract_schema(application.spec)
+        _input_plan_variable_contracts!(variable_contracts_by_application, application)
         declared_inputs = value_inputs(application.spec)
         declared_inputs isa NamedTuple || (declared_inputs = NamedTuple())
         declared_names = Set(Symbol.(keys(declared_inputs)))
@@ -6950,7 +7171,7 @@ function _compile_model_input_plans(
                 _compiled_model_input_plan(
                     plans,
                     model,
-                    applications,
+                    writer_applications,
                     application,
                     input,
                     selector,
@@ -6958,12 +7179,13 @@ function _compile_model_input_plans(
                     applications_by_id,
                     distributed_output_plans,
                     local_output_names,
+                    variable_contracts_by_application,
                 ),
             )
         end
         for input in _model_input_names(application)
             input in declared_names && continue
-            for producer in applications
+            for producer in get(writer_applications, input, ())
                 producer.id == application.id && continue
                 local_output = input in canonical_output_names[producer.id] &&
                                _selector_labels_may_overlap(
@@ -6988,7 +7210,7 @@ function _compile_model_input_plans(
                     _compiled_model_input_plan(
                         plans,
                         model,
-                        applications,
+                        writer_applications,
                         application,
                         input,
                         selector,
@@ -6996,6 +7218,7 @@ function _compile_model_input_plans(
                         applications_by_id,
                         distributed_output_plans,
                         local_output_names,
+                        variable_contracts_by_application,
                     ),
                 )
             end
@@ -7080,9 +7303,10 @@ function _compile_model_output_destination_plans(
         end
     end
     isempty(plans) && return NoCompiledDistributedOutputPlans()
+    metadata_policy = _scenario_metadata_policy(model)
     return CompiledDistributedOutputPlans(
-        Tuple(plans),
-        _plans_by_application(applications, plans),
+        _scenario_metadata_sequence(metadata_policy, plans),
+        _plans_by_application(applications, plans, metadata_policy),
     )
 end
 
@@ -7178,6 +7402,9 @@ function _compile_model_input_bindings(
     bindings = CompiledModelInputBinding[]
     by_object = _applications_by_object(applications)
     by_id = Dict(application.id => application for application in applications)
+    _prepare_newborn_binding_program!(
+        model, applications, plans_by_application, by_id, distributed_outputs,
+    )
     for application in applications
         for consumer_id in application.target_ids
             _compile_added_consumer_bindings!(
@@ -7196,7 +7423,39 @@ function _compile_model_input_bindings(
     return bindings
 end
 
+# Optional binding-program experiment. Declining an instruction preserves the
+# ordinary compiler; a resolved ID vector avoids repeating a live query.
+_prepare_newborn_binding_program!(args...) = nothing
+_try_newborn_binding_instruction!(args...) = false
+
 Base.@nospecializeinfer function _push_model_input_binding!(
+    bindings,
+    model::CompositeModel,
+    application::CompiledModelApplication,
+    consumer_id::ObjectId,
+    plan::CompiledModelInputPlan,
+    applications_by_object,
+    applications_by_id,
+    source_ids_override=nothing,
+    distributed_outputs=NoCompiledDistributedOutputs(),
+    ; object_query_cache=nothing,
+)
+    @nospecialize application plan
+    instruction = _try_newborn_binding_instruction!(
+        bindings, model, application, consumer_id, plan,
+        applications_by_object, applications_by_id, source_ids_override,
+        distributed_outputs, object_query_cache,
+    )
+    instruction === true && return bindings
+    instruction isa Vector{ObjectId} && (source_ids_override = instruction)
+    return _push_model_input_binding_ordinary!(
+        bindings, model, application, consumer_id, plan,
+        applications_by_object, applications_by_id, source_ids_override,
+        distributed_outputs; object_query_cache,
+    )
+end
+
+Base.@nospecializeinfer function _push_model_input_binding_ordinary!(
     bindings,
     model::CompositeModel,
     application::CompiledModelApplication,
@@ -8029,7 +8288,7 @@ function _model_binding_carrier_kind(binding::CompiledModelInputBinding)
     binding.carrier_hint == :optional_default && return :optional_default
     carrier = binding.carrier
     isnothing(carrier) && return :unresolved
-    carrier isa Base.RefValue && return :ref
+    carrier isa Ref && return :ref
     carrier isa RefVector && return :ref_vector
     carrier isa ObjectRefVector && return :object_ref_vector
     return :custom

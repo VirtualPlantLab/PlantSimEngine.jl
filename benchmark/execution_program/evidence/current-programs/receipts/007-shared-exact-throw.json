@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T12:44:07.238525+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/nested-progress.log\"),\"a\") do io; write(io,\"before_exact_shared_throw\\n\"); end; exact_shared_throw=SharedCallProgramChecks.shared_nested_throw_probe(native=true,publish=false,throw_first=true); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/nested-progress.log\"),\"a\") do io; write(io,\"after_exact_shared_throw\\n\"); end; open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/shared-exact-throw.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,exact_shared_throw,2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 2800
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "(passed = true, pid = 53643)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "075c127f"
+    }
+  }
+}

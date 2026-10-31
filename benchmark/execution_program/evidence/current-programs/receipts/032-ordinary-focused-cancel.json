@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T13:38:41.471052+00:00",
+  "tool": "cancel_eval",
+  "arguments": {
+    "eval_id": "c80dafb4"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Job c80dafb4 marked as cancelled. Running code can check KaimonGate.is_cancelled() to stop cooperatively.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

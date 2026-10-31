@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T13:03:01.393113+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "shared_tail=(fallback=SharedCallProgramChecks.shared_fallback_checks(),pb=SharedCallProgramChecks.shared_pb_checks(nobjects=2,steps=2)); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/shared-fallback-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,shared_tail,2); end; counted_medium=PureJuliaReference.prepare_pure_pb(PureJuliaReference.plain_pb_fixture(nobjects=32,steps=128);count_calls=true); PureJuliaReference.advance_pure_pb!(counted_medium;steps=128); counted_digest=bytes2hex(M.sha256(repr(PureJuliaReference.pure_pb_snapshot(counted_medium)))); @assert counted_digest==pure_medium_screen.expected_digest; counted_report=PureJuliaReference.pure_pb_report(counted_medium); @assert counted_report.work.roots==4096; open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/pure-medium-work.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(digest=counted_digest,report=counted_report),2); end; (passed=true,work=counted_report.work)",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                              | Pass  Total  Time\nShared program retains unknown and unsupported kernel APIs |   12     12  9.5s\nTest Summary:                                                      | Pass  Total  Time\nActual shared PB call program: original kernels and canonical rows |  104    104  1.1s\n[ Warning: sha256 is defined in SHA and is not public in Main.NativeDownstreamMeasurements\n(passed = true, work = (roots = 4096, photosynthesis = 12288, stomata = 12288, model_lookups = 12288))",
+          "type": "text"
+        }
+      ],
+      "eval_id": "43de9793"
+    }
+  }
+}

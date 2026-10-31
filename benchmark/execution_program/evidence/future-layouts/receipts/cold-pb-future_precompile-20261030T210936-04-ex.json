@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T21:10:25.651934+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "b82d3f7f",
+    "e": "future_case_kind=:pb; future_case_arm=:future_precompile; future_case_freshness=(new_process=Base.getpid()!=81861,pid=Base.getpid(),previous_pid=81861,no_prior_case_execution=true,no_prior_ir_probe=true,method=:fresh_Kaimon_worker); future_case_output_path=\"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/benchmark/native_downstream/results/future-layouts/cold-pb-future_precompile.json\"; using PlantSimEngine; @assert startswith(pathof(PlantSimEngine),\"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine\"); include(joinpath(pwd(),\"benchmark/native_downstream/future_layout_cold_case.jl\")); (pid=getpid(),arm=future_case_arm,kind=future_case_kind,complete_seconds=future_case_record.complete_seconds,digest=future_case_record.digest)",
+    "q": false,
+    "max_output": 2500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "(pid = 82012, arm = :future_precompile, kind = :pb, complete_seconds = 18.702758999999997, digest = \"d06332a1f422af547e67292bb85a9d556d1b7f30a5dcc161454d165c37453187\")",
+          "type": "text"
+        }
+      ],
+      "eval_id": "fa5a4f4d"
+    }
+  }
+}

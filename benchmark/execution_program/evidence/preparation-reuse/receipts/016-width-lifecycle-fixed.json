@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T16:36:13.706630+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "58e5babf",
+    "e": "let parsed=Meta.parseall(read(joinpath(pwd(),\"benchmark/native_downstream/bounded_preparation_checks.jl\"),String)); body=only(x for x in parsed.args if x isa Expr && x.head===:module).args[3]; for x in body.args; if x isa Expr && x.head===:function && x.args[1] isa Expr && x.args[1].head===:call && x.args[1].args[1]===:_snapshot; Core.eval(BoundedPreparationChecks,x); end; end; end; @info \"Small width checks\"; width_gate=BoundedPreparationChecks.bounded_width_checks(); @info \"Structural lifecycle checks\"; growth_gate=BoundedPreparationChecks.bounded_growth_checks(); @info \"Parameter schemas and temporal/private checks\"; schemas=PlanViewReuseChecks.plan_view_recipe_schema_checks(); temporal=PlanViewReuseChecks.plan_view_temporal_private_checks(); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/width-lifecycle-schema-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(width=width_gate,growth=growth_gate,schemas=schemas,temporal=temporal),2); end; (passed=true)",
+    "q": false,
+    "max_output": 4500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.1s.\nJob ID: 2587b3e9\nSession: PSE static preparation baseline\nCode: let parsed=Meta.parseall(read(joinpath(pwd(),\"benchmark/native_downstream/bounde...\n\nUse `check_eval(eval_id=\"2587b3e9\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"2587b3e9\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "2587b3e9"
+    }
+  }
+}

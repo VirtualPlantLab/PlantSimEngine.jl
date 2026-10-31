@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T16:17:51.536693+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "3e461a7c"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "3e461a7c on 58e5babf\ncompleted, 2m 7s\n(passed = true, pid = 21292, execution_ms = 29.564625, prepare_ms = 49.135083, profile = (counts = Dict(:initial_call_bindings_constructed => 15, :call_binding_targets_removed => 0, :execution_groups_reused => 68, :execution_targets_constructed => 80, :initial_execution_batches_constructed => 39, :initial_input_plans_compiled => 134, :output_retention_reuses => 4, :initial_call_plans_compiled => 15, :steps_executed => 4, :lifecycle_many_input_binding_direct_appends => 24, :input_binding_targets_removed => 0, :application_schedule_generic_checks => 0, :lifecycle_binding_refresh_status_recipe_materializations_avoided => 28, :lifecycle_barriers => 4, :lifecycle_reparented_objects => 0, :selector_call_binding_candidates => 0, :application_groups_considered => 156, :execution_targets_visited => 336, :lifecycle_manual_call_owner_binding_candidates => 4, :execution_batches_constructed => 0, :lifecycle_application_target_template_cache_hits => 12, :initial_status_views_constructed => 46, :environment_bindings_removed => 0, :environment_refreshes => 4, :lifecycle_binding_refresh_status_recipe_materializations => 12, :lifecycle_many_input_binding_direct_sources_appended => 32, :status_views_constructed => 104, :input_binding_targets_replaced => 96, :lifecycle_added_objects => 12, :initial_application_plans_compiled => 61, :execution_batches_visited => 156, :selector_application_candidates => 104, :lifecycle_moved_objects => 0, :initial_execution_targets_constructed => 39, :selector_input_binding_candidates => 36, :lifecycle_reparented_subtrees => 0, :call_binding_targets_replaced => 8, :application_schedule_dispatches => 4, :application_groups_visited => 156, :binding_refreshes => 4, :execution_plan_compiles => 4, :lifecycle_removed_objects => 0, :many_input_binding_precompile_reuses => 8, :lifecycle_environment_dirty_objects => 12, :lifecycle_manual_call_owner_targets_propagated => 4, :lifecycle_binding_refresh_status_recipe_fields_applied => 40, :initial_environment_bindings_constructed => 46, :initial_application_schedule_entries_compiled => 50, :initial_input_bindings_constructed => 90, :input_default_status_rewrites_avoided => 8, :runtime_dirty_checks => 156, :execution_target_rebuild_new => 80, :execution_groups_updated_in_place => 80, :application_schedule_entries_due => 200, :lifecycle_manual_call_owner_frontier_waves => 8, :environment_bindings_replaced => 104, :dirty_binding_objects => 12), elapsed_seconds = Dict(:input_binding_compile => 0.003307625, :status_view_refresh => 0.001198001, :initial_composite_compile => 0.074156166, :status_view_compile => 0.00067575, :step_execution => 5.673983916, :initial_environment_compile => 0.000917625, :output_publication => 0.000127545, :initial_output_target_compile => 3.917e-6, :application_target_refresh => 0.010319834, :temporal_input_materialization => 2.0083e-5, :initial_execution_plan_compile => 0.002039416, :application_target_compile => 0.001095042, :initial_binding_compile => 0.070000583, :binding_refresh => 1.788366374, :execution_plan_and_model_bundle_compile => 0.762752501, :environment_sampling => 9.586e-6, :environment_refresh => 0.000716127, :scientific_kernel_execution => 0.006351042, :call_binding_refresh => 0.001097916, :call_binding_compile => 0.000198792, :initial_output_retention_compile => 0.000585833, :execution_plan_compile => 0.762751624, :initial_execution_plan_and_model_bundle_compile => 0.002039666, :input_binding_refresh => 0.879009167, :scenario_plan_compile => 0.008866834)))",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

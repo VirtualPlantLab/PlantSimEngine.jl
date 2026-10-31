@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T12:55:30.775580+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "2d1e83af",
+    "e": "include(\"/private/tmp/pse_gap_reload_shared.jl\"); shared_metadata=(nested=SharedCallProgramChecks.shared_conditional_checks(),root=SharedCallProgramChecks.shared_root_skipped_checks()); open(joinpath(pwd(),\"benchmark/native_downstream/results/pure-gap/shared-metadata-checks.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,shared_metadata,2); end; (passed=true,pid=Base.getpid())",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Test Summary:                                                         | Pass  Total  Time\nSkipped child metadata and cross-row materialization stay independent |   44     44  0.4s\nTest Summary:                                                                    | Pass  Total  Time\nScheduled root keeps unqueried metadata and synchronizes lookup-only collections |   70     70  3.9s\n(passed = true, pid = 53643)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "d32267e7"
+    }
+  }
+}

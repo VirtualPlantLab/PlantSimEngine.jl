@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-30T13:38:57.072525+00:00",
+  "tool": "manage_repl",
+  "arguments": {
+    "session": "2d1e83af",
+    "command": "restart"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Session 2d1e83af restarted. Fresh Julia state. Revise active.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

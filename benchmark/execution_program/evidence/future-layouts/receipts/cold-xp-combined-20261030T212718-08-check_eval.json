@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T21:30:08.934531+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "aa03b1f2"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "aa03b1f2 on 6faedf20\ncompleted, 2m 1s\n(pid = 83806, arm = :combined, kind = :xp, complete_seconds = 103.731219251, digest = \"7f7e8c62acad07068ad60587ad908797c8b7990b55923a05b6452f66c7aecf26\")",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

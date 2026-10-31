@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-30T21:23:04.081015+00:00",
+  "tool": "manage_repl",
+  "arguments": {
+    "session": "fb100b55",
+    "command": "shutdown"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Session fb100b55 shut down.",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

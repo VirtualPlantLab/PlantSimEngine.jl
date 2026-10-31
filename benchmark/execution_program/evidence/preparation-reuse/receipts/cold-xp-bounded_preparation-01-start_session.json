@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-30T18:47:28.261461+00:00",
+  "tool": "start_session",
+  "arguments": {
+    "project_path": "/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine",
+    "name": "PSE first-use xp bounded_preparation"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Session started. Session key: cc57c238",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}

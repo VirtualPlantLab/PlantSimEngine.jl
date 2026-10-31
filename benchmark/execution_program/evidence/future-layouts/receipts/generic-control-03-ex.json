@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T20:16:30.189725+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "596beb71",
+    "e": "using PlantSimEngine; @assert startswith(pathof(PlantSimEngine),\"/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine\"); include(\"/private/tmp/pse_future_control.jl\"); (pid=Base.getpid(),completed=true)",
+    "q": false,
+    "max_output": 2500
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "(pid = 77956, completed = true)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "46d30022"
+    }
+  }
+}

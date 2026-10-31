@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T19:09:27.088036+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "16d57427",
+    "e": "include(\"benchmark/native_downstream/load_preparation_experiment.jl\");\n for file in (\"lean_compiler.jl\",\"direct_calls.jl\",\"shared_call_program.jl\",\"tight_call_program.jl\",\"preparation_typed_integration_checks.jl\")\n include(joinpath(pwd(),\"benchmark/native_downstream\",file)); end;\n preparation_typed_result=Base.invokelatest(PreparationTypedIntegrationChecks.preparation_typed_integration_checks;progress_path=joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/typed-stage-progress.jsonl\"));\n open(\"benchmark/native_downstream/results/preparation-reuse/typed-integration-checks.json\",\"w\") do io\n PlantSimEngine.JSON.print(io,preparation_typed_result,2);end;\n (passed=preparation_typed_result.passed,arms=length(preparation_typed_result.reports),pid=Base.getpid())",
+    "q": false,
+    "max_output": 3000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.0s.\nJob ID: c25cf68b\nSession: PSE bounded typed check\nCode: include(\"benchmark/native_downstream/load_preparation_experiment.jl\");\n for file...\n\nUse `check_eval(eval_id=\"c25cf68b\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"c25cf68b\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "c25cf68b"
+    }
+  }
+}

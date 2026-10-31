@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T18:38:01.059294+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "b89c1299",
+    "e": "using Statistics; sp=PreparationReuseMeasurements.register_preparation_pb_case!(:prep_pb_medium;nobjects=32,steps=128); sc=M.screen_case(sp;repetitions=4); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/pb-medium-screen.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,sc,2); end; [(variant=r.variant,prepare_ms=1000*Statistics.median(s.phases.pse_preparation.seconds for s in sc.samples if s.variant===r.variant),execution_ms=1000*r.execution_seconds,execution_ratio=r.execution_ratio,complete_ms=1000*r.complete_seconds,complete_ratio=r.complete_ratio) for r in M.summarize_screen(sc)]",
+    "q": false,
+    "max_output": 4000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "4-element Vector{@NamedTuple{variant::Symbol, prepare_ms::Float64, execution_ms::Float64, execution_ratio::Float64, complete_ms::Float64, complete_ratio::Float64}}:\n (variant = :reference_executor, prepare_ms = 3.4206250000000002, execution_ms = 3.9453744999999993, execution_ratio = 1.0, complete_ms = 7.8456459999999995, complete_ratio = 1.0)\n (variant = :plan_view_reuse, prepare_ms = 3.5508545000000002, execution_ms = 3.9923335000000004, execution_ratio = 1.0195138065964255, complete_ms = 8.1037925, complete_ratio = 1.0388296265902854)\n (variant = :bounded_preparation, prepare_ms = 3.5101875, execution_ms = 3.945125000000001, execution_ratio = 1.0058145988513676, complete_ms = 7.905291999999999, complete_ratio = 1.0059424928594825)\n (variant = :combined, prepare_ms = 3.664125, execution_ms = 4.0195834999999995, execution_ratio = 1.0246764093163878, complete_ms = 8.119166, complete_ratio = 1.0331540210233632)",
+          "type": "text"
+        }
+      ],
+      "eval_id": "b22e0e19"
+    }
+  }
+}

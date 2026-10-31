@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-30T16:15:14.919479+00:00",
+  "tool": "ex",
+  "arguments": {
+    "ses": "58e5babf",
+    "e": "xp_base_spec=NXP.register_xp_case!(:prep_baseline_xp;steps=4,outputs=:all); xp_base_warmup=M.measure_case(xp_base_spec,:reference_executor;temperature=:warmup); xp_base_warm=M.measure_case(xp_base_spec,:reference_executor;expected_digest=xp_base_warmup.digest); profile_f=NXP.xpalm_native_fixture(;steps=4,native=false); profile_s=PlantSimEngine.run!(profile_f;steps=0,outputs=:all,performance=true); PlantSimEngine.continue!(profile_s;steps=4); profile=PlantSimEngine.runtime_performance(profile_s); open(joinpath(pwd(),\"benchmark/native_downstream/results/preparation-reuse/baseline-xp-warm-profile.json\"),\"w\") do io; PlantSimEngine.JSON.print(io,(warm=xp_base_warm,profile=profile,profile_qualification=:separate_instrumented_timeline_not_timed_arm),2); end; (passed=true,pid=Base.getpid(),execution_ms=1000*xp_base_warm.phases.execution.seconds,prepare_ms=1000*xp_base_warm.phases.pse_preparation.seconds,profile=profile)",
+    "q": false,
+    "max_output": 5000
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "\u23f3 Computation promoted to background job after 30.2s.\nJob ID: 3e461a7c\nSession: PSE static preparation baseline\nCode: xp_base_spec=NXP.register_xp_case!(:prep_baseline_xp;steps=4,outputs=:all); xp_b...\n\nUse `check_eval(eval_id=\"3e461a7c\")` to check status and retrieve the result.\nWait at least 30s before checking. Do NOT poll rapidly.\nUse `cancel_eval(eval_id=\"3e461a7c\")` to cancel if needed.",
+          "type": "text"
+        }
+      ],
+      "eval_id": "3e461a7c"
+    }
+  }
+}

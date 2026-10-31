@@ -1,0 +1,3 @@
+# Frozen copies retain the measured source bytes, including existing whitespace.
+qualified-source/** -whitespace linguist-generated=true
+raw/** linguist-generated=true

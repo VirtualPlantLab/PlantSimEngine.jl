@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-30T18:47:24.012672+00:00",
+  "tool": "check_eval",
+  "arguments": {
+    "eval_id": "4c626cfb"
+  },
+  "response": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "4c626cfb on a34bb7f7\ncompleted, 2m 29s\n(pid = 68716, arm = :reference_executor, package = :xp, phases = (construction = (seconds = 10.81124275, allocated_bytes = 1950368424, gc_seconds = 0.129495542, gc_stats = (allocd = 1950368424, malloc = 22896, realloc = 0, poolalloc = 35675569, bigalloc = 108, freecall = 20193, total_time = 129495542, pause = 7, full_sweep = 1), compilation_seconds = 10.785346836, recompilation_seconds = 0.0), pse_preparation = (seconds = 105.899525083, allocated_bytes = 9415810880, gc_seconds = 0.716376875, gc_stats = (allocd = 9415810880, malloc = 202772, realloc = 0, poolalloc = 165629223, bigalloc = 838, freecall = 201140, total_time = 716376875, pause = 38, full_sweep = 2), compilation_seconds = 105.655998662, recompilation_seconds = 0.008359167), backend_lowering = (seconds = 5.5667e-5, allocated_bytes = 5584, gc_seconds = 0.0, gc_stats = (allocd = 5584, malloc = 0, realloc = 0, poolalloc = 94, bigalloc = 0, freecall = 0, total_time = 0, pause = 0, full_sweep = 0), compilation_seconds = 3.9458e-5, recompilation_seconds = 0.0), execution = (seconds = 15.965138834, allocated_bytes = 1984608784, gc_seconds = 0.136910376, gc_stats = (allocd = 1984608784, malloc = 40452, realloc = 0, poolalloc = 34752519, bigalloc = 359, freecall = 43708, total_time = 136910376, pause = 8, full_sweep = 0), compilation_seconds = 15.919885715, recompilation_seconds = 0.0)), digest = \"c04ec5ae155e73e09ead551618f5c8eddea5c7548838aebc5d8172bc55887434\")",
+          "type": "text"
+        }
+      ]
+    }
+  }
+}
