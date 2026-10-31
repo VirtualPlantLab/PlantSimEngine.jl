@@ -7390,6 +7390,9 @@ function _compile_model_input_bindings(
     bindings = CompiledModelInputBinding[]
     by_object = _applications_by_object(applications)
     by_id = Dict(application.id => application for application in applications)
+    _prepare_newborn_binding_program!(
+        model, applications, plans_by_application, by_id, distributed_outputs,
+    )
     for application in applications
         for consumer_id in application.target_ids
             _compile_added_consumer_bindings!(
@@ -7408,6 +7411,11 @@ function _compile_model_input_bindings(
     return bindings
 end
 
+# Optional binding-program experiment. Declining an instruction preserves the
+# ordinary compiler; a resolved ID vector avoids repeating a live query.
+_prepare_newborn_binding_program!(args...) = nothing
+_try_newborn_binding_instruction!(args...) = false
+
 Base.@nospecializeinfer function _push_model_input_binding!(
     bindings,
     model::CompositeModel,
@@ -7421,6 +7429,13 @@ Base.@nospecializeinfer function _push_model_input_binding!(
     ; object_query_cache=nothing,
 )
     @nospecialize application plan
+    instruction = _try_newborn_binding_instruction!(
+        bindings, model, application, consumer_id, plan,
+        applications_by_object, applications_by_id, source_ids_override,
+        distributed_outputs, object_query_cache,
+    )
+    instruction === true && return bindings
+    instruction isa Vector{ObjectId} && (source_ids_override = instruction)
     input_sym = plan.input
     selector = plan.selector
     source_var = plan.source_var

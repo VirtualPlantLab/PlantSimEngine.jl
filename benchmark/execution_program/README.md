@@ -39,6 +39,11 @@ warm screens and two fresh-process checks show lower allocations without a new
 XP runtime or first-use win over bounded metadata. The report preserves the
 negative results, feature gates and measured limits.
 
+The [newborn binding-instruction prototype](newborn_bindings.md) lowers known
+producer/port/policy decisions while resolving current memberships and canonical
+references. It tests the stronger binding-construction hypothesis separately
+and with bounded preparation, starting with small feature and scientific gates.
+
 ## What changed
 
 - `shared_call_program.jl` stores one immutable typed instruction tree per
