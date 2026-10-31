@@ -20,15 +20,15 @@ export DISPATCH_ARMS, OPTIONAL_ARMS, dispatch_refresh_policies,
     register_xp_dispatch_refresh_case!, screen_xp_dispatch_refresh
 
 const DISPATCH_ARMS = (:ordinary_a, :ordinary_b, :bounded_graph, :trusted_index, :typed_barrier)
-const OPTIONAL_ARMS = (:trusted_barrier, :trusted_barrier_graph)
+const OPTIONAL_ARMS = (:trusted_barrier, :trusted_barrier_graph, :typed_graph, :trusted_graph)
 const PROTOCOL = :xp_ordinary_dispatch_refresh_v1
 
 function dispatch_refresh_policies(arm::Symbol)
     arm in (DISPATCH_ARMS..., OPTIONAL_ARMS...) ||
         throw(ArgumentError("Unknown ordinary dispatch/refresh arm: $arm"))
-    graph = arm in (:bounded_graph, :trusted_barrier_graph)
-    trusted = arm in (:trusted_index, :trusted_barrier, :trusted_barrier_graph)
-    typed = arm in (:typed_barrier, :trusted_barrier, :trusted_barrier_graph)
+    graph = arm in (:bounded_graph, :trusted_barrier_graph, :typed_graph, :trusted_graph)
+    trusted = arm in (:trusted_index, :trusted_barrier, :trusted_barrier_graph, :trusted_graph)
+    typed = arm in (:typed_barrier, :trusted_barrier, :trusted_barrier_graph, :typed_graph)
     return (; bounded=graph, graph, trusted_index=trusted, typed_output_preparation=typed,
         underlying_arm=graph ? :bounded_preparation : :reference_executor,
         numerical_executor=:ordinary, binding_program=:disabled,
