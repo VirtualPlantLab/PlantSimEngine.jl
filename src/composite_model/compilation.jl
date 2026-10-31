@@ -15,6 +15,9 @@ struct CompiledApplicationPlan{S,AT,TM,TS,CL,MO}
     model_overrides::MO
 end
 
+# Cold construction boundary for the optional read-only plan storage experiment.
+_compiled_application_plan(model, args...) = CompiledApplicationPlan(args...)
+
 """
 Object-dependent runtime state for one compiled application.
 """
@@ -2172,6 +2175,10 @@ function _insert_sorted_object_ids!(ids, added_ids)
     return ids
 end
 
+# Optional metadata interpretation experiment. The ordinary path remains the
+# reference implementation; extensions must resolve current sources and refs.
+_try_reuse_input_plan_partition!(args...) = false
+
 Base.@nospecializeinfer function _compile_added_consumer_bindings!(
     bindings,
     model,
@@ -2187,6 +2194,11 @@ Base.@nospecializeinfer function _compile_added_consumer_bindings!(
 )
     # Cold assembly must not specialize on each application × input-plan tuple.
     @nospecialize application input_plans
+    _try_reuse_input_plan_partition!(
+        bindings, model, application, consumer_id, input_plans,
+        manual_application_ids, applications_by_object, applications_by_id,
+        distributed_outputs, many_binding_cache, performance,
+    ) && return bindings
     # One consumer's inputs often select the same objects for different
     # variables/producers. Keep this cache local to this invocation so neither
     # scene identity nor lifecycle invalidation needs persistent cache state.
@@ -4540,7 +4552,8 @@ end
         push!(
             applications,
             CompiledModelApplication(
-                CompiledApplicationPlan(
+                _compiled_application_plan(
+                    model,
                     slot,
                     app_id,
                     spec,

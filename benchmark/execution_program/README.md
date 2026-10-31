@@ -32,6 +32,11 @@ local-port admission bridge executes original XP kernels correctly but gives
 no whole-run improvement after growth retirement. The growth diagnostics
 identify XP input-binding fan-out as the next measured target.
 
+The [growth input-refresh follow-up](growth_inputs.md) profiles that fan-out and
+tests symbolic input-plan partitions and shared, read-only application-plan
+storage as independent candidates. Its report records the current validation
+and measurement status.
+
 ## What changed
 
 - `shared_call_program.jl` stores one immutable typed instruction tree per
