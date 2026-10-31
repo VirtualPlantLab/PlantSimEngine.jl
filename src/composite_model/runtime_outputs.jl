@@ -1291,6 +1291,28 @@ function _execution_groups_by_application_slot(groups, application_count::Int)
     return groups_by_slot
 end
 
+# A manual index has no canonical scene witness. The scene-aware builder records
+# optional trust while doing the same fill, without another validation pass.
+_begin_execution_group_index(args...) = nothing
+_observe_execution_group_index!(::Nothing, args...) = nothing
+_finish_execution_group_index!(::Nothing, args...) = nothing
+
+function _execution_groups_by_application_slot(groups, compiled::CompiledCompositeModel)
+    application_count = length(compiled.scenario_plan.applications)
+    groups_by_slot = fill!(
+        Vector{Union{Nothing,CompiledApplicationExecutionGroup}}(undef, application_count),
+        nothing,
+    )
+    certificate = _begin_execution_group_index(compiled, groups, groups_by_slot)
+    for group in groups
+        slot = group.application.slot
+        _observe_execution_group_index!(certificate, groups_by_slot, group, slot)
+        groups_by_slot[slot] = group
+    end
+    _finish_execution_group_index!(certificate, groups_by_slot, groups, compiled)
+    return groups_by_slot
+end
+
 """
     Simulation
 
@@ -3877,11 +3899,10 @@ function compile_model_execution_plan(
             ),
         )
     end
-    application_count = length(compiled.scenario_plan.applications)
     return CompiledExecutionPlan(
         groups,
         batches,
-        _execution_groups_by_application_slot(groups, application_count),
+        _execution_groups_by_application_slot(groups, compiled),
         _runtime_application_schedule(
             compiled.scenario_plan.application_schedule,
         ),
@@ -5039,6 +5060,8 @@ end
 @inline _previous_execution_group(groups, application) =
     get(groups, application.id, nothing)
 
+_try_trusted_execution_group_lookup(args...) = nothing
+
 function _refresh_model_execution_plan(
     previous::CompiledExecutionPlan,
     compiled::CompiledCompositeModel,
@@ -5115,7 +5138,9 @@ function _refresh_model_execution_plan(
                 !isempty(staged_execution_targets)
         end
     end
-    previous_groups = _previous_execution_groups_for_refresh(previous, compiled)
+    previous_groups = _try_trusted_execution_group_lookup(previous, compiled)
+    isnothing(previous_groups) &&
+        (previous_groups = _previous_execution_groups_for_refresh(previous, compiled))
     groups = CompiledApplicationExecutionGroup[]
     batches = AbstractExecutionBatch[]
     sizehint!(groups, length(previous.groups))
@@ -5294,7 +5319,7 @@ function _refresh_model_execution_plan(
             batches,
             _execution_groups_by_application_slot(
                 groups,
-                length(compiled.scenario_plan.applications),
+                compiled,
             ),
             previous.schedule,
             compiled.revision,

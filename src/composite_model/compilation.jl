@@ -5558,6 +5558,8 @@ function _prepare_model_output_statuses!(model::CompositeModel, applications)
     return model
 end
 
+_try_prepare_output_status_application!(args...) = false
+
 function _prepare_model_output_statuses_batched!(
     model::CompositeModel,
     applications;
@@ -5569,6 +5571,9 @@ function _prepare_model_output_statuses_batched!(
                          model.status_conversion_records :
                          Dict{Any,Any}()
     for application in applications
+        _try_prepare_output_status_application!(
+            model, application, recipes, recipe_order, conversion_records,
+        ) && continue
         defaults = _local_output_schema(application.spec)
         for object_id in application.target_ids
             preparation = _status_preparation_for_object!(
