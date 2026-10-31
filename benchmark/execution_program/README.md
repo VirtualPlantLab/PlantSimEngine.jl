@@ -34,8 +34,10 @@ identify XP input-binding fan-out as the next measured target.
 
 The [growth input-refresh follow-up](growth_inputs.md) profiles that fan-out and
 tests symbolic input-plan partitions and shared, read-only application-plan
-storage as independent candidates. Its report records the current validation
-and measurement status.
+storage as independent candidates, then preboxed cold payloads. Five qualified
+warm screens and two fresh-process checks show lower allocations without a new
+XP runtime or first-use win over bounded metadata. The report preserves the
+negative results, feature gates and measured limits.
 
 ## What changed
 

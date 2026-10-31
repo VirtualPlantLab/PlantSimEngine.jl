@@ -213,12 +213,37 @@ def warm_summary(screen):
         ratio_method="median_of_paired_cycle_ratios_not_ratio_of_independent_medians")
 
 
+def cold_summary(data, cpu):
+    record = data["record"]
+    freshness = record.get("freshness") or record.get("config", {}).get("freshness") or {}
+    pid = record.get("pid", record.get("process_id"))
+    fresh = all(freshness.get(key) is True for key in
+        ("new_process", "no_prior_case_execution", "no_prior_ir_probe"))
+    fresh = fresh and freshness.get("pid") == pid and freshness.get("previous_pid") != pid
+    phases = record["phases"]
+    if abs(sum(row["seconds"] for row in phases.values()) - record["complete_seconds"]) > 1e-9:
+        raise ValueError("Cold complete time does not equal recorded phases")
+    if record.get("temperature") != "first_use":
+        raise ValueError("Cold record is not labeled first_use")
+    return dict(kind=record["config"].get("kind"), arm=record["arm"], pid=pid,
+        qualified_first_use=fresh and cpu["qualified"], freshness=freshness, cpu=cpu,
+        config=record["config"], phases=phases, complete_seconds=record["complete_seconds"],
+        complete_allocated_bytes=record.get("complete_allocated_bytes"),
+        digest=record["digest"], work=compact(record["work"]), coverage=compact(record["coverage"]),
+        loader_seconds=data.get("loader_seconds"), loader_scope=data.get("loader_scope"),
+        external_import_seconds=data.get("external_import_seconds"), source_image=data.get("source_image"),
+        interpretation="single_first_use_observation_not_a_paired_warm_ratio")
+
+
 def summarize(parsed, raw_files):
-    warm, excluded, checks, profiles = [], [], [], []
+    warm, excluded, checks, profiles, cold = [], [], [], [], []
     bindings = qualification_bindings(parsed, raw_files)
     for name, data in sorted(parsed.items()):
         if "/" in name:
             continue
+        if isinstance(data, dict) and isinstance(data.get("record"), dict) and \
+                isinstance(data["record"].get("phases"), dict):
+            cold.append(dict(source=name, **cold_summary(data, cpu_qualification(name, bindings))))
         for location, value in walk(data):
             if isinstance(value.get("samples"), list) and "baseline" in value and "orders" in value:
                 verified = warm_summary(value)
@@ -250,7 +275,19 @@ def summarize(parsed, raw_files):
                 reason="same_full_sample_cohort_export_not_an_independent_replication"))
         else:
             unique[key] = screen
-    return dict(warm_screens=list(unique.values()), duplicate_screen_exports=duplicates,
+    qualified_cold = [row for row in cold if row["qualified_first_use"]]
+    if len({row["pid"] for row in qualified_cold}) != len(qualified_cold):
+        raise ValueError("Qualified cold cases require distinct workers")
+    groups = {}
+    for row in qualified_cold:
+        config = {key: row["config"].get(key) for key in
+            ("kind", "steps", "nobjects", "additions", "seed", "emission_speed", "outputs")}
+        groups.setdefault(canonical(config), []).append(row)
+    for group in groups.values():
+        if any(row["digest"] != group[0]["digest"] or row["work"] != group[0]["work"] for row in group):
+            raise ValueError("Qualified cold scientific digest/work differs")
+    return dict(warm_screens=list(unique.values()), duplicate_screen_exports=duplicates, cold=cold,
+        qualified_first_use=qualified_cold,
         excluded_warm_screens=excluded, checks=checks, diagnostics=profiles,
         scope="paired_warm_timing_separate_from_opt_in_sampling_and_correctness",
         limitations=["Allocation sampling byte estimates do not establish a causal speedup.",
@@ -263,7 +300,8 @@ def source_inputs():
     paths.update(ROOT / name for name in ("Project.toml", "Manifest.toml"))
     native = ROOT / "benchmark/native_downstream"
     pending = list(native.glob("growth*.jl")) + [native / name for name in
-        ("direct_planner_fixtures.jl", "direct_planner_measurements.jl", "load_direct_planner_experiment.jl")]
+        ("direct_planner_fixtures.jl", "direct_planner_measurements.jl", "load_direct_planner_experiment.jl",
+         "preboxed_plan_checks.jl", "load_growth_input_experiment.jl")]
     pending.append(Path(__file__).resolve())
     seen = set()
     while pending:
@@ -323,7 +361,7 @@ def scientific_sources(parsed, raw_files, current_sources, summary):
                     root=str(root), version=package.get("version"), revision=package.get("revision"),
                     worktree_status=package.get("worktree_status"), files=files,
                     missing_exact_source_bytes=[x["path"] for x in files if x["snapshot_blob"] is None]))
-    qualified_records = {x["source"] for x in summary["warm_screens"]}
+    qualified_records = {x["source"] for x in summary["warm_screens"] + summary["qualified_first_use"]}
     for record in qualified_records:
         captured = {x["name"] for x in records if x["record"] == record and x["files"]}
         if SCIENTIFIC_PACKAGES - captured:
@@ -389,6 +427,7 @@ def main():
     print(json.dumps(dict(archived=bool(args.archive_frozen), raw_files=len(raw_files),
         source_files=len(sources), scientific_source_blobs=len(blobs),
         qualified_warm_screens=len(summary["warm_screens"]),
+        qualified_first_use=len(summary["qualified_first_use"]),
         excluded_warm_screens=len(summary["excluded_warm_screens"]), checks=len(summary["checks"])), sort_keys=True))
 
 

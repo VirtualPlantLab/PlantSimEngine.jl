@@ -1,5 +1,9 @@
 # Growth input refresh and read-only plan storage
 
+No new XP runtime or first-use winner emerged. Partition reuse, concrete heap
+plans and preboxed cold payloads reduce allocations, but do not improve complete
+cost over existing bounded metadata in these checks. They remain experiments.
+
 This round follows the [direct planner experiment](direct_planner.md). It starts
 with fresh ordinary PlantBiophysics and XPalm parity checks, then profiles XP
 growth before changing its input compiler. Scientific models and canonical
@@ -19,8 +23,8 @@ bytes, so a proposed Default projection optimization is deferred. A second
 allocation-only diagnostic uses three fresh four-day scenes in each ordinary
 and bounded-metadata arm and attributes allocations to actual PSE source sites.
 Its largest ordinary site is `_application_plans`: dynamic lookup across cold
-boundaries boxes large inline immutable plan metadata. Existing bounded metadata avoids that
-site. Both representations still repeatedly box `CompiledApplicationPlan`
+boundaries boxes large inline immutable plan metadata. Existing bounded metadata
+avoids that site. Both representations still repeatedly box `CompiledApplicationPlan`
 payloads when cold compiler code extracts application properties.
 
 Sampled byte totals have sampling uncertainty. Source sites identify mechanisms;
@@ -69,7 +73,7 @@ It is not counted as a passed candidate check or a PSE regression.
 Fresh independent scenarios run in alternating forward/reverse order over four
 cycles. Ratios are medians of within-cycle candidate/control ratios. Complete
 cost includes construction, enablement, preparation, lowering and execution.
-Both whole-RPC CPU records report no observed competing Julia process at 5% CPU
+The whole-RPC CPU records report no observed competing Julia process at 5% CPU
 or above. All timed cases use `outputs=:none`; full-history feature checks run
 separately. Science/RNG/work fingerprints match within each case.
 
@@ -126,6 +130,120 @@ distributed sources (242) and the real preboxed-plus-partition combination
 (954). They check unchanged scientific model objects, runtime payload types,
 read-only fields, plan/payload identity and full state/history/RNG/live-reference
 parity. Separate timing qualification follows these gates.
+
+The separate preboxed cohort is also CPU-qualified and uses four balanced
+cycles. It gives these paired XP execution/complete ratios versus ordinary:
+
+| XP four-day arm | Execution ratio | Complete ratio | Execution allocation MB |
+| --- | ---: | ---: | ---: |
+| concrete heap | 1.018 | 1.075 | 11.050 |
+| preboxed plan | 1.061 | 1.079 | 10.945 |
+| preboxed plus partition | 1.037 | 1.075 | 10.206 |
+| bounded metadata | 0.871 | 0.892 | 7.055 |
+| bounded plus preboxed | 0.939 | 1.005 | 6.080 |
+
+Bounded plus preboxed loses all four complete-cost pairs against bounded-only,
+with a paired ratio of 1.116. Eliminating this additional boxing does not produce
+an XP complete-run improvement here. All timed preboxed-cohort phases have zero
+JIT, recompilation and GC; the substantial warmup compilation is excluded.
+
+PB typed-plus-preboxed versus the typed driver gives 0.979 execution and 0.974
+complete, winning four of four pairs. This small signal needs independent
+confirmation. It remains 1.058 complete versus ordinary on the short task, and
+execution allocation increases from 114,800 to 122,992 bytes. It does not change
+the conclusion about XP or establish a general heap/preboxing speedup.
+
+## First-use check protocol
+
+The final compilation screen uses one new Kaimon worker per two-day XP arm,
+comparing bounded preparation with bounded plus preboxed payloads. Imports and
+definition loading are outside construction/preparation/first/remaining-step
+timings. Forcing I/O is inside construction. Explicit PID/source-image checks,
+unused-harness counters and independent model/RNG construction precede timing;
+science/history/topology/RNG/work and source provenance are checked afterward.
+Package disk caches remain available. This is first-use simulation latency,
+not package installation or a cold package-cache benchmark.
+
+The first attempt completed simulation but failed afterward when the report
+writer resolved newly imported package bindings in an older Julia world. That
+attempt is excluded and its source/receipt preserved. A corrected helper moves
+both binding resolution and provenance reporting into `Base.invokelatest`.
+One replacement worker stalled before measurement. Another completed first-use
+record is excluded because the CPU monitor observed controller activity during
+preparation. Controller warmup is now outside the simulation's first-use case;
+the original records and exclusion flags are unchanged.
+
+Two final whole-RPC CPU-qualified records use distinct fresh PIDs and the same
+15-file source image. Full scientific snapshots, RNG digests and work match:
+
+| XP first-use arm | Construction s | Preparation s | First step s | Remaining step s | Complete s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| bounded metadata | 11.362 | 70.603 | 12.750 | 0.008 | 94.722 |
+| bounded plus preboxed | 11.413 | 71.074 | 12.745 | 0.008 | 95.240 |
+
+Preboxing shows no additional compilation/preparation benefit. These are one
+observation per arm, not confidence intervals. PID 62896 and PID 63290 share
+digest `f5ef1910b80a83a12e9a36493fd54b8342567c097d71089c58fe8bfaf0a7530b`.
+The reference uses a prewarmed controller; the candidate also waits for its
+result file before querying evaluation status, keeping controller formatting
+outside simulation timing. Neither worker runs a prior scientific case.
+
+## Decision and next experiment
+
+Keep existing bounded metadata as the XP preparation candidate and the earlier
+typed driver as the PB execution candidate. Do not select the new partition or
+heap representations as production defaults from this screen. Allocation
+volume falls substantially, but zero-GC small runs cannot establish a benefit
+under larger memory pressure or a reduction in retained memory/peak RSS.
+
+The next stronger hypothesis is a small binding program per application,
+compiled from validated declarations before simulation. Its instructions would
+reuse known producer/cadence/port decisions while resolving current object
+membership and canonical references for newborns. That targets actual binding
+construction, status/view assembly and affected-group refresh, which the
+metadata-only experiments deliberately left ordinary. It should avoid a costly
+whole-scene future-layout catalogue and preserve general lifecycle fallbacks.
+This is a proposed next experiment, not an implemented or measured gain.
+
+The archived result set contains five distinct balanced warm screens and two
+qualified first-use records, with duplicate exports identified as aliases.
+The full regression suite and large-scale qualification remain outstanding.
+See the [derived summary](evidence/growth-inputs/summary.json),
+[artifact manifest](evidence/growth-inputs/manifest.json) and
+[source provenance](evidence/growth-inputs/scientific-provenance.json).
+
+## Reproduce
+
+Use a fresh Kaimon session and the compatible local downstream checkouts from
+[the benchmark setup guide](../README.md). Optional packages remain outside
+the default benchmark environment. Load definitions before invoking checks or
+warm measurements:
+
+```julia
+include("benchmark/native_downstream/load_growth_input_experiment.jl")
+include("benchmark/native_downstream/growth_input_reuse_checks.jl")
+GrowthInputReuseChecks.growth_input_generic_checks()
+
+case = GrowthInputMeasurements.register_growth_input_case!(:xp_growth, :xp;
+    steps=4, arms=(:reference_executor, :partition, :heap_plan,
+        :heap_partition, :bounded_preparation, :bounded_heap, :bounded_all))
+screen = NativeDownstreamMeasurements.screen_case(case;
+    repetitions=4, measure_retained=false)
+```
+
+Preboxed modes are an explicit separate cohort: `:preboxed_plan`,
+`:preboxed_partition` and `:bounded_preboxed`. The ordinary arm must be included.
+Full-history, initializer and distributed gates additionally load the check
+fixtures used in the preserved reproduction scripts. Cold cases require a new
+unrun worker each, source-image/freshness attestation and controller warmup
+before entering the first-use case. Do not run the cold helper after these
+warm/check calls.
+
+`summarize_growth_inputs.py --check-only` validates evidence and explicit
+hash-bound CPU qualification without starting Julia. `--archive-frozen`
+creates a new immutable archive and refuses overwrites. Failed attempts and
+historical source versions remain in the raw archive; allocation diagnostics,
+warm comparisons and first-use measurements stay separate.
 
 No full regression-suite, million-organ, many-hundred-model, peak-memory or
 production adoption claim is made.
