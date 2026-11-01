@@ -20,6 +20,7 @@ mutable struct PersistentRecord
     denied::Set{Symbol}
     reasons::Dict{Symbol,Symbol}
     declaration_proofs::Dict{Any,Bool}
+    declaration_policy::Any
     refreshes::Int
     regions_reused::Int
     regions_readmitted::Int
@@ -29,10 +30,10 @@ mutable struct PersistentRecord
     internal_regions_captured::Int
     metadata_rebases::Int
 end
-function PersistentRecord(state,status,header,count_calls)
+function PersistentRecord(state,status,header,count_calls;declaration_policy=nothing)
     selected=Selected.SelectedRecord(count_calls ? Tight.TightCounters() : nothing,header)
     return PersistentRecord(selected,state,status,header,count_calls,Set{Symbol}(),
-        Dict{Symbol,Symbol}(),Dict{Any,Bool}(),0,0,0,0,0,0,0,0)
+        Dict{Symbol,Symbol}(),Dict{Any,Bool}(),declaration_policy,0,0,0,0,0,0,0,0)
 end
 const _records=WeakKeyDict{Any,PersistentRecord}()
 
@@ -88,6 +89,8 @@ PSE._execution_batch_requires_full_refresh(::AnyPersistentBatch)=true
 # extra admission work is allowed. Conditional effects or mutable/global names
 # stay ordinary. Proofs are world-sensitive and cache no model/status values.
 function _pure_declaration!(record,f,T)
+    record.declaration_policy===nothing ||
+        return _pure_declaration!(record.declaration_policy,record,f,T)
     key=(f,T,Base.get_world_counter())
     return get!(record.declaration_proofs,key) do
         effects=Base.infer_effects(f,Tuple{T})
@@ -97,6 +100,8 @@ function _pure_declaration!(record,f,T)
             inferred isa DataType && inferred<:NamedTuple && isconcretetype(inferred)
     end
 end
+_pure_declaration!(policy,record,f,T)=
+    throw(ArgumentError("Unknown persistent declaration proof policy $(typeof(policy))"))
 function _safe_target(record,compiled,application,id,ancestors,checked)
     key=(application.id,id)
     key in ancestors && return false
@@ -577,14 +582,14 @@ Additional lowering is a distinct measurable phase. No science executes here.
 """
 Base.@nospecializeinfer @noinline function lower_persistent_tight!(simulation::PSE.Simulation;
     count_calls::Bool=false,state_strategy::Symbol=:references,status_strategy::Symbol=:refs,
-    header_strategy::Symbol=:projected)
+    header_strategy::Symbol=:projected,declaration_policy=nothing)
     @nospecialize simulation
     PSE.current_step(simulation)==0 || throw(ArgumentError("Lower only a fresh zero-step timeline"))
     haskey(_records,simulation) && throw(ArgumentError("Persistent lowering already installed"))
     state_strategy===:references && status_strategy===:refs && header_strategy===:projected ||
         throw(ArgumentError("First persistent prototype requires ordinary references/projected headers"))
     simulation.model.status_storage===nothing || throw(ArgumentError("First persistent prototype requires ordinary canonical references"))
-    record=PersistentRecord(state_strategy,status_strategy,header_strategy,count_calls)
+    record=PersistentRecord(state_strategy,status_strategy,header_strategy,count_calls;declaration_policy)
     if simulation.performance!==nothing
         # Profiled core group dispatch requires ordinary CompiledExecutionBatch.
         # Retain the complete ordinary plan and counters without sentinel layers.
@@ -610,11 +615,11 @@ end
 Base.@nospecializeinfer @noinline function prepare_persistent_tight(model::PSE.CompositeModel;
     steps::Integer=0,outputs=:none,performance::Bool=false,count_calls::Bool=false,
     constants=PSE.PlantMeteo.Constants(),state_strategy::Symbol=:references,
-    status_strategy::Symbol=:refs,header_strategy::Symbol=:projected)
+    status_strategy::Symbol=:refs,header_strategy::Symbol=:projected,declaration_policy=nothing)
     @nospecialize model outputs constants
     steps>=0 || throw(ArgumentError("steps must be nonnegative"))
     simulation=PSE.run!(model;steps=0,outputs,performance,constants)
-    lower_persistent_tight!(simulation;count_calls,state_strategy,status_strategy,header_strategy)
+    lower_persistent_tight!(simulation;count_calls,state_strategy,status_strategy,header_strategy,declaration_policy)
     steps==0 || PSE.continue!(simulation;steps)
     return simulation
 end
