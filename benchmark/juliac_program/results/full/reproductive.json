@@ -1,0 +1,39 @@
+{
+  "scope": "Julia-level parity with original PSE; not native executable evidence",
+  "days": 12,
+  "rate": 0.3,
+  "reproductive": true,
+  "sex_seed": 1,
+  "abortion_seed": 1,
+  "applications": 61,
+  "initial_objects": 8,
+  "objects": 54,
+  "male_objects": 7,
+  "female_objects": 3,
+  "retained_samples": 6271,
+  "passes": 96962,
+  "fails": 0,
+  "errors": 0,
+  "rng_draws": {
+    "sex_determination": 10,
+    "abortion": 9
+  },
+  "cohorts": [
+    3,
+    13,
+    13,
+    7,
+    13,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "checks": [
+    "every canonical scientific field and topology after each step",
+    "every retained sample key and value",
+    "RNG fingerprints after each step",
+    "actual scalar draw counts"
+  ]
+}

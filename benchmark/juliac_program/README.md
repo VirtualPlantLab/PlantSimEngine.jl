@@ -1,6 +1,7 @@
 The complete 61-application XPalm graph now passes a Julia-level carbon parity
-case, including typed Many inputs, distributed allocation/reserves and temporal
-streams. Reproductive and full native qualification are in progress; see the
+and reproductive cases, including typed Many inputs, distributed allocation/reserves,
+temporal streams and original seeded male/female emission. Full native qualification
+is in progress; see the
 [full-graph evidence](results/full/README.md).
 
 A structural XPalm entry is now also available: original phytomer emission,

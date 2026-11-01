@@ -62,10 +62,15 @@ FullXPalmNativeChecks.run_checks()
 The complete carbon case passes **4,075 Julia-level assertions** over three days,
 with 8 initial objects, 11 final objects and 422 retained samples (`carbon.json`).
 Every scientific field and topology is compared after every step, as are all
-output keys/values and RNG state. The original PSE reproductive reference has
-also executed for 12 days, creating 7 Male and 3 Female objects (54 total;
-`reproductive-reference.json`). Reproductive typed-runtime and native executable
-qualification are still in progress. A successful build alone does not establish
+output keys/values and RNG state. The reproductive case passes **96,962
+Julia-level assertions** over 12 days,
+with 54 objects (7 Male and 3 Female) and 6,271 retained samples. Both executors
+consume exactly 10 sex-determination and 9 abortion RNG draws, with matching RNG
+state after every step (`reproductive.json`). The complete Julia gate passes
+**108,604 assertions**, including birth on the
+first timestep, temporal inputs with no retained outputs, and independent
+simulation/RNG ownership (`julia.json`). Native executable qualification
+is still in progress. A successful build alone does not establish
 native execution parity.
 
 This is the complete pinned `architecture=false` application graph for one
