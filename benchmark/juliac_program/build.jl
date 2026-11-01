@@ -15,7 +15,14 @@ function build_native(; output_root=get(ENV,"PSE_NATIVE_BUILD_DIR",joinpath(@__D
     destination = mktempdir(output_root;prefix="bundle-")
     image = ImageRecipe(file=joinpath(@__DIR__,"app"),output_type="--output-exe",
         trim_mode="safe",cpu_target="generic",verbose=false,quiet=true)
-    compilation_s = @elapsed compile_products(image)
+    build_log=joinpath(destination,"compile.log")
+    compilation_s = @elapsed open(build_log,"w") do io
+        redirect_stdout(io) do
+            redirect_stderr(io) do
+                compile_products(image)
+            end
+        end
+    end
     link = LinkRecipe(image_recipe=image,outname=joinpath(destination,"pse_program"),rpath="@bundle")
     link_s = @elapsed link_products(link)
     bundle_s = @elapsed bundle_products(BundleRecipe(link_recipe=link,output_dir=destination))

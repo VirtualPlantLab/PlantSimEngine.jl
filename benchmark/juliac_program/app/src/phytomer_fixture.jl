@@ -9,13 +9,26 @@ const MTG = MultiScaleTreeGraph
 const Models = XPalm.Models
 
 """Scene 1 → Plant 2 → Stem 3 → anchor Phytomer 4; no initial Internode or Leaf."""
-function tree()
-    scene = MTG.Node(1, MTG.NodeMTG(:/, :Scene, 1, 0), NamedTuple())
-    plant = MTG.Node(2, scene, MTG.NodeMTG(:+, :Plant, 1, 1), NamedTuple())
-    stem = MTG.Node(3, plant, MTG.NodeMTG(:+, :Stem, 1, 2), NamedTuple())
-    MTG.Node(4, stem, MTG.NodeMTG(:/, :Phytomer, 1, 3), NamedTuple())
+function tree(factory=MTG.Node)
+    scene = factory(1, MTG.NodeMTG(:/, :Scene, 1, 0), NamedTuple())
+    plant = factory(2, scene, MTG.NodeMTG(:+, :Plant, 1, 1), NamedTuple())
+    stem = factory(3, plant, MTG.NodeMTG(:+, :Stem, 1, 2), NamedTuple())
+    factory(4, stem, MTG.NodeMTG(:/, :Phytomer, 1, 3), NamedTuple())
     return scene
 end
+
+# A fixed empty-attribute topology uses the original documented six-argument
+# Node constructor and original addchild!; no columnar Any-valued store is needed.
+function topology_node(id,encoding,attrs::NamedTuple{()})
+    N=MTG.Node{typeof(encoding),typeof(attrs)}
+    return N(id,nothing,N[],encoding,attrs,nothing)
+end
+function topology_node(id,parent::MTG.Node,encoding,attrs::NamedTuple{()})
+    node=topology_node(id,encoding,attrs)
+    MTG.addchild!(parent,node)
+    return node
+end
+native_tree()=tree(topology_node)
 
 # MTG nodes carry topology only. Scientific starting values are explicit typed
 # inputs, rather than imported attributes. The ordinary reference retains

@@ -28,8 +28,8 @@ function ordinary_samples(sim)
         for r in PlantSimEngine.collect_outputs(sim;sink=nothing)]
     return sort!(rows;by=r->(string(r.application),r.object_id,r.step,string(r.variable)))
 end
-function compare_case(;days=4,rate=0.05,biomass=1.0,initiation_age=0)
-    tree=PF.tree(); specs=PF.specs(tree;rate,initiation_age)
+function compare_case(;days=4,rate=0.05,biomass=1.0,initiation_age=0,native_topology=false)
+    tree=native_topology ? PF.native_tree() : PF.tree(); specs=PF.specs(PF.tree();rate,initiation_age)
     initial=PF.initial(;biomass,initiation_age)
     program=RP.prepare(specs;initial)
     state=RP.instantiate(program,map(s->s.model,specs),tree;initial,retain=true)
@@ -54,8 +54,25 @@ function run_checks()
     result=@testset "Original XPalm phytomer lifecycle" begin
         for settings in ((days=4,rate=0.05,biomass=1.0,initiation_age=0),
                          (days=6,rate=0.1,biomass=2.0,initiation_age=12),
-                         (days=2,rate=0.001,biomass=1.0,initiation_age=0))
+                         (days=2,rate=0.001,biomass=1.0,initiation_age=0),
+                         (days=6,rate=0.1,biomass=2.0,initiation_age=12,native_topology=true))
             push!(cases,compare_case(;settings...))
+        end
+        @testset "reuse one program across parameter values and growth" begin
+            initial=PF.initial()
+            program=RP.prepare(PF.specs(PF.tree());initial)
+            left=RP.instantiate(program,PF.models(PF.tree()),PF.native_tree();initial)
+            right_initial=PF.initial(;biomass=2.0,initiation_age=12)
+            right=RP.instantiate(program,PF.models(PF.tree();rate=0.1,initiation_age=12),PF.native_tree();initial=right_initial)
+            @test left.program === right.program === program
+            @test typeof(left) === typeof(right)
+            @test PlantSimEngine.refvalue(left.cohorts[2].rows[1],:plant_age) !== PlantSimEngine.refvalue(right.cohorts[2].rows[1],:plant_age)
+            for row in PF.rows(6)
+                RP.step!(right,row;constants=PlantSimEngine.Constants())
+            end
+            @test length(left.nodes)==4
+            @test length(right.nodes)==19
+            @test isequal(snapshot(right),PF.fingerprint(PlantSimEngine.runtime_model(PF.ordinary(PF.rows(6);rate=0.1,biomass=2.0,initiation_age=12))))
         end
     end
     counts=Test.get_test_counts(result)

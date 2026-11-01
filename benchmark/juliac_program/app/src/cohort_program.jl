@@ -16,6 +16,7 @@ struct CohortRecipe{K,P,X}
     external_type::Type{X}
 end
 struct CohortCall{S,MODE,SCOPE,MULT} end
+_cohort_route_slot(::CohortCall{S}) where {S}=S
 struct ApplicationRecipe{M,C,SLOT,CALLS,D,V,I,O,E}
     slot::Int
     name::Symbol
@@ -134,6 +135,7 @@ function _prepare_cohorts(specs;initial)
         isbits(value) || throw(ArgumentError("external seeds must be scalar"))
         seeds[cat][var]=ExternalSeed{cat,var}()
     end
+    input_producers=[Dict{Symbol,Int}() for _ in specs]
     aliases=Dict(cat=>Dict{Symbol,Any}() for cat in categories)
     edges=[Set{Int}() for _ in specs]
     manual=Set{Int}(); initializer_owners=Dict{Int,Int}()
@@ -184,6 +186,7 @@ function _prepare_cohorts(specs;initial)
         else
             sourcecat=cats[i]; sourcevar=var; producer=get(writers,(sourcecat,var),0)
         end
+        input_producers[i][var]=producer
         haskey(seeds[cats[i]],var) || throw(ArgumentError("unresolved required input"))
         value=_seed(seeds[cats[i]][var],map(s->s.model,specs),initial)
         value isa PSE._input_expected_type(decl) || throw(ArgumentError("incompatible input type"))
@@ -192,6 +195,27 @@ function _prepare_cohorts(specs;initial)
         end
         if !(i in manual) && producer!=0 && producer!=i
             producer in manual || push!(edges[i],producer)
+        end
+    end
+    # Call cycles cannot become an empty root schedule. Initializer consumers
+    # also run after the creator so newborn values are visible in this step.
+    visiting=Set{Int}(); complete=Set{Int}()
+    function visit(i)
+        i in visiting && throw(ArgumentError("hard call cycle"))
+        i in complete && return
+        push!(visiting,i)
+        for route in routes[i]
+            visit(_cohort_route_slot(route))
+        end
+        delete!(visiting,i); push!(complete,i)
+    end
+    foreach(visit,eachindex(specs))
+    for (i,s) in enumerate(specs), var in keys(PSE.inputs_(s))
+        i in manual && continue
+        producer=get(input_producers[i],var,0)
+        if haskey(initializer_owners,producer)
+            creator=initializer_owners[producer]
+            i!=creator && i!=producer && push!(edges[i],creator)
         end
     end
     roots=[i for i in eachindex(specs) if !(i in manual)]
@@ -361,7 +385,7 @@ function _cohort_targets(c,route::CohortCall{SLOT,MODE,SCOPE,MULT},objects=nothi
     !isnothing(objects) && length(targets)!=1 && throw(ArgumentError("requested object outside call scope"))
     return targets
 end
-function PSE.call_targets(c::CohortContext,name::Symbol)
+Base.@constprop :aggressive function PSE.call_targets(c::CohortContext,name::Symbol)
     route=getproperty(c.application.recipe.calls,name)
     _manual_route(route)
     return _cohort_targets(c,route)
@@ -374,7 +398,7 @@ function PSE.run_call!(t::CohortTarget;publish=false,environment=t.context.envir
     _invoke_cohort!(c;publish)
     return t
 end
-function PSE.run_call!(c::CohortContext,name::Symbol;publish=false,objects=nothing)
+Base.@constprop :aggressive function PSE.run_call!(c::CohortContext,name::Symbol;publish=false,objects=nothing)
     route=getproperty(c.application.recipe.calls,name); _manual_route(route)
     targets=_cohort_targets(c,route,objects)
     for target in targets
@@ -382,7 +406,7 @@ function PSE.run_call!(c::CohortContext,name::Symbol;publish=false,objects=nothi
     end
     return targets
 end
-function PSE.run_initializer!(c::CohortContext,name::Symbol,object)
+Base.@constprop :aggressive function PSE.run_initializer!(c::CohortContext,name::Symbol,object)
     route=getproperty(c.application.recipe.calls,name)
     return _initialize_cohort!(c,route,ObjectId(object).value)
 end
@@ -407,12 +431,19 @@ function PSE.add_organ!(parent::MTG.Node,c::CohortContext,link,symbol,scale::Int
     isempty(attributes) || throw(ArgumentError("only empty node attributes admitted; runtime state belongs to registry"))
     return _add_organ!(c.state,c.state.cohorts,parent,link,symbol,scale,index,id,initial_status,1)
 end
+function _new_mtg_node(parent::MTG.Node{M,NamedTuple{(),Tuple{}}},id,encoding) where {M<:MTG.AbstractNodeMTG}
+    N=typeof(parent)
+    node=N(id,nothing,N[],encoding,NamedTuple(),nothing)
+    MTG.addchild!(parent,node)
+    return node
+end
+_new_mtg_node(parent::MTG.Node,id,encoding)=MTG.Node(id,parent,encoding,NamedTuple())
 _add_organ!(state,::Tuple{},parent,link,symbol,scale,index,id,initial,slot)=throw(ArgumentError("unknown organ category"))
 function _add_organ!(state,cohorts::Tuple,parent,link,symbol,scale,index,id,initial,slot)
     cohort=first(cohorts)
     if symbol===_cohort_key(cohort)
         status=_new_status(cohort,state,parent,initial) # validate state before touching MTG
-        node=MTG.Node(id,parent,MTG.NodeMTG(link,symbol,index,scale),NamedTuple())
+        node=_new_mtg_node(parent,id,MTG.NodeMTG(link,symbol,index,scale))
         _insert!(state,cohort,slot,node,status)
         push!(state.pending,id)
         return status

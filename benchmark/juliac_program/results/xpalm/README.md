@@ -1,3 +1,6 @@
+> This is the earlier soil/root milestone. Original phytomer emission has since
+> been qualified separately in [the structural entry](../phytomer/README.md).
+
 # First original XPalm case, qualified 2026-11-01
 
 The pinned XPalm revision is `5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd`.

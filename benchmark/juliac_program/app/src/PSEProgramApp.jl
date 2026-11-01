@@ -66,7 +66,7 @@ function simulate_phytomers(days::Int,rate::Float64,biomass::Float64,Tmin::Float
     models=(t[1],PhytomerFixture.Models.DailyPlantAgeModel(age),
         PhytomerFixture.Models.PhyllochronModel(t[3].age_palm_maturity,rate,rate),
         t[4],t[5],t[6],t[7],t[8],t[9],t[10],t[11])
-    state=ReusableProgram.instantiate(GROWTH_PROGRAM,models,PhytomerFixture.tree();
+    state=ReusableProgram.instantiate(GROWTH_PROGRAM,models,PhytomerFixture.native_tree();
         initial=PhytomerFixture.initial(;biomass,initiation_age=age))
     constants=XPalmFixture.PSE.Constants()
     for row in PhytomerFixture.rows(days;Tmin,Tmax)

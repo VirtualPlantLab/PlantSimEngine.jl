@@ -1,3 +1,7 @@
+A structural XPalm entry is now also available: original phytomer emission,
+targeted calls and newborn initialization with initially empty Internode/Leaf
+cohorts. See [structural qualification and CLI](results/phytomer/README.md).
+
 # Reusable composite program and JuliaC experiment
 
 A first original XPalm soil/root case now compiles with JuliaC **safe trimming**.
@@ -32,9 +36,10 @@ sources are required even for potentially skipped children, as in ordinary PSE.
 
 `add_object!` adds a known-schema object at a host-controlled timestep boundary,
 including to an empty cohort. The XPalm case tests root-depth growth and addition
-of independent soil columns. **It does not yet implement PhytomerEmission, MTG
-node creation, multiple organ categories, Initializer, evaluate/accept, temporal
-policies, distributed outputs, custom spatial environments or a whole palm.**
+of independent soil columns. The homogeneous layout does not implement MTG lifecycle. The new cohort layout
+covers the bounded phytomer subtree described above. Evaluate/accept, temporal
+policies, distributed outputs, custom spatial environments and a whole palm
+remain unsupported or unqualified.
 Unknown declarations/context operations are rejected or fail explicitly; no
 ordinary runtime fallback is hidden inside this prototype.
 
@@ -112,6 +117,7 @@ copies the bundle to a new directory before repeating a birth case with an
 empty external depot. The launcher replaces that depot with the shipped one.
 Native final-state parity and Julia-level publication-series checks are distinct.
 No process-cold speedup, universal zero-JIT or cross-platform portability claim
-is made. A native library ABI and original whole-palm growth remain future work.
+is made. A native library ABI and original whole-palm growth remain future work; the new
+`phytomer` mode covers the qualified structural subtree.
 
 Official compiler: [JuliaC](https://github.com/JuliaLang/JuliaC.jl).
