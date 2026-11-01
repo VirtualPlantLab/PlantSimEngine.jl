@@ -33,6 +33,115 @@ COSTS = previous.COSTS
 BP_COUNTS = ("scene_entries", "scene_shells", "scenario_plans", "metadata_sequences",
     "metadata_id_sequences", "metadata_symbol_tables", "metadata_schedules", "selector_indexes", "maximum_table_entries")
 CLOCK_OUTPUTS = [["native_radiation", "geometry_seconds"], ["native_radiation", "light_seconds"]]
+WIRE_FORMAT = "pse_lossless_string_table_v1"
+WIRE_FORMAT_V2 = "pse_lossless_string_table_v2"
+
+
+def decode_lossless_wire(value):
+    """Restore JSON values from an explicitly tagged, collision-safe wire form.
+
+    Every original object and array has its own marker. Consequently original
+    keys such as `s`, `o`, `a`, or `wire_format` are ordinary decoded keys and
+    cannot be confused with an encoder marker. String objects are shared from
+    the table in memory; the archived and qualification-bound bytes stay raw.
+    """
+    if not isinstance(value, dict) or "wire_format" not in value:
+        return value
+    version = value["wire_format"]
+    expected_keys = {"wire_format", "strings", "data"}
+    if version == WIRE_FORMAT_V2:
+        expected_keys.add("references")
+    if version not in (WIRE_FORMAT, WIRE_FORMAT_V2) or set(value) != expected_keys:
+        raise ValueError("Unknown or malformed lossless string-table root")
+    strings = value["strings"]
+    if not isinstance(strings, list) or any(not isinstance(item, str) for item in strings):
+        raise ValueError("Lossless string table must contain only JSON strings")
+    reference_nodes = value["references"] if version == WIRE_FORMAT_V2 else []
+    if not isinstance(reference_nodes, list):
+        raise ValueError("Lossless wire reference table must be a JSON array")
+    references = []
+
+    def decode(item):
+        if item is None or isinstance(item, bool):
+            return item
+        if isinstance(item, (int, float)):
+            if isinstance(item, float) and not math.isfinite(item):
+                raise ValueError("Lossless JSON wire cannot contain nonfinite numeric primitives")
+            return item
+        if not isinstance(item, dict) or len(item) != 1:
+            raise ValueError("Every wire object/array/string needs exactly one explicit marker")
+        if "s" in item:
+            index = item["s"]
+            if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(strings):
+                raise ValueError("Lossless wire string index must be an integer within the table")
+            return strings[index]
+        if "r" in item and version == WIRE_FORMAT_V2:
+            index = item["r"]
+            if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(references):
+                raise ValueError("Lossless wire reference index must refer to a prior decoded node")
+            return references[index]
+        if "a" in item:
+            values = item["a"]
+            if not isinstance(values, list):
+                raise ValueError("Lossless wire array payload must be a JSON array")
+            return [decode(child) for child in values]
+        if "o" in item:
+            pairs = item["o"]
+            if not isinstance(pairs, list):
+                raise ValueError("Lossless wire object payload must be an array of key/value pairs")
+            result = {}
+            for pair in pairs:
+                if not isinstance(pair, list) or len(pair) != 2 or not isinstance(pair[0], str):
+                    raise ValueError("Lossless wire object entries need an unencoded string key and one encoded value")
+                key, child = pair
+                if key in result:
+                    raise ValueError("Lossless wire object contains a duplicate JSON key")
+                result[key] = decode(child)
+            return result
+        raise ValueError("Unknown lossless JSON wire marker")
+
+    # A reference is published only after its entire value has been decoded.
+    # Acyclic prior references are therefore possible; self/forward references
+    # and cycles are rejected even when nested deeply inside another node.
+    for node in reference_nodes:
+        references.append(decode(node))
+    return decode(value["data"])
+
+
+def documents(raw):
+    """Decode before scientific validation while preserving exact raw bindings.
+
+    Invalid wire attempts retain the same raw-only diagnostic status used for
+    malformed JSON by the shared reader. A final qualified artifact cannot use
+    that status: its normal qualification/scientific checks reject it.
+    """
+    parsed = shared.documents(raw)
+    metadata = []
+    def unique_transport_keys(pairs):
+        value = {}
+        for key, child in pairs:
+            if key in value:
+                raise ValueError("Lossless wire JSON contains duplicate transport object keys")
+            value[key] = child
+        return value
+    for name, value in list(parsed.items()):
+        if not isinstance(value, dict) or "wire_format" not in value:
+            continue
+        try:
+            # The ordinary JSON reader cannot retain duplicate marker/root
+            # keys. Reparse wire artifacts with a strict transport-key hook so
+            # malformed JSON cannot silently select the last duplicate key.
+            value = json.loads(raw[name], object_pairs_hook=unique_transport_keys)
+            parsed[name] = decode_lossless_wire(value)
+        except (ValueError, RecursionError) as error:
+            parsed[name] = dict(_archive_parse_error=str(error), _raw_sha256=sha(raw[name]),
+                interpretation="raw_only_invalid_lossless_wire_evidence")
+        else:
+            metadata.append(dict(wire_artifact=name, raw_sha256=sha(raw[name]),
+                wire_format=value["wire_format"], strings_count=len(value["strings"]),
+                references_count=len(value.get("references", [])),
+                interpretation="lossless_decoding_before_existing_scientific_validation_raw_bytes_preserved"))
+    return parsed, metadata
 
 
 def apply_exact_unified_patch(before, patch, relative):
@@ -488,7 +597,19 @@ def qualification_records(scope, parsed, raw, declared):
         receipt = parsed[bindings[name]["optional_evidence"]["receipt"]]
         if receipt["tool"] == "ex" and receipt.get("arguments", {}).get("ses") != worker["session"]:
             raise ValueError("Final Kaimon execution receipt belongs to a different declared worker session")
-        bindings[name].update(source_image=image_name, source_image_sha256=image["sha256"], worker=worker)
+        cpu = parsed[row["cpu_record"]]
+        terminal = cpu.get("terminal_artifact")
+        if terminal is not None:
+            if shared.bound_raw(terminal, raw) != name or terminal["sha256"] != row["artifact_sha256"]:
+                raise ValueError("CPU terminal artifact differs from the qualified final result")
+            if row.get("cpu_scope") != cpu.get("scope") or "atomic terminal artifact" not in cpu["scope"]:
+                raise ValueError("Terminal monitoring lacks its explicit model-job scope")
+        helpers = [shared.bound_raw(item, raw) for item in row.get("postprocessing_helpers", [])]
+        if name in scope.get("lossless_helper_bindings", {}) and helpers != scope["lossless_helper_bindings"][name]:
+            raise ValueError("Lossless postprocessing helper differs from the declared exact source")
+        bindings[name].update(source_image=image_name, source_image_sha256=image["sha256"],
+            worker=worker, cpu_monitoring_scope=cpu["scope"], terminal_artifact=terminal,
+            postprocessing_helpers=helpers)
     return bindings, diagnostics
 
 
@@ -623,7 +744,7 @@ def archive(raw, current, frozen, science, blobs, summary):
             if len(payload)!=row["raw_bytes"] or sha(payload)!=row["raw_sha256"]:
                 raise ValueError("Lossless archive round trip differs")
         (stage/"manifest.json").write_bytes(json_bytes(sorted(manifest,key=lambda row:row["artifact"])))
-        if raw!=inventory(SOURCE) or current!=source_inputs() or frozen!=frozen_sources(shared.documents(raw),raw)[1]:
+        if raw!=inventory(SOURCE) or current!=source_inputs() or frozen!=frozen_sources(documents(raw)[0],raw)[1]:
             raise RuntimeError("Frozen inputs changed while archiving")
         if DEST.exists():
             raise FileExistsError(DEST)
@@ -638,8 +759,9 @@ def main():
     args=parser.parse_args()
     if args.archive_frozen and DEST.exists():
         raise FileExistsError(DEST)
-    raw=inventory(SOURCE);parsed=shared.documents(raw)
+    raw=inventory(SOURCE);parsed,wire_documents=documents(raw)
     summary,screens=summarize(parsed,raw)
+    summary["lossless_wire_documents"]=wire_documents
     current=source_inputs()
     frozen_records,frozen=frozen_sources(parsed,raw)
     science,blobs=scientific_sources(screens,raw,current,frozen)

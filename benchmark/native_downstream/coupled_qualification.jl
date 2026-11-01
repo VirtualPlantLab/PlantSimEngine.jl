@@ -72,13 +72,24 @@ function _context(fixture)
         (context.clock_owners[state.development]=(plant=state.native.plant,id=state.plant_id))
     return context
 end
-function _value(value,context::SnapshotContext)
+Base.@nospecializeinfer @noinline function _type_name(type)::String
+    @nospecialize type
+    # The opt-in task-local cache belongs to one complete diagnostic invocation.
+    # It holds immutable type/module names, never model values or memberships.
+    names=get(task_local_storage(),:pse_coupled_qualification_type_names,nothing)
+    names===nothing && return string(type)
+    return get!(names,type) do
+        string(type)
+    end
+end
+Base.@nospecializeinfer @noinline function _value(value,context::SnapshotContext)
+    @nospecialize value
     value===nothing && return nothing
     value===missing && return (type=:Missing,)
     value isa Union{Symbol,AbstractString} && return value
-    value isa Number && return (type=string(typeof(value)),value=repr(value))
-    value isa Enum && return (type=string(typeof(value)),value=Int(value))
-    value isa Union{Type,Module} && return (type=string(typeof(value)),value=string(value))
+    value isa Number && return (type=_type_name(typeof(value)),value=repr(value))
+    value isa Enum && return (type=_type_name(typeof(value)),value=Int(value))
+    value isa Union{Type,Module} && return (type=_type_name(typeof(value)),value=_type_name(value))
     value isa Union{Task,Channel,Ptr} && error("Unsupported resource in scientific snapshot: $(typeof(value))")
     value isa NamedTuple && return NamedTuple{keys(value)}(map(x->_value(x,context),values(value)))
     value isa Tuple && return map(x->_value(x,context),value)
@@ -95,8 +106,19 @@ function _value(value,context::SnapshotContext)
     elseif value isa AbstractSet
         [_value(item,context) for item in sort!(collect(value);by=repr)]
     elseif value isa AbstractArray
-        (element_type=string(eltype(value)),shape=size(value),
-            values=[_value(item,context) for item in value])
+        if eltype(value)<:Number && isprimitivetype(eltype(value))
+            # Exact scientific data, compacted only in the untimed snapshot.
+            # Dense logical column order also covers views and empty/0-D arrays.
+            # Restrict primitive numbers to avoid padding in arbitrary structs.
+            bytes=reinterpret(UInt8,vec(Array(value)))
+            (element_type=_type_name(eltype(value)),shape=size(value),
+                payload=(encoding=:column_major_native_bytes_hex,
+                    byte_order=Base.ENDIAN_BOM==0x04030201 ? :little : :big,
+                    data=bytes2hex(bytes)))
+        else
+            (element_type=_type_name(eltype(value)),shape=size(value),
+                values=[_value(item,context) for item in value])
+        end
     elseif haskey(context.clock_owners,value)
         owner=context.clock_owners[value]
         NamedTuple{fieldnames(T)}(Tuple(name===:plant_identity ?
@@ -106,7 +128,7 @@ function _value(value,context::SnapshotContext)
     else
         NamedTuple{fieldnames(T)}(Tuple(_value(getfield(value,name),context) for name in fieldnames(T)))
     end
-    return (type=string(T),alias=label,contents=contents)
+    return (type=_type_name(T),alias=label,contents=contents)
 end
 
 _objects(model)=sort!(collect(PSE.model_objects(model));by=object->repr(object.id.value))
@@ -114,7 +136,7 @@ function _scene_object(model)
     return only(PSE.model_objects(model;scale=:Scene))
 end
 function _status_snapshot(object,scene_id,context)
-    return [(name=name,type=string(typeof(getproperty(object.status,name))),
+    return [(name=name,type=_type_name(typeof(getproperty(object.status,name))),
         value=object.id==scene_id && _is_clock(:native_radiation,name) ?
             (excluded_clock=(:native_radiation,name),) :
             _value(getproperty(object.status,name),context))
