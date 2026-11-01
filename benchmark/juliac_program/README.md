@@ -1,20 +1,16 @@
-The complete 61-application XPalm graph now passes a Julia-level carbon parity
-and reproductive cases, including typed Many inputs, distributed allocation/reserves,
-temporal streams and original seeded male/female emission. Full native qualification
-is in progress; see the
-[full-graph evidence](results/full/README.md).
-
-A structural XPalm entry is now also available: original phytomer emission,
-targeted calls and newborn initialization with initially empty Internode/Leaf
-cohorts. See [structural qualification and CLI](results/phytomer/README.md).
-
 # Reusable composite program and JuliaC experiment
 
-A first original XPalm soil/root case now compiles with JuliaC **safe trimming**.
-It calls XPalm's unchanged DailyDegreeDays, FTSW and RootGrowthFTSW kernels. Its
-FTSW model's existing `dep` declares the root call; no scientific equation or
-redundant call contract is added. XPalm is pinned to
+The complete pinned XPalm `architecture=false` graph now compiles with JuliaC
+**safe trimming**. All 61 original applications run, including carbon allocation,
+reserves, vegetative growth and seeded male/female emission. Four native cases
+and relocation pass 21,457 assertions against ordinary PSE. See the
+[full-graph qualification, evidence and CLI](results/full/README.md).
+
+The earlier [structural phytomer](results/phytomer/README.md) and
+[soil/root](results/xpalm/README.md) entries remain available and pass in the same
+final executable. XPalm is pinned to
 `5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd` in the isolated app environment.
+Scientific kernels and downstream sources are unchanged.
 
 ## Prepared program and admitted subset
 
@@ -25,7 +21,7 @@ weather, canonical Ref-backed statuses and publication storage belong to each
 simulation. Counts, IDs and values remain data. All regions in the admitted
 cohort share the canonical status vector without copying scientific values.
 
-The current subset admits one category, scalar isbits state, unique local
+The original homogeneous layout admits one category, scalar isbits state, unique local
 writers, inferred same-object inputs, typed externally supplied required inputs,
 one fixed positive cadence and complete plain NamedTuple environment rows.
 Manual calls identify one application on the same object; the parent decides
