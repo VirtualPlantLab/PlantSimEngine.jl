@@ -1,0 +1,32 @@
+[
+  {
+    "origin": "source-origin/AMAPSim.diff",
+    "raw_bytes": 6405,
+    "raw_sha256": "c4e0b9ec878fb30d0f85d0c5c5b30b62330b211687524d25ccd496eea737b22d",
+    "reason": "original_checkout_diff_content_not_republished_frozen_scientific_files_preserved"
+  },
+  {
+    "origin": "source-origin/ArchimedLight.diff",
+    "raw_bytes": 0,
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "reason": "original_checkout_diff_content_not_republished_frozen_scientific_files_preserved"
+  },
+  {
+    "origin": "source-origin/MAESPA.diff",
+    "raw_bytes": 0,
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "reason": "original_checkout_diff_content_not_republished_frozen_scientific_files_preserved"
+  },
+  {
+    "origin": "source-origin/PlantBiophysics.diff",
+    "raw_bytes": 45776,
+    "raw_sha256": "f8f9fec703d471ef1d6311479196dc7ae522fd2a53f7403f0474a7ba6013da8b",
+    "reason": "original_checkout_diff_content_not_republished_frozen_scientific_files_preserved"
+  },
+  {
+    "origin": "source-origin/PlantGeom.diff",
+    "raw_bytes": 0,
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "reason": "original_checkout_diff_content_not_republished_frozen_scientific_files_preserved"
+  }
+]
