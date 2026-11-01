@@ -22,8 +22,7 @@ ColumnHistory(::Type{T}) where {T} = ColumnHistory{T}(
 # Reference-backed array ports publish ordinary owned arrays, matching PSE's
 # value streams. Copy nested payloads as well so later Updates or broadcast
 # through a live carrier cannot retroactively alter an earlier sample.
-_full_history_snapshot(value::AbstractArray) = deepcopy(collect(value))
-_full_history_snapshot(value) = deepcopy(value)
+_full_history_snapshot(value) = _payload_copy(value)
 function _full_history_snapshot(::Type{T}, value) where {T}
     snapshot = _full_history_snapshot(value)
     return (snapshot isa T ? snapshot : convert(T, snapshot))::T
@@ -33,7 +32,7 @@ _full_history_id(id::ObjectId{Int}) = id.value
 
 function _make_full_streams(recipe, model)
     declarations=PSE.outputs_(model)::recipe.outputs_type
-    return map(declarations) do declaration
+    return _schema_map(declarations) do declaration
         value = _full_value(declaration)
         value isa PSE.Required && throw(ArgumentError("full output history needs an initial value"))
         ColumnHistory(typeof(_full_history_snapshot(value)))

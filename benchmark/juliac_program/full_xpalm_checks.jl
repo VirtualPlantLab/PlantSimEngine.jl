@@ -249,10 +249,16 @@ function _check_independent_states()
     end
     before = snapshot(right, setup.variables)
     rng_before = XF.rng_fingerprint(right_models)
-    RP.step!(left, first(XF.rows(1)); constants=PSE.Constants())
+    # Cross the original sex-determination threshold so independence covers
+    # real RNG consumption, as well as separate owned generator identities.
+    for environment in XF.rows(5)
+        RP.step!(left, environment; constants=PSE.Constants())
+    end
+    @test XF.rng_fingerprint(left_models) != rng_before
     @test _equal(snapshot(right, setup.variables), before)
     @test XF.rng_fingerprint(right_models) == rng_before
     @test XF.rng_fingerprint(caller_models) == caller_rng_before
+    @test left.step == 5
     @test right.step == 0
     return nothing
 end

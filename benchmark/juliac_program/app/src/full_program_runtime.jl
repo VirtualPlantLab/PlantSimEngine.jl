@@ -83,9 +83,9 @@ Base.@noinline function instantiate(program::FullProgram,models::Tuple,root::N;i
     return state
 end
 
-_full_copy(value)=deepcopy(value)
+_full_copy(value)=_payload_copy(value)
 _full_copy(value::PSE.RefVector{T}) where {T}=PSE.RefVector([Ref(_full_copy(v)) for v in value])
-_full_initial_value(default::T,value) where {T}=deepcopy(value)::T
+_full_initial_value(default::T,value) where {T}=_payload_copy(value)::T
 _full_initial_value(default::PSE.RefVector{T},value::AbstractVector) where {T}=PSE.RefVector(Base.RefValue{T}[Ref{T}(v) for v in value])
 Base.@constprop :aggressive function _full_imported_value(entries,id,::Val{V},default) where {V}
     for entry in entries
@@ -95,17 +95,17 @@ Base.@constprop :aggressive function _full_imported_value(entries,id,::Val{V},de
     end
     return default
 end
-Base.@noinline function _full_new_status(cohort,state,id,initial)
+Base.@noinline function _full_new_status(cohort::Cohort{K,P,D,S},state,id,initial) where {K,P,D,S}
     names=keys(cohort.defaults)
     all(k->k in names,keys(initial)) || throw(ArgumentError("unknown newborn initial variable"))
     entries=getproperty(state.initial_objects,_cohort_key(cohort))
     # Tuple recursion supplies each port's concrete type, including mutable
     # defaults and reference-vector fields. No attributes carry scientific state.
-    refs=map(names,values(cohort.defaults)) do var,default
+    refs=_schema_pairs(cohort.defaults) do var,default
         value=haskey(initial,var) ? getproperty(initial,var) : _full_imported_value(entries,id,Val(var),default)
         Ref(_full_initial_value(default,value))
     end
-    return Status(NamedTuple{names}(refs))
+    return Status(refs)::S
 end
 _new_status(cohort,state::FullState,node,initial)=_full_new_status(cohort,state,MTG.node_id(node),initial)
 
@@ -130,64 +130,70 @@ function _append_full_views!(state,apps::Tuple,cohort::Cohort{K},row) where {K}
     _cohort_key(app.cohort)===K && _append_full_view!(state,app,row)
     _append_full_views!(state,_schema_tail(apps),cohort,row)
 end
-Base.@noinline function _append_full_view!(state,app,row)
-    node=app.cohort.nodes[row]; canonical=app.cohort.rows[row]
-    bindings=NamedTuple{keys(app.recipe.inputs)}(map(keys(app.recipe.inputs),values(app.recipe.inputs)) do var,route
-        _make_full_binding(route,state,node,getproperty(canonical,var))
-    end)
+@generated function _make_full_bindings(routes::NamedTuple{K,T},stored::S,state,node) where {K,T,S<:Status}
+    bindings=[:(_make_full_binding(getfield(routes,$index),state,node,
+        getfield(getfield(stored,:vars),$(QuoteNode(K[index])))[])) for index in eachindex(K)]
+    return Expr(:call,NamedTuple{K},Expr(:tuple,bindings...))
+end
+Base.@noinline function _append_full_view!(state,app::FullApplication{R,M,C,S,B,H},row) where {R,M,C,S,B,H}
+    node=app.cohort.nodes[row]; stored=app.cohort.rows[row]
+    bindings=_make_full_bindings(app.recipe.inputs,stored,state,node)::B
     canonical=_alias_full_canonical!(state,app.cohort,row,bindings)
     _expose_full_many!(canonical,bindings)
     push!(app.bindings,bindings)
-    view=Status(merge(PSE._status_vars(canonical),map(b->b.reference,bindings)))
+    refs=merge(PSE._status_vars(canonical),_schema_map(binding->binding.reference,bindings))::fieldtype(S,1)
+    view=Status(refs)::S
     push!(app.views,view)
     state.identities[PSE._status_identity(view)]=app.cohort.ids[row]
     return nothing
 end
-Base.@noinline function _refresh_full_view!(state,app,row,step)
-    node=app.cohort.nodes[row]; bindings=app.bindings[row]; canonical=app.cohort.rows[row]
-    foreach(values(bindings)) do binding
+Base.@noinline function _refresh_full_view!(state,app::FullApplication{R,M,C,S,B,H},row,step) where {R,M,C,S,B,H}
+    node=app.cohort.nodes[row]; bindings=app.bindings[row]::B; canonical=app.cohort.rows[row]
+    _schema_map(bindings) do binding
         _refresh_full_binding!(binding,state,node,step)
     end
     canonical=_alias_full_canonical!(state,app.cohort,row,bindings)
     _expose_full_many!(canonical,bindings)
-    refs=merge(PSE._status_vars(canonical),map(b->b.reference,bindings))
+    refs=merge(PSE._status_vars(canonical),_schema_map(binding->binding.reference,bindings))::fieldtype(S,1)
     previous=app.views[row]
-    refs===PSE._status_vars(previous) && return previous
-    view=Status(refs)
+    refs===PSE._status_vars(previous) && return previous::S
+    view=Status(refs)::S
     delete!(state.identities,PSE._status_identity(previous))
     app.views[row]=view
     state.identities[PSE._status_identity(view)]=app.cohort.ids[row]
-    return view
+    return view::S
 end
-_canonical_full_refs(refs,::Tuple{},::Tuple{})=refs
-function _canonical_full_refs(refs,names::Tuple,bindings::Tuple)
-    refs=_canonical_full_ref(refs,Val(first(names)),first(bindings))
-    return _canonical_full_refs(refs,_schema_tail(names),_schema_tail(bindings))
+@generated function _canonical_full_refs(refs::NamedTuple{K,T},bindings::NamedTuple{BK,BT}) where {K,T,BK,BT}
+    fields=Any[]
+    for (index,name) in enumerate(K)
+        binding_index=findfirst(==(name),BK)
+        binding_type=isnothing(binding_index) ? Nothing : fieldtype(BT,binding_index)
+        if binding_type <: FullBinding && binding_type.parameters[2]===false && binding_type.parameters[3]===:one
+            push!(fields,:(getfield(getfield(bindings,$binding_index),:reference)))
+        else
+            push!(fields,:(getfield(refs,$index)))
+        end
+    end
+    return Expr(:call,NamedTuple{K},Expr(:tuple,fields...))
 end
-_canonical_full_ref(refs,var,binding)=refs
-function _canonical_full_ref(refs,::Val{V},binding::FullBinding{R,false,:one}) where {V,R}
-    return merge(refs,NamedTuple{(V,)}((binding.reference,)))
-end
-function _alias_full_canonical!(state,cohort,row,bindings)
+function _alias_full_canonical!(state,cohort::Cohort{K,P,D,S},row,bindings) where {K,P,D,S}
     previous=cohort.rows[row]
-    refs=_canonical_full_refs(PSE._status_vars(previous),keys(bindings),values(bindings))
-    refs===PSE._status_vars(previous) && return previous
-    canonical=Status(refs)
+    refs=_canonical_full_refs(PSE._status_vars(previous),bindings)::fieldtype(S,1)
+    refs===PSE._status_vars(previous) && return previous::S
+    canonical=Status(refs)::S
     cohort.rows[row]=canonical
     state.identities[PSE._status_identity(canonical)]=cohort.ids[row]
-    return canonical
+    return canonical::S
 end
-_expose_full_many!(canonical,::NamedTuple{()})=nothing
-function _expose_full_many!(canonical,bindings::NamedTuple)
-    binding=first(values(bindings)); var=first(keys(bindings))
-    _expose_full_many!(canonical,Val(var),binding)
-    _expose_full_many!(canonical,Base.tail(bindings))
-end
-_expose_full_many!(canonical,var,binding)=nothing
-# Specialization for Many is defined after its route schema, preserving aliases.
-function _expose_full_many!(canonical,::Val{V},binding::FullBinding{R,false,:many}) where {V,R}
-    PSE.refvalue(canonical,V)[]=binding.reference[]
-    return nothing
+@generated function _expose_full_many!(canonical::Status,bindings::NamedTuple{K,BT}) where {K,BT}
+    writes=Any[]
+    for (index,name) in enumerate(K)
+        binding_type=fieldtype(BT,index)
+        if binding_type <: FullBinding && binding_type.parameters[2]===false && binding_type.parameters[3]===:many
+            push!(writes,:(PSE.refvalue(canonical,$(QuoteNode(name)))[]=getfield(getfield(bindings,$index),:reference)[]))
+        end
+    end
+    return Expr(:block,writes...,:(nothing))
 end
 
 Base.@noinline function _invoke_cohort!(c::CohortContext{<:FullApplication};publish=false)
@@ -233,10 +239,15 @@ function _full_status(state,id)
     slot,row=state.locations[id]
     return _full_status_at(state.cohorts,slot,row)
 end
-_full_status_at(::Tuple{},slot,row)=throw(ArgumentError("unknown object cohort"))
-function _full_status_at(cohorts::Tuple,slot,row)
-    slot==1 && return first(cohorts).rows[row]
-    return _full_status_at(_schema_tail(cohorts),slot-1,row)
+@generated function _full_status_at(cohorts::C,slot,row) where {C<:Tuple}
+    types=[eltype(fieldtype(cohort,:rows)) for cohort in fieldtypes(C)]
+    result_type=Union{types...}
+    branch=:(throw(ArgumentError("unknown object cohort")))
+    for index in reverse(eachindex(types))
+        value=:(getfield(getfield(cohorts,$index),:rows)[row])
+        branch=Expr(:if,:(slot==$index),value,branch)
+    end
+    return Expr(:(::),branch,result_type)
 end
 function _add_organ!(state::FullState,cohorts::Tuple,parent,link,symbol,scale,index,id,initial,slot)
     cohort=first(cohorts)

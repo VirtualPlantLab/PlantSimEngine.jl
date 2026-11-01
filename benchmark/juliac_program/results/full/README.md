@@ -5,7 +5,9 @@ This case uses all 61 original `architecture=false` XPalm applications from
 growth respiration, organ demand, allocation and reserves, vegetative growth,
 sex determination, abortion, male/female emission and reproductive processes.
 XPalm is pinned to `5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd`.
-Scientific kernels and downstream sources are unchanged.
+Scientific kernels and downstream sources are unchanged. A typed ObjectId
+display in PSE also keeps the original XPalm validation messages compilable
+without reflective fallback; four focused display assertions pass.
 
 The full layout derives routes directly from the original ModelSpec tuple. It
 has 50 scheduled applications, 11 manual call targets and ten category cohorts.
@@ -67,10 +69,11 @@ Julia-level assertions** over 12 days,
 with 54 objects (7 Male and 3 Female) and 6,271 retained samples. Both executors
 consume exactly 10 sex-determination and 9 abortion RNG draws, with matching RNG
 state after every step (`reproductive.json`). The complete Julia gate passes
-**108,604 assertions**, including birth on the
+**108,606 assertions**, including birth on the
 first timestep, temporal inputs with no retained outputs, and independent
 simulation/RNG ownership (`julia.json`). Native executable qualification
-is still in progress. A successful build alone does not establish
+is still in progress. The 1,516 earlier layout assertions also pass
+(`legacy-regressions.json`). A successful build alone does not establish
 native execution parity.
 
 This is the complete pinned `architecture=false` application graph for one

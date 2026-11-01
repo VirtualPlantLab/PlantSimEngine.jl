@@ -25,6 +25,12 @@ end
 ObjectId(id::ObjectId) = id
 ObjectId(id::AbstractString) = ObjectId(Symbol(id))
 
+function Base.show(io::IO, id::ObjectId)
+    print(io, "ObjectId(")
+    show(io, id.value)
+    print(io, ')')
+end
+
 """
     Object(id; scale=nothing, kind=nothing, species=nothing, name=nothing,
            parent=nothing, children=ObjectId[], geometry=nothing,

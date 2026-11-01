@@ -3,7 +3,7 @@
   "scope": "Julia-level full-graph parity",
   "fails": 0,
   "xpalm": "0.7.0",
-  "passes": 108604,
+  "passes": 108606,
   "errors": 0,
   "mtg": "0.16.0",
   "cases": [

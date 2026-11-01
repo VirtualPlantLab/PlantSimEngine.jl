@@ -9,6 +9,14 @@ const PSE = PlantSimEngine
 @generated function _schema_tail(values::T) where {T<:Tuple}
     return Expr(:tuple,[:(getfield(values,$i)) for i in 2:fieldcount(T)]...)
 end
+@generated function _schema_map(f::F,values::T) where {F,T<:Tuple}
+    return Expr(:tuple,[:(f(getfield(values,$i))) for i in 1:fieldcount(T)]...)
+end
+_schema_map(f,values::NamedTuple{K}) where {K} = NamedTuple{K}(_schema_map(f,Tuple(values)))
+@generated function _schema_pairs(f::F,values::NamedTuple{K,T}) where {F,K,T}
+    calls=[:(f($(QuoteNode(K[i])),getfield(values,$i))) for i in eachindex(K)]
+    return Expr(:call,NamedTuple{K},Expr(:tuple,calls...))
+end
 
 # Deliberately outside src/: this is an admitted subset, not a second public API.
 struct Region{M,I,O,E,C,D,V}

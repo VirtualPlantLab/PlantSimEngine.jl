@@ -8,7 +8,7 @@ mutable struct FullBinding{R,TEMP,MULT,T,REF}
 end
 
 function _prototype_full_binding(route::FullInputRoute{S,V,TEMP,MULT,T},initial_value) where {S,V,TEMP,MULT,T}
-    reference=MULT===:many ? Ref(PSE.RefVector(Base.RefValue{T}[])) : Ref(deepcopy(initial_value)::T)
+    reference=MULT===:many ? Ref(PSE.RefVector(Base.RefValue{T}[])) : Ref(_payload_copy(initial_value)::T)
     return FullBinding{typeof(route),TEMP,MULT,T,typeof(reference)}(
         route,reference,ObjectId{Int}[],Dict{Int,T}())
 end
@@ -98,10 +98,10 @@ function _full_append_binding_source!(entries,state,origin,route::FullInputRoute
         if TEMP
             SLOT==0 && throw(ArgumentError("temporal inputs require an output producer"))
             fallback=get!(initial,id) do
-                deepcopy(source[])
+                _payload_copy(source[])
             end
             value=_full_previous(state,Val(SLOT),Val(V),id,step,fallback)::T
-            push!(entries,(id,Ref(deepcopy(value))))
+            push!(entries,(id,Ref(_payload_copy(value))))
         else
             push!(entries,(id,source))
         end
@@ -190,18 +190,33 @@ function _full_output_column(route::FullOutputRoute{CS,V,D},state,origin;committ
     references=Base.RefValue{T}[reference for (_,reference) in entries]
     return ids,PSE.RefVector(references)
 end
-function _full_output_targets(context,::Val{NAMES}) where {NAMES}
-    isempty(NAMES) && throw(ArgumentError("request at least one output variable"))
-    origin=context.application.cohort.nodes[context.row]
-    selected=map(NAMES) do name
-        route=getproperty(context.application.recipe.outputs,name)
-        _full_output_column(route,context.state,origin)
+# Output names are part of the admitted port schema. Emit direct literal field
+# projections so native compilation never sees a runtime Symbol/getproperty
+# callback over heterogeneous output routes or destination column types.
+@generated function _full_output_targets(context,::Val{NAMES}) where {NAMES}
+    NAMES isa Tuple && !isempty(NAMES) && all(name -> name isa Symbol, NAMES) ||
+        return :(throw(ArgumentError("request at least one output variable as Symbols")))
+    selections = Expr(:tuple, [
+        :(_full_output_column(getfield(context.application.recipe.outputs, $(QuoteNode(name))),
+            context.state, origin))
+        for name in NAMES
+    ]...)
+    checks = [
+        :(getfield(getfield(selected, $i), 1) == ids ||
+            throw(ArgumentError("requested output columns have different destination objects")))
+        for i in 2:length(NAMES)
+    ]
+    columns = Expr(:tuple, [:(getfield(getfield(selected, $i), 2)) for i in eachindex(NAMES)]...)
+    return quote
+        origin = context.application.cohort.nodes[context.row]
+        selected = $selections
+        ids = getfield(getfield(selected, 1), 1)
+        $(checks...)
+        columns = NamedTuple{$(QuoteNode(NAMES))}($columns)
+        return FullOutputTargets{typeof(columns)}(columns, ids)
     end
-    ids=first(selected)[1]
-    all(column->column[1]==ids,selected) || throw(ArgumentError("requested output columns have different destination objects"))
-    columns=NamedTuple{NAMES}(map(last,selected))
-    return FullOutputTargets(columns,ids)
 end
+
 Base.@constprop :aggressive function PSE.output_targets(context::CohortContext{<:FullApplication},names::Tuple{Vararg{Symbol}})
     return _full_output_targets(context,Val(names))
 end

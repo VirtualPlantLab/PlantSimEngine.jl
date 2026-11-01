@@ -1,0 +1,11 @@
+{
+  "scope": "Julia-level previous-layout regressions after full-graph extension",
+  "passes": 1516,
+  "fails": 0,
+  "errors": 0,
+  "fixture": 512,
+  "manual_calls": 255,
+  "soil_root": 627,
+  "phytomer": 94,
+  "lifecycle": 28
+}

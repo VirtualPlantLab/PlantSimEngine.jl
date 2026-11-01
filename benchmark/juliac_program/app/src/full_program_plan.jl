@@ -1,5 +1,15 @@
 # Authoring-only full-model planner. No CompositeModel, Simulation or ordinary
 # compiled plan is constructed here. Runtime consumes these typed recipes.
+# Copy only the admitted scientific payload, keeping scalar/vector element types
+# visible to the native compiler. Unknown payload families preserve the original
+# deep-copy semantics; current XPalm Float/Int/Bool/Symbol/ObjectId/vector paths
+# do not enter that generic fallback.
+_payload_copy(value) = deepcopy(value)
+_payload_copy(value::Number) = copy(value)
+_payload_copy(value::Symbol) = value
+_payload_copy(value::PSE.ObjectId) = value
+_payload_copy(value::AbstractArray) = map(_payload_copy, collect(value))
+
 struct FullModelSeed{M,K,V,T}
     slot::Int
 end
@@ -16,7 +26,7 @@ function _seed(seed::FullModelSeed{M,K,V,T},models,initial) where {M,K,V,T}
     declaration=getproperty(K===:input ? PSE.inputs_(model) : PSE.outputs_(model),V)
     value=declaration isa PSE.Distributed ? declaration.declaration.value :
         declaration isa PSE.Default ? declaration.value : declaration
-    return deepcopy(value::T)::T
+    return _payload_copy(value::T)::T
 end
 _seed(::EmptyManySeed{T},models,initial) where {T}=PSE.RefVector(Base.RefValue{T}[])
 
@@ -413,7 +423,7 @@ end
 
 function _make_cohort(recipe::FullCohortRecipe{K,P,X,D,S},models,initial,::Type{N}) where {K,P,X,D,S,N}
     typeof(getproperty(initial,K))===X || throw(ArgumentError("changed external schema"))
-    defaults=map(port->_seed(port.seed,models,initial),recipe.ports)::D
+    defaults=_schema_map(port->_seed(port.seed,models,initial),recipe.ports)::D
     status=Status(defaults)::S
     return Cohort{K,typeof(recipe),D,S,N}(recipe,defaults,Int[],S[],N[],0)
 end

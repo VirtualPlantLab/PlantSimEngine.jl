@@ -45,7 +45,7 @@ function simulate_full_xpalm(days::Int, rate::Float64, reproductive::Bool; retai
     days >= 0 || throw(ArgumentError("negative full-XPalm duration"))
     isfinite(rate) && rate >= 0 || throw(ArgumentError("invalid full-XPalm phyllochron rate"))
     setup = reproductive ? FULL_REPRODUCTIVE_SETUP : FULL_SETUP
-    models = map(model -> _full_runtime_model(model, rate), setup.models)
+    models = ReusableProgram._schema_map(model -> _full_runtime_model(model, rate), setup.models)
     state = ReusableProgram.instantiate(FULL_PROGRAM, models, _full_native_tree(setup.topology);
         initial=setup.initial.templates, objects=setup.initial.objects, retain)
     constants = FullXPalmFixture.PSE.Constants()
@@ -62,6 +62,7 @@ _full_print_value(value::Bool) = print(Core.stdout, value ? "true" : "false")
 _full_print_value(value::Integer) = print(Core.stdout, value)
 _full_print_value(value::AbstractFloat) = print(Core.stdout, value)
 _full_print_value(value::Symbol) = print(Core.stdout, value)
+_full_print_value(value::AbstractString) = print(Core.stdout, value)
 _full_print_value(value::FullXPalmFixture.PSE.ObjectId) = _full_print_value(value.value)
 _full_print_value(::Nothing) = print(Core.stdout, "null")
 _full_print_value(::Missing) = print(Core.stdout, "missing")
@@ -78,11 +79,18 @@ function _full_print_value(value::AbstractArray)
     return nothing
 end
 
+_full_print_record(::Tuple{})=println(Core.stdout)
+function _full_print_record(fields::Tuple)
+    _full_print_value(first(fields))
+    remaining=ReusableProgram._schema_tail(fields)
+    isempty(remaining) || print(Core.stdout,',')
+    _full_print_record(remaining)
+    return nothing
+end
+
 _full_print_status_fields(category, id, parent, link, index, ::Tuple{}, ::Tuple{}) = nothing
 function _full_print_status_fields(category, id, parent, link, index, names::Tuple, payloads::Tuple)
-    print(Core.stdout, "S,", category, ',', id, ',', parent, ',', link, ',', index, ',', first(names), ',')
-    _full_print_value(first(payloads))
-    println(Core.stdout)
+    _full_print_record(("S",category,id,parent,link,index,first(names),first(payloads)))
     _full_print_status_fields(category, id, parent, link, index, ReusableProgram._schema_tail(names), ReusableProgram._schema_tail(payloads))
     return nothing
 end
@@ -94,8 +102,8 @@ function _full_print_cohorts(cohorts::Tuple)
         node = cohort.nodes[row]
         parent = FullXPalmFixture.MTG.parent(node)
         parent_id = isnothing(parent) ? 0 : FullXPalmFixture.MTG.node_id(parent)
-        println(Core.stdout, "T,", category, ',', cohort.ids[row], ',', parent_id, ',',
-            FullXPalmFixture.MTG.link(node), ',', FullXPalmFixture.MTG.index(node))
+        _full_print_record(("T",category,cohort.ids[row],parent_id,
+            FullXPalmFixture.MTG.link(node),FullXPalmFixture.MTG.index(node)))
         status = cohort.rows[row]
         _full_print_status_fields(category, cohort.ids[row], parent_id,
             FullXPalmFixture.MTG.link(node), FullXPalmFixture.MTG.index(node),
@@ -109,9 +117,7 @@ _full_print_streams(application, ::Tuple{}, ::Tuple{}) = nothing
 function _full_print_streams(application, names::Tuple, histories::Tuple)
     variable = first(names)
     for sample in first(histories).retained
-        print(Core.stdout, "O,", application, ',', sample.object_id, ',', sample.step, ',', variable, ',')
-        _full_print_value(sample.value)
-        println(Core.stdout)
+        _full_print_record(("O",application,sample.object_id,sample.step,variable,sample.value))
     end
     _full_print_streams(application, ReusableProgram._schema_tail(names), ReusableProgram._schema_tail(histories))
     return nothing
@@ -161,7 +167,7 @@ status rows follow cohort order then ascending object IDs. Output rows follow
 original application/output declaration order and retained sample order.
 """
 function _print_full_xpalm(state)
-    println(Core.stdout, "F,", length(state.nodes), ',', state.step, ',', length(state.applications))
+    _full_print_record(("F",length(state.nodes),state.step,length(state.applications)))
     _full_print_cohorts(state.cohorts)
     _full_print_applications(state.applications)
     return nothing
