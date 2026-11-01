@@ -1,0 +1,13 @@
+name = "PSEProgramApp"
+uuid = "21f415b2-5112-498a-a3b3-fc11c545d242"
+version = "0.1.0"
+
+[deps]
+PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+
+[sources]
+PlantSimEngine = {path = "../../.."}
+
+[compat]
+julia = "1.12"
