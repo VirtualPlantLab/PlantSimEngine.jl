@@ -360,7 +360,7 @@ Base.@nospecializeinfer @noinline function PSE._try_refresh_execution_batch_plan
 end
 
 Base.@nospecializeinfer @noinline function lower_cold_owner!(simulation::PSE.Simulation;
-    proof_cache=nothing,declaration_policy=proof_cache,count_calls::Bool=false,
+    proof_cache=nothing,count_calls::Bool=false,
     state_strategy::Symbol=:references,status_strategy::Symbol=:refs,header_strategy::Symbol=:projected)
     @nospecialize simulation
     PSE.current_step(simulation)==0 || throw(ArgumentError("Lower only a fresh zero-step timeline"))
@@ -369,7 +369,7 @@ Base.@nospecializeinfer @noinline function lower_cold_owner!(simulation::PSE.Sim
         throw(ArgumentError("Cold-owner prototype requires ordinary references/projected headers"))
     simulation.model.status_storage===nothing || throw(ArgumentError("Cold-owner prototype requires ordinary canonical references"))
     previous=simulation.execution_plan
-    record=ColdOwnerRecord(previous,count_calls,declaration_policy)
+    record=ColdOwnerRecord(previous,count_calls,proof_cache)
     _records[simulation]=record
     simulation.performance===nothing || return simulation
     groups=PSE.CompiledApplicationExecutionGroup[];batches=PSE.AbstractExecutionBatch[]
@@ -388,12 +388,12 @@ Base.@nospecializeinfer @noinline function lower_cold_owner!(simulation::PSE.Sim
 end
 Base.@nospecializeinfer @noinline function prepare_cold_owner(model::PSE.CompositeModel;
     steps::Integer=0,outputs=:none,performance::Bool=false,count_calls::Bool=false,
-    constants=PSE.PlantMeteo.Constants(),proof_cache=nothing,declaration_policy=proof_cache,
+    constants=PSE.PlantMeteo.Constants(),proof_cache=nothing,
     state_strategy::Symbol=:references,status_strategy::Symbol=:refs,header_strategy::Symbol=:projected)
     @nospecialize model
     steps>=0 || throw(ArgumentError("steps must be nonnegative"))
     simulation=PSE.run!(model;steps=0,outputs,performance,constants)
-    lower_cold_owner!(simulation;proof_cache,declaration_policy,count_calls,state_strategy,status_strategy,header_strategy)
+    lower_cold_owner!(simulation;proof_cache,count_calls,state_strategy,status_strategy,header_strategy)
     steps==0 || PSE.continue!(simulation;steps)
     return simulation
 end
