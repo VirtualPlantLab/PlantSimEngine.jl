@@ -220,3 +220,37 @@ observer reads real cached collections and raw owner contexts **before** invokin
 public lookup that could normalize a bad epoch. It compares exact ordinary
 metadata as well as science, history, side-effect order and actual private work.
 There is no automatic matrix or timing claim.
+
+The reviewed `99da730e88ed947133044546abe230dd95901ceb64371dadeb1da0aa436d3156`
+version records node and edge epochs separately. Its runtime-change flag uses the
+same compiled/environment identity test as ordinary context preparation. Root
+reported all four initial conditional prefixes passing, but the independent
+`late_unqueried=true, inspect_step=2` extension found a further real mismatch:
+after exposure, the first middle entry left its unselected worker edge at
+`(0,true)` while ordinary execution advanced that edge to `(3,false)`.
+
+The surviving node had not yet entered the new runtime epoch. Reconstructing its
+context with current compiled/environment headers erased the pending mismatch;
+normal ordinary entry therefore skipped the all-edge synchronization it should
+perform. The fix must retain the exact old context headers until actual entry,
+not only copy time/publication or a diagnostic Boolean. Unqueried edge headers
+should likewise come from the ordinary template. The test remains frozen for the
+fix qualification; no late-case pass is claimed here.
+
+The subsequent reviewed source
+`2e2232708a0c4e9fc9f73d9f8026abf0b0db0dd3e8fa15b6da8684b0139b45dd`
+addresses this in its implementation. Seeds now retain the exact ordinary node
+and edge runtime headers. Cold owner construction restores those headers after
+materialization, retaining the old identity mismatch for a pending transition.
+Actual private entry updates headers and all immediate edges only when that
+transition is due; selected lookup still updates only its edge. These helpers do
+not execute science, sample environments or draw randomness. Qualification of
+the formerly failing late case remains a required root-executed gate.
+
+That version also addresses the homogeneous root lookup scalability concern:
+`_epoch_seeds` builds one application/object identity index per pass instead of
+rescanning every group target for every root row. Child owners remain local to
+their caller's cache and call path. All indexing, seed/header allocation, ordinary
+preparation, retirement and reconstruction costs remain part of the prototype
+comparison. Mutable header updates avoid rebuilding header tuples at every
+entry; actual allocation measurements must establish their cost.

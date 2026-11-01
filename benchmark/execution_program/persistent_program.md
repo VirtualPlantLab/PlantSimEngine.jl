@@ -46,8 +46,12 @@ Growth, pruning, public-context, distributed, temporal and other unsupported
 boundaries continue through ordinary execution. This is a narrow audited pilot,
 not an automatic eligibility proof for arbitrary context-unused Julia code.
 
-Additional exception/environment/evaluation/Many/targetless gates and timing are
-still being qualified. One initial extra test incorrectly assumed ordinary PSE
+At final backend SHA `2e2232708a0c4e9fc9f73d9f8026abf0b0db0dd3e8fa15b6da8684b0139b45dd`,
+all 1,291 generic and fallback assertions pass, including a delayed-child
+header-handoff regression, evaluation/acceptance, Many, fresh mutable environment
+sampling, partial-error parity and initially targetless newborn execution. Two
+profile assertions also pass. Final PB/XP repeats add 72 assertions; a modest
+four-step gate adds 88. Warm timing is still being qualified. One initial extra test incorrectly assumed ordinary PSE
 allows retry after an unhandled timestep error. The ordinary schedule rejects
 that retry too; the oracle now compares both outcomes rather than changing core
 semantics. Early failures remain in raw diagnostics.

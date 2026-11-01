@@ -7,6 +7,7 @@ const Shared=Main.SharedCallProgram
 const Tight=Main.TightCallProgram
 const Lean=Main.LeanNativeCompiler
 const Native=Main.NativePBDriver
+const Direct=Main.DirectCallCompiler
 export prepare_persistent_tight, lower_persistent_tight!, persistent_tight_report,
     persistent_regions
 
@@ -132,18 +133,78 @@ end
 # Invocation epochs are cold control metadata, separate from scientific fields.
 # The strategy hooks the existing status/entry boundaries; numerical execution
 # and the real noinline Tight._run_child! method remain unchanged.
+const NODE_HEADER_FIELDS=(:compiled,:environment_bindings,:application,:object_id,
+    :bound_inputs,:output_targets,:temporal_streams,:output_retention,:constants,:environment)
+const EDGE_HEADER_FIELDS=(:compiled,:environment_bindings,:temporal_streams,
+    :output_retention,:constants,:environment)
+mutable struct ContextEpochHeader
+    compiled::Any
+    environment_bindings::Any
+    application::Any
+    object_id::Any
+    bound_inputs::Any
+    output_targets::Any
+    temporal_streams::Any
+    output_retention::Any
+    constants::Any
+    environment::Any
+end
+mutable struct EdgeEpochHeader
+    compiled::Any
+    environment_bindings::Any
+    temporal_streams::Any
+    output_retention::Any
+    constants::Any
+    environment::Any
+end
 struct EdgeEpochs
     times::Vector{Float64}
     publication::BitVector
+    headers::Vector{EdgeEpochHeader}
 end
 mutable struct TrackedStatusStrategy{S,E}
     parent::S
     times::Vector{Float64}
     publication::BitVector
     synchronize_edges::BitVector
+    headers::Vector{ContextEpochHeader}
     edges::E
     root::Bool
     current_row::Int
+end
+function _node_header(program,row,constants=program.rows.constants)
+    rows=program.rows
+    return ContextEpochHeader(rows.compiled,rows.environment,rows.application,rows.ids[row],
+        rows.bound_inputs[row],NamedTuple(),rows.streams,rows.retention,constants,PSE._NO_ENVIRONMENT_OVERRIDE)
+end
+function _edge_header(program,constants=program.rows.constants)
+    rows=program.rows
+    return EdgeEpochHeader(rows.compiled,rows.environment,rows.streams,rows.retention,
+        constants,PSE._NO_ENVIRONMENT_OVERRIDE)
+end
+function _update_node_header!(header,program,row,constants)
+    rows=program.rows
+    header.compiled=rows.compiled
+    header.environment_bindings=rows.environment
+    header.application=rows.application
+    header.object_id=rows.ids[row]
+    header.bound_inputs=rows.bound_inputs[row]
+    header.output_targets=NamedTuple()
+    header.temporal_streams=rows.streams
+    header.output_retention=rows.retention
+    header.constants=constants
+    header.environment=PSE._NO_ENVIRONMENT_OVERRIDE
+    return nothing
+end
+function _update_edge_header!(header,program,constants)
+    rows=program.rows
+    header.compiled=rows.compiled
+    header.environment_bindings=rows.environment
+    header.temporal_streams=rows.streams
+    header.output_retention=rows.retention
+    header.constants=constants
+    header.environment=PSE._NO_ENVIRONMENT_OVERRIDE
+    return nothing
 end
 const TrackedFrame=Tight.TightFrame{P,E,S} where {P,E,S<:TrackedStatusStrategy}
 @inline function Tight._status(
@@ -155,12 +216,15 @@ const TrackedFrame=Tight.TightFrame{P,E,S} where {P,E,S<:TrackedStatusStrategy}
     strategy.times[row]=context.time
     strategy.publication[row]=strategy.root
     if strategy.synchronize_edges[row]
+        _update_node_header!(strategy.headers[row],context.frame.program,row,context.constants)
         for edge in values(strategy.edges)
             edge.times[row]=context.time
             edge.publication[row]=strategy.root
+            _update_edge_header!(edge.headers[row],context.frame.program,context.constants)
         end
         strategy.synchronize_edges[row]=false
     end
+    strategy.headers[row].environment=PSE._NO_ENVIRONMENT_OVERRIDE
     return Native._native_kernel_status(context.frame.program.views[row],model,strategy.parent)
 end
 @inline function Tight._entry(frame::Tight.TightFrame{P,E,S},name::Val{Name}) where
@@ -171,6 +235,7 @@ end
         edge=getproperty(strategy.edges,Name)
         edge.times[row]=strategy.times[row]
         edge.publication[row]=strategy.publication[row]
+        edge.headers[row].environment=strategy.headers[row].environment
     end
     # Erase only S to select the original generated lookup while retaining its
     # concrete P/E and exact child return type. This does not invoke a kernel.
@@ -201,7 +266,9 @@ function _seed_owner_epochs!(seeds,program,row,root_id,path,owner,compiled,envir
     seeds[_epoch_key(program,row,root_id,path)]=(time=float(context.time),
         publication=context.publication_allowed,
         synchronize=context.compiled!==compiled || context.environment_bindings!==environment,
-        edges=Dict(name=>(time=float(targets.time),publication=targets.publication_allowed)
+        header=ContextEpochHeader((getfield(context,name) for name in NODE_HEADER_FIELDS)...),
+        edges=Dict(name=>(time=float(targets.time),publication=targets.publication_allowed,
+                header=EdgeEpochHeader((getfield(targets,field) for field in EDGE_HEADER_FIELDS)...))
             for (name,targets) in pairs(edges)))
     for (name,child) in pairs(program.children)
         targets=get(edges,name,nothing)
@@ -215,9 +282,16 @@ end
 function _epoch_seeds(program,batches,compiled,environment)
     seeds=Dict{Any,Any}()
     batches===nothing && return seeds
+    # Scheduled roots have one owner per application/id. Build this index once;
+    # child owners remain in their own parent call-site cache and are not merged.
+    roots=Dict{Tuple{Symbol,PSE.ObjectId},Any}()
+    for batch in batches,index in eachindex(batch.targets)
+        id=PSE._model_execution_target_id(batch.targets,index)
+        roots[(batch.application.id,id)]=batch.targets[index]
+    end
     for row in eachindex(program.rows.ids)
         id=program.rows.ids[row]
-        owner=_find_owner(batches,program.rows.application.id,id)
+        owner=get(roots,(program.rows.application.id,id),nothing)
         _seed_owner_epochs!(seeds,program,row,id,(),owner,compiled,environment)
     end
     return seeds
@@ -228,7 +302,9 @@ function _tracked_frame(program,status_strategy,seeds;root=true,root_ids=program
     times=old===nothing ? zeros(n) : old.times
     publication=old===nothing ? trues(n) : old.publication
     synchronize=old===nothing ? falses(n) : old.synchronize_edges
-    edge_values=Tuple(old===nothing ? EdgeEpochs(zeros(n),trues(n)) : getproperty(old.edges,name)
+    headers=old===nothing ? ContextEpochHeader[_node_header(program,row) for row in 1:n] : old.headers
+    edge_values=Tuple(old===nothing ? EdgeEpochs(zeros(n),trues(n),
+        EdgeEpochHeader[_edge_header(program) for _ in 1:n]) : getproperty(old.edges,name)
         for name in keys(program.children))
     edges=NamedTuple{keys(program.children)}(edge_values)
     for row in 1:n
@@ -236,16 +312,18 @@ function _tracked_frame(program,status_strategy,seeds;root=true,root_ids=program
         times[row]=seed===nothing ? 0.0 : seed.time
         publication[row]=seed===nothing ? true : seed.publication
         synchronize[row]=seed===nothing ? false : seed.synchronize
+        headers[row]=seed===nothing ? _node_header(program,row) : seed.header
         for (name,edge) in pairs(edges)
             value=seed===nothing ? nothing : get(seed.edges,name,nothing)
             edge.times[row]=value===nothing ? 0.0 : value.time
             edge.publication[row]=value===nothing ? true : value.publication
+            edge.headers[row]=value===nothing ? _edge_header(program) : value.header
         end
     end
     children=Tuple(_tracked_frame(child,status_strategy,seeds;root=false,root_ids,
         path=(path...,name),previous=previous===nothing ? nothing : getproperty(previous.entries,name))
         for (name,child) in pairs(program.children))
-    strategy=TrackedStatusStrategy(Val(status_strategy),times,publication,synchronize,edges,root,0)
+    strategy=TrackedStatusStrategy(Val(status_strategy),times,publication,synchronize,headers,edges,root,0)
     return Tight.TightFrame(program,NamedTuple{keys(program.children)}(children),strategy)
 end
 function _restore_shared_epochs!(frame,tracked)
@@ -260,8 +338,21 @@ function _restore_shared_epochs!(frame,tracked)
             targets=Shared._targets_for_row!(entry,frame,row)
             targets.time=edge.times[row]
             targets.publication_allowed=edge.publication[row]
+            for field in EDGE_HEADER_FIELDS
+                setfield!(targets,field,getfield(edge.headers[row],field))
+            end
         end
         _restore_shared_epochs!(entry.frame,getproperty(tracked.entries,name))
+    end
+    # A pending ordinary runtime transition belongs to the actual owner context,
+    # not merely a boolean trace. Materialize cold owners now and restore their
+    # old header identities, so later ordinary entry performs its normal sync.
+    for row in eachindex(strategy.times)
+        owner=Direct._ordinary_owner!(Shared.SharedOwnerRef(frame,row))
+        context=owner.context
+        for field in NODE_HEADER_FIELDS
+            setfield!(context,field,getfield(strategy.headers[row],field))
+        end
     end
     return nothing
 end
