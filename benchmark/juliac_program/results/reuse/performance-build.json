@@ -1,0 +1,15 @@
+{
+  "julia": "1.13.1",
+  "juliac": "0.3.12",
+  "trim": "safe",
+  "cpu": "generic",
+  "compilation_s": 46.905958875,
+  "link_s": 0.147691625,
+  "bundle_s": 0.570337583,
+  "bundle": "/var/folders/vs/0g9ggg9s58x7w0pc906m0zr00000gn/T/pse-native-perf-NeSKfQ/bundle",
+  "app_directory": "/var/folders/vs/0g9ggg9s58x7w0pc906m0zr00000gn/T/pse-native-perf-NeSKfQ/app",
+  "performance_entry": true,
+  "source_revision": "b88875dc56c21795a2b05265744e0d7f70ad12df",
+  "app_sha256": "040eb06c78e4e5162ddfb3267ff311c9ff91cb7dbd5b2dfaf8c35229724f64cf",
+  "binary_sha256": "4d724fbbc731ea030e987f1c30a5812f94f5d24c0be0f2a10a7a13e283603951"
+}

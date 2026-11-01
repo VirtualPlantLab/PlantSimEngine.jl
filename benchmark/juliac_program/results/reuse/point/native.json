@@ -1,0 +1,92 @@
+{
+  "passes": 21457,
+  "fails": 0,
+  "errors": 0,
+  "cases": [
+    {
+      "inputs": {
+        "days": 3,
+        "rate": 0.05,
+        "reproductive": false
+      },
+      "applications": 61,
+      "objects": 11,
+      "days": 3,
+      "canonical_variables": 220,
+      "samples": 422,
+      "rng_streams": 2,
+      "male_objects": 0,
+      "female_objects": 0,
+      "process_wall_s": 8.860185083
+    },
+    {
+      "inputs": {
+        "days": 12,
+        "rate": 0.3,
+        "reproductive": true
+      },
+      "applications": 61,
+      "objects": 54,
+      "days": 12,
+      "canonical_variables": 1121,
+      "samples": 6271,
+      "rng_streams": 2,
+      "male_objects": 7,
+      "female_objects": 3,
+      "process_wall_s": 0.375456583
+    },
+    {
+      "inputs": {
+        "days": 5,
+        "rate": 0.075,
+        "reproductive": false
+      },
+      "applications": 61,
+      "objects": 17,
+      "days": 5,
+      "canonical_variables": 344,
+      "samples": 1026,
+      "rng_streams": 2,
+      "male_objects": 0,
+      "female_objects": 0,
+      "process_wall_s": 0.068428458
+    },
+    {
+      "inputs": {
+        "days": 9,
+        "rate": 0.25,
+        "reproductive": true
+      },
+      "applications": 61,
+      "objects": 42,
+      "days": 9,
+      "canonical_variables": 833,
+      "samples": 3791,
+      "rng_streams": 2,
+      "male_objects": 6,
+      "female_objects": 1,
+      "process_wall_s": 0.101751292
+    }
+  ],
+  "relocation": {
+    "inputs": {
+      "days": 12,
+      "rate": 0.3,
+      "reproductive": true
+    },
+    "applications": 61,
+    "objects": 54,
+    "samples": 6271,
+    "fresh_home": true,
+    "empty_external_depot": true,
+    "empty_cwd": true,
+    "process_wall_s": 3.845086083
+  },
+  "build": {
+    "julia": "1.13.1",
+    "juliac": "0.3.12",
+    "trim": "safe"
+  },
+  "both_sexes_required": true,
+  "platform": "arm64-apple-darwin27.0.0"
+}

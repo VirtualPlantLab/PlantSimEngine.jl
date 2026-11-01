@@ -1,0 +1,173 @@
+{
+  "focused": {
+    "passes": 60,
+    "fails": 0,
+    "errors": 0
+  },
+  "full": {
+    "passes": 108606,
+    "fails": 0,
+    "errors": 0,
+    "cases": [
+      {
+        "applications": 61,
+        "initial_objects": 8,
+        "objects": 11,
+        "days": 3,
+        "retain": true,
+        "samples": 422,
+        "events": {
+          "male_objects": 0,
+          "female_objects": 0,
+          "male_phytomers": 0,
+          "female_phytomers": 0,
+          "undetermined_phytomers": 2
+        },
+        "rng_draws": [
+          {
+            "application": "Phytomer__sex_determination",
+            "field": "rng",
+            "draws": 0
+          },
+          {
+            "application": "Phytomer__abortion",
+            "field": "random_generator",
+            "draws": 0
+          }
+        ],
+        "cohorts": [
+          0,
+          2,
+          2,
+          0,
+          2,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "applications": 61,
+        "initial_objects": 8,
+        "objects": 54,
+        "days": 12,
+        "retain": true,
+        "samples": 6271,
+        "events": {
+          "male_objects": 7,
+          "female_objects": 3,
+          "male_phytomers": 7,
+          "female_phytomers": 3,
+          "undetermined_phytomers": 3
+        },
+        "rng_draws": [
+          {
+            "application": "Phytomer__sex_determination",
+            "field": "rng",
+            "draws": 10
+          },
+          {
+            "application": "Phytomer__abortion",
+            "field": "random_generator",
+            "draws": 9
+          }
+        ],
+        "cohorts": [
+          3,
+          13,
+          13,
+          7,
+          13,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "applications": 61,
+        "initial_objects": 8,
+        "objects": 20,
+        "days": 3,
+        "retain": true,
+        "samples": 702,
+        "events": {
+          "male_objects": 3,
+          "female_objects": 0,
+          "male_phytomers": 3,
+          "female_phytomers": 0,
+          "undetermined_phytomers": 1
+        },
+        "rng_draws": [
+          {
+            "application": "Phytomer__sex_determination",
+            "field": "rng",
+            "draws": 3
+          },
+          {
+            "application": "Phytomer__abortion",
+            "field": "random_generator",
+            "draws": 3
+          }
+        ],
+        "cohorts": [
+          0,
+          4,
+          4,
+          3,
+          4,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "applications": 61,
+        "initial_objects": 8,
+        "objects": 11,
+        "days": 3,
+        "retain": false,
+        "samples": 0,
+        "events": {
+          "male_objects": 0,
+          "female_objects": 0,
+          "male_phytomers": 0,
+          "female_phytomers": 0,
+          "undetermined_phytomers": 2
+        },
+        "rng_draws": [
+          {
+            "application": "Phytomer__sex_determination",
+            "field": "rng",
+            "draws": 0
+          },
+          {
+            "application": "Phytomer__abortion",
+            "field": "random_generator",
+            "draws": 0
+          }
+        ],
+        "cohorts": [
+          0,
+          2,
+          2,
+          0,
+          2,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ]
+  },
+  "recipe_fields": 14,
+  "recipe_type_parameters": 15,
+  "pse_path": "/Users/rvezy/.codex/worktrees/pse-juliac-program/PlantSimEngine/src/PlantSimEngine.jl"
+}

@@ -1,0 +1,533 @@
+--- a/benchmark/juliac_program/app/src/full_program_bindings.jl
++++ b/benchmark/juliac_program/app/src/full_program_bindings.jl
+@@ -1,16 +1,25 @@
+ # Concrete bindings for the full cohort runtime. Topology and ObjectIds remain
+ # runtime data; source application slots and payload schemas are static routes.
+-mutable struct FullBinding{R,TEMP,MULT,T,REF}
++mutable struct FullBinding{R,TEMP,MULT,T,REF,STAMP}
+     route::R
+     reference::REF
+     ids::Vector{ObjectId{Int}}
+     initial::Dict{Int,T}
++    # Membership/Refs are reusable until a source cohort grows or replaces a
++    # canonical Ref. Epoch invalidation is deliberately cohort-wide for now.
++    stamp::STAMP
++    valid::Bool
++    locations::Vector{NTuple{4,Int}} # object ID, cohort, row, producer slot
++    references::Vector{Base.RefValue{T}}
++    fallback::Union{Nothing,Base.RefValue{T}}
+ end
+ 
+ function _prototype_full_binding(route::FullInputRoute{S,V,TEMP,MULT,T},initial_value) where {S,V,TEMP,MULT,T}
+     reference=MULT===:many ? Ref(PSE.RefVector(Base.RefValue{T}[])) : Ref(_payload_copy(initial_value)::T)
+-    return FullBinding{typeof(route),TEMP,MULT,T,typeof(reference)}(
+-        route,reference,ObjectId{Int}[],Dict{Int,T}())
++    stamp=map(_ -> (0,UInt(0)),S)
++    return FullBinding{typeof(route),TEMP,MULT,T,typeof(reference),typeof(stamp)}(
++        route,reference,ObjectId{Int}[],Dict{Int,T}(),stamp,false,
++        NTuple{4,Int}[],Base.RefValue{T}[],MULT===:many ? nothing : reference)
+ end
+ 
+ function _full_selector_scope(criteria)
+@@ -86,7 +95,7 @@
+ end
+ 
+ function _full_append_binding_source!(entries,state,origin,route::FullInputRoute{S,V,TEMP,MULT,T},
+-                                      ::Val{SOURCE},step,initial) where {S,V,TEMP,MULT,T,SOURCE}
++                                      ::Val{SOURCE}) where {S,V,TEMP,MULT,T,SOURCE}
+     C,SLOT=SOURCE
+     cohort=state.cohorts[C]
+     limit=MULT===:many ? cohort.committed : length(cohort.ids)
+@@ -94,52 +103,117 @@
+         node=cohort.nodes[row]
+         _full_matches(route.selector,state,origin,node) || continue
+         id=cohort.ids[row]
+-        source=PSE.refvalue(cohort.rows[row],V)::Base.RefValue{T}
+-        if TEMP
+-            SLOT==0 && throw(ArgumentError("temporal inputs require an output producer"))
+-            fallback=get!(initial,id) do
+-                _payload_copy(source[])
+-            end
+-            value=_full_previous(state,Val(SLOT),Val(V),id,step,fallback)::T
+-            push!(entries,(id,Ref(_payload_copy(value))))
+-        else
+-            push!(entries,(id,source))
+-        end
+-    end
+-    return nothing
+-end
+-_full_append_binding_sources!(entries,state,origin,route,::Tuple{},step,initial)=nothing
+-function _full_append_binding_sources!(entries,state,origin,route,sources::Tuple,step,initial)
+-    _full_append_binding_source!(entries,state,origin,route,first(sources),step,initial)
+-    _full_append_binding_sources!(entries,state,origin,route,_schema_tail(sources),step,initial)
+-    return nothing
+-end
+-function _full_binding_entries(route::FullInputRoute{S,V,TEMP,MULT,T},state,origin,step,initial) where {S,V,TEMP,MULT,T}
+-    entries=Tuple{Int,Base.RefValue{T}}[]
+-    _full_append_binding_sources!(entries,state,origin,route,map(Val,S),step,initial)
++        push!(entries,(id,C,row,SLOT))
++    end
++    return nothing
++end
++_full_append_binding_sources!(entries,state,origin,route,::Tuple{})=nothing
++function _full_append_binding_sources!(entries,state,origin,route,sources::Tuple)
++    _full_append_binding_source!(entries,state,origin,route,first(sources))
++    _full_append_binding_sources!(entries,state,origin,route,_schema_tail(sources))
++    return nothing
++end
++function _full_binding_entries(route::FullInputRoute{S,V,TEMP,MULT,T},state,origin) where {S,V,TEMP,MULT,T}
++    entries=NTuple{4,Int}[]
++    _full_append_binding_sources!(entries,state,origin,route,map(Val,S))
+     sort!(entries;by=first)
+     for index in 2:length(entries)
+         entries[index-1][1]!=entries[index][1] || throw(ArgumentError("duplicate selected source object"))
+     end
+     return entries
+ end
++
++# Direct finite cohort/producer projections preserve concrete source and stream
++# types under safe trimming; locations contain runtime rows/IDs, never Val IDs.
++@generated function _full_binding_stamp(route::FullInputRoute{S,V,TEMP,MULT},state) where {S,V,TEMP,MULT}
++    values_=map(S) do source
++        C=source[1]
++        count=MULT===:many ? :(getfield(state.cohorts,$C).committed) : :(length(getfield(state.cohorts,$C).ids))
++        :(($count,state.reference_epochs[$C]))
++    end
++    return Expr(:tuple,values_...)
++end
++@generated function _full_cached_source_ref(route::FullInputRoute{S,V,TEMP,MULT,T},state,location) where {S,V,TEMP,MULT,T}
++    branch=:(throw(ArgumentError("invalid cached source cohort")))
++    for C in reverse(unique(first.(S)))
++        value=:(PSE.refvalue(getfield(state.cohorts,$C).rows[location[3]],$(QuoteNode(V)))::Base.RefValue{$T})
++        branch=Expr(:if,:(location[2]==$C),value,branch)
++    end
++    return branch
++end
++@generated function _full_cached_previous(route::FullInputRoute{S,V,true,MULT,T},state,location,step,fallback) where {S,V,MULT,T}
++    branch=:(throw(ArgumentError("invalid cached temporal producer")))
++    for (C,SLOT) in reverse(S)
++        value=SLOT==0 ? :(throw(ArgumentError("temporal inputs require an output producer"))) :
++            :(_full_previous(state,Val($SLOT),Val($(QuoteNode(V))),location[1],step,fallback)::$T)
++        branch=Expr(:if,:(location[2]==$C && location[4]==$SLOT),value,branch)
++    end
++    return branch
++end
++
++function _full_cached_references!(binding::FullBinding{R,TEMP,MULT,T},state,locations,step) where {R,TEMP,MULT,T}
++    references=Base.RefValue{T}[]
++    old=1
++    for location in locations
++        id=location[1]
++        if TEMP
++            source=_full_cached_source_ref(binding.route,state,location)
++            fallback=get!(binding.initial,id) do
++                _payload_copy(source[])
++            end
++            # _full_previous already returns an owned payload. The private
++            # scratch Ref must refresh every invocation, even on a cache hit.
++            value=_full_cached_previous(binding.route,state,location,step,fallback)
++            while old<=length(binding.locations) && binding.locations[old][1]<id
++                old+=1
++            end
++            if old<=length(binding.locations) && binding.locations[old][1]==id
++                reference=binding.references[old]
++                reference[]=value
++            else
++                reference=Ref(value)
++            end
++            push!(references,reference)
++        else
++            push!(references,_full_cached_source_ref(binding.route,state,location))
++        end
++    end
++    return references
++end
++
+ function _refresh_full_binding!(binding::FullBinding{R,TEMP,MULT,T},state,origin,step;initialize=false) where {R,TEMP,MULT,T}
+-    entries=_full_binding_entries(binding.route,state,origin,step,binding.initial)
+-    empty!(binding.ids)
+-    for (id,reference) in entries
+-        push!(binding.ids,ObjectId(id))
+-    end
++    stamp=_full_binding_stamp(binding.route,state)
++    if binding.valid && stamp==binding.stamp
++        TEMP || return nothing
++        binding.valid=false
++        for index in eachindex(binding.locations)
++            location=binding.locations[index]
++            binding.references[index][]=_full_cached_previous(binding.route,state,location,step,binding.initial[location[1]])
++        end
++        binding.valid=true
++        return nothing
++    end
++    binding.valid=false
++    locations=_full_binding_entries(binding.route,state,origin)
++    # Validate membership before publishing a new carrier or a valid stamp.
++    MULT===:one && length(locations)!=1 && throw(ArgumentError("One input requires exactly one source object"))
++    MULT===:optional_one && length(locations)>1 && throw(ArgumentError("OptionalOne input requires at most one source object"))
++    references=_full_cached_references!(binding,state,locations,step)
++    ids=ObjectId{Int}[ObjectId(location[1]) for location in locations]
+     if MULT===:many
+-        binding.reference[]=PSE.RefVector(Base.RefValue{T}[reference for (_,reference) in entries])
++        binding.reference[]=PSE.RefVector(references)
+     elseif MULT===:one
+-        length(entries)==1 || throw(ArgumentError("One input requires exactly one source object"))
+-        binding.reference=only(entries)[2]
++        binding.reference=only(references)
+     elseif MULT===:optional_one
+-        length(entries)<=1 || throw(ArgumentError("OptionalOne input requires at most one source object"))
+-        isempty(entries) || (binding.reference=only(entries)[2])
++        binding.reference=isempty(references) ? (binding.fallback::Base.RefValue{T}) : only(references)
+     else
+         throw(ArgumentError("unsupported full-layout multiplicity"))
+     end
++    binding.ids=ids
++    binding.locations=locations
++    binding.references=references
++    binding.stamp=stamp
++    binding.valid=true
+     return nothing
+ end
+ function _make_full_binding(route,state,origin,initial_value)
+--- a/benchmark/juliac_program/app/src/full_program_history.jl
++++ b/benchmark/juliac_program/app/src/full_program_history.jl
+@@ -13,10 +13,11 @@
+     prior::Dict{Int,FullSample{T}}
+     retained::Vector{FullSample{T}}
+     retained_index::Dict{Tuple{Int,Int},Int}
++    temporal::Bool
+ end
+-ColumnHistory(::Type{T}) where {T} = ColumnHistory{T}(
++ColumnHistory(::Type{T},temporal::Bool) where {T} = ColumnHistory{T}(
+     Dict{Int,T}(), Dict{Int,FullSample{T}}(), Dict{Int,FullSample{T}}(),
+-    FullSample{T}[], Dict{Tuple{Int,Int},Int}(),
++    FullSample{T}[], Dict{Tuple{Int,Int},Int}(), temporal,
+ )
+ 
+ # Reference-backed array ports publish ordinary owned arrays, matching PSE's
+@@ -32,10 +33,10 @@
+ 
+ function _make_full_streams(recipe, model)
+     declarations=PSE.outputs_(model)::recipe.outputs_type
+-    return _schema_map(declarations) do declaration
++    return _schema_pairs(declarations) do var,declaration
+         value = _full_value(declaration)
+         value isa PSE.Required && throw(ArgumentError("full output history needs an initial value"))
+-        ColumnHistory(typeof(_full_history_snapshot(value)))
++        ColumnHistory(typeof(_full_history_snapshot(value)),var in recipe.temporal_outputs)
+     end
+ end
+ 
+@@ -44,6 +45,7 @@
+ value wins; repeated binding refreshes cannot replace birth history.
+ """
+ function _full_history_initial!(history::ColumnHistory{T}, object_id, fallback) where {T}
++    history.temporal || return nothing
+     id = _full_history_id(object_id)
+     if !haskey(history.initial, id)
+         history.initial[id] = _full_history_snapshot(T, fallback)
+@@ -63,6 +65,7 @@
+ end
+ 
+ function _full_previous(history::ColumnHistory{T}, object_id, step::Int, fallback) where {T}
++    history.temporal || throw(ArgumentError("output column has no planned temporal consumer"))
+     id = _full_history_id(object_id)
+     _full_history_initial!(history, id, fallback)
+     if haskey(history.last, id)
+@@ -87,16 +90,19 @@
+ 
+ function _full_record!(history::ColumnHistory{T}, application::Symbol,
+                        object_id, step::Int, value, retain::Bool) where {T}
++    (history.temporal || retain) || return nothing
+     id = _full_history_id(object_id)
+     sample = FullSample{T}(application, id, step, _full_history_snapshot(T, value))
+-    if haskey(history.last, id)
+-        last = history.last[id]
+-        step >= last.step || throw(ArgumentError("cannot publish an obsolete output step"))
+-        if step > last.step
+-            history.prior[id] = last
++    if history.temporal
++        if haskey(history.last, id)
++            last = history.last[id]
++            step >= last.step || throw(ArgumentError("cannot publish an obsolete output step"))
++            if step > last.step
++                history.prior[id] = last
++            end
+         end
++        history.last[id] = sample
+     end
+-    history.last[id] = sample
+     if retain
+         key = (id, step)
+         if haskey(history.retained_index, key)
+@@ -117,6 +123,7 @@
+ end
+ 
+ function _full_publish_column!(::FullOutputRoute{COHORTS,VAR,false}, history, context) where {COHORTS,VAR}
++    (history.temporal || context.state.retain) || return nothing
+     application = context.application
+     id = application.cohort.ids[context.row]
+     _full_record!(history, application.recipe.name, id, context.step,
+@@ -125,6 +132,7 @@
+ end
+ 
+ function _full_publish_column!(route::FullOutputRoute{COHORTS,VAR,true}, history, context) where {COHORTS,VAR}
++    (history.temporal || context.state.retain) || return nothing
+     application = context.application
+     origin = application.cohort.nodes[context.row]
+     ids, column = _full_output_column(route, context.state, origin)
+@@ -137,11 +145,12 @@
+ end
+ 
+ """Publish this original kernel's outputs immediately, before a later Updates writer.
+-Retention controls only the materialized event rows; last/prior temporal samples
+-are updated even when the simulation retains no user-facing output streams.
++Retention controls the materialized event rows. Last/prior samples are updated
++only for columns consumed by PreviousTimeStep, including when retention is off.
+ """
+ function _full_publish!(context)
+     context.suppress && return nothing
++    (!context.state.retain && isempty(context.application.recipe.temporal_outputs)) && return nothing
+     _full_publish_columns!(values(context.application.recipe.outputs),
+         values(context.application.streams), context)
+     return nothing
+--- a/benchmark/juliac_program/app/src/full_program_plan.jl
++++ b/benchmark/juliac_program/app/src/full_program_plan.jl
+@@ -43,6 +43,7 @@
+ end
+ struct FullCallRoute{SLOT,MODE,MULT,SEL}
+     selector::SEL
++    cache_key::Int
+ end
+ struct FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,D,V,I,O,E,B,S,H}
+     slot::Int
+@@ -50,6 +51,7 @@
+     inputs::INPUTS
+     outputs::OUTPUTS
+     calls::CALLS
++    temporal_outputs::Tuple{Vararg{Symbol}}
+     dependencies::D
+     contracts::V
+     inputs_type::Type{I}
+@@ -78,6 +80,14 @@
+ _full_value(declaration)=declaration
+ _full_previous(selector)=get(PSE.criteria(selector),:policy,nothing) isa PSE.PreviousTimeStep
+ _full_from_status(selector)=get(PSE.criteria(selector),:from_status,false)
++function _full_temporal_outputs!(needed,::FullInputRoute{SOURCES,VAR,TEMP}) where {SOURCES,VAR,TEMP}
++    TEMP || return nothing
++    for (_,slot) in SOURCES
++        slot>0 || throw(ArgumentError("temporal inputs require an output producer"))
++        push!(needed[slot],VAR)
++    end
++    return nothing
++end
+ 
+ function _full_selector_categories(selector,categories,fallback)
+     criteria=PSE.criteria(selector)
+@@ -185,6 +195,7 @@
+     # Calls have static application slots, but their selected object rows remain
+     # runtime data. Keep their original selectors for exact topology resolution.
+     manual=Set{Int}(); callowners=Dict{Int,Vector{Int}}(); initializer_owners=Dict{Int,Int}()
++    call_key=0
+     call_routes=map(Tuple(enumerate(specs))) do (i,spec)
+         values_=map(values(spec.calls)) do declaration
+             initializer=declaration isa PSE.Initializer
+@@ -209,7 +220,8 @@
+                 push!(manual,target)
+                 push!(get!(callowners,target,Int[]),i)
+             end
+-            FullCallRoute{target,initializer ? :initializer : :manual,PSE.multiplicity(selector),typeof(selector)}(selector)
++            call_key+=1
++            FullCallRoute{target,initializer ? :initializer : :manual,PSE.multiplicity(selector),typeof(selector)}(selector,call_key)
+         end
+         NamedTuple{keys(spec.calls)}(values_)
+     end
+@@ -352,6 +364,13 @@
+         routes=Dict(route_pairs[i])
+         input_routes[i]=NamedTuple{keys(PSE.inputs_(spec))}(map(var->routes[var],keys(PSE.inputs_(spec))))
+     end
++    temporal_needed=[Set{Symbol}() for _ in specs]
++    for routes in input_routes, route in values(routes)
++        _full_temporal_outputs!(temporal_needed,route)
++    end
++    temporal_outputs=map(eachindex(specs)) do i
++        Tuple(var for var in keys(output_routes[i]) if var in temporal_needed[i])
++    end
+     # All potential writers create same-step edges, even though live bindings
+     # select a final canonical writer. Manual callee outputs are attributed to
+     # their root owner; input edges into a manual callee do not reorder its owner.
+@@ -410,13 +429,14 @@
+         end)
+         canonical=Status(defaults)
+         view=Status(merge(PSE._status_vars(canonical),map(binding->binding.reference,bindings)))
+-        histories=map(PSE.outputs_(spec)) do declaration
++        declarations=PSE.outputs_(spec)
++        histories=NamedTuple{keys(declarations)}(map(keys(declarations),values(declarations)) do var,declaration
+             value=_full_value(declaration)
+-            ColumnHistory(typeof(_full_history_snapshot(value)))
+-        end
++            ColumnHistory(typeof(_full_history_snapshot(value)),var in temporal_needed[i])
++        end)
+         B=typeof(bindings); S=typeof(view); H=typeof(histories)
+         FullApplicationRecipe{M,C,i,typeof(inputs),typeof(outputs),typeof(calls),D,V,I,O,E,B,S,H}(
+-            i,names[i],inputs,outputs,calls,PSE.dep(spec.model),PSE.variable_contracts_(spec),I,O,E,B,S,H)
++            i,names[i],inputs,outputs,calls,temporal_outputs[i],PSE.dep(spec.model),PSE.variable_contracts_(spec),I,O,E,B,S,H)
+     end
+     return FullProgram(cohorts,applications,map(Val,Tuple(order)),cadence)
+ end
+--- a/benchmark/juliac_program/app/src/full_program_runtime.jl
++++ b/benchmark/juliac_program/app/src/full_program_runtime.jl
+@@ -9,6 +9,24 @@
+     const bindings::Vector{B}
+     const streams::H
+ end
++
++# Only row membership is cached. Invocation contexts still sample the current
++# environment, step, status view and publication policy on every call.
++mutable struct FullRowOrder
++    live::Vector{Int}
++    committed::Vector{Int}
++    live_count::Int
++    committed_count::Int
++end
++FullRowOrder()=FullRowOrder(Int[],Int[],-1,-1)
++mutable struct FullCallMembership
++    live::Vector{Int}
++    committed::Vector{Int}
++    live_count::Int
++    committed_count::Int
++end
++FullCallMembership()=FullCallMembership(Int[],Int[],-1,-1)
++
+ mutable struct FullState{P,C,A,N,I}
+     program::P
+     cohorts::C
+@@ -23,6 +41,9 @@
+     retain::Bool
+     initial_objects::I
+     ready::Bool
++    reference_epochs::Vector{UInt}
++    ordered_rows::Vector{FullRowOrder}
++    call_memberships::Dict{Tuple{Int,Int},FullCallMembership}
+ end
+ 
+ include("full_program_bindings.jl")
+@@ -75,7 +96,9 @@
+     cohorts=map(r->_make_cohort(r,owned,initial,N),program.cohorts)
+     apps=_bind_full_apps(program.applications,owned,cohorts)
+     state=FullState(program,cohorts,apps,Dict{Int,N}(),Dict{Int,Tuple{Int,Int}}(),
+-        IdDict{Base.RefValue{Nothing},Int}(),Set{Int}(),Set{Tuple{Int,Int}}(),0,0,Bool(retain),objects,false)
++        IdDict{Base.RefValue{Nothing},Int}(),Set{Int}(),Set{Tuple{Int,Int}}(),0,0,Bool(retain),objects,false,
++        zeros(UInt,length(cohorts)),[FullRowOrder() for _ in cohorts],
++        Dict{Tuple{Int,Int},FullCallMembership}())
+     _register_tree!(state,root)
+     _commit_cohorts!(state.cohorts)
+     _fill_full_views!(state,state.applications)
+@@ -180,10 +203,35 @@
+     previous=cohort.rows[row]
+     refs=_canonical_full_refs(PSE._status_vars(previous),bindings)::fieldtype(S,1)
+     refs===PSE._status_vars(previous) && return previous::S
+-    canonical=Status(refs)::S
+-    cohort.rows[row]=canonical
+-    state.identities[PSE._status_identity(canonical)]=cohort.ids[row]
+-    return canonical::S
++    return _replace_full_status!(state,cohort,row,Status(refs)::S)
++end
++
++function _replace_full_status!(state,cohort::Cohort{K,P,D,S},row,status::S) where {K,P,D,S}
++    previous=cohort.rows[row]
++    if PSE._status_vars(previous)!==PSE._status_vars(status)
++        slot=state.locations[cohort.ids[row]][1]
++        state.reference_epochs[slot]+=UInt(1)
++    end
++    cohort.rows[row]=status
++    state.identities[PSE._status_identity(status)]=cohort.ids[row]
++    return status
++end
++
++function _full_ordered_rows(state,slot::Int,cohort;committed=true)
++    order=state.ordered_rows[slot]
++    if order.live_count!=length(cohort.ids)
++        empty!(order.live)
++        append!(order.live,sortperm(cohort.ids))
++        order.live_count=length(cohort.ids)
++    end
++    if order.committed_count!=cohort.committed
++        empty!(order.committed)
++        for row in order.live
++            row<=cohort.committed && push!(order.committed,row)
++        end
++        order.committed_count=cohort.committed
++    end
++    return committed ? order.committed : order.live
+ end
+ @generated function _expose_full_many!(canonical::Status,bindings::NamedTuple{K,BT}) where {K,BT}
+     writes=Any[]
+@@ -217,7 +265,7 @@
+     empty!(state.pending); empty!(state.initialized)
+     # RNG-consuming models follow the ordinary object ID order, independently
+     # of insertion and category storage order.
+-    for row in sortperm(app.cohort.ids[1:app.cohort.committed])
++    for row in _full_ordered_rows(state,_app_cohort(app.recipe),app.cohort)
+         c=CohortContext(app,state,app.views[row],row,environment,constants,state.step+1,false)
+         _invoke_cohort!(c;publish=true)
+     end
+@@ -263,20 +311,52 @@
+ _add_organ!(state::FullState,::Tuple{},parent,link,symbol,scale,index,id,initial,slot)=
+     throw(ArgumentError("unknown organ cohort"))
+ 
++function _full_call_membership(c,route::FullCallRoute{SLOT}) where {SLOT}
++    cohort=c.state.applications[SLOT].cohort
++    origin=c.application.cohort.nodes[c.row]
++    key=(route.cache_key,c.application.cohort.ids[c.row])
++    membership=get!(c.state.call_memberships,key) do
++        FullCallMembership()
++    end
++    if membership.live_count!=length(cohort.ids)
++        empty!(membership.live)
++        for row in _full_ordered_rows(c.state,_app_cohort(c.state.applications[SLOT].recipe),cohort;committed=false)
++            _full_matches(route.selector,c.state,origin,cohort.nodes[row]) && push!(membership.live,row)
++        end
++        membership.live_count=length(cohort.ids)
++    end
++    if membership.committed_count!=cohort.committed
++        empty!(membership.committed)
++        for row in membership.live
++            row<=cohort.committed && push!(membership.committed,row)
++        end
++        membership.committed_count=cohort.committed
++    end
++    return membership
++end
++
+ function _cohort_targets(c,route::FullCallRoute{SLOT,MODE,MULT},objects=nothing) where {SLOT,MODE,MULT}
+     app=c.state.applications[SLOT]; cohort=app.cohort
+     T=_cohort_context_type(app,c.state,cohort,c.environment,c.constants)
+     targets=CohortTarget{T}[]
+     origin=c.application.cohort.nodes[c.row]
+-    fullcount=count(n->_full_matches(route.selector,c.state,origin,n),cohort.nodes)
++    membership=_full_call_membership(c,route)
++    fullcount=length(membership.live)
+     MODE===:manual && MULT===:one && !isnothing(objects) && fullcount!=1 && throw(ArgumentError("targeted One call cannot relax cardinality"))
+-    limit=isnothing(objects) ? cohort.committed : length(cohort.ids)
+-    for row in sortperm(cohort.ids[1:limit])
+-        id=cohort.ids[row]
+-        (isnothing(objects) || ObjectId(id)==ObjectId(objects)) || continue
+-        _full_matches(route.selector,c.state,origin,cohort.nodes[row]) || continue
++    if !isnothing(objects)
++        id=ObjectId(objects).value
++        location=get(c.state.locations,id,nothing)
++        isnothing(location) && throw(ArgumentError("object outside call scope"))
++        slot,row=location
++        slot==_app_cohort(app.recipe) && _full_matches(route.selector,c.state,origin,cohort.nodes[row]) ||
++            throw(ArgumentError("object outside call scope"))
+         child=CohortContext(app,c.state,app.views[row],row,c.environment,c.constants,c.step,c.suppress)
+         push!(targets,CohortTarget(child))
++    else
++        for row in membership.committed
++            child=CohortContext(app,c.state,app.views[row],row,c.environment,c.constants,c.step,c.suppress)
++            push!(targets,CohortTarget(child))
++        end
+     end
+     MULT===:one && isnothing(objects) && length(targets)!=1 && throw(ArgumentError("One call cardinality"))
+     !isnothing(objects) && length(targets)!=1 && throw(ArgumentError("object outside call scope"))

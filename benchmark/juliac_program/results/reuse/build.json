@@ -1,0 +1,10 @@
+{
+  "julia": "1.13.1",
+  "juliac": "0.3.12",
+  "trim": "safe",
+  "cpu": "generic",
+  "compilation_s": 46.830895417,
+  "link_s": 0.0752705,
+  "bundle_s": 0.505046583,
+  "bundle": "/Users/rvezy/.codex/worktrees/pse-juliac-program/PlantSimEngine/benchmark/juliac_program/build/bundle-LUG6cD"
+}

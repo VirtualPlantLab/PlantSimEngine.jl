@@ -1,0 +1,2332 @@
+{
+  "fixture": {
+    "cases": [
+      {
+        "inputs": [
+          1,
+          3,
+          0,
+          0,
+          10,
+          0.5,
+          0.25,
+          20.0
+        ],
+        "expected": [
+          1,
+          3,
+          11.5,
+          8.25
+        ],
+        "observed": [
+          1,
+          3,
+          11.5,
+          8.25
+        ],
+        "process_wall_s": 0.0629515
+      },
+      {
+        "inputs": [
+          0,
+          3,
+          2,
+          2,
+          100,
+          0.75,
+          0.125,
+          10.0
+        ],
+        "expected": [
+          2,
+          3,
+          19.5,
+          4.6875
+        ],
+        "observed": [
+          2,
+          3,
+          19.5,
+          4.6875
+        ],
+        "process_wall_s": 0.059115333
+      },
+      {
+        "inputs": [
+          7,
+          4,
+          3,
+          3,
+          1000,
+          0.25,
+          0.5,
+          12.0
+        ],
+        "expected": [
+          10,
+          4,
+          40.0,
+          62.375
+        ],
+        "observed": [
+          10,
+          4,
+          40.0,
+          62.375
+        ],
+        "process_wall_s": 0.057796583
+      },
+      {
+        "inputs": [
+          0,
+          2,
+          0,
+          0,
+          25,
+          0.5,
+          0.25,
+          8.0
+        ],
+        "expected": [
+          0,
+          2,
+          0.0,
+          0.0
+        ],
+        "observed": [
+          0,
+          2,
+          0.0,
+          0.0
+        ],
+        "process_wall_s": 0.056540834
+      },
+      {
+        "inputs": [
+          32,
+          8,
+          4,
+          7,
+          500,
+          0.625,
+          0.375,
+          16.0
+        ],
+        "expected": [
+          39,
+          8,
+          585.0,
+          1410.46875
+        ],
+        "observed": [
+          39,
+          8,
+          585.0,
+          1410.46875
+        ],
+        "process_wall_s": 0.05977625
+      }
+    ],
+    "relocated_with_bundled_artifacts": [
+      2,
+      3,
+      19.5,
+      4.6875
+    ],
+    "invalid_inputs_rejected": 3,
+    "platform": "arm64-apple-darwin27.0.0"
+  },
+  "soil": {
+    "passes": 6,
+    "fails": 0,
+    "errors": 0,
+    "cases": [
+      {
+        "inputs": [
+          1,
+          4,
+          0,
+          0,
+          10,
+          300.0,
+          0.3,
+          3.0
+        ],
+        "reference": {
+          "ids": [
+            11
+          ],
+          "states": [
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.5251509244415361,
+              "FractionC2": 0.8908588871206103,
+              "SizeC": 56.039999999999985,
+              "SizeC1": 41.0,
+              "SizeC1minusVap": 36.0,
+              "SizeC2": 20.039999999999985,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 37.77777777777778,
+              "aPPFD": 1.0,
+              "ftsw": 0.6135617416131336,
+              "qty_H2O_C": 34.384,
+              "qty_H2O_C1": 21.53118790210298,
+              "qty_H2O_C1minusVap": 16.53118790210298,
+              "qty_H2O_C2": 17.85281209789702,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 3.533,
+              "rain_remain": 0.0,
+              "root_depth": 311.33333333333326,
+              "runoff": 0.9670000000000001,
+              "soil_depth": 2200.0,
+              "transpiration": 0.06838074398249461
+            }
+          ]
+        },
+        "native": {
+          "ids": [
+            11
+          ],
+          "states": [
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.5251509244415361,
+              "FractionC2": 0.8908588871206103,
+              "SizeC": 56.039999999999985,
+              "SizeC1": 41.0,
+              "SizeC1minusVap": 36.0,
+              "SizeC2": 20.039999999999985,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 37.77777777777778,
+              "aPPFD": 1.0,
+              "ftsw": 0.6135617416131336,
+              "qty_H2O_C": 34.384,
+              "qty_H2O_C1": 21.53118790210298,
+              "qty_H2O_C1minusVap": 16.53118790210298,
+              "qty_H2O_C2": 17.85281209789702,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 3.533,
+              "rain_remain": 0.0,
+              "root_depth": 311.33333333333326,
+              "runoff": 0.9670000000000001,
+              "soil_depth": 2200.0,
+              "transpiration": 0.06838074398249461
+            }
+          ]
+        }
+      },
+      {
+        "inputs": [
+          4,
+          8,
+          0,
+          0,
+          1000,
+          120.0,
+          0.7,
+          0.0
+        ],
+        "reference": {
+          "ids": [
+            1001,
+            1002,
+            1003,
+            1004
+          ],
+          "states": [
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.32632576362454524,
+              "FractionC2": 0.0,
+              "SizeC": 29.73515771248413,
+              "SizeC1": 34.73515771248413,
+              "SizeC1minusVap": 29.73515771248413,
+              "SizeC2": 0.0,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 75.55555555555556,
+              "aPPFD": 1.0,
+              "ftsw": 0.21304668791064438,
+              "qty_H2O_C": 6.334976865145397,
+              "qty_H2O_C1": 11.334976865145396,
+              "qty_H2O_C1minusVap": 6.334976865145397,
+              "qty_H2O_C2": 0.0,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.617,
+              "rain_remain": 0.0,
+              "root_depth": 172.76155527167012,
+              "runoff": 0.883,
+              "soil_depth": 2200.0,
+              "transpiration": 0.02927120968748173
+            },
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.32632576362454524,
+              "FractionC2": 0.0,
+              "SizeC": 29.73515771248413,
+              "SizeC1": 34.73515771248413,
+              "SizeC1minusVap": 29.73515771248413,
+              "SizeC2": 0.0,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 75.55555555555556,
+              "aPPFD": 1.0,
+              "ftsw": 0.21304668791064438,
+              "qty_H2O_C": 6.334976865145397,
+              "qty_H2O_C1": 11.334976865145396,
+              "qty_H2O_C1minusVap": 6.334976865145397,
+              "qty_H2O_C2": 0.0,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.617,
+              "rain_remain": 0.0,
+              "root_depth": 172.76155527167012,
+              "runoff": 0.883,
+              "soil_depth": 2200.0,
+              "transpiration": 0.02927120968748173
+            },
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.32632576362454524,
+              "FractionC2": 0.0,
+              "SizeC": 29.73515771248413,
+              "SizeC1": 34.73515771248413,
+              "SizeC1minusVap": 29.73515771248413,
+              "SizeC2": 0.0,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 75.55555555555556,
+              "aPPFD": 1.0,
+              "ftsw": 0.21304668791064438,
+              "qty_H2O_C": 6.334976865145397,
+              "qty_H2O_C1": 11.334976865145396,
+              "qty_H2O_C1minusVap": 6.334976865145397,
+              "qty_H2O_C2": 0.0,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.617,
+              "rain_remain": 0.0,
+              "root_depth": 172.76155527167012,
+              "runoff": 0.883,
+              "soil_depth": 2200.0,
+              "transpiration": 0.02927120968748173
+            },
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.32632576362454524,
+              "FractionC2": 0.0,
+              "SizeC": 29.73515771248413,
+              "SizeC1": 34.73515771248413,
+              "SizeC1minusVap": 29.73515771248413,
+              "SizeC2": 0.0,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 75.55555555555556,
+              "aPPFD": 1.0,
+              "ftsw": 0.21304668791064438,
+              "qty_H2O_C": 6.334976865145397,
+              "qty_H2O_C1": 11.334976865145396,
+              "qty_H2O_C1minusVap": 6.334976865145397,
+              "qty_H2O_C2": 0.0,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.617,
+              "rain_remain": 0.0,
+              "root_depth": 172.76155527167012,
+              "runoff": 0.883,
+              "soil_depth": 2200.0,
+              "transpiration": 0.02927120968748173
+            }
+          ]
+        },
+        "native": {
+          "ids": [
+            1001,
+            1002,
+            1003,
+            1004
+          ],
+          "states": [
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.32632576362454524,
+              "FractionC2": 0.0,
+              "SizeC": 29.73515771248413,
+              "SizeC1": 34.73515771248413,
+              "SizeC1minusVap": 29.73515771248413,
+              "SizeC2": 0.0,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 75.55555555555556,
+              "aPPFD": 1.0,
+              "ftsw": 0.21304668791064438,
+              "qty_H2O_C": 6.334976865145397,
+              "qty_H2O_C1": 11.334976865145396,
+              "qty_H2O_C1minusVap": 6.334976865145397,
+              "qty_H2O_C2": 0.0,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.617,
+              "rain_remain": 0.0,
+              "root_depth": 172.76155527167012,
+              "runoff": 0.883,
+              "soil_depth": 2200.0,
+              "transpiration": 0.02927120968748173
+            },
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.32632576362454524,
+              "FractionC2": 0.0,
+              "SizeC": 29.73515771248413,
+              "SizeC1": 34.73515771248413,
+              "SizeC1minusVap": 29.73515771248413,
+              "SizeC2": 0.0,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 75.55555555555556,
+              "aPPFD": 1.0,
+              "ftsw": 0.21304668791064438,
+              "qty_H2O_C": 6.334976865145397,
+              "qty_H2O_C1": 11.334976865145396,
+              "qty_H2O_C1minusVap": 6.334976865145397,
+              "qty_H2O_C2": 0.0,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.617,
+              "rain_remain": 0.0,
+              "root_depth": 172.76155527167012,
+              "runoff": 0.883,
+              "soil_depth": 2200.0,
+              "transpiration": 0.02927120968748173
+            },
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.32632576362454524,
+              "FractionC2": 0.0,
+              "SizeC": 29.73515771248413,
+              "SizeC1": 34.73515771248413,
+              "SizeC1minusVap": 29.73515771248413,
+              "SizeC2": 0.0,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 75.55555555555556,
+              "aPPFD": 1.0,
+              "ftsw": 0.21304668791064438,
+              "qty_H2O_C": 6.334976865145397,
+              "qty_H2O_C1": 11.334976865145396,
+              "qty_H2O_C1minusVap": 6.334976865145397,
+              "qty_H2O_C2": 0.0,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.617,
+              "rain_remain": 0.0,
+              "root_depth": 172.76155527167012,
+              "runoff": 0.883,
+              "soil_depth": 2200.0,
+              "transpiration": 0.02927120968748173
+            },
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.32632576362454524,
+              "FractionC2": 0.0,
+              "SizeC": 29.73515771248413,
+              "SizeC1": 34.73515771248413,
+              "SizeC1minusVap": 29.73515771248413,
+              "SizeC2": 0.0,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 75.55555555555556,
+              "aPPFD": 1.0,
+              "ftsw": 0.21304668791064438,
+              "qty_H2O_C": 6.334976865145397,
+              "qty_H2O_C1": 11.334976865145396,
+              "qty_H2O_C1minusVap": 6.334976865145397,
+              "qty_H2O_C2": 0.0,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.617,
+              "rain_remain": 0.0,
+              "root_depth": 172.76155527167012,
+              "runoff": 0.883,
+              "soil_depth": 2200.0,
+              "transpiration": 0.02927120968748173
+            }
+          ]
+        }
+      },
+      {
+        "inputs": [
+          0,
+          4,
+          2,
+          1,
+          500,
+          200.0,
+          0.4,
+          10.0
+        ],
+        "reference": {
+          "ids": [
+            501
+          ],
+          "states": [
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.9391199396313724,
+              "FractionC2": 0.9980796446635936,
+              "SizeC": 38.04,
+              "SizeC1": 41.0,
+              "SizeC1minusVap": 36.0,
+              "SizeC2": 2.0399999999999965,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 28.333333333333336,
+              "aPPFD": 1.0,
+              "ftsw": 0.9342797055730809,
+              "qty_H2O_C": 35.54,
+              "qty_H2O_C1": 38.50391752488627,
+              "qty_H2O_C1minusVap": 33.50391752488627,
+              "qty_H2O_C2": 2.0360824751137274,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 10.02995,
+              "rain_remain": 0.5689000000000091,
+              "root_depth": 211.33333333333331,
+              "runoff": 1.4700500000000005,
+              "soil_depth": 2200.0,
+              "transpiration": 0.06838074398249461
+            }
+          ]
+        },
+        "native": {
+          "ids": [
+            501
+          ],
+          "states": [
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.9391199396313724,
+              "FractionC2": 0.9980796446635936,
+              "SizeC": 38.04,
+              "SizeC1": 41.0,
+              "SizeC1minusVap": 36.0,
+              "SizeC2": 2.0399999999999965,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 28.333333333333336,
+              "aPPFD": 1.0,
+              "ftsw": 0.9342797055730809,
+              "qty_H2O_C": 35.54,
+              "qty_H2O_C1": 38.50391752488627,
+              "qty_H2O_C1minusVap": 33.50391752488627,
+              "qty_H2O_C2": 2.0360824751137274,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 10.02995,
+              "rain_remain": 0.5689000000000091,
+              "root_depth": 211.33333333333331,
+              "runoff": 1.4700500000000005,
+              "soil_depth": 2200.0,
+              "transpiration": 0.06838074398249461
+            }
+          ]
+        }
+      },
+      {
+        "inputs": [
+          1,
+          5,
+          3,
+          2,
+          800,
+          300.0,
+          0.5,
+          1.0
+        ],
+        "reference": {
+          "ids": [
+            801,
+            802,
+            803
+          ],
+          "states": [
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.37219989748748933,
+              "FractionC2": 0.7995946952405424,
+              "SizeC": 58.25,
+              "SizeC1": 41.0,
+              "SizeC1minusVap": 36.0,
+              "SizeC2": 22.250000000000004,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 47.22222222222222,
+              "aPPFD": 1.0,
+              "ftsw": 0.48156528353801087,
+              "qty_H2O_C": 28.051177766089133,
+              "qty_H2O_C1": 15.260195796987063,
+              "qty_H2O_C1minusVap": 10.260195796987063,
+              "qty_H2O_C2": 17.79098196910207,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.1590000000000003,
+              "rain_remain": 0.0,
+              "root_depth": 323.61111111111114,
+              "runoff": 0.8409999999999997,
+              "soil_depth": 2200.0,
+              "transpiration": 0.06601457617383148
+            },
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.4331905044678763,
+              "FractionC2": 0.8701606978001796,
+              "SizeC": 56.550000000000004,
+              "SizeC1": 41.0,
+              "SizeC1minusVap": 36.0,
+              "SizeC2": 20.550000000000004,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 28.333333333333336,
+              "aPPFD": 1.0,
+              "ftsw": 0.5418676042966688,
+              "qty_H2O_C": 30.642613022976622,
+              "qty_H2O_C1": 17.760810683182928,
+              "qty_H2O_C1minusVap": 12.760810683182928,
+              "qty_H2O_C2": 17.881802339793694,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.1590000000000003,
+              "rain_remain": 0.0,
+              "root_depth": 314.1666666666667,
+              "runoff": 0.8409999999999997,
+              "soil_depth": 2200.0,
+              "transpiration": 0.06838074398249461
+            },
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.4331905044678763,
+              "FractionC2": 0.8701606978001796,
+              "SizeC": 56.550000000000004,
+              "SizeC1": 41.0,
+              "SizeC1minusVap": 36.0,
+              "SizeC2": 20.550000000000004,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 28.333333333333336,
+              "aPPFD": 1.0,
+              "ftsw": 0.5418676042966688,
+              "qty_H2O_C": 30.642613022976622,
+              "qty_H2O_C1": 17.760810683182928,
+              "qty_H2O_C1minusVap": 12.760810683182928,
+              "qty_H2O_C2": 17.881802339793694,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.1590000000000003,
+              "rain_remain": 0.0,
+              "root_depth": 314.1666666666667,
+              "runoff": 0.8409999999999997,
+              "soil_depth": 2200.0,
+              "transpiration": 0.06838074398249461
+            }
+          ]
+        },
+        "native": {
+          "ids": [
+            801,
+            802,
+            803
+          ],
+          "states": [
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.37219989748748933,
+              "FractionC2": 0.7995946952405424,
+              "SizeC": 58.25,
+              "SizeC1": 41.0,
+              "SizeC1minusVap": 36.0,
+              "SizeC2": 22.250000000000004,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 47.22222222222222,
+              "aPPFD": 1.0,
+              "ftsw": 0.48156528353801087,
+              "qty_H2O_C": 28.051177766089133,
+              "qty_H2O_C1": 15.260195796987063,
+              "qty_H2O_C1minusVap": 10.260195796987063,
+              "qty_H2O_C2": 17.79098196910207,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.1590000000000003,
+              "rain_remain": 0.0,
+              "root_depth": 323.61111111111114,
+              "runoff": 0.8409999999999997,
+              "soil_depth": 2200.0,
+              "transpiration": 0.06601457617383148
+            },
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.4331905044678763,
+              "FractionC2": 0.8701606978001796,
+              "SizeC": 56.550000000000004,
+              "SizeC1": 41.0,
+              "SizeC1minusVap": 36.0,
+              "SizeC2": 20.550000000000004,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 28.333333333333336,
+              "aPPFD": 1.0,
+              "ftsw": 0.5418676042966688,
+              "qty_H2O_C": 30.642613022976622,
+              "qty_H2O_C1": 17.760810683182928,
+              "qty_H2O_C1minusVap": 12.760810683182928,
+              "qty_H2O_C2": 17.881802339793694,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.1590000000000003,
+              "rain_remain": 0.0,
+              "root_depth": 314.1666666666667,
+              "runoff": 0.8409999999999997,
+              "soil_depth": 2200.0,
+              "transpiration": 0.06838074398249461
+            },
+            {
+              "ET0": 2.5,
+              "FractionC1": 0.4331905044678763,
+              "FractionC2": 0.8701606978001796,
+              "SizeC": 56.550000000000004,
+              "SizeC1": 41.0,
+              "SizeC1minusVap": 36.0,
+              "SizeC2": 20.550000000000004,
+              "SizeVap": 5.0,
+              "TEff": 9.444444444444445,
+              "TT_since_init": 28.333333333333336,
+              "aPPFD": 1.0,
+              "ftsw": 0.5418676042966688,
+              "qty_H2O_C": 30.642613022976622,
+              "qty_H2O_C1": 17.760810683182928,
+              "qty_H2O_C1minusVap": 12.760810683182928,
+              "qty_H2O_C2": 17.881802339793694,
+              "qty_H2O_Vap": 5.0,
+              "rain_effective": 2.1590000000000003,
+              "rain_remain": 0.0,
+              "root_depth": 314.1666666666667,
+              "runoff": 0.8409999999999997,
+              "soil_depth": 2200.0,
+              "transpiration": 0.06838074398249461
+            }
+          ]
+        }
+      },
+      {
+        "inputs": [
+          0,
+          3,
+          0,
+          0,
+          40,
+          300.0,
+          0.3,
+          3.0
+        ],
+        "reference": {
+          "ids": [],
+          "states": []
+        },
+        "native": {
+          "ids": [],
+          "states": []
+        }
+      }
+    ],
+    "relocated_with_bundled_artifacts": true,
+    "variables": [
+      "ET0",
+      "FractionC1",
+      "FractionC2",
+      "SizeC",
+      "SizeC1",
+      "SizeC1minusVap",
+      "SizeC2",
+      "SizeVap",
+      "TEff",
+      "TT_since_init",
+      "aPPFD",
+      "ftsw",
+      "qty_H2O_C",
+      "qty_H2O_C1",
+      "qty_H2O_C1minusVap",
+      "qty_H2O_C2",
+      "qty_H2O_Vap",
+      "rain_effective",
+      "rain_remain",
+      "root_depth",
+      "runoff",
+      "soil_depth",
+      "transpiration"
+    ]
+  },
+  "phytomer": {
+    "passes": 10,
+    "fails": 0,
+    "errors": 0,
+    "cases": [
+      {
+        "inputs": [
+          2,
+          0.001,
+          1.0,
+          22.0,
+          31.0,
+          0
+        ],
+        "expected": [
+          {
+            "object_id": 1,
+            "parent_id": null,
+            "scale": "Scene",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "graph_node_count": 4
+            }
+          },
+          {
+            "object_id": 2,
+            "parent_id": 1,
+            "scale": "Plant",
+            "link": "+",
+            "index": 1,
+            "status": {
+              "TEff": 9.444444444444445,
+              "TT_since_init": 18.88888888888889,
+              "emit_phytomer": false,
+              "graph_node_count": 4,
+              "last_phytomer": {
+                "value": 4
+              },
+              "newPhytomerEmergence": 0.01888888888888889,
+              "phytomer_count": 1,
+              "plant_age": 2,
+              "production_speed": 0.001
+            }
+          },
+          {
+            "object_id": 3,
+            "parent_id": 2,
+            "scale": "Stem",
+            "link": "+",
+            "index": 1,
+            "status": {}
+          },
+          {
+            "object_id": 4,
+            "parent_id": 3,
+            "scale": "Phytomer",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "initiation_age": 0,
+              "plant_age": 2
+            }
+          }
+        ],
+        "observed": [
+          {
+            "object_id": 1,
+            "parent_id": null,
+            "scale": "Scene",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "graph_node_count": 4
+            }
+          },
+          {
+            "object_id": 2,
+            "parent_id": 1,
+            "scale": "Plant",
+            "link": "+",
+            "index": 1,
+            "status": {
+              "TEff": 9.444444444444445,
+              "TT_since_init": 18.88888888888889,
+              "emit_phytomer": false,
+              "graph_node_count": 4,
+              "last_phytomer": {
+                "value": 4
+              },
+              "newPhytomerEmergence": 0.01888888888888889,
+              "phytomer_count": 1,
+              "plant_age": 2,
+              "production_speed": 0.001
+            }
+          },
+          {
+            "object_id": 3,
+            "parent_id": 2,
+            "scale": "Stem",
+            "link": "+",
+            "index": 1,
+            "status": {}
+          },
+          {
+            "object_id": 4,
+            "parent_id": 3,
+            "scale": "Phytomer",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "initiation_age": 0,
+              "plant_age": 2
+            }
+          }
+        ]
+      },
+      {
+        "inputs": [
+          4,
+          0.05,
+          1.0,
+          22.0,
+          31.0,
+          0
+        ],
+        "expected": [
+          {
+            "object_id": 1,
+            "parent_id": null,
+            "scale": "Scene",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "graph_node_count": 7
+            }
+          },
+          {
+            "object_id": 2,
+            "parent_id": 1,
+            "scale": "Plant",
+            "link": "+",
+            "index": 1,
+            "status": {
+              "TEff": 9.444444444444445,
+              "TT_since_init": 37.77777777777778,
+              "emit_phytomer": false,
+              "graph_node_count": 7,
+              "last_phytomer": {
+                "value": 5
+              },
+              "newPhytomerEmergence": 0.8888888888888891,
+              "phytomer_count": 2,
+              "plant_age": 4,
+              "production_speed": 0.05
+            }
+          },
+          {
+            "object_id": 3,
+            "parent_id": 2,
+            "scale": "Stem",
+            "link": "+",
+            "index": 1,
+            "status": {}
+          },
+          {
+            "object_id": 4,
+            "parent_id": 3,
+            "scale": "Phytomer",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "initiation_age": 0,
+              "plant_age": 4
+            }
+          },
+          {
+            "object_id": 5,
+            "parent_id": 4,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 2,
+            "status": {
+              "initiation_age": 3,
+              "plant_age": 4
+            }
+          },
+          {
+            "object_id": 6,
+            "parent_id": 5,
+            "scale": "Internode",
+            "link": "/",
+            "index": 2,
+            "status": {
+              "Rm": 0.0005414237998722771,
+              "biomass": 1.0,
+              "final_potential_height": 0.002028767123287671,
+              "final_potential_radius": 0.0023061643835616437,
+              "initiation_age": 3,
+              "plant_age": 4
+            }
+          },
+          {
+            "object_id": 7,
+            "parent_id": 6,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 2,
+            "status": {
+              "Rm": 0.0043702839132607665,
+              "biomass": 1.0,
+              "final_potential_area": 0.032308219178082194,
+              "initiation_age": 3,
+              "plant_age": 4
+            }
+          }
+        ],
+        "observed": [
+          {
+            "object_id": 1,
+            "parent_id": null,
+            "scale": "Scene",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "graph_node_count": 7
+            }
+          },
+          {
+            "object_id": 2,
+            "parent_id": 1,
+            "scale": "Plant",
+            "link": "+",
+            "index": 1,
+            "status": {
+              "TEff": 9.444444444444445,
+              "TT_since_init": 37.77777777777778,
+              "emit_phytomer": false,
+              "graph_node_count": 7,
+              "last_phytomer": {
+                "value": 5
+              },
+              "newPhytomerEmergence": 0.8888888888888891,
+              "phytomer_count": 2,
+              "plant_age": 4,
+              "production_speed": 0.05
+            }
+          },
+          {
+            "object_id": 3,
+            "parent_id": 2,
+            "scale": "Stem",
+            "link": "+",
+            "index": 1,
+            "status": {}
+          },
+          {
+            "object_id": 4,
+            "parent_id": 3,
+            "scale": "Phytomer",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "initiation_age": 0,
+              "plant_age": 4
+            }
+          },
+          {
+            "object_id": 5,
+            "parent_id": 4,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 2,
+            "status": {
+              "initiation_age": 3,
+              "plant_age": 4
+            }
+          },
+          {
+            "object_id": 6,
+            "parent_id": 5,
+            "scale": "Internode",
+            "link": "/",
+            "index": 2,
+            "status": {
+              "Rm": 0.0005414237998722771,
+              "biomass": 1.0,
+              "final_potential_height": 0.002028767123287671,
+              "final_potential_radius": 0.0023061643835616437,
+              "initiation_age": 3,
+              "plant_age": 4
+            }
+          },
+          {
+            "object_id": 7,
+            "parent_id": 6,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 2,
+            "status": {
+              "Rm": 0.0043702839132607665,
+              "biomass": 1.0,
+              "final_potential_area": 0.032308219178082194,
+              "initiation_age": 3,
+              "plant_age": 4
+            }
+          }
+        ]
+      },
+      {
+        "inputs": [
+          6,
+          0.1,
+          2.0,
+          22.0,
+          31.0,
+          12
+        ],
+        "expected": [
+          {
+            "object_id": 1,
+            "parent_id": null,
+            "scale": "Scene",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "graph_node_count": 19
+            }
+          },
+          {
+            "object_id": 2,
+            "parent_id": 1,
+            "scale": "Plant",
+            "link": "+",
+            "index": 1,
+            "status": {
+              "TEff": 9.444444444444445,
+              "TT_since_init": 56.666666666666664,
+              "emit_phytomer": true,
+              "graph_node_count": 19,
+              "last_phytomer": {
+                "value": 17
+              },
+              "newPhytomerEmergence": 0.6666666666666674,
+              "phytomer_count": 6,
+              "plant_age": 18,
+              "production_speed": 0.1
+            }
+          },
+          {
+            "object_id": 3,
+            "parent_id": 2,
+            "scale": "Stem",
+            "link": "+",
+            "index": 1,
+            "status": {}
+          },
+          {
+            "object_id": 4,
+            "parent_id": 3,
+            "scale": "Phytomer",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "initiation_age": 12,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 5,
+            "parent_id": 4,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 2,
+            "status": {
+              "initiation_age": 14,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 6,
+            "parent_id": 5,
+            "scale": "Internode",
+            "link": "/",
+            "index": 2,
+            "status": {
+              "Rm": 0.0010828475997445542,
+              "biomass": 2.0,
+              "final_potential_height": 0.0021342465753424657,
+              "final_potential_radius": 0.003428767123287671,
+              "initiation_age": 14,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 7,
+            "parent_id": 6,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 2,
+            "status": {
+              "Rm": 0.008740567826521533,
+              "biomass": 2.0,
+              "final_potential_area": 0.07743835616438356,
+              "initiation_age": 14,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 8,
+            "parent_id": 5,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 3,
+            "status": {
+              "initiation_age": 15,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 9,
+            "parent_id": 8,
+            "scale": "Internode",
+            "link": "/",
+            "index": 3,
+            "status": {
+              "Rm": 0.0010828475997445542,
+              "biomass": 2.0,
+              "final_potential_height": 0.0021438356164383563,
+              "final_potential_radius": 0.003530821917808219,
+              "initiation_age": 15,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 10,
+            "parent_id": 9,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 3,
+            "status": {
+              "Rm": 0.008740567826521533,
+              "biomass": 2.0,
+              "final_potential_area": 0.08154109589041096,
+              "initiation_age": 15,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 11,
+            "parent_id": 8,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 4,
+            "status": {
+              "initiation_age": 16,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 12,
+            "parent_id": 11,
+            "scale": "Internode",
+            "link": "/",
+            "index": 4,
+            "status": {
+              "Rm": 0.0010828475997445542,
+              "biomass": 2.0,
+              "final_potential_height": 0.002153424657534247,
+              "final_potential_radius": 0.0036328767123287673,
+              "initiation_age": 16,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 13,
+            "parent_id": 12,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 4,
+            "status": {
+              "Rm": 0.008740567826521533,
+              "biomass": 2.0,
+              "final_potential_area": 0.08564383561643836,
+              "initiation_age": 16,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 14,
+            "parent_id": 11,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 5,
+            "status": {
+              "initiation_age": 17,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 15,
+            "parent_id": 14,
+            "scale": "Internode",
+            "link": "/",
+            "index": 5,
+            "status": {
+              "Rm": 0.0010828475997445542,
+              "biomass": 2.0,
+              "final_potential_height": 0.002163013698630137,
+              "final_potential_radius": 0.003734931506849315,
+              "initiation_age": 17,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 16,
+            "parent_id": 15,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 5,
+            "status": {
+              "Rm": 0.008740567826521533,
+              "biomass": 2.0,
+              "final_potential_area": 0.08974657534246576,
+              "initiation_age": 17,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 17,
+            "parent_id": 14,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 6,
+            "status": {
+              "initiation_age": 18,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 18,
+            "parent_id": 17,
+            "scale": "Internode",
+            "link": "/",
+            "index": 6,
+            "status": {
+              "Rm": 0.0010828475997445542,
+              "biomass": 2.0,
+              "final_potential_height": 0.0021726027397260274,
+              "final_potential_radius": 0.003836986301369863,
+              "initiation_age": 18,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 19,
+            "parent_id": 18,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 6,
+            "status": {
+              "Rm": 0.008740567826521533,
+              "biomass": 2.0,
+              "final_potential_area": 0.09384931506849316,
+              "initiation_age": 18,
+              "plant_age": 18
+            }
+          }
+        ],
+        "observed": [
+          {
+            "object_id": 1,
+            "parent_id": null,
+            "scale": "Scene",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "graph_node_count": 19
+            }
+          },
+          {
+            "object_id": 2,
+            "parent_id": 1,
+            "scale": "Plant",
+            "link": "+",
+            "index": 1,
+            "status": {
+              "TEff": 9.444444444444445,
+              "TT_since_init": 56.666666666666664,
+              "emit_phytomer": true,
+              "graph_node_count": 19,
+              "last_phytomer": {
+                "value": 17
+              },
+              "newPhytomerEmergence": 0.6666666666666674,
+              "phytomer_count": 6,
+              "plant_age": 18,
+              "production_speed": 0.1
+            }
+          },
+          {
+            "object_id": 3,
+            "parent_id": 2,
+            "scale": "Stem",
+            "link": "+",
+            "index": 1,
+            "status": {}
+          },
+          {
+            "object_id": 4,
+            "parent_id": 3,
+            "scale": "Phytomer",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "initiation_age": 12,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 5,
+            "parent_id": 4,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 2,
+            "status": {
+              "initiation_age": 14,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 6,
+            "parent_id": 5,
+            "scale": "Internode",
+            "link": "/",
+            "index": 2,
+            "status": {
+              "Rm": 0.0010828475997445542,
+              "biomass": 2.0,
+              "final_potential_height": 0.0021342465753424657,
+              "final_potential_radius": 0.003428767123287671,
+              "initiation_age": 14,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 7,
+            "parent_id": 6,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 2,
+            "status": {
+              "Rm": 0.008740567826521533,
+              "biomass": 2.0,
+              "final_potential_area": 0.07743835616438356,
+              "initiation_age": 14,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 8,
+            "parent_id": 5,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 3,
+            "status": {
+              "initiation_age": 15,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 9,
+            "parent_id": 8,
+            "scale": "Internode",
+            "link": "/",
+            "index": 3,
+            "status": {
+              "Rm": 0.0010828475997445542,
+              "biomass": 2.0,
+              "final_potential_height": 0.0021438356164383563,
+              "final_potential_radius": 0.003530821917808219,
+              "initiation_age": 15,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 10,
+            "parent_id": 9,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 3,
+            "status": {
+              "Rm": 0.008740567826521533,
+              "biomass": 2.0,
+              "final_potential_area": 0.08154109589041096,
+              "initiation_age": 15,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 11,
+            "parent_id": 8,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 4,
+            "status": {
+              "initiation_age": 16,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 12,
+            "parent_id": 11,
+            "scale": "Internode",
+            "link": "/",
+            "index": 4,
+            "status": {
+              "Rm": 0.0010828475997445542,
+              "biomass": 2.0,
+              "final_potential_height": 0.002153424657534247,
+              "final_potential_radius": 0.0036328767123287673,
+              "initiation_age": 16,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 13,
+            "parent_id": 12,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 4,
+            "status": {
+              "Rm": 0.008740567826521533,
+              "biomass": 2.0,
+              "final_potential_area": 0.08564383561643836,
+              "initiation_age": 16,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 14,
+            "parent_id": 11,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 5,
+            "status": {
+              "initiation_age": 17,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 15,
+            "parent_id": 14,
+            "scale": "Internode",
+            "link": "/",
+            "index": 5,
+            "status": {
+              "Rm": 0.0010828475997445542,
+              "biomass": 2.0,
+              "final_potential_height": 0.002163013698630137,
+              "final_potential_radius": 0.003734931506849315,
+              "initiation_age": 17,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 16,
+            "parent_id": 15,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 5,
+            "status": {
+              "Rm": 0.008740567826521533,
+              "biomass": 2.0,
+              "final_potential_area": 0.08974657534246576,
+              "initiation_age": 17,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 17,
+            "parent_id": 14,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 6,
+            "status": {
+              "initiation_age": 18,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 18,
+            "parent_id": 17,
+            "scale": "Internode",
+            "link": "/",
+            "index": 6,
+            "status": {
+              "Rm": 0.0010828475997445542,
+              "biomass": 2.0,
+              "final_potential_height": 0.0021726027397260274,
+              "final_potential_radius": 0.003836986301369863,
+              "initiation_age": 18,
+              "plant_age": 18
+            }
+          },
+          {
+            "object_id": 19,
+            "parent_id": 18,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 6,
+            "status": {
+              "Rm": 0.008740567826521533,
+              "biomass": 2.0,
+              "final_potential_area": 0.09384931506849316,
+              "initiation_age": 18,
+              "plant_age": 18
+            }
+          }
+        ]
+      },
+      {
+        "inputs": [
+          8,
+          0.15,
+          0.5,
+          25.0,
+          30.0,
+          3
+        ],
+        "expected": [
+          {
+            "object_id": 1,
+            "parent_id": null,
+            "scale": "Scene",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "graph_node_count": 28
+            }
+          },
+          {
+            "object_id": 2,
+            "parent_id": 1,
+            "scale": "Plant",
+            "link": "+",
+            "index": 1,
+            "status": {
+              "TEff": 10.0,
+              "TT_since_init": 80.0,
+              "emit_phytomer": true,
+              "graph_node_count": 28,
+              "last_phytomer": {
+                "value": 26
+              },
+              "newPhytomerEmergence": 4.0,
+              "phytomer_count": 9,
+              "plant_age": 11,
+              "production_speed": 0.15
+            }
+          },
+          {
+            "object_id": 3,
+            "parent_id": 2,
+            "scale": "Stem",
+            "link": "+",
+            "index": 1,
+            "status": {}
+          },
+          {
+            "object_id": 4,
+            "parent_id": 3,
+            "scale": "Phytomer",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "initiation_age": 3,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 5,
+            "parent_id": 4,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 2,
+            "status": {
+              "initiation_age": 4,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 6,
+            "parent_id": 5,
+            "scale": "Internode",
+            "link": "/",
+            "index": 2,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0020383561643835617,
+              "final_potential_radius": 0.002408219178082192,
+              "initiation_age": 4,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 7,
+            "parent_id": 6,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 2,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.036410958904109586,
+              "initiation_age": 4,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 8,
+            "parent_id": 5,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 3,
+            "status": {
+              "initiation_age": 5,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 9,
+            "parent_id": 8,
+            "scale": "Internode",
+            "link": "/",
+            "index": 3,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0020479452054794523,
+              "final_potential_radius": 0.0025102739726027396,
+              "initiation_age": 5,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 10,
+            "parent_id": 9,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 3,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.040513698630136985,
+              "initiation_age": 5,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 11,
+            "parent_id": 8,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 4,
+            "status": {
+              "initiation_age": 6,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 12,
+            "parent_id": 11,
+            "scale": "Internode",
+            "link": "/",
+            "index": 4,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0020575342465753424,
+              "final_potential_radius": 0.0026123287671232878,
+              "initiation_age": 6,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 13,
+            "parent_id": 12,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 4,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.044616438356164384,
+              "initiation_age": 6,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 14,
+            "parent_id": 11,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 5,
+            "status": {
+              "initiation_age": 7,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 15,
+            "parent_id": 14,
+            "scale": "Internode",
+            "link": "/",
+            "index": 5,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.002067123287671233,
+              "final_potential_radius": 0.0027143835616438355,
+              "initiation_age": 7,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 16,
+            "parent_id": 15,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 5,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.04871917808219178,
+              "initiation_age": 7,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 17,
+            "parent_id": 14,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 6,
+            "status": {
+              "initiation_age": 8,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 18,
+            "parent_id": 17,
+            "scale": "Internode",
+            "link": "/",
+            "index": 6,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0020767123287671234,
+              "final_potential_radius": 0.0028164383561643837,
+              "initiation_age": 8,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 19,
+            "parent_id": 18,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 6,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.05282191780821918,
+              "initiation_age": 8,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 20,
+            "parent_id": 17,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 7,
+            "status": {
+              "initiation_age": 9,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 21,
+            "parent_id": 20,
+            "scale": "Internode",
+            "link": "/",
+            "index": 7,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0020863013698630135,
+              "final_potential_radius": 0.0029184931506849314,
+              "initiation_age": 9,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 22,
+            "parent_id": 21,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 7,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.05692465753424658,
+              "initiation_age": 9,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 23,
+            "parent_id": 20,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 8,
+            "status": {
+              "initiation_age": 10,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 24,
+            "parent_id": 23,
+            "scale": "Internode",
+            "link": "/",
+            "index": 8,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.002095890410958904,
+              "final_potential_radius": 0.003020547945205479,
+              "initiation_age": 10,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 25,
+            "parent_id": 24,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 8,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.06102739726027398,
+              "initiation_age": 10,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 26,
+            "parent_id": 23,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 9,
+            "status": {
+              "initiation_age": 11,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 27,
+            "parent_id": 26,
+            "scale": "Internode",
+            "link": "/",
+            "index": 9,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0021054794520547946,
+              "final_potential_radius": 0.0031226027397260273,
+              "initiation_age": 11,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 28,
+            "parent_id": 27,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 9,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.06513013698630137,
+              "initiation_age": 11,
+              "plant_age": 11
+            }
+          }
+        ],
+        "observed": [
+          {
+            "object_id": 1,
+            "parent_id": null,
+            "scale": "Scene",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "graph_node_count": 28
+            }
+          },
+          {
+            "object_id": 2,
+            "parent_id": 1,
+            "scale": "Plant",
+            "link": "+",
+            "index": 1,
+            "status": {
+              "TEff": 10.0,
+              "TT_since_init": 80.0,
+              "emit_phytomer": true,
+              "graph_node_count": 28,
+              "last_phytomer": {
+                "value": 26
+              },
+              "newPhytomerEmergence": 4.0,
+              "phytomer_count": 9,
+              "plant_age": 11,
+              "production_speed": 0.15
+            }
+          },
+          {
+            "object_id": 3,
+            "parent_id": 2,
+            "scale": "Stem",
+            "link": "+",
+            "index": 1,
+            "status": {}
+          },
+          {
+            "object_id": 4,
+            "parent_id": 3,
+            "scale": "Phytomer",
+            "link": "/",
+            "index": 1,
+            "status": {
+              "initiation_age": 3,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 5,
+            "parent_id": 4,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 2,
+            "status": {
+              "initiation_age": 4,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 6,
+            "parent_id": 5,
+            "scale": "Internode",
+            "link": "/",
+            "index": 2,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0020383561643835617,
+              "final_potential_radius": 0.002408219178082192,
+              "initiation_age": 4,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 7,
+            "parent_id": 6,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 2,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.036410958904109586,
+              "initiation_age": 4,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 8,
+            "parent_id": 5,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 3,
+            "status": {
+              "initiation_age": 5,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 9,
+            "parent_id": 8,
+            "scale": "Internode",
+            "link": "/",
+            "index": 3,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0020479452054794523,
+              "final_potential_radius": 0.0025102739726027396,
+              "initiation_age": 5,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 10,
+            "parent_id": 9,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 3,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.040513698630136985,
+              "initiation_age": 5,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 11,
+            "parent_id": 8,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 4,
+            "status": {
+              "initiation_age": 6,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 12,
+            "parent_id": 11,
+            "scale": "Internode",
+            "link": "/",
+            "index": 4,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0020575342465753424,
+              "final_potential_radius": 0.0026123287671232878,
+              "initiation_age": 6,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 13,
+            "parent_id": 12,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 4,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.044616438356164384,
+              "initiation_age": 6,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 14,
+            "parent_id": 11,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 5,
+            "status": {
+              "initiation_age": 7,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 15,
+            "parent_id": 14,
+            "scale": "Internode",
+            "link": "/",
+            "index": 5,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.002067123287671233,
+              "final_potential_radius": 0.0027143835616438355,
+              "initiation_age": 7,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 16,
+            "parent_id": 15,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 5,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.04871917808219178,
+              "initiation_age": 7,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 17,
+            "parent_id": 14,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 6,
+            "status": {
+              "initiation_age": 8,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 18,
+            "parent_id": 17,
+            "scale": "Internode",
+            "link": "/",
+            "index": 6,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0020767123287671234,
+              "final_potential_radius": 0.0028164383561643837,
+              "initiation_age": 8,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 19,
+            "parent_id": 18,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 6,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.05282191780821918,
+              "initiation_age": 8,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 20,
+            "parent_id": 17,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 7,
+            "status": {
+              "initiation_age": 9,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 21,
+            "parent_id": 20,
+            "scale": "Internode",
+            "link": "/",
+            "index": 7,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0020863013698630135,
+              "final_potential_radius": 0.0029184931506849314,
+              "initiation_age": 9,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 22,
+            "parent_id": 21,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 7,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.05692465753424658,
+              "initiation_age": 9,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 23,
+            "parent_id": 20,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 8,
+            "status": {
+              "initiation_age": 10,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 24,
+            "parent_id": 23,
+            "scale": "Internode",
+            "link": "/",
+            "index": 8,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.002095890410958904,
+              "final_potential_radius": 0.003020547945205479,
+              "initiation_age": 10,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 25,
+            "parent_id": 24,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 8,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.06102739726027398,
+              "initiation_age": 10,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 26,
+            "parent_id": 23,
+            "scale": "Phytomer",
+            "link": "<",
+            "index": 9,
+            "status": {
+              "initiation_age": 11,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 27,
+            "parent_id": 26,
+            "scale": "Internode",
+            "link": "/",
+            "index": 9,
+            "status": {
+              "Rm": 0.00028546458635885663,
+              "biomass": 0.5,
+              "final_potential_height": 0.0021054794520547946,
+              "final_potential_radius": 0.0031226027397260273,
+              "initiation_age": 11,
+              "plant_age": 11
+            }
+          },
+          {
+            "object_id": 28,
+            "parent_id": 27,
+            "scale": "Leaf",
+            "link": "+",
+            "index": 9,
+            "status": {
+              "Rm": 0.0023534316265478097,
+              "biomass": 0.5,
+              "final_potential_area": 0.06513013698630137,
+              "initiation_age": 11,
+              "plant_age": 11
+            }
+          }
+        ]
+      }
+    ],
+    "relocated": true
+  }
+}

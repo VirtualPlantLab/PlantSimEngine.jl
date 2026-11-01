@@ -7,6 +7,11 @@ with full state/output parity against ordinary PSE. XPalm is pinned to
 `5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd` (v0.7.0); its scientific kernels and
 sources are unchanged.
 
+The subsequent [cached-runtime qualification](../reuse/README.md) records the
+latest implementation, safe bundle, focused gates and matched before/after
+timings. The original full-graph evidence below remains an identifiable source
+cohort rather than being overwritten by the follow-up.
+
 After building, run the complete bundle's launcher:
 
 ```text
@@ -59,6 +64,12 @@ diagnostic preload. Its compilation/link/bundle phases took about 41.87 / 0.15 /
 launch/parser timings are not scientific-runtime benchmarks or zero-JIT claims.
 
 ## Measured runtime performance
+
+The follow-up [binding/target reuse report](../reuse/README.md) compares the
+pre-cache typed runtime with the final delta runtime. Warm Julia execution is
+2.5× faster at 60 days and 4.7× at 128 days, with lower allocation volume and an
+explicit retained-state memory tradeoff. Native evidence and reproduction are
+recorded separately in that report.
 
 A separate [matched XPalm comparison](performance.md) measures the original PSE
 graph, warm typed Julia execution and the actual safe executable. On this host,
