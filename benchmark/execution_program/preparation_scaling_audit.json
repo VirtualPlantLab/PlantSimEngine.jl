@@ -1,0 +1,257 @@
+{
+  "cold_descriptive_ratios": [
+    {
+      "arm": "typed_graph",
+      "inclusive_ratio": 0.9673986844297289,
+      "kind": "pb",
+      "model_ratio": 0.9405136606041106,
+      "preparation_ratio": 0.9280243931462648,
+      "samples_per_arm": 1
+    },
+    {
+      "arm": "bounded_graph",
+      "inclusive_ratio": 0.9735606441330285,
+      "kind": "pb",
+      "model_ratio": 0.9368165714308155,
+      "preparation_ratio": 0.9171871683890442,
+      "samples_per_arm": 1
+    },
+    {
+      "arm": "typed_graph",
+      "inclusive_ratio": 0.5443120262996256,
+      "kind": "xp",
+      "model_ratio": 0.5127690840789739,
+      "preparation_ratio": 0.42166516413828536,
+      "samples_per_arm": 1
+    }
+  ],
+  "excluded_graph": {
+    "CPU_record": "cold-xp-bounded_graph-20261101T091252-cpu.json",
+    "raw_sha256": "a8b742ea51af79a1d14049fb00a8e8802f73670ed022b413b8ec5c43ef901f98",
+    "retimed_or_relaxed": false,
+    "sampler_healthy": true,
+    "source": "excluded-cold-xp-bounded_graph-post-artifact-broker-cpu.json",
+    "strict_CPU_qualified": false,
+    "worker_shutdown_proof": [
+      "cold-pilot-20261101T091252-controller.json"
+    ]
+  },
+  "harmless_controller_prewarms": [
+    {
+      "artifact": "cold-xp-ordinary_a.json",
+      "completed_before_scientific_request": true,
+      "post_prewarm_package_absence_guards_before_clock": true,
+      "sleep_code": "sleep(31); :kaimon_broker_ready"
+    },
+    {
+      "artifact": "cold-xp-typed_graph.json",
+      "completed_before_scientific_request": true,
+      "post_prewarm_package_absence_guards_before_clock": true,
+      "sleep_code": "sleep(31); :kaimon_broker_ready"
+    }
+  ],
+  "intended_scientific_cases": 6,
+  "limitations": [
+    "One observation per qualified kind/arm, not robust cold medians.",
+    "Normal disk/package caches retained. Controller startup/identity/sleep31 setup excluded from Julia model clocks.",
+    "Inclusive first-use charges common PB/XP/PlantGeom union imports, helper loading, registration/weather, bootstrap and overhead.",
+    "No qualified XP graph-only timing: no cold typed-over-graph attribution.",
+    "Warm fresh companion is independent state but one diagnostic follow-up, not a steady-state benchmark.",
+    "Julia reported compilation counters may overlap/recompilation totals or exceed phase wall time; no pure-science subtraction."
+  ],
+  "no_network_or_Julia_calls": true,
+  "passed": true,
+  "qualified_proofs": [
+    {
+      "action_receipts": {
+        "environment": {
+          "path": "receipts/cold-pb-ordinary_a-20261101T082418-02-investigate_environment.json",
+          "sha256": "d8ef31fd821184d3e6f36ef0009f9559a4349e879625d23363fe4c092d867b91"
+        },
+        "identity": {
+          "path": "receipts/cold-pb-ordinary_a-20261101T082418-03-ex.json",
+          "sha256": "c4f43b954bde2ecc18f3a16d059e4bf963f6cf0b75ba346efba27ae94cdb356f"
+        },
+        "shutdown": {
+          "path": "receipts/cold-pb-ordinary_a-20261101T082418-05-manage_repl.json",
+          "sha256": "55f5b06636986f997115aa61881f33c00fb9f39ffb12f11e5b569a94f84a615e"
+        },
+        "start_session": {
+          "path": "receipts/cold-pb-ordinary_a-20261101T082418-01-start_session.json",
+          "sha256": "fb248c5c29db3df02ea4bf7f7181ba8fab700f78aea68f5290bae0236110a356"
+        }
+      },
+      "artifact": "cold-pb-ordinary_a.json",
+      "artifact_sha256": "efa5c06af26697a1d4221af8c2fb96443d13979646318780c7bd449746b9681f",
+      "controller": "cold-pilot-20261101T082418-controller.json",
+      "controller_sha256": "200229c77bc25d98abf3f4ff33deafda3285c73bd3637f47e2ceacc32bb0949e",
+      "cpu_record": "cold-pb-ordinary_a-20261101T082418-cpu.json",
+      "cpu_sha256": "128920bfb324af4b4370f60368c902833a158ed0650791d30569de5eae89d987",
+      "pid": 1473,
+      "qualification_sha256": "07c676c8913867e37811509ecfdf568c06a2f24996d986a2f7dd336eec684535",
+      "receipt": "receipts/cold-pb-ordinary_a-20261101T082418-04-ex.json",
+      "receipt_sha256": "6561e6f7097689942fc61fd3afbc13286aa2fe54db3d01e1dc42df5e689a32c0",
+      "script": "reproduction/cold-pb-ordinary_a-20261101T082418.jl",
+      "script_sha256": "665c91fff72f975baa3322427dbcdce47beec6565bd2c9b348a6ce939df134d2",
+      "shutdown_verified": true
+    },
+    {
+      "action_receipts": {
+        "environment": {
+          "path": "receipts/cold-pb-typed_graph-20261101T084053-02-investigate_environment.json",
+          "sha256": "dbf8635db7bf597b21f133b738f3a7889c0211ada1ad91a808ac8ed54af519e0"
+        },
+        "identity": {
+          "path": "receipts/cold-pb-typed_graph-20261101T084053-03-ex.json",
+          "sha256": "42cfe4fbbfb05745017c2b05f52a29f5dcebd233369ba18aa2294413c414e961"
+        },
+        "shutdown": {
+          "path": "receipts/cold-pb-typed_graph-20261101T084053-05-manage_repl.json",
+          "sha256": "c310ee695e6e4c4b446a8101b0ec9935bbdf8c060df69c9c6f3d6ae32802e05d"
+        },
+        "start_session": {
+          "path": "receipts/cold-pb-typed_graph-20261101T084053-01-start_session.json",
+          "sha256": "920d389f49d68d4122c9b278f52f9875f1fa6daf7401db4effd557e0a0d67220"
+        }
+      },
+      "artifact": "cold-pb-typed_graph.json",
+      "artifact_sha256": "3c7d048e4f21e7ae02af550541b1887e7ba6d7359ffe3b539eb50ca257ee8e7d",
+      "controller": "cold-pilot-20261101T084053-controller.json",
+      "controller_sha256": "c0d92d698393c67160afa90af38f5a137a3748c9e98d4a2da35071fa6230b33d",
+      "cpu_record": "cold-pb-typed_graph-20261101T084053-cpu.json",
+      "cpu_sha256": "d2a028e53dea394b40f5779ed2c728fa909684f6a509e4827b32483d8598d76d",
+      "pid": 2323,
+      "qualification_sha256": "07c676c8913867e37811509ecfdf568c06a2f24996d986a2f7dd336eec684535",
+      "receipt": "receipts/cold-pb-typed_graph-20261101T084053-04-ex.json",
+      "receipt_sha256": "76beb64cea2dfadc64a6e056a10c526c2c43f6ebc11629e33772b3f86c0f7b2f",
+      "script": "reproduction/cold-pb-typed_graph-20261101T084053.jl",
+      "script_sha256": "4e5f8621a860af041b4dfe01a1994ca4d8281fc1859692e58ad18178d3833e2c",
+      "shutdown_verified": true
+    },
+    {
+      "action_receipts": {
+        "environment": {
+          "path": "receipts/cold-pb-bounded_graph-20261101T084237-02-investigate_environment.json",
+          "sha256": "c419a353a6a5b28027b012cd97b9cf6b4a48dd67c844ced61d950eb042c78e69"
+        },
+        "identity": {
+          "path": "receipts/cold-pb-bounded_graph-20261101T084237-03-ex.json",
+          "sha256": "c435f5561557e516e9ddc2ea9ff9947b9e5c36a498fd2e3e442d380e4d70a99b"
+        },
+        "shutdown": {
+          "path": "receipts/cold-pb-bounded_graph-20261101T084237-05-manage_repl.json",
+          "sha256": "e17973106e2bbf7d31eca5199ac8b1cc22d6c6a734901dc2df1e85a548b6f9b6"
+        },
+        "start_session": {
+          "path": "receipts/cold-pb-bounded_graph-20261101T084237-01-start_session.json",
+          "sha256": "bcca1c6a0163c425dd96779077799b393a930467b01019132c30f02382612a93"
+        }
+      },
+      "artifact": "cold-pb-bounded_graph.json",
+      "artifact_sha256": "5bae89fec053a8d64a215b5f287f8bded8c67e018eb8ff0c595a3ed9fe7cc7c9",
+      "controller": "cold-pilot-20261101T084237-controller.json",
+      "controller_sha256": "7fd647e7bbbfba7b1eee16aafc799da84a4b27967e15899259d73b28af8d98f0",
+      "cpu_record": "cold-pb-bounded_graph-20261101T084237-cpu.json",
+      "cpu_sha256": "68cce15b7e69019310c7cec52f08aff01d5795a014c8fb56c6515df6b4c480ae",
+      "pid": 2622,
+      "qualification_sha256": "07c676c8913867e37811509ecfdf568c06a2f24996d986a2f7dd336eec684535",
+      "receipt": "receipts/cold-pb-bounded_graph-20261101T084237-04-ex.json",
+      "receipt_sha256": "4ef26ff1200c6b6c0491e999769db13850320448ca4f419609137e8be93fd09e",
+      "script": "reproduction/cold-pb-bounded_graph-20261101T084237.jl",
+      "script_sha256": "d205b1ab786a1cd97981b46bfc8875ec1d7dab35f423c5548e777ccb18cb1744",
+      "shutdown_verified": true
+    },
+    {
+      "action_receipts": {
+        "environment": {
+          "path": "receipts/cold-xp-ordinary_a-20261101T090730-02-investigate_environment.json",
+          "sha256": "b6e277aff43dd1c1ec23eabca161f3150960c05ef476f850ac7f7642b7532399"
+        },
+        "identity": {
+          "path": "receipts/cold-xp-ordinary_a-20261101T090730-03-ex.json",
+          "sha256": "33d8febaf395106e2bac1d723a926d0f239f9efd68ba54d0af57a92a695270b4"
+        },
+        "shutdown": {
+          "path": "receipts/cold-xp-ordinary_a-20261101T090730-10-manage_repl.json",
+          "sha256": "1ec27a7437c7e2ed9c8fa272393850e5c45eb06aa7060cae9710867317d55f10"
+        },
+        "start_session": {
+          "path": "receipts/cold-xp-ordinary_a-20261101T090730-01-start_session.json",
+          "sha256": "afa6d3dca8d3c78476c4f2426281db260af54785ab2de496e4ae1a09e9e67277"
+        }
+      },
+      "artifact": "cold-xp-ordinary_a.json",
+      "artifact_sha256": "5cfd12e614700444be02cdcb4a4cb50b7080cb8d5afde7ea68c25a86653fe952",
+      "controller": "cold-pilot-20261101T090730-controller.json",
+      "controller_sha256": "2f8164ae54184c4632e234fcf6e909000f9688516c582193e3137532d7a87443",
+      "cpu_record": "cold-xp-ordinary_a-20261101T090730-cpu.json",
+      "cpu_sha256": "7ef96cf1016ecc594a90e5d41e31e068ad66a446fac3ac1706a979fe9190371c",
+      "pid": 4902,
+      "qualification_sha256": "07c676c8913867e37811509ecfdf568c06a2f24996d986a2f7dd336eec684535",
+      "receipt": "receipts/cold-xp-ordinary_a-20261101T090730-09-check_eval.json",
+      "receipt_sha256": "aa651e07c1c51c09bb330e22c3947efda0582b63758ad556fda86b1f5109ed9c",
+      "script": "reproduction/cold-xp-ordinary_a-20261101T090730.jl",
+      "script_sha256": "7d3caea0a5ec7683a084d8db12bad99f33c59f3b51ec1a8f4aec343ef76637db",
+      "shutdown_verified": true
+    },
+    {
+      "action_receipts": {
+        "environment": {
+          "path": "receipts/cold-xp-typed_graph-20261101T090355-02-investigate_environment.json",
+          "sha256": "b454b557adf4a4e11d9d72064b0bc2bd0bc8ec09bfcaadff863d7acd55ae0f31"
+        },
+        "identity": {
+          "path": "receipts/cold-xp-typed_graph-20261101T090355-03-ex.json",
+          "sha256": "36cf18d70771f3865a29afff858866f9d3bd0800d236747161d849fb6df9b7d3"
+        },
+        "shutdown": {
+          "path": "receipts/cold-xp-typed_graph-20261101T090355-09-manage_repl.json",
+          "sha256": "d45d53aa60943354ae643a7a9825417cc155878dd733443a081f7cf7bf5da9a6"
+        },
+        "start_session": {
+          "path": "receipts/cold-xp-typed_graph-20261101T090355-01-start_session.json",
+          "sha256": "ef267f49c8a0df4e6ba0849f85d45c139b09953a1b9a9933498284637d9fba07"
+        }
+      },
+      "artifact": "cold-xp-typed_graph.json",
+      "artifact_sha256": "4ac0a4c548aefef9d0fad742ab1961426575357e417e807d7d5ecea024922380",
+      "controller": "cold-pilot-20261101T090355-controller.json",
+      "controller_sha256": "c3f7c46db0ee0f9869a7b2ebbaa7c95f2e9cccde080318716848c1be00204b73",
+      "cpu_record": "cold-xp-typed_graph-20261101T090355-cpu.json",
+      "cpu_sha256": "52b7f3b91817f34bb8124195601e6c587cf4bd525bbf1030e423fa51347ed0bd",
+      "pid": 4263,
+      "qualification_sha256": "07c676c8913867e37811509ecfdf568c06a2f24996d986a2f7dd336eec684535",
+      "receipt": "receipts/cold-xp-typed_graph-20261101T090355-08-check_eval.json",
+      "receipt_sha256": "00abb7a5fa8043ea2c0d134eeba438c0cd13753fbb9d45b39673c5e6960b6f4d",
+      "script": "reproduction/cold-xp-typed_graph-20261101T090355.jl",
+      "script_sha256": "8cacee0111581bfb08fdaf23da72dbc5c875d0c712acda10b2d49ee2d3a13ab3",
+      "shutdown_verified": true
+    }
+  ],
+  "qualified_timings": 5,
+  "same_PSE_PB_XP_PlantGeom_sources": {
+    "PlantBiophysics": {
+      "revision": "10758c5c7211fc96b625a542ca525cb7856a9ae2",
+      "root": "/Users/rvezy/Documents/dev/PlantBiophysics",
+      "source_manifest_sha256": "4a33d44acf1f435cdbab988ae80ced482891840a0423fa002e8db37b323f53a0"
+    },
+    "PlantGeom": {
+      "revision": "0926bd772721f6b3147ac036b339333edbdc4236",
+      "root": "/Users/rvezy/Documents/dev/PlantGeom",
+      "source_manifest_sha256": "eeefa32224fb8370cdb611c2bebcbfe279dc1b12dd0bd9dd0ee73cf5fe24a511"
+    },
+    "PlantSimEngine": {
+      "revision": "8114326662c393bae737d80a0482387f21124103",
+      "root": "/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine",
+      "source_manifest_sha256": "654a31e4756c1dea3b8f0016966c1e1b745397cb8fea0288cd9ff0e1c54a0015"
+    },
+    "XPalm": {
+      "revision": "5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd",
+      "root": "/Users/rvezy/Documents/dev/XPalm",
+      "source_manifest_sha256": "edc15633f61bdf88728bf9686525867d842d8e30106a5b26bcd05b193cad484f"
+    }
+  },
+  "source_image_files": 224,
+  "source_image_sha256": "082a71d67ab28a0738c034dfd70c5e242c248c173d474c35b07859af0f0779b0",
+  "source_only": true
+}

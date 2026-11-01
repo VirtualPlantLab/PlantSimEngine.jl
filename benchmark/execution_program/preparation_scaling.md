@@ -212,6 +212,9 @@ The frozen archive has 908 manifest records; every compressed and raw checksum
 was independently verified. It distinguishes eight qualified warm screens, five
 qualified cold pilots, six scientifically completed cold cells and the one
 optional unqualified timing cell. No excluded attempt is promoted.
+A [supplementary independent cold audit](preparation_scaling_audit.md) verifies
+the final five-qualified/six-scientific split and per-worker receipt chains
+without changing the immutable archive.
 `summarize_preparation_scaling.py --check-only` validates without Julia;
 `--archive-frozen` creates a new immutable archive and refuses replacement.
 
