@@ -44,6 +44,7 @@ Base.IndexStyle(::Type{PersistentTargets})=IndexLinear()
 mutable struct PersistentBatch{B} <: PSE.AbstractExecutionBatch
     inner::B
     record::PersistentRecord
+    root_state::PSE.ExecutionBatchContextState
     exposed::Bool
     captured::Bool
     batch_executions::Int
@@ -380,9 +381,62 @@ function _track_selected(inner,batches,record)
     return tracked
 end
 
-function _wrap(inner,record)
+# Root context preparation is a batch operation in ordinary PSE. Preserve its
+# synchronization state separately from per-node invocation epochs, including
+# rows a scientific exception can leave unentered.
+function _root_context_state(inner,ordinary_batches)
+    state=PSE.ExecutionBatchContextState(nothing,nothing)
+    ordinary_batches===nothing && return state
+    ids=Set(inner.frame.program.rows.ids)
+    states=Any[]
+    for batch in ordinary_batches
+        batch isa PSE.CompiledExecutionBatch || continue
+        any(index->PSE._model_execution_target_id(batch.targets,index) in ids,
+            eachindex(batch.targets)) || continue
+        push!(states,batch.context_state)
+    end
+    if !isempty(states) && all(value->value.compiled===first(states).compiled &&
+        value.environment_bindings===first(states).environment_bindings,states)
+        state.compiled=first(states).compiled
+        state.environment_bindings=first(states).environment_bindings
+    end
+    return state
+end
+function _wrap(inner,record;ordinary_batches=nothing)
     inner isa Selected.SelectedTightBatch || return PersistentOrdinaryBatch(inner,record)
-    return PersistentBatch(inner,record,false,false,0,PSE.ObjectId[],0)
+    return PersistentBatch(inner,record,_root_context_state(inner,ordinary_batches),
+        false,false,0,PSE.ObjectId[],0)
+end
+function _synchronize_root_epochs!(batch,compiled,environment,time,constants)
+    state=batch.root_state
+    state.compiled===compiled && state.environment_bindings===environment && return nothing
+    frame=batch.inner.frame;strategy=frame.status_strategy
+    for row in eachindex(strategy.times)
+        strategy.times[row]=float(time);strategy.publication[row]=true
+        header=strategy.headers[row]
+        if header.compiled!==compiled || header.environment_bindings!==environment
+            _update_node_header!(header,frame.program,row,constants)
+            for edge in values(strategy.edges)
+                edge.times[row]=float(time);edge.publication[row]=true
+                _update_edge_header!(edge.headers[row],frame.program,constants)
+            end
+            strategy.synchronize_edges[row]=false
+        end
+        header.environment=PSE._NO_ENVIRONMENT_OVERRIDE
+    end
+    state.compiled=compiled;state.environment_bindings=environment
+    return nothing
+end
+Base.@nospecializeinfer @noinline function _run_persistent_inner!(batch,compiled,environment,time,constants,streams,retention)
+    @nospecialize compiled environment constants streams retention
+    if !Selected._selected_entry_current(batch.inner,compiled,environment)
+        return PSE._run_model_execution_batch!(batch.inner,compiled,environment,time,constants,streams,retention)
+    end
+    sampled=PSE._model_execution_batch_environment(batch.environment_provider,
+        environment,batch.application,time)
+    _synchronize_root_epochs!(batch,compiled,environment,time,constants)
+    batch.record.selected.batch_entries+=1
+    return Selected._selected_numerical_rows!(batch.inner,sampled,constants,time)
 end
 function _selected(record,compiled,environment,application,streams,retention,constants;ordinary_batches=nothing)
     application.id in record.denied && return (reason=:permanent_public_or_failed_owner_boundary,batches=nothing)
@@ -403,7 +457,7 @@ Base.@nospecializeinfer @noinline function PSE._run_model_execution_batch!(
     @nospecialize compiled environment constants streams retention
     before=batch.record.selected.batch_entries
     try
-        PSE._run_model_execution_batch!(batch.inner,compiled,environment,time,constants,streams,retention)
+        _run_persistent_inner!(batch,compiled,environment,time,constants,streams,retention)
     catch
         if batch.record.selected.batch_entries>before
             batch.batch_executions+=batch.record.selected.batch_entries-before
@@ -549,6 +603,7 @@ Base.@nospecializeinfer @noinline function PSE._try_refresh_execution_batch_plan
             if can_reuse
                 for (batch,inner) in zip(prior,replacements)
                     batch.inner=inner;batch.captured=false
+                    batch.root_state=_root_context_state(inner,group.batches)
                     push!(chosen,batch)
                     record.regions_reused+=1;record.metadata_rebases+=1
                 end
@@ -559,7 +614,7 @@ Base.@nospecializeinfer @noinline function PSE._try_refresh_execution_batch_plan
             record.reasons[id]=lowered.reason
             if lowered.reason===:eligible
                 for inner in lowered.batches
-                    push!(chosen,_wrap(inner,record))
+                    push!(chosen,_wrap(inner,record;ordinary_batches=group.batches))
                     record.regions_readmitted+=1;record.regions_rebuilt+=1
                 end
             else
@@ -600,10 +655,11 @@ Base.@nospecializeinfer @noinline function lower_persistent_tight!(simulation::P
     groups=PSE.CompiledApplicationExecutionGroup[];batches=PSE.AbstractExecutionBatch[]
     for group in previous.groups
         chosen=_selected(record,simulation.compiled,simulation.environment_bindings,
-            group.application,simulation.temporal_streams,simulation.output_retention,simulation.constants)
+            group.application,simulation.temporal_streams,simulation.output_retention,simulation.constants;
+            ordinary_batches=group.batches)
         record.reasons[group.application.id]=chosen.reason
         selected=chosen.reason===:eligible ? chosen.batches : group.batches
-        wrapped=PSE.AbstractExecutionBatch[_wrap(batch,record) for batch in selected]
+        wrapped=PSE.AbstractExecutionBatch[_wrap(batch,record;ordinary_batches=group.batches) for batch in selected]
         push!(groups,PSE.CompiledApplicationExecutionGroup(group.application,wrapped));append!(batches,wrapped)
     end
     simulation.execution_plan=PSE.CompiledExecutionPlan(groups,batches,
