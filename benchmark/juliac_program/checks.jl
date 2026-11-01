@@ -213,7 +213,7 @@ function run_checks()
             caller = ModelSpec(specs[1].model; name=:accumulation,
                 on=Many(kind=:leaf), every=Day(1),
                 calls=(child=One(within=Self(), application=:assimilation),))
-            @test_throws ArgumentError RP.prepare((caller, specs[2]))
+            @test RP.prepare((caller, specs[2])) isa RP.Program
             @test_throws ArgumentError RP.prepare((specs[1],))
             other_kind = ModelSpec(specs[2].model; name=:stem_assimilation,
                 on=Many(kind=:stem), every=Day(1))

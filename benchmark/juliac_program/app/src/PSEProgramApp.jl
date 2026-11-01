@@ -1,6 +1,9 @@
 module PSEProgramApp
 include("program.jl")
 include("fixture.jl")
+include("xpalm_fixture.jl")
+
+const XPALM_PROGRAM = ReusableProgram.prepare(XPalmFixture.specs();initial=XPalmFixture.initial())
 
 const PROGRAM = ReusableProgram.prepare(NativeFixture.specs())
 
@@ -30,13 +33,49 @@ function simulate(population::Int, steps::Int, birth_at::Int, newborns::Int,
     return (length(state.ids), state.step, carbon, biomass)
 end
 
+function simulate_xpalm(population::Int, steps::Int, birth_at::Int, newborns::Int,
+                        id_offset::Int, initial_depth::Float64, root_rate::Float64, rain::Float64)
+    population >= 0 && steps >= 0 && newborns >= 0 || throw(ArgumentError("negative count"))
+    (birth_at != 0 || newborns == 0) || throw(ArgumentError("birth_at=0 requires newborns=0"))
+    0 <= birth_at <= steps || throw(ArgumentError("birth timestep out of range"))
+    models = XPalmFixture.models(;initial_depth,root_rate)
+    state = ReusableProgram.instantiate(XPALM_PROGRAM,models,
+        collect((id_offset+1):(id_offset+population)),fill(:soil,population);
+        initial=XPalmFixture.initial())
+    constants = XPalmFixture.PSE.Constants()
+    for (i,environment) in enumerate(XPalmFixture.rows(steps;rain))
+        if i == birth_at
+            for j in 1:newborns
+                ReusableProgram.add_object!(state,id_offset+population+j,:soil)
+            end
+        end
+        ReusableProgram.step!(state,environment;constants)
+    end
+    return state
+end
+
 function (@main)(args::Vector{String})
-    length(args) == 8 || throw(ArgumentError("expected population steps birth_at newborns id_offset efficiency conversion temperature"))
-    result = simulate(parse(Int, args[1]), parse(Int, args[2]), parse(Int, args[3]),
-        parse(Int, args[4]), parse(Int, args[5]), parse(Float64, args[6]),
-        parse(Float64, args[7]), parse(Float64, args[8]))
-    # Keep tabular formatting, Term and introspection outside the native entry.
-    println(Core.stdout, result[1], ',', result[2], ',', result[3], ',', result[4])
+    length(args) == 9 || throw(ArgumentError("expected mode plus eight numeric inputs"))
+    mode = args[1]
+    inputs = (parse(Int,args[2]),parse(Int,args[3]),parse(Int,args[4]),
+        parse(Int,args[5]),parse(Int,args[6]),parse(Float64,args[7]),
+        parse(Float64,args[8]),parse(Float64,args[9]))
+    if mode == "fixture"
+        result = simulate(inputs...)
+        println(Core.stdout,result[1],',',result[2],',',result[3],',',result[4])
+    elseif mode == "xpalm"
+        state = simulate_xpalm(inputs...)
+        println(Core.stdout,length(state.ids),',',state.step)
+        for i in eachindex(state.ids)
+            print(Core.stdout,state.ids[i])
+            for variable in XPalmFixture.STATE_VARIABLES
+                print(Core.stdout,',',state.statuses[i][variable])
+            end
+            println(Core.stdout)
+        end
+    else
+        throw(ArgumentError("unknown mode"))
+    end
     return 0
 end
 end

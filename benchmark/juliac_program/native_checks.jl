@@ -38,7 +38,7 @@ function ordinary_result(args)
     return (length(ids),steps,carbon,biomass)
 end
 function native_result(exe,args; depot=nothing)
-    cmd = Cmd([exe; collect(string.(args))])
+    cmd = Cmd([exe; "fixture"; collect(string.(args))])
     cmd = addenv(cmd,"JULIA_PROJECT"=>nothing,"JULIA_LOAD_PATH"=>nothing)
     isnothing(depot) || (cmd = addenv(cmd,"JULIA_DEPOT_PATH"=>depot))
     output = IOBuffer()
@@ -68,7 +68,7 @@ function run_checks(bundle=readchomp(joinpath(@__DIR__,"build","latest.txt")))
     observed = native_result(moved_exe,CASES[2];depot)
     @test observed === results[2].expected
     for bad in ((-1,3,0,0,0,0.5,0.25,20.0),(0,3,0,2,0,0.5,0.25,20.0),(0,3,4,2,0,0.5,0.25,20.0))
-        command = Cmd([exe; collect(string.(bad))])
+        command = Cmd([exe; "fixture"; collect(string.(bad))])
         @test !success(pipeline(command;stdout=devnull,stderr=devnull))
     end
     return (cases=results,relocated_with_bundled_artifacts=observed,invalid_inputs_rejected=3,platform=Sys.MACHINE)
