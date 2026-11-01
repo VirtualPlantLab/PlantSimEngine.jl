@@ -9,6 +9,24 @@ mutable struct FullApplication{R,M,C,S,B,H}
     const bindings::Vector{B}
     const streams::H
 end
+
+# Only row membership is cached. Invocation contexts still sample the current
+# environment, step, status view and publication policy on every call.
+mutable struct FullRowOrder
+    live::Vector{Int}
+    committed::Vector{Int}
+    live_count::Int
+    committed_count::Int
+end
+FullRowOrder()=FullRowOrder(Int[],Int[],-1,-1)
+mutable struct FullCallMembership
+    live::Vector{Int}
+    committed::Vector{Int}
+    live_count::Int
+    committed_count::Int
+end
+FullCallMembership()=FullCallMembership(Int[],Int[],-1,-1)
+
 mutable struct FullState{P,C,A,N,I}
     program::P
     cohorts::C
@@ -23,6 +41,9 @@ mutable struct FullState{P,C,A,N,I}
     retain::Bool
     initial_objects::I
     ready::Bool
+    reference_epochs::Vector{UInt}
+    ordered_rows::Vector{FullRowOrder}
+    call_memberships::Dict{Tuple{Int,Int},FullCallMembership}
 end
 
 include("full_program_bindings.jl")
@@ -32,7 +53,7 @@ _application_status(app::FullApplication,row)=app.views[row]
 _cohort_context_type(app::FullApplication{R,M,C,S},state,cohort::Cohort,environment,constants) where {R,M,C,S} =
     CohortContext{typeof(app),typeof(state),S,typeof(environment),typeof(constants)}
 
-Base.@noinline function _bind_full_app(recipe::FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,D,V,I,O,E,B,S,H},models,cohorts) where {M,C,SLOT,INPUTS,OUTPUTS,CALLS,D,V,I,O,E,B,S,H}
+Base.@noinline function _bind_full_app(recipe::FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H},models,cohorts) where {M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H}
     model=models[SLOT]::M
     PSE.dep(model) isa D && isequal(PSE.dep(model)::D,recipe.dependencies) || throw(ArgumentError("changed dependency schema"))
     isequal(PSE.variable_contracts_(model),recipe.contracts) || throw(ArgumentError("changed variable contracts"))
@@ -75,7 +96,9 @@ Base.@noinline function instantiate(program::FullProgram,models::Tuple,root::N;i
     cohorts=map(r->_make_cohort(r,owned,initial,N),program.cohorts)
     apps=_bind_full_apps(program.applications,owned,cohorts)
     state=FullState(program,cohorts,apps,Dict{Int,N}(),Dict{Int,Tuple{Int,Int}}(),
-        IdDict{Base.RefValue{Nothing},Int}(),Set{Int}(),Set{Tuple{Int,Int}}(),0,0,Bool(retain),objects,false)
+        IdDict{Base.RefValue{Nothing},Int}(),Set{Int}(),Set{Tuple{Int,Int}}(),0,0,Bool(retain),objects,false,
+        zeros(UInt,length(cohorts)),[FullRowOrder() for _ in cohorts],
+        Dict{Tuple{Int,Int},FullCallMembership}())
     _register_tree!(state,root)
     _commit_cohorts!(state.cohorts)
     _fill_full_views!(state,state.applications)
@@ -168,7 +191,7 @@ end
     for (index,name) in enumerate(K)
         binding_index=findfirst(==(name),BK)
         binding_type=isnothing(binding_index) ? Nothing : fieldtype(BT,binding_index)
-        if binding_type <: FullBinding && binding_type.parameters[2]===false && binding_type.parameters[3]===:one
+        if binding_type <: FullBinding && binding_type.parameters[2]===false && binding_type.parameters[3] in (:one,:optional_one)
             push!(fields,:(getfield(getfield(bindings,$binding_index),:reference)))
         else
             push!(fields,:(getfield(refs,$index)))
@@ -180,10 +203,35 @@ function _alias_full_canonical!(state,cohort::Cohort{K,P,D,S},row,bindings) wher
     previous=cohort.rows[row]
     refs=_canonical_full_refs(PSE._status_vars(previous),bindings)::fieldtype(S,1)
     refs===PSE._status_vars(previous) && return previous::S
-    canonical=Status(refs)::S
-    cohort.rows[row]=canonical
-    state.identities[PSE._status_identity(canonical)]=cohort.ids[row]
-    return canonical::S
+    return _replace_full_status!(state,cohort,row,Status(refs)::S)
+end
+
+function _replace_full_status!(state,cohort::Cohort{K,P,D,S},row,status::S) where {K,P,D,S}
+    previous=cohort.rows[row]
+    if PSE._status_vars(previous)!==PSE._status_vars(status)
+        slot=state.locations[cohort.ids[row]][1]
+        state.reference_epochs[slot]+=UInt(1)
+    end
+    cohort.rows[row]=status
+    state.identities[PSE._status_identity(status)]=cohort.ids[row]
+    return status
+end
+
+function _full_ordered_rows(state,slot::Int,cohort;committed=true)
+    order=state.ordered_rows[slot]
+    if order.live_count!=length(cohort.ids)
+        empty!(order.live)
+        append!(order.live,sortperm(cohort.ids))
+        order.live_count=length(cohort.ids)
+    end
+    if order.committed_count!=cohort.committed
+        empty!(order.committed)
+        for row in order.live
+            row<=cohort.committed && push!(order.committed,row)
+        end
+        order.committed_count=cohort.committed
+    end
+    return committed ? order.committed : order.live
 end
 @generated function _expose_full_many!(canonical::Status,bindings::NamedTuple{K,BT}) where {K,BT}
     writes=Any[]
@@ -217,7 +265,7 @@ Base.@noinline function _step_cohort_application!(state::FullState,app,environme
     empty!(state.pending); empty!(state.initialized)
     # RNG-consuming models follow the ordinary object ID order, independently
     # of insertion and category storage order.
-    for row in sortperm(app.cohort.ids[1:app.cohort.committed])
+    for row in _full_ordered_rows(state,_app_cohort(app.recipe),app.cohort)
         c=CohortContext(app,state,app.views[row],row,environment,constants,state.step+1,false)
         _invoke_cohort!(c;publish=true)
     end
@@ -263,22 +311,56 @@ end
 _add_organ!(state::FullState,::Tuple{},parent,link,symbol,scale,index,id,initial,slot)=
     throw(ArgumentError("unknown organ cohort"))
 
+function _full_call_membership(c,route::FullCallRoute{SLOT}) where {SLOT}
+    cohort=c.state.applications[SLOT].cohort
+    origin=c.application.cohort.nodes[c.row]
+    key=(route.cache_key,c.application.cohort.ids[c.row])
+    membership=get!(c.state.call_memberships,key) do
+        FullCallMembership()
+    end
+    if membership.live_count!=length(cohort.ids)
+        empty!(membership.live)
+        for row in _full_ordered_rows(c.state,_app_cohort(c.state.applications[SLOT].recipe),cohort;committed=false)
+            _full_matches(route.selector,c.state,origin,cohort.nodes[row]) && push!(membership.live,row)
+        end
+        membership.live_count=length(cohort.ids)
+    end
+    if membership.committed_count!=cohort.committed
+        empty!(membership.committed)
+        for row in membership.live
+            row<=cohort.committed && push!(membership.committed,row)
+        end
+        membership.committed_count=cohort.committed
+    end
+    return membership
+end
+
 function _cohort_targets(c,route::FullCallRoute{SLOT,MODE,MULT},objects=nothing) where {SLOT,MODE,MULT}
     app=c.state.applications[SLOT]; cohort=app.cohort
     T=_cohort_context_type(app,c.state,cohort,c.environment,c.constants)
     targets=CohortTarget{T}[]
     origin=c.application.cohort.nodes[c.row]
-    fullcount=count(n->_full_matches(route.selector,c.state,origin,n),cohort.nodes)
+    membership=_full_call_membership(c,route)
+    fullcount=length(membership.live)
     MODE===:manual && MULT===:one && !isnothing(objects) && fullcount!=1 && throw(ArgumentError("targeted One call cannot relax cardinality"))
-    limit=isnothing(objects) ? cohort.committed : length(cohort.ids)
-    for row in sortperm(cohort.ids[1:limit])
-        id=cohort.ids[row]
-        (isnothing(objects) || ObjectId(id)==ObjectId(objects)) || continue
-        _full_matches(route.selector,c.state,origin,cohort.nodes[row]) || continue
+    MODE===:manual && MULT===:optional_one && !isnothing(objects) && fullcount>1 && throw(ArgumentError("targeted OptionalOne call cannot relax cardinality"))
+    if !isnothing(objects)
+        id=ObjectId(objects).value
+        location=get(c.state.locations,id,nothing)
+        isnothing(location) && throw(ArgumentError("object outside call scope"))
+        slot,row=location
+        slot==_app_cohort(app.recipe) && _full_matches(route.selector,c.state,origin,cohort.nodes[row]) ||
+            throw(ArgumentError("object outside call scope"))
         child=CohortContext(app,c.state,app.views[row],row,c.environment,c.constants,c.step,c.suppress)
         push!(targets,CohortTarget(child))
+    else
+        for row in membership.committed
+            child=CohortContext(app,c.state,app.views[row],row,c.environment,c.constants,c.step,c.suppress)
+            push!(targets,CohortTarget(child))
+        end
     end
     MULT===:one && isnothing(objects) && length(targets)!=1 && throw(ArgumentError("One call cardinality"))
+    MULT===:optional_one && isnothing(objects) && length(targets)>1 && throw(ArgumentError("OptionalOne call cardinality"))
     !isnothing(objects) && length(targets)!=1 && throw(ArgumentError("object outside call scope"))
     return targets
 end

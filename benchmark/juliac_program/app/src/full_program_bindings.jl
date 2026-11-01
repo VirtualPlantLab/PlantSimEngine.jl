@@ -1,16 +1,25 @@
 # Concrete bindings for the full cohort runtime. Topology and ObjectIds remain
 # runtime data; source application slots and payload schemas are static routes.
-mutable struct FullBinding{R,TEMP,MULT,T,REF}
+mutable struct FullBinding{R,TEMP,MULT,T,REF,STAMP}
     route::R
     reference::REF
     ids::Vector{ObjectId{Int}}
     initial::Dict{Int,T}
+    # Membership/Refs are reusable until a source cohort grows or replaces a
+    # canonical Ref. Epoch invalidation is deliberately cohort-wide for now.
+    stamp::STAMP
+    valid::Bool
+    locations::Vector{NTuple{4,Int}} # object ID, cohort, row, producer slot
+    references::Vector{Base.RefValue{T}}
+    fallback::Union{Nothing,Base.RefValue{T}}
 end
 
 function _prototype_full_binding(route::FullInputRoute{S,V,TEMP,MULT,T},initial_value) where {S,V,TEMP,MULT,T}
     reference=MULT===:many ? Ref(PSE.RefVector(Base.RefValue{T}[])) : Ref(_payload_copy(initial_value)::T)
-    return FullBinding{typeof(route),TEMP,MULT,T,typeof(reference)}(
-        route,reference,ObjectId{Int}[],Dict{Int,T}())
+    stamp=map(_ -> (0,UInt(0)),S)
+    return FullBinding{typeof(route),TEMP,MULT,T,typeof(reference),typeof(stamp)}(
+        route,reference,ObjectId{Int}[],Dict{Int,T}(),stamp,false,
+        NTuple{4,Int}[],Base.RefValue{T}[],MULT===:many ? nothing : reference)
 end
 
 function _full_selector_scope(criteria)
@@ -85,61 +94,182 @@ function _full_matches(selector,state,origin,node)
     return _full_relation_matches(relation,origin,node)
 end
 
+# These selectors identify at most one fixed node under the admitted append-
+# only topology. A missing parent/ancestor or a mismatched category stays empty;
+# unrelated cohort growth cannot change it. General scopes/relations still scan.
+function _full_is_point_selector(selector)
+    criteria=PSE.criteria(selector)
+    scope=_full_selector_scope(criteria)
+    relation=_full_selector_relation(criteria)
+    scale=get(criteria,:scale,nothing)
+    return (scope isa PSE.Ancestor && scale===scope.scale && isnothing(relation)) ||
+        scope isa PSE.Self || relation===:self || relation===:parent ||
+        (isnothing(scope) && isnothing(relation) && isnothing(scale))
+end
+function _full_point_node(selector,origin)
+    criteria=PSE.criteria(selector)
+    scope=_full_selector_scope(criteria)
+    relation=_full_selector_relation(criteria)
+    scale=get(criteria,:scale,nothing)
+    if scope isa PSE.Ancestor && scale===scope.scale && isnothing(relation)
+        return true,_full_ancestor(origin,scope.scale)
+    elseif scope isa PSE.Self
+        return true,origin
+    elseif relation===:self
+        return true,origin
+    elseif relation===:parent
+        return true,MTG.parent(origin)
+    elseif isnothing(scope) && isnothing(relation) && isnothing(scale)
+        return true,origin
+    end
+    return false,nothing
+end
+
 function _full_append_binding_source!(entries,state,origin,route::FullInputRoute{S,V,TEMP,MULT,T},
-                                      ::Val{SOURCE},step,initial) where {S,V,TEMP,MULT,T,SOURCE}
+                                      ::Val{SOURCE}) where {S,V,TEMP,MULT,T,SOURCE}
     C,SLOT=SOURCE
     cohort=state.cohorts[C]
     limit=MULT===:many ? cohort.committed : length(cohort.ids)
+    fixed,node=_full_point_node(route.selector,origin)
+    if fixed
+        isnothing(node) && return nothing
+        location=get(state.locations,MTG.node_id(node),nothing)
+        isnothing(location) && return nothing
+        location[1]==C && location[2]<=limit || return nothing
+        _full_matches(route.selector,state,origin,node) || return nothing
+        push!(entries,(MTG.node_id(node),C,location[2],SLOT))
+        return nothing
+    end
     for row in 1:limit
         node=cohort.nodes[row]
         _full_matches(route.selector,state,origin,node) || continue
         id=cohort.ids[row]
-        source=PSE.refvalue(cohort.rows[row],V)::Base.RefValue{T}
-        if TEMP
-            SLOT==0 && throw(ArgumentError("temporal inputs require an output producer"))
-            fallback=get!(initial,id) do
-                _payload_copy(source[])
-            end
-            value=_full_previous(state,Val(SLOT),Val(V),id,step,fallback)::T
-            push!(entries,(id,Ref(_payload_copy(value))))
-        else
-            push!(entries,(id,source))
-        end
+        push!(entries,(id,C,row,SLOT))
     end
     return nothing
 end
-_full_append_binding_sources!(entries,state,origin,route,::Tuple{},step,initial)=nothing
-function _full_append_binding_sources!(entries,state,origin,route,sources::Tuple,step,initial)
-    _full_append_binding_source!(entries,state,origin,route,first(sources),step,initial)
-    _full_append_binding_sources!(entries,state,origin,route,_schema_tail(sources),step,initial)
+_full_append_binding_sources!(entries,state,origin,route,::Tuple{})=nothing
+function _full_append_binding_sources!(entries,state,origin,route,sources::Tuple)
+    _full_append_binding_source!(entries,state,origin,route,first(sources))
+    _full_append_binding_sources!(entries,state,origin,route,_schema_tail(sources))
     return nothing
 end
-function _full_binding_entries(route::FullInputRoute{S,V,TEMP,MULT,T},state,origin,step,initial) where {S,V,TEMP,MULT,T}
-    entries=Tuple{Int,Base.RefValue{T}}[]
-    _full_append_binding_sources!(entries,state,origin,route,map(Val,S),step,initial)
+function _full_binding_entries(route::FullInputRoute{S,V,TEMP,MULT,T},state,origin) where {S,V,TEMP,MULT,T}
+    entries=NTuple{4,Int}[]
+    _full_append_binding_sources!(entries,state,origin,route,map(Val,S))
     sort!(entries;by=first)
     for index in 2:length(entries)
         entries[index-1][1]!=entries[index][1] || throw(ArgumentError("duplicate selected source object"))
     end
     return entries
 end
-function _refresh_full_binding!(binding::FullBinding{R,TEMP,MULT,T},state,origin,step;initialize=false) where {R,TEMP,MULT,T}
-    entries=_full_binding_entries(binding.route,state,origin,step,binding.initial)
-    empty!(binding.ids)
-    for (id,reference) in entries
-        push!(binding.ids,ObjectId(id))
+
+# Direct finite cohort/producer projections preserve concrete source and stream
+# types under safe trimming; locations contain runtime rows/IDs, never Val IDs.
+@generated function _full_binding_stamp(route::FullInputRoute{S,V,TEMP,MULT},state) where {S,V,TEMP,MULT}
+    values_=map(S) do source
+        C=source[1]
+        count=MULT===:many ? :(getfield(state.cohorts,$C).committed) : :(length(getfield(state.cohorts,$C).ids))
+        :(($count,state.reference_epochs[$C]))
     end
+    return Expr(:tuple,values_...)
+end
+@generated function _full_cached_source_ref(route::FullInputRoute{S,V,TEMP,MULT,T},state,location) where {S,V,TEMP,MULT,T}
+    branch=:(throw(ArgumentError("invalid cached source cohort")))
+    for C in reverse(unique(first.(S)))
+        value=:(PSE.refvalue(getfield(state.cohorts,$C).rows[location[3]],$(QuoteNode(V)))::Base.RefValue{$T})
+        branch=Expr(:if,:(location[2]==$C),value,branch)
+    end
+    return branch
+end
+@generated function _full_cached_previous(route::FullInputRoute{S,V,true,MULT,T},state,location,step,fallback) where {S,V,MULT,T}
+    branch=:(throw(ArgumentError("invalid cached temporal producer")))
+    for (C,SLOT) in reverse(S)
+        value=SLOT==0 ? :(throw(ArgumentError("temporal inputs require an output producer"))) :
+            :(_full_previous(state,Val($SLOT),Val($(QuoteNode(V))),location[1],step,fallback)::$T)
+        branch=Expr(:if,:(location[2]==$C && location[4]==$SLOT),value,branch)
+    end
+    return branch
+end
+
+function _full_cached_references!(binding::FullBinding{R,TEMP,MULT,T},state,locations,step) where {R,TEMP,MULT,T}
+    references=Base.RefValue{T}[]
+    old=1
+    for location in locations
+        id=location[1]
+        if TEMP
+            source=_full_cached_source_ref(binding.route,state,location)
+            fallback=get!(binding.initial,id) do
+                _payload_copy(source[])
+            end
+            # _full_previous already returns an owned payload. The private
+            # scratch Ref must refresh every invocation, even on a cache hit.
+            value=_full_cached_previous(binding.route,state,location,step,fallback)
+            while old<=length(binding.locations) && binding.locations[old][1]<id
+                old+=1
+            end
+            if old<=length(binding.locations) && binding.locations[old][1]==id
+                reference=binding.references[old]
+                reference[]=value
+            else
+                reference=Ref(value)
+            end
+            push!(references,reference)
+        else
+            push!(references,_full_cached_source_ref(binding.route,state,location))
+        end
+    end
+    return references
+end
+
+function _refresh_full_binding!(binding::FullBinding{R,TEMP,MULT,T},state,origin,step;initialize=false) where {R,TEMP,MULT,T}
+    stamp=_full_binding_stamp(binding.route,state)
+    unchanged=binding.valid && stamp==binding.stamp
+    # A fixed One/OptionalOne can keep its validated membership across unrelated
+    # source growth/rebinding. Many must still observe committed membership.
+    fixed=binding.valid && !unchanged && MULT!==:many && _full_is_point_selector(binding.route.selector)
+    if unchanged || fixed
+        unchanged && !TEMP && return nothing
+        binding.valid=false
+        if TEMP
+            for index in eachindex(binding.locations)
+                location=binding.locations[index]
+                binding.references[index][]=_full_cached_previous(binding.route,state,location,step,binding.initial[location[1]])
+            end
+        elseif isempty(binding.locations)
+            binding.reference=binding.fallback::Base.RefValue{T}
+        else
+            reference=_full_cached_source_ref(binding.route,state,only(binding.locations))
+            if binding.reference!==reference
+                binding.references[1]=reference
+                binding.reference=reference
+            end
+        end
+        binding.stamp=stamp
+        binding.valid=true
+        return nothing
+    end
+    binding.valid=false
+    locations=_full_binding_entries(binding.route,state,origin)
+    # Validate membership before publishing a new carrier or a valid stamp.
+    MULT===:one && length(locations)!=1 && throw(ArgumentError("One input requires exactly one source object"))
+    MULT===:optional_one && length(locations)>1 && throw(ArgumentError("OptionalOne input requires at most one source object"))
+    references=_full_cached_references!(binding,state,locations,step)
+    ids=ObjectId{Int}[ObjectId(location[1]) for location in locations]
     if MULT===:many
-        binding.reference[]=PSE.RefVector(Base.RefValue{T}[reference for (_,reference) in entries])
+        binding.reference[]=PSE.RefVector(references)
     elseif MULT===:one
-        length(entries)==1 || throw(ArgumentError("One input requires exactly one source object"))
-        binding.reference=only(entries)[2]
+        binding.reference=only(references)
     elseif MULT===:optional_one
-        length(entries)<=1 || throw(ArgumentError("OptionalOne input requires at most one source object"))
-        isempty(entries) || (binding.reference=only(entries)[2])
+        binding.reference=isempty(references) ? (binding.fallback::Base.RefValue{T}) : only(references)
     else
         throw(ArgumentError("unsupported full-layout multiplicity"))
     end
+    binding.ids=ids
+    binding.locations=locations
+    binding.references=references
+    binding.stamp=stamp
+    binding.valid=true
     return nothing
 end
 function _make_full_binding(route,state,origin,initial_value)

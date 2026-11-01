@@ -43,13 +43,15 @@ struct FullOutputRoute{COHORTS,VAR,DISTRIBUTED,SEL}
 end
 struct FullCallRoute{SLOT,MODE,MULT,SEL}
     selector::SEL
+    cache_key::Int
 end
-struct FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,D,V,I,O,E,B,S,H}
+struct FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H}
     slot::Int
     name::Symbol
     inputs::INPUTS
     outputs::OUTPUTS
     calls::CALLS
+    temporal_outputs::TO
     dependencies::D
     contracts::V
     inputs_type::Type{I}
@@ -78,6 +80,14 @@ _full_value(declaration::PSE.Default)=declaration.value
 _full_value(declaration)=declaration
 _full_previous(selector)=get(PSE.criteria(selector),:policy,nothing) isa PSE.PreviousTimeStep
 _full_from_status(selector)=get(PSE.criteria(selector),:from_status,false)
+function _full_temporal_outputs!(needed,::FullInputRoute{SOURCES,VAR,TEMP}) where {SOURCES,VAR,TEMP}
+    TEMP || return nothing
+    for (_,slot) in SOURCES
+        slot>0 || throw(ArgumentError("temporal inputs require an output producer"))
+        push!(needed[slot],VAR)
+    end
+    return nothing
+end
 
 function _full_selector_categories(selector,categories,fallback)
     criteria=PSE.criteria(selector)
@@ -185,6 +195,7 @@ function _prepare_full(specs::Tuple;initial,base_step=Day(1))
     # Calls have static application slots, but their selected object rows remain
     # runtime data. Keep their original selectors for exact topology resolution.
     manual=Set{Int}(); callowners=Dict{Int,Vector{Int}}(); initializer_owners=Dict{Int,Int}()
+    call_key=0
     call_routes=map(Tuple(enumerate(specs))) do (i,spec)
         values_=map(values(spec.calls)) do declaration
             initializer=declaration isa PSE.Initializer
@@ -209,7 +220,8 @@ function _prepare_full(specs::Tuple;initial,base_step=Day(1))
                 push!(manual,target)
                 push!(get!(callowners,target,Int[]),i)
             end
-            FullCallRoute{target,initializer ? :initializer : :manual,PSE.multiplicity(selector),typeof(selector)}(selector)
+            call_key+=1
+            FullCallRoute{target,initializer ? :initializer : :manual,PSE.multiplicity(selector),typeof(selector)}(selector,call_key)
         end
         NamedTuple{keys(spec.calls)}(values_)
     end
@@ -352,6 +364,13 @@ function _prepare_full(specs::Tuple;initial,base_step=Day(1))
         routes=Dict(route_pairs[i])
         input_routes[i]=NamedTuple{keys(PSE.inputs_(spec))}(map(var->routes[var],keys(PSE.inputs_(spec))))
     end
+    temporal_needed=[Set{Symbol}() for _ in specs]
+    for routes in input_routes, route in values(routes)
+        _full_temporal_outputs!(temporal_needed,route)
+    end
+    temporal_outputs=map(eachindex(specs)) do i
+        Tuple(var for var in keys(output_routes[i]) if var in temporal_needed[i])
+    end
     # All potential writers create same-step edges, even though live bindings
     # select a final canonical writer. Manual callee outputs are attributed to
     # their root owner; input edges into a manual callee do not reorder its owner.
@@ -410,13 +429,14 @@ function _prepare_full(specs::Tuple;initial,base_step=Day(1))
         end)
         canonical=Status(defaults)
         view=Status(merge(PSE._status_vars(canonical),map(binding->binding.reference,bindings)))
-        histories=map(PSE.outputs_(spec)) do declaration
+        declarations=PSE.outputs_(spec)
+        histories=NamedTuple{keys(declarations)}(map(keys(declarations),values(declarations)) do var,declaration
             value=_full_value(declaration)
-            ColumnHistory(typeof(_full_history_snapshot(value)))
-        end
+            ColumnHistory(typeof(_full_history_snapshot(value)),var in temporal_needed[i])
+        end)
         B=typeof(bindings); S=typeof(view); H=typeof(histories)
-        FullApplicationRecipe{M,C,i,typeof(inputs),typeof(outputs),typeof(calls),D,V,I,O,E,B,S,H}(
-            i,names[i],inputs,outputs,calls,PSE.dep(spec.model),PSE.variable_contracts_(spec),I,O,E,B,S,H)
+        FullApplicationRecipe{M,C,i,typeof(inputs),typeof(outputs),typeof(calls),typeof(temporal_outputs[i]),D,V,I,O,E,B,S,H}(
+            i,names[i],inputs,outputs,calls,temporal_outputs[i],PSE.dep(spec.model),PSE.variable_contracts_(spec),I,O,E,B,S,H)
     end
     return FullProgram(cohorts,applications,map(Val,Tuple(order)),cadence)
 end

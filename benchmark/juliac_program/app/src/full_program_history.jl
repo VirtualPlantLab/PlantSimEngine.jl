@@ -13,10 +13,11 @@ struct ColumnHistory{T}
     prior::Dict{Int,FullSample{T}}
     retained::Vector{FullSample{T}}
     retained_index::Dict{Tuple{Int,Int},Int}
+    temporal::Bool
 end
-ColumnHistory(::Type{T}) where {T} = ColumnHistory{T}(
+ColumnHistory(::Type{T},temporal::Bool) where {T} = ColumnHistory{T}(
     Dict{Int,T}(), Dict{Int,FullSample{T}}(), Dict{Int,FullSample{T}}(),
-    FullSample{T}[], Dict{Tuple{Int,Int},Int}(),
+    FullSample{T}[], Dict{Tuple{Int,Int},Int}(), temporal,
 )
 
 # Reference-backed array ports publish ordinary owned arrays, matching PSE's
@@ -32,10 +33,10 @@ _full_history_id(id::ObjectId{Int}) = id.value
 
 function _make_full_streams(recipe, model)
     declarations=PSE.outputs_(model)::recipe.outputs_type
-    return _schema_map(declarations) do declaration
+    return _schema_pairs(declarations) do var,declaration
         value = _full_value(declaration)
         value isa PSE.Required && throw(ArgumentError("full output history needs an initial value"))
-        ColumnHistory(typeof(_full_history_snapshot(value)))
+        ColumnHistory(typeof(_full_history_snapshot(value)),var in recipe.temporal_outputs)
     end
 end
 
@@ -44,6 +45,7 @@ Call at registration/binding, including each distributed destination. The first
 value wins; repeated binding refreshes cannot replace birth history.
 """
 function _full_history_initial!(history::ColumnHistory{T}, object_id, fallback) where {T}
+    history.temporal || return nothing
     id = _full_history_id(object_id)
     if !haskey(history.initial, id)
         history.initial[id] = _full_history_snapshot(T, fallback)
@@ -63,6 +65,7 @@ function _full_previous(
 end
 
 function _full_previous(history::ColumnHistory{T}, object_id, step::Int, fallback) where {T}
+    history.temporal || throw(ArgumentError("output column has no planned temporal consumer"))
     id = _full_history_id(object_id)
     _full_history_initial!(history, id, fallback)
     if haskey(history.last, id)
@@ -87,16 +90,19 @@ end
 
 function _full_record!(history::ColumnHistory{T}, application::Symbol,
                        object_id, step::Int, value, retain::Bool) where {T}
+    (history.temporal || retain) || return nothing
     id = _full_history_id(object_id)
     sample = FullSample{T}(application, id, step, _full_history_snapshot(T, value))
-    if haskey(history.last, id)
-        last = history.last[id]
-        step >= last.step || throw(ArgumentError("cannot publish an obsolete output step"))
-        if step > last.step
-            history.prior[id] = last
+    if history.temporal
+        if haskey(history.last, id)
+            last = history.last[id]
+            step >= last.step || throw(ArgumentError("cannot publish an obsolete output step"))
+            if step > last.step
+                history.prior[id] = last
+            end
         end
+        history.last[id] = sample
     end
-    history.last[id] = sample
     if retain
         key = (id, step)
         if haskey(history.retained_index, key)
@@ -117,6 +123,7 @@ function _full_publish_columns!(routes::Tuple, histories::Tuple, context)
 end
 
 function _full_publish_column!(::FullOutputRoute{COHORTS,VAR,false}, history, context) where {COHORTS,VAR}
+    (history.temporal || context.state.retain) || return nothing
     application = context.application
     id = application.cohort.ids[context.row]
     _full_record!(history, application.recipe.name, id, context.step,
@@ -125,6 +132,7 @@ function _full_publish_column!(::FullOutputRoute{COHORTS,VAR,false}, history, co
 end
 
 function _full_publish_column!(route::FullOutputRoute{COHORTS,VAR,true}, history, context) where {COHORTS,VAR}
+    (history.temporal || context.state.retain) || return nothing
     application = context.application
     origin = application.cohort.nodes[context.row]
     ids, column = _full_output_column(route, context.state, origin)
@@ -137,11 +145,12 @@ function _full_publish_column!(route::FullOutputRoute{COHORTS,VAR,true}, history
 end
 
 """Publish this original kernel's outputs immediately, before a later Updates writer.
-Retention controls only the materialized event rows; last/prior temporal samples
-are updated even when the simulation retains no user-facing output streams.
+Retention controls the materialized event rows. Last/prior samples are updated
+only for columns consumed by PreviousTimeStep, including when retention is off.
 """
 function _full_publish!(context)
     context.suppress && return nothing
+    (!context.state.retain && isempty(context.application.recipe.temporal_outputs)) && return nothing
     _full_publish_columns!(values(context.application.recipe.outputs),
         values(context.application.streams), context)
     return nothing
