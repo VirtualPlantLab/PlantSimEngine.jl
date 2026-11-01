@@ -97,6 +97,81 @@ function PSE.run!(::ExternalInput, status, environment, constants, context)
     return nothing
 end
 
+PSE.@process "native_call_late_parent" verbose = false
+struct LateParent <: AbstractNative_Call_Late_ParentModel end
+PSE.inputs_(::LateParent) = NamedTuple()
+PSE.outputs_(::LateParent) = (late_parent_runs=0,)
+PSE.dep(::LateParent) = (child=Call(One(within=Self(), application=:late_child)),)
+function PSE.run!(::LateParent, status, environment, constants, context)
+    PSE.run_call!(context, :child; publish=true)
+    status.late_parent_runs += 1
+    return nothing
+end
+PSE.@process "native_call_late_writer" verbose = false
+struct LateWriter <: AbstractNative_Call_Late_WriterModel end
+PSE.inputs_(::LateWriter) = NamedTuple()
+PSE.outputs_(::LateWriter) = (late_x=2.0,)
+function PSE.run!(::LateWriter, status, environment, constants, context)
+    status.late_x = 7.0
+    return nothing
+end
+PSE.@process "native_call_late_child" verbose = false
+struct LateChild <: AbstractNative_Call_Late_ChildModel end
+PSE.inputs_(::LateChild) = (late_x=Required(Float64),)
+PSE.outputs_(::LateChild) = (late_seen=-Inf,)
+function PSE.run!(::LateChild, status, environment, constants, context)
+    status.late_seen = status.late_x
+    return nothing
+end
+
+PSE.@process "native_call_double" verbose = false
+struct DoubleCaller <: AbstractNative_Call_DoubleModel end
+PSE.inputs_(::DoubleCaller) = NamedTuple()
+PSE.outputs_(::DoubleCaller) = (double_runs=0,)
+PSE.dep(::DoubleCaller) = (grand=Call(One(within=Self(), application=:grand)),)
+function PSE.run!(::DoubleCaller, status, environment, constants, context)
+    PSE.run_call!(context, :grand; publish=true)
+    PSE.run_call!(context, :grand; publish=true)
+    status.double_runs += 1
+    return nothing
+end
+
+PSE.@process "native_call_invalid_selection" verbose = false
+struct InvalidSelection <: AbstractNative_Call_Invalid_SelectionModel end
+PSE.inputs_(::InvalidSelection) = NamedTuple()
+PSE.outputs_(::InvalidSelection) = (invalid_runs=0,)
+PSE.dep(::InvalidSelection) = (grand=Call(One(within=Self(), application=:grand)),)
+function PSE.run!(::InvalidSelection, status, environment, constants, context)
+    PSE.run_call!(context, :grand; objects=999, publish=true)
+    status.invalid_runs += 1
+    return nothing
+end
+
+PSE.@process "native_call_skipped" verbose = false
+struct SkippedCaller <: AbstractNative_Call_SkippedModel end
+PSE.inputs_(::SkippedCaller) = NamedTuple()
+PSE.outputs_(::SkippedCaller) = (skipped_runs=0,)
+PSE.dep(::SkippedCaller) = (grand=Call(One(within=Self(), application=:grand)),)
+function PSE.run!(::SkippedCaller, status, environment, constants, context)
+    status.skipped_runs += 1
+    return nothing
+end
+
+PSE.@process "native_call_contract_source" verbose = false
+struct ContractSource <: AbstractNative_Call_Contract_SourceModel
+    unit::Symbol
+end
+PSE.inputs_(::ContractSource) = NamedTuple()
+PSE.outputs_(::ContractSource) = (contractual=1.0,)
+PSE.variable_contracts_(model::ContractSource) = (contractual=VariableContract(unit=model.unit),)
+PSE.@process "native_call_contract_consumer" verbose = false
+struct ContractConsumer <: AbstractNative_Call_Contract_ConsumerModel
+    unit::Symbol
+end
+PSE.inputs_(::ContractConsumer) = (contractual=Required(Float64),)
+PSE.outputs_(::ContractConsumer) = (contract_seen=0.0,)
+PSE.variable_contracts_(model::ContractConsumer) = (contractual=VariableContract(unit=model.unit),)
+
 function _specs(parent)
     # Authored children first: an accidental scheduled child would be counted
     # even on steps where the parent intentionally makes no call.
@@ -199,6 +274,105 @@ function run_checks()
                     @test last(state.publications).values.child_count == 3
                 end
             end
+        end
+
+        @testset "call-only inputs retain authored root order" begin
+            specs = (
+                ModelSpec(LateParent(); name=:late_parent, on=Many(kind=:organ), every=Day(1)),
+                ModelSpec(LateWriter(); name=:late_writer, on=Many(kind=:organ), every=Day(1)),
+                ModelSpec(LateChild(); name=:late_child, on=Many(kind=:organ), every=Day(1)),
+            )
+            program = RP.prepare(specs)
+            @test map(region -> region.name, program.regions) == (:late_parent, :late_writer)
+            state = RP.instantiate(program, map(spec -> spec.model, specs), [10], [:organ]; retain=true)
+            observed = Float64[]
+            for _ in 1:2
+                RP.step!(state, NamedTuple())
+                push!(observed, only(state.statuses).late_seen)
+            end
+            ordinary = _ordinary(specs, [10], 2, NamedTuple())
+            @test observed == [2.0, 7.0]
+            original_seen = [row.value for row in PSE.collect_outputs(ordinary, ObjectId(10), :late_seen; sink=nothing)]
+            @test original_seen == observed
+            @test isequal(_retained_rows(state, specs), _ordinary_rows(ordinary))
+        end
+
+        @testset "repeated publication replaces the same step sample" begin
+            specs = (
+                ModelSpec(DoubleCaller(); name=:double, on=Many(kind=:organ), every=Day(1)),
+                ModelSpec(Grandchild(); name=:grand, on=Many(kind=:organ), every=Day(1)),
+            )
+            state = RP.instantiate(RP.prepare(specs), map(spec -> spec.model, specs),
+                [10], [:organ]; retain=true)
+            for _ in 1:2
+                RP.step!(state, (delta=2.0,))
+            end
+            ordinary = _ordinary(specs, [10], 2, (delta=2.0,))
+            publications = filter(p -> p.application == :grand, state.publications)
+            @test length(publications) == 2
+            @test [p.step for p in publications] == [1, 2]
+            @test [p.values.grand_count for p in publications] == [2, 4]
+            @test only(state.statuses).grand_count == 4
+            @test isequal(_retained_rows(state, specs), _ordinary_rows(ordinary))
+        end
+
+        @testset "invalid selected object fails before scientific mutation" begin
+            specs = (
+                ModelSpec(InvalidSelection(); name=:invalid, on=Many(kind=:organ), every=Day(1)),
+                ModelSpec(Grandchild(); name=:grand, on=Many(kind=:organ), every=Day(1)),
+            )
+            state = RP.instantiate(RP.prepare(specs), map(spec -> spec.model, specs),
+                [10], [:organ]; retain=true)
+            before = NamedTuple(only(state.statuses))
+            @test_throws Exception RP.step!(state, (delta=2.0,))
+            @test NamedTuple(only(state.statuses)) == before
+            @test isempty(state.publications)
+            @test state.step == 0
+            scene = CompositeModel(Object(10; kind=:organ); applications=specs,
+                environment=(delta=2.0, duration=Day(1)))
+            ordinary = PSE.run!(scene; steps=0, outputs=:all)
+            original_before = PSE.final_state(ordinary, ObjectId(10))
+            @test_throws Exception PSE.step!(ordinary)
+            @test PSE.final_state(ordinary, ObjectId(10)) == original_before
+        end
+
+        @testset "declared child environment schema and skipped execution" begin
+            specs = (
+                ModelSpec(SkippedCaller(); name=:skipped, on=Many(kind=:organ), every=Day(1)),
+                ModelSpec(Grandchild(); name=:grand, on=Many(kind=:organ), every=Day(1)),
+            )
+            state = RP.instantiate(RP.prepare(specs), map(spec -> spec.model, specs),
+                [10], [:organ]; retain=true)
+            # PSE validates every declared environment source during ordinary
+            # preparation, even if a conditional caller never enters the child.
+            @test_throws Exception RP.step!(state,NamedTuple())
+            @test_throws Exception _ordinary(specs,[10],1,NamedTuple())
+            @test only(state.statuses).skipped_runs == 0
+            @test isempty(state.publications)
+            RP.step!(state,(delta=2.0,))
+            ordinary = _ordinary(specs,[10],1,(delta=2.0,))
+            @test only(state.statuses).skipped_runs == 1
+            @test only(state.statuses).grand_count == 0
+            @test only(state.publications).application == :skipped
+            @test isequal(_retained_rows(state, specs), _ordinary_rows(ordinary))
+        end
+
+        @testset "scientific contract values remain part of admission" begin
+            source = ModelSpec(ContractSource(:m); name=:contract_source,
+                on=Many(kind=:organ), every=Day(1))
+            consumer = ModelSpec(ContractConsumer(:m); name=:contract_consumer,
+                on=Many(kind=:organ), every=Day(1))
+            mismatch = ModelSpec(ContractConsumer(:cm); name=:contract_consumer,
+                on=Many(kind=:organ), every=Day(1))
+            @test typeof(consumer.model) === typeof(mismatch.model)
+            @test typeof(PSE.variable_contracts_(consumer.model)) === typeof(PSE.variable_contracts_(mismatch.model))
+            @test_throws Exception RP.prepare((source, mismatch))
+            program = RP.prepare((source, consumer))
+            @test RP.instantiate(program, (source.model, consumer.model), [10], [:organ]).program === program
+            @test_throws ArgumentError RP.instantiate(program,
+                (source.model, mismatch.model), [10], [:organ])
+            @test_throws ArgumentError RP.instantiate(program,
+                (ContractSource(:cm), consumer.model), [10], [:organ])
         end
 
         @testset "unsupported graph ownership fails during preparation" begin

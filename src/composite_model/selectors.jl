@@ -110,7 +110,7 @@ function _normalize_object_id_criterion(value)
     return ObjectId(value)
 end
 
-function _normalize_object_selector_value(key::Symbol, value)
+Base.@constprop :aggressive function _normalize_object_selector_value(key::Symbol, value)
     key == :id && return _normalize_object_id_criterion(value)
     key == :within && begin
         value isa Union{SceneScope,Self,Subtree,SelfPlant,Ancestor,Scope} || error(
@@ -143,14 +143,16 @@ function _object_matches_selector_value(object_value, requested)
     return object_value == requested
 end
 
-function _normalize_selector_kwargs(kwargs)
-    unsupported = Symbol[key for key in keys(kwargs) if !(key in _OBJECT_SELECTOR_KEYWORD_FIELDS)]
-    isempty(unsupported) || error(
-        "Unsupported object selector keyword(s) `$(Tuple(unsupported))`. ",
-        "Supported keywords are `$(_OBJECT_SELECTOR_KEYWORD_FIELDS)`."
-    )
-    return NamedTuple{keys(kwargs)}(
-        Tuple(_normalize_object_selector_value(k, v) for (k, v) in pairs(kwargs))
+Base.@constprop :aggressive function _normalize_selector_kwargs(kwargs::NamedTuple{K}) where {K}
+    if !all(key -> key in _OBJECT_SELECTOR_KEYWORD_FIELDS,K)
+        unsupported = filter(key -> !(key in _OBJECT_SELECTOR_KEYWORD_FIELDS),K)
+        error(
+            "Unsupported object selector keyword(s) `$(unsupported)`. ",
+            "Supported keywords are `$(_OBJECT_SELECTOR_KEYWORD_FIELDS)`."
+        )
+    end
+    return NamedTuple{K}(
+        map(_normalize_object_selector_value,K,values(kwargs))
     )
 end
 

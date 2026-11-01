@@ -5,7 +5,7 @@ using Dates
 const PSE = PlantSimEngine
 
 # Deliberately outside src/: this is an admitted subset, not a second public API.
-struct Region{M,I,O,E,C,D}
+struct Region{M,I,O,E,C,D,V}
     model_type::Type{M}
     input_type::Type{I}
     output_type::Type{O}
@@ -15,6 +15,7 @@ struct Region{M,I,O,E,C,D}
     kind::Symbol
     calls::C
     dependencies::D
+    contracts::V
 end
 
 struct Program{R,S,X}
@@ -49,6 +50,7 @@ mutable struct State{P,R,S,I,D,V}
     const defaults::D
     step::Int
     const publications::Vector{Publication{I,V}}
+    const publication_index::Dict{Tuple{Symbol,I,Int},Int}
     retain::Bool
 end
 
@@ -79,12 +81,14 @@ function _admit(spec)
         throw(ArgumentError("invalid input declarations"))
     all(x -> !(x isa PSE.Default) || isbits(x.value), values(PSE.inputs_(spec))) ||
         throw(ArgumentError("mutable defaults are not admitted"))
+    PSE._variable_contract_schema(spec)
     return c.kind
 end
 
 """Prepare once from existing contracts, without constructing a CompositeModel or Simulation.
-Only unique same-object writers, one fixed cadence and plain global rows are admitted.
-Unknown context operations fail in the original kernel (context is nothing).
+Unique same-object writers, manual call trees, typed external inputs, one fixed
+cadence and plain global rows are admitted. Context supports declared calls;
+unknown operations fail explicitly rather than using the ordinary runtime.
 """
 function prepare(specs::Tuple; initial=NamedTuple())
     isempty(specs) && throw(ArgumentError("empty program"))
@@ -135,6 +139,8 @@ function prepare(specs::Tuple; initial=NamedTuple())
                     throw(ArgumentError("unresolved required input"))
             end
         else
+            PSE._validate_model_variable_contract!((spec=spec,id=spec.name),var,
+                (spec=specs[producer],id=specs[producer].name),var)
             value = PSE.outputs_(specs[producer])[var]
             value isa PSE._input_expected_type(declaration) || throw(ArgumentError("incompatible producer/input types"))
             owner = _call_root(i,parents)
@@ -187,11 +193,16 @@ function _recipe(specs,slots,kinds,i)
     children = map(child -> _recipe(specs,slots,kinds,child),slots[i])
     calls = NamedTuple{keys(spec.calls)}(children)
     return Region(typeof(spec.model),typeof(PSE.inputs_(spec)),typeof(PSE.outputs_(spec)),
-        typeof(PSE.environment_inputs_(spec)),i,spec.name,kinds[i],calls,PSE.dep(spec.model))
+        typeof(PSE.environment_inputs_(spec)),i,spec.name,kinds[i],calls,PSE.dep(spec.model),PSE._variable_contract_schema(spec))
 end
-function _bind(recipe::Region{M,I,O,E}, models, statuses) where {M,I,O,E}
+function _bind(recipe::Region{M,I,O,E,C,D,V}, models, statuses) where {M,I,O,E,C,D,V}
     model = models[recipe.slot]::M
-    isequal(PSE.dep(model),recipe.dependencies) && isempty(PSE.environment_outputs_(model)) &&
+    contracts = PSE.variable_contracts_(model)
+    contracts isa V || throw(ArgumentError("changed scientific variable contracts"))
+    dependencies = PSE.dep(model)
+    dependencies isa D || throw(ArgumentError("changed model dependency schema"))
+    isequal(contracts::V,recipe.contracts) || throw(ArgumentError("changed scientific variable contracts"))
+    isequal(dependencies::D,recipe.dependencies) && isempty(PSE.environment_outputs_(model)) &&
         PSE._is_default_clock(PSE.timespec(model)) || throw(ArgumentError("changed model dependencies or clock"))
     typeof(PSE.inputs_(model)) === I && typeof(PSE.outputs_(model)) === O &&
         typeof(PSE.environment_inputs_(model)) === E || throw(ArgumentError("changed declaration schema"))
@@ -199,19 +210,39 @@ function _bind(recipe::Region{M,I,O,E}, models, statuses) where {M,I,O,E}
     return BoundRegion(model,statuses,calls,recipe.slot,recipe.name)
 end
 
-function _validate_defaults(models::Tuple)
-    for model in models, (var, declaration) in pairs(PSE.inputs_(model))
-        declaration isa PSE.Default || continue
-        any(other -> haskey(PSE.outputs_(other), var), models) && continue
-        for other in models
-            input = PSE.inputs_(other)
-            haskey(input, var) || continue
-            candidate = input[var]
-            candidate isa PSE.Default || continue
-            typeof(candidate.value) === typeof(declaration.value) &&
-                isequal(candidate.value, declaration.value) || throw(ArgumentError("contradictory input defaults"))
-        end
-    end
+_has_writer(::Tuple{},var) = false
+_has_writer(models::Tuple,var) = haskey(PSE.outputs_(first(models)),var) || _has_writer(Base.tail(models),var)
+_validate_defaults(models::Tuple) = _validate_model_defaults(models,models)
+_validate_model_defaults(::Tuple{},allmodels) = nothing
+function _validate_model_defaults(models::Tuple,allmodels)
+    schema = PSE.inputs_(first(models))
+    _validate_default_fields(keys(schema),values(schema),allmodels)
+    _validate_model_defaults(Base.tail(models),allmodels)
+end
+_validate_default_fields(::Tuple{},::Tuple{},models) = nothing
+function _validate_default_fields(names::Tuple,declarations::Tuple,models)
+    _validate_default(first(names),first(declarations),models)
+    _validate_default_fields(Base.tail(names),Base.tail(declarations),models)
+end
+_validate_default(var,::PSE.Required,models) = nothing
+function _validate_default(var,declaration::PSE.Default,models)
+    _has_writer(models,var) || _compare_default_models(models,var,declaration)
+    return nothing
+end
+_compare_default_models(::Tuple{},var,declaration) = nothing
+function _compare_default_models(models::Tuple,var,declaration)
+    schema = PSE.inputs_(first(models))
+    _compare_default_fields(keys(schema),values(schema),var,declaration)
+    _compare_default_models(Base.tail(models),var,declaration)
+end
+_compare_default_fields(::Tuple{},::Tuple{},var,declaration) = nothing
+function _compare_default_fields(names::Tuple,declarations::Tuple,var,declaration)
+    first(names) === var && _compare_default(first(declarations),declaration)
+    _compare_default_fields(Base.tail(names),Base.tail(declarations),var,declaration)
+end
+_compare_default(::PSE.Required,declaration) = nothing
+function _compare_default(actual::PSE.Default{T},expected::PSE.Default{S}) where {T,S}
+    T === S && isequal(actual.value,expected.value) || throw(ArgumentError("contradictory input defaults"))
     return nothing
 end
 
@@ -228,7 +259,7 @@ function instantiate(program::Program, models::Tuple, ids::Vector{I}, kinds::Vec
     statuses = [Status(seed) for _ in ids]
     regions = map(r -> _bind(r, models, statuses), program.regions)
     return State(program, regions, copy(ids), copy(kinds), statuses, defaults, 0,
-        Publication{I,typeof(seed)}[],Bool(retain))
+        Publication{I,typeof(seed)}[],Dict{Tuple{Symbol,I,Int},Int}(),Bool(retain))
 end
 
 function _external_initial(::Type{X},initial) where {X}
@@ -266,6 +297,7 @@ struct Context{K,ST,S,E,C}
     row::Int
     environment::E
     constants::C
+    step::Int
     suppress_publication::Bool
 end
 struct Target{C}
@@ -292,14 +324,22 @@ end
 function PSE.call_targets(context::Context,name::Symbol)
     kernel = getproperty(context.kernel.calls,name)
     child = Context(kernel,context.state,context.status,context.row,
-        context.environment,context.constants,context.suppress_publication)
+        context.environment,context.constants,context.step,context.suppress_publication)
     return Targets(Target(child),true)
 end
 function _publish!(context::Context)
     state = context.state
     state.retain || return nothing
-    push!(state.publications,Publication(context.kernel.name,state.ids[context.row],
-        state.step+1,NamedTuple(context.status)))
+    id = state.ids[context.row]
+    key = (context.kernel.name,id,context.step)
+    sample = Publication(context.kernel.name,id,context.step,NamedTuple(context.status))
+    previous = get(state.publication_index,key,0)
+    if previous == 0
+        push!(state.publications,sample)
+        state.publication_index[key] = length(state.publications)
+    else
+        state.publications[previous] = sample
+    end
     return nothing
 end
 function _invoke!(context::Context;publish=false)
@@ -311,7 +351,7 @@ function PSE.run_call!(target::Target;publish=false,environment=target.context.e
                       constants=target.context.constants)
     previous = target.context
     context = Context(previous.kernel,previous.state,previous.status,previous.row,
-        environment,constants,previous.suppress_publication || !publish)
+        environment,constants,previous.step,previous.suppress_publication || !publish)
     _validate_environment((context.kernel,),environment)
     _invoke!(context;publish)
     return target
@@ -327,8 +367,9 @@ end
 _run!(::Tuple{},state,environment,constants) = nothing
 function _run!(regions::Tuple,state,environment,constants)
     region = first(regions)
+    isempty(region.rows) || _validate_environment((region,),environment)
     for row in eachindex(region.rows)
-        context = Context(region,state,region.rows[row],row,environment,constants,false)
+        context = Context(region,state,region.rows[row],row,environment,constants,state.step+1,false)
         _invoke!(context;publish=true)
     end
     _run!(Base.tail(regions),state,environment,constants)
@@ -346,7 +387,6 @@ function _validate_environment(regions::Tuple, row)
 end
 
 function step!(state::State, environment; constants=nothing)
-    _validate_environment(state.regions, environment)
     _run!(state.regions,state, environment, constants)
     state.step += 1
     return state

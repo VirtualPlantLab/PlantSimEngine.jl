@@ -69,4 +69,21 @@ function run_checks()
         fails=counts.fails+counts.cumulative_fails,errors=counts.errors+counts.cumulative_errors,
         cases=length(summaries))
 end
+function _advance!(state,forcing,constants)
+    for row in forcing
+        RP.step!(state,row;constants)
+    end
+    return nothing
+end
+
+"""Allocation diagnostic only: five warmed loops, no construction/retention/IO."""
+function allocation_probe()
+    program = RP.prepare(XF.specs();initial=XF.initial())
+    state = RP.instantiate(program,XF.models(),collect(1:4),fill(:soil,4);initial=XF.initial())
+    forcing = XF.rows(8)
+    constants = PlantSimEngine.Constants()
+    _advance!(state,forcing,constants)
+    return [@allocated(_advance!(state,forcing,constants)) for _ in 1:5]
+end
+
 end

@@ -1,3 +1,8 @@
+> Historical first-fixture qualification at `a8c1619d`, before manual calls and
+> original XPalm support. Its source/artifact hashes and timings describe that
+> revision. See [current XPalm qualification](xpalm/README.md) for the new case;
+> the current branch also includes a small selector-normalization production fix.
+
 # Local qualification, 2026-11-01
 
 Julia 1.13.1, JuliaC 0.3.12, Apple M3 Max, macOS arm64. All Julia evaluation and

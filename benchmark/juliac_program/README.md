@@ -1,97 +1,116 @@
 # Reusable composite program and JuliaC experiment
 
-This experiment constructs a typed program **directly from `ModelSpec` and model
-contracts**, without first constructing or lowering an ordinary `Simulation`.
-It is separate from `compiled_model_source`, which explains the ordinary runtime.
-It is not yet a production backend or an XPalm release.
+A first original XPalm soil/root case now compiles with JuliaC **safe trimming**.
+It calls XPalm's unchanged DailyDegreeDays, FTSW and RootGrowthFTSW kernels. Its
+FTSW model's existing `dep` declares the root call; no scientific equation or
+redundant call contract is added. XPalm is pinned to
+`5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd` in the isolated app environment.
 
-## First admitted subset
+## Prepared program and admitted subset
 
-`app/src/program.jl` prepares an immutable tuple of dependency-ordered regions,
-model/schema types, target category and fixed cadence. It stores no model
-parameter values, object IDs, memberships, weather or simulation statuses.
-Instantiation supplies concrete models and allocates fresh canonical Ref-backed
-statuses. All admitted regions share the canonical status vector directly. The row loop calls the original `PlantSimEngine.run!`
-methods directly. Two applications on an object see the same live references.
-Neither source AST concatenation nor runtime `eval` is used.
+`app/src/program.jl` derives an immutable typed call tree and root order directly
+from `ModelSpec` and existing contracts. It does not construct an ordinary
+`Simulation`/plan and then perform a second lowering. Models/parameters, IDs,
+weather, canonical Ref-backed statuses and publication storage belong to each
+simulation. Counts, IDs and values remain data. All regions in the admitted
+cohort share the canonical status vector without copying scientific values.
 
-The first subset has one object category, scalar isbits state, unique local
-writers, inferred same-object inputs, one explicit positive fixed cadence and
-plain global NamedTuple environment rows. Each `step!` consumes one cadence row.
-Calls, temporal policies, output retention, multiple categories, topology,
-distributed outputs, environment remapping/commits and context operations are not
-implemented. Unsupported declarations are rejected rather than routed through a
-second ordinary preparation. Kernels in this experiment do not use context;
-unknown context behavior is not inferred automatically from declarations.
+The current subset admits one category, scalar isbits state, unique local
+writers, inferred same-object inputs, typed externally supplied required inputs,
+one fixed positive cadence and complete plain NamedTuple environment rows.
+Manual calls identify one application on the same object; the parent decides
+which targets to execute and when. Callees are excluded from the root schedule.
+Call-only inputs do not introduce new implicit ordering on their parent.
 
-`add_object!` adds rows at a host-controlled timestep boundary. It reuses the same
-program and existing references, including when the population starts empty.
-This demonstrates known-schema vector growth, not kernel-driven PSE lifecycle,
-newborn initialization or the full future growth contract.
+Call targets and returned collections preserve live status aliases. Published
+calls retain one final sample per application/object/timestep. Unpublished
+ancestors suppress descendant publications transitively. Targets capture their
+invocation timestep. Scientific variable contracts use PSE's existing validator
+and are rechecked when models/parameters are replaced. Declared environment
+sources are required even for potentially skipped children, as in ordinary PSE.
 
-`app/src/fixture.jl` defines two small generic scientific methods and the ordinary
-PSE comparison. Specifications deliberately list the consumer before its producer.
-`checks.jl` compares exact final values and retained ordinary biomass samples,
-Float32/Float64, changed parameter/weather values, IDs/populations, independent
-states, live references and boundary births. Counts and values remain data:
-state types are checked across those variations. This does not prove absence of
-all internal specializations or JIT for arbitrary downstream models.
+`add_object!` adds a known-schema object at a host-controlled timestep boundary,
+including to an empty cohort. The XPalm case tests root-depth growth and addition
+of independent soil columns. **It does not yet implement PhytomerEmission, MTG
+node creation, multiple organ categories, Initializer, evaluate/accept, temporal
+policies, distributed outputs, custom spatial environments or a whole palm.**
+Unknown declarations/context operations are rejected or fail explicitly; no
+ordinary runtime fallback is hidden inside this prototype.
 
-## Reproduce through Kaimon
+A small production correction in `src/composite_model/selectors.jl` preserves
+concrete tuple types while normalizing selector keywords and validating their
+names. This closes the original XPalm `dep(Call(process=...))` path under safe
+trimming without changing selector semantics. Downstream sources are untouched.
 
-Open a dedicated Kaimon session at the repository root and first inspect its
-environment. Evaluate:
+## Julia-level checks through Kaimon
+
+For the original local fixture, use a Kaimon session at the repository root:
 
 ```julia
 include("benchmark/juliac_program/app/src/program.jl")
 include("benchmark/juliac_program/app/src/fixture.jl")
 include("benchmark/juliac_program/checks.jl")
+include("benchmark/juliac_program/call_checks.jl")
 ReusableProgramChecks.run_checks()
+NativeCallChecks.run_checks()
 ```
 
-The initial local Julia 1.13.1 run passed **512 assertions**. This is a targeted
-prototype qualification, not a full PSE test-suite or scientific qualification.
+For XPalm, open a dedicated Kaimon session at `app/`, inspect its environment,
+then evaluate (these relative paths are from that session's directory):
 
-For a small warm comparison, load `screen.jl` after the two modules and call
-`ProgramScreen.screen(32,128;cycles=6)`. `ProgramScreen.allocation_gate()` checks
-five warmed executions without construction or collection. See
-[the measured results](results/README.md) for phase costs and limitations.
+```julia
+include("src/program.jl")
+include("src/xpalm_fixture.jl")
+include("../xpalm_checks.jl")
+XPalmChecks.run_checks()
+```
+
+All canonical states and each original output's full publication series are
+compared with ordinary PSE across fourteen cases, varied values/IDs/populations,
+and births from zero. See [current XPalm evidence](results/xpalm/README.md).
+These targeted checks do not replace scientific or whole-package qualification.
+Reload these standalone modules after edits; they are not Revise-tracked package
+files. The existing local-fixture timing driver `screen.jl` remains available,
+but its recorded figures describe the earlier fixture backend, not XPalm.
 
 ## Native executable
 
-The autonomous `app/` package defines `@main(args::Vector{String})`. It prepares
-its program at package load time. Its fixed CLI schema is:
+Open a separate Kaimon session at `buildenv/`, inspect it, then
+`include("../build.jl")`. JuliaC 0.3.12 remains outside PSE's dependencies. Builds
+use `trim_mode="safe"`, `cpu_target="generic"` and no arbitrary entrypoint or
+unsafe bypass. Each build creates a new bundle and writes its path to
+`build/latest.txt`. Distribute that entire bundle. Its `bin/run-pse-program`
+configures lookup of bundled artifacts before executing native `bin/pse_program`.
+
+The CLI now has an explicit mode followed by eight numeric inputs:
 
 ```text
-population steps birth_at newborns id_offset efficiency conversion temperature
+fixture population steps birth_at newborns id_offset efficiency conversion temperature
+xpalm   population steps birth_at newborns id_offset initial_root_depth root_rate rainfall
 ```
 
-Counts/IDs are Int, scientific inputs Float64. Weather at step i is
-`(T=temperature+i,)`. `birth_at=0` disables births and requires `newborns=0`.
-Output is `population,steps,total_carbon,total_biomass`.
+Counts/IDs use Int, scientific inputs Float64. Births happen before `birth_at`;
+zero disables births and requires `newborns=0`. XPalm uses fixed initial
+ET0=2.5/aPPFD=1.0 and daily forcing defined by `XPalmFixture.rows`. It prints a
+population/timestep header, then object ID and all 23 state fields in
+`XPalmFixture.STATE_VARIABLES` order. Example:
 
-Open a **separate Kaimon session at `buildenv/`**, inspect the environment, then
-`include("../build.jl")`. This pins JuliaC 0.3.12 outside PSE's dependencies and
-uses `trim_mode="safe"`, `cpu_target="generic"`. JuliaC orchestrates its normal
-compiler subprocesses from that Kaimon-controlled build. No unsafe trimming or
-arbitrary extra entrypoints are used. Each successful build writes its bundle path to `build/latest.txt`. Run
-`bin/run-pse-program` within that bundle: it configures bundled artifact lookup
-before starting the native `bin/pse_program` image. Distribute the full bundle.
+```text
+/path/to/bundle/bin/run-pse-program xpalm 0 4 2 1 500 200.0 0.4 10.0
+```
 
-Safe native compilation and five exact ordinary/native comparisons now pass,
-including a relocated bundle with an empty external depot and three rejected
-invalid CLI cases. After loading `checks.jl`, evaluate:
+After loading the XPalm modules in the app Kaimon session, evaluate:
 
 ```julia
-include("benchmark/juliac_program/native_checks.jl")
-NativeProgramChecks.run_checks()
+include("../xpalm_native_checks.jl")
+XPalmNativeChecks.run_checks()
 ```
-Raw native and timing results are in `results/`; the indexed-row predecessor
-is retained under `results/indexed/`. A Julia-level comparison alone does not qualify the native artifact.
-The fixed input schema does not itself prove closure of internal call paths.
-No zero-JIT or cross-platform binary portability claim is made.
 
-Official tool: [JuliaC](https://github.com/JuliaLang/JuliaC.jl). Next milestones
-are safe native execution/parity, charged preparation/runtime comparisons, then
-incremental expansion toward calls/publication/lifecycle and original downstream
-kernels. Production PSE sources and downstream package sources are unchanged.
+The native check compares every final state variable exactly on five cases and
+copies the bundle to a new directory before repeating a birth case with an
+empty external depot. The launcher replaces that depot with the shipped one.
+Native final-state parity and Julia-level publication-series checks are distinct.
+No process-cold speedup, universal zero-JIT or cross-platform portability claim
+is made. A native library ABI and original whole-palm growth remain future work.
+
+Official compiler: [JuliaC](https://github.com/JuliaLang/JuliaC.jl).

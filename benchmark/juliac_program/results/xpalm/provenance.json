@@ -1,0 +1,78 @@
+{
+  "recorded_at": "2026-11-01T16:16:33.401335+00:00",
+  "base_commit": "3d1e9e3f17d626ee0146c4253f201bf858cb4600",
+  "cpu": "Apple M3 Max",
+  "platform": "arm64-apple-darwin27.0.0",
+  "xpalm_revision": "5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd",
+  "build": {
+    "julia": "1.13.1",
+    "bundle_s": 0.526780166,
+    "compilation_s": 11.355379209,
+    "bundle": "/Users/rvezy/.codex/worktrees/pse-juliac-program/PlantSimEngine/benchmark/juliac_program/build/bundle-1n74lj",
+    "juliac": "0.3.12",
+    "trim": "safe",
+    "link_s": 0.048590417,
+    "cpu": "generic"
+  },
+  "checks": {
+    "fixture": {
+      "passes": 512,
+      "fails": 0,
+      "errors": 0
+    },
+    "calls": {
+      "passes": 255,
+      "fails": 0,
+      "errors": 0
+    },
+    "xpalm": {
+      "passes": 627,
+      "fails": 0,
+      "errors": 0,
+      "cases": 14
+    }
+  },
+  "selector_and_integration": {
+    "passes": 926,
+    "fails": 0,
+    "errors": 0,
+    "kaimon_eval": "bb9fb8a0"
+  },
+  "native": {
+    "parity_cases": 5,
+    "state_variables": 23,
+    "relocation_cases": 1,
+    "kaimon_eval": "91c00976"
+  },
+  "allocation_probe": {
+    "bytes": [
+      1536,
+      1536,
+      1536,
+      1536,
+      1536
+    ],
+    "objects": 4,
+    "steps_per_call": 8,
+    "retained": false
+  },
+  "source_sha256": {
+    "benchmark/juliac_program/app/src/PSEProgramApp.jl": "340b91f54ee18b45be706b17306f3345bf318562d8cc44d0bbc2032f8b801d77",
+    "benchmark/juliac_program/app/src/fixture.jl": "32fcddd0fefd470be8b40c44a2e80bea78e847b0858b82b9a0ca2c001d7bdb72",
+    "benchmark/juliac_program/app/src/program.jl": "119d5a6a9016cd9a528815ec6329472a9c4e2fd351ac9309bd8f0487e405faaa",
+    "benchmark/juliac_program/app/src/xpalm_fixture.jl": "7e8780eb25ad7f1c6d053a5f010556ddad5616e2f23ab0f9da71a9f5be77b850",
+    "benchmark/juliac_program/app/Project.toml": "84236dde52e17d44abc46685d2e0dad4ea5821c18ac10c3e2513eadcd5b2f013",
+    "benchmark/juliac_program/launcher.sh": "69545dd09b8938f196bcaa538fd7cd23044c2fa1589ad4381f2cca7b09d904ef",
+    "benchmark/juliac_program/build.jl": "95d4b212b7c60da0df257d6b9cd9eca579dd46afe6b9e3d97108ba901bf11968",
+    "benchmark/juliac_program/xpalm_checks.jl": "fec8caa018d381fd8fcb9433f1da6e4a2e0e42f5ce7a4d128bd592c2044bb6bd",
+    "benchmark/juliac_program/xpalm_native_checks.jl": "7dd57db271c0d1c4efedde0aeaf2dfe79f945d40b4a376d37eb9a1713010256f",
+    "benchmark/juliac_program/call_checks.jl": "6248b6c9276c9d8f4e02969a12b485f178d1606ab5f7410914ac29e548e47fc5",
+    "src/composite_model/selectors.jl": "36c5c188fbf9592228ad10fb7330cf1f35f2fc91d09f521b2f8b3bb86c1f7e17",
+    "test/test-selector-construction-inference.jl": "1ea86eb3d919307f8bdff1146c6b0292630697f85e161e7db358cd5ddd5b0c85"
+  },
+  "binary_sha256": "e3ccc4a4a94600814b97c03f5d326e8103036fcf025525835fa5756b1dfa1d8a",
+  "binary_bytes": 3036352,
+  "bundle_regular_file_bytes": 67149161,
+  "bundle_disk_kib": 69824,
+  "scope": "Original XPalm soil/root subgraph; same-object call trees; boundary column births; no PhytomerEmission or whole-palm qualification"
+}

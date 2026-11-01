@@ -61,6 +61,10 @@ else
         include("test-model-api-stabilization.jl")
     end
 
+    @testset "Concrete selector construction" begin
+        include("test-selector-construction-inference.jl")
+    end
+
     @testset "Selector candidate scope fast path" begin
         include("test-selector-candidate-empty-scope.jl")
     end
