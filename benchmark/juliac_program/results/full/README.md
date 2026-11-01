@@ -58,6 +58,15 @@ diagnostic preload. Its compilation/link/bundle phases took about 41.87 / 0.15 /
 0.98 seconds in the warmed environment. These phases and the recorded host
 launch/parser timings are not scientific-runtime benchmarks or zero-JIT claims.
 
+## Measured runtime performance
+
+A separate [matched XPalm comparison](performance.md) measures the original PSE
+graph, warm typed Julia execution and the actual safe executable. On this host,
+setup plus simulation is about 8.3× faster compiled for the 60-day retained case
+(246 objects, 122,554 matching samples), and 8.4× without retained outputs.
+These warm-process observations exclude startup/build/printing and use the
+accelerated qualification inputs; they are not a general production speedup.
+
 ## Typed storage and growth boundaries
 
 The plan derives routes directly from the original ModelSpec tuple, without
@@ -122,5 +131,5 @@ This qualifies the complete pinned daily `architecture=false` graph for one
 original Palm under these forcing/parameter cases. Architecture rendering,
 arbitrary MTG attribute stores/schemas, spatial environments, general multirate
 policies, heterogeneous overrides, evaluate/accept calls and topology
-removal/reparenting are outside this entry. Scientific calibration and runtime
-performance remain separate work.
+removal/reparenting are outside this entry. Scientific calibration and broader
+production performance remain separate work.

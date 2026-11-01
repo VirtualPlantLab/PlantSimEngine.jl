@@ -1,0 +1,150 @@
+{
+  "settings": {
+    "days": 60,
+    "rate": 0.3,
+    "reproductive": true,
+    "retain": false,
+    "repeats": 7,
+    "launches": 3
+  },
+  "scope": "Native safe/generic simulate_full_xpalm: instantiate + forcing construction + daily steps; excludes startup, explicit GC, printing, parsing and parity checks; program/scientific authoring reused from build",
+  "median_s": 0.036890917,
+  "min_s": 0.034219875000000004,
+  "warmups": [
+    {
+      "launch": 1,
+      "trial": 0,
+      "time_s": 0.042656125
+    },
+    {
+      "launch": 2,
+      "trial": 0,
+      "time_s": 0.041932917
+    },
+    {
+      "launch": 3,
+      "trial": 0,
+      "time_s": 0.042427375
+    }
+  ],
+  "trials": [
+    {
+      "launch": 1,
+      "trial": 1,
+      "time_s": 0.036890917
+    },
+    {
+      "launch": 1,
+      "trial": 2,
+      "time_s": 0.03707325
+    },
+    {
+      "launch": 1,
+      "trial": 3,
+      "time_s": 0.036287208
+    },
+    {
+      "launch": 1,
+      "trial": 4,
+      "time_s": 0.036080375000000005
+    },
+    {
+      "launch": 1,
+      "trial": 5,
+      "time_s": 0.036631792
+    },
+    {
+      "launch": 1,
+      "trial": 6,
+      "time_s": 0.035493042
+    },
+    {
+      "launch": 1,
+      "trial": 7,
+      "time_s": 0.034219875000000004
+    },
+    {
+      "launch": 2,
+      "trial": 1,
+      "time_s": 0.036936791000000004
+    },
+    {
+      "launch": 2,
+      "trial": 2,
+      "time_s": 0.036855041000000005
+    },
+    {
+      "launch": 2,
+      "trial": 3,
+      "time_s": 0.0364595
+    },
+    {
+      "launch": 2,
+      "trial": 4,
+      "time_s": 0.038006583000000004
+    },
+    {
+      "launch": 2,
+      "trial": 5,
+      "time_s": 0.037081583
+    },
+    {
+      "launch": 2,
+      "trial": 6,
+      "time_s": 0.038139834000000004
+    },
+    {
+      "launch": 2,
+      "trial": 7,
+      "time_s": 0.037763292000000004
+    },
+    {
+      "launch": 3,
+      "trial": 1,
+      "time_s": 0.037057667
+    },
+    {
+      "launch": 3,
+      "trial": 2,
+      "time_s": 0.037436416
+    },
+    {
+      "launch": 3,
+      "trial": 3,
+      "time_s": 0.036301167
+    },
+    {
+      "launch": 3,
+      "trial": 4,
+      "time_s": 0.037011833
+    },
+    {
+      "launch": 3,
+      "trial": 5,
+      "time_s": 0.037214375
+    },
+    {
+      "launch": 3,
+      "trial": 6,
+      "time_s": 0.035451625
+    },
+    {
+      "launch": 3,
+      "trial": 7,
+      "time_s": 0.034355667
+    }
+  ],
+  "validated": {
+    "objects": 246,
+    "applications": 61,
+    "canonical_fields": 4904,
+    "retained_samples": 0,
+    "rng_streams": 2,
+    "canonical_state": true,
+    "topology": true,
+    "retained_sample_parity": false,
+    "owned_rng": true
+  },
+  "binary_sha256": "b8d262c3765d9f6788473371ba4616575eeb2b8deecffe7e43d892af886a7f9c",
+  "app_sha256": "040eb06c78e4e5162ddfb3267ff311c9ff91cb7dbd5b2dfaf8c35229724f64cf"
+}
