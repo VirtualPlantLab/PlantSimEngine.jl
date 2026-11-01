@@ -164,6 +164,32 @@ function _full_binding_entries(route::FullInputRoute{S,V,TEMP,MULT,T},state,orig
     return entries
 end
 
+# Append-only topology makes every previously selected row stable. On a dirty
+# source stamp inspect only its newly visible suffix; allocate an additions
+# buffer only if that suffix contains a match for this consumer.
+function _full_append_added_binding_source(added,state,origin,route::FullInputRoute{S,V,TEMP,MULT,T},
+                                           ::Val{SOURCE},old_count) where {S,V,TEMP,MULT,T,SOURCE}
+    C,SLOT=SOURCE
+    cohort=state.cohorts[C]
+    limit=MULT===:many ? cohort.committed : length(cohort.ids)
+    old_count<=limit || throw(ArgumentError("binding reuse requires append-only source membership"))
+    for row in (old_count+1):limit
+        _full_matches(route.selector,state,origin,cohort.nodes[row]) || continue
+        isnothing(added) && (added=NTuple{4,Int}[])
+        push!(added,(cohort.ids[row],C,row,SLOT))
+    end
+    return added
+end
+@generated function _full_added_binding_entries(binding,route::FullInputRoute{S,V,TEMP,MULT,T},state,origin) where {S,V,TEMP,MULT,T}
+    calls=[:(added=_full_append_added_binding_source(added,state,origin,route,
+        Val($(QuoteNode(source))),binding.stamp[$index][1])) for (index,source) in enumerate(S)]
+    return quote
+        added=nothing
+        $(calls...)
+        added
+    end
+end
+
 # Direct finite cohort/producer projections preserve concrete source and stream
 # types under safe trimming; locations contain runtime rows/IDs, never Val IDs.
 @generated function _full_binding_stamp(route::FullInputRoute{S,V,TEMP,MULT},state) where {S,V,TEMP,MULT}
@@ -224,7 +250,8 @@ end
 
 function _refresh_full_binding!(binding::FullBinding{R,TEMP,MULT,T},state,origin,step;initialize=false) where {R,TEMP,MULT,T}
     stamp=_full_binding_stamp(binding.route,state)
-    unchanged=binding.valid && stamp==binding.stamp
+    reuse=binding.valid
+    unchanged=reuse && stamp==binding.stamp
     # A fixed One/OptionalOne can keep its validated membership across unrelated
     # source growth/rebinding. Many must still observe committed membership.
     fixed=binding.valid && !unchanged && MULT!==:many && _full_is_point_selector(binding.route.selector)
@@ -250,7 +277,48 @@ function _refresh_full_binding!(binding::FullBinding{R,TEMP,MULT,T},state,origin
         return nothing
     end
     binding.valid=false
-    locations=_full_binding_entries(binding.route,state,origin)
+    # A dirty cohort epoch need not change this consumer. Compare canonical
+    # Refs only at its cached locations, not at every row of the source cohort.
+    # A selected live Ref replacement copies the reference vector/carrier;
+    # unchanged selected Refs preserve every vector without allocating.
+    if reuse
+        added=_full_added_binding_entries(binding,binding.route,state,origin)
+        if isnothing(added)
+            changed=nothing
+            for index in eachindex(binding.locations)
+                location=binding.locations[index]
+                if TEMP
+                    binding.references[index][]=_full_cached_previous(binding.route,state,location,step,binding.initial[location[1]])
+                else
+                    reference=_full_cached_source_ref(binding.route,state,location)
+                    if binding.references[index]!==reference
+                        isnothing(changed) && (changed=copy(binding.references))
+                        changed[index]=reference
+                    end
+                end
+            end
+            if !TEMP && !isnothing(changed)
+                if MULT===:many
+                    binding.reference[]=PSE.RefVector(changed)
+                else
+                    binding.reference=only(changed)
+                end
+                binding.references=changed
+            elseif MULT!==:many
+                binding.reference=isempty(binding.references) ? (binding.fallback::Base.RefValue{T}) : only(binding.references)
+            end
+            binding.stamp=stamp
+            binding.valid=true
+            return nothing
+        end
+        locations=vcat(binding.locations,added)
+        sort!(locations;by=first)
+        for index in 2:length(locations)
+            locations[index-1][1]!=locations[index][1] || throw(ArgumentError("duplicate selected source object"))
+        end
+    else
+        locations=_full_binding_entries(binding.route,state,origin)
+    end
     # Validate membership before publishing a new carrier or a valid stamp.
     MULT===:one && length(locations)!=1 && throw(ArgumentError("One input requires exactly one source object"))
     MULT===:optional_one && length(locations)>1 && throw(ArgumentError("OptionalOne input requires at most one source object"))

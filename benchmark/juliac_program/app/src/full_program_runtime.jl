@@ -319,9 +319,24 @@ function _full_call_membership(c,route::FullCallRoute{SLOT}) where {SLOT}
         FullCallMembership()
     end
     if membership.live_count!=length(cohort.ids)
-        empty!(membership.live)
-        for row in _full_ordered_rows(c.state,_app_cohort(c.state.applications[SLOT].recipe),cohort;committed=false)
-            _full_matches(route.selector,c.state,origin,cohort.nodes[row]) && push!(membership.live,row)
+        fixed,node=_full_point_node(route.selector,origin)
+        changed=false
+        if fixed
+            if membership.live_count<0 && !isnothing(node)
+                location=get(c.state.locations,MTG.node_id(node),nothing)
+                if !isnothing(location) && location[1]==_app_cohort(c.state.applications[SLOT].recipe) &&
+                    _full_matches(route.selector,c.state,origin,node)
+                    push!(membership.live,location[2])
+                end
+            end
+        else
+            for row in (max(membership.live_count,0)+1):length(cohort.ids)
+                if _full_matches(route.selector,c.state,origin,cohort.nodes[row])
+                    push!(membership.live,row)
+                    changed=true
+                end
+            end
+            changed && sort!(membership.live;by=row->cohort.ids[row])
         end
         membership.live_count=length(cohort.ids)
     end
@@ -340,10 +355,14 @@ function _cohort_targets(c,route::FullCallRoute{SLOT,MODE,MULT},objects=nothing)
     T=_cohort_context_type(app,c.state,cohort,c.environment,c.constants)
     targets=CohortTarget{T}[]
     origin=c.application.cohort.nodes[c.row]
-    membership=_full_call_membership(c,route)
-    fullcount=length(membership.live)
-    MODE===:manual && MULT===:one && !isnothing(objects) && fullcount!=1 && throw(ArgumentError("targeted One call cannot relax cardinality"))
-    MODE===:manual && MULT===:optional_one && !isnothing(objects) && fullcount>1 && throw(ArgumentError("targeted OptionalOne call cannot relax cardinality"))
+    # Targeted initializers validate their one newborn directly. Their One
+    # selects an application; it never requires scanning every live newborn.
+    membership=MODE===:manual ? _full_call_membership(c,route) : nothing
+    if MODE===:manual
+        fullcount=length(membership.live)
+        MULT===:one && !isnothing(objects) && fullcount!=1 && throw(ArgumentError("targeted One call cannot relax cardinality"))
+        MULT===:optional_one && !isnothing(objects) && fullcount>1 && throw(ArgumentError("targeted OptionalOne call cannot relax cardinality"))
+    end
     if !isnothing(objects)
         id=ObjectId(objects).value
         location=get(c.state.locations,id,nothing)
@@ -354,6 +373,7 @@ function _cohort_targets(c,route::FullCallRoute{SLOT,MODE,MULT},objects=nothing)
         child=CohortContext(app,c.state,app.views[row],row,c.environment,c.constants,c.step,c.suppress)
         push!(targets,CohortTarget(child))
     else
+        MODE===:manual || throw(ArgumentError("initializer requires an explicit newborn object"))
         for row in membership.committed
             child=CohortContext(app,c.state,app.views[row],row,c.environment,c.constants,c.step,c.suppress)
             push!(targets,CohortTarget(child))

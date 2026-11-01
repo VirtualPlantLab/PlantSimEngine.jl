@@ -236,6 +236,61 @@ function _array_state(retain)
         initial, objects=_empty_objects(initial), retain)
 end
 
+PSE.@process "reuse_scene_creator" verbose = false
+struct SceneCreator <: AbstractReuse_Scene_CreatorModel end
+PSE.inputs_(::SceneCreator) = NamedTuple()
+PSE.outputs_(::SceneCreator) = (scene_born=false,)
+PSE.environment_inputs_(::SceneCreator) = (create=false,)
+function PSE.run!(::SceneCreator, status, environment, constants, context)
+    (status.scene_born || !environment.create) && return nothing
+    PSE.add_organ!(PSE.source_node(context, ObjectId(3)), context, :+, :Leaf, 2;
+        id=40, index=1, initial_status=(x=50.0,))
+    status.scene_born = true
+    return nothing
+end
+function _two_plants_state()
+    root = _node(1, :Scene, 0)
+    first_plant = _node(2, :Plant, 1, root)
+    _node(3, :Plant, 1, root)
+    for id in (30, 10)
+        _node(id, :Leaf, 2, first_plant)
+    end
+    specs = (_application(Source(-1), :source, :Leaf),
+        _application(SceneCreator(), :scene_creator, :Scene),
+        _application(Observer(), :observer, :Plant; inputs=(xs=_xs(),), calls=(ticks=_tick(),)),
+        _application(Tick(), :tick, :Leaf))
+    initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
+    return RP.instantiate(RP.prepare(specs; initial), map(spec -> spec.model, specs), root;
+        initial, objects=_empty_objects(initial), retain=true)
+end
+
+PSE.@process "reuse_f32_source" verbose = false
+struct F32Source <: AbstractReuse_F32_SourceModel end
+PSE.inputs_(::F32Source) = NamedTuple()
+PSE.outputs_(::F32Source) = (x=1f0,)
+PSE.environment_inputs_(::F32Source) = (delta=0f0,)
+PSE.run!(::F32Source, status, environment, constants, context) = (status.x += environment.delta; nothing)
+PSE.@process "reuse_f32_reader" verbose = false
+struct F32Reader <: AbstractReuse_F32_ReaderModel end
+PSE.inputs_(::F32Reader) = (previous_x=Required(AbstractFloat),)
+PSE.outputs_(::F32Reader) = (previous_seen=0f0,)
+PSE.run!(::F32Reader, status, environment, constants, context) = (status.previous_seen = status.previous_x; nothing)
+PSE.@process "reuse_f32_observer" verbose = false
+struct F32Observer <: AbstractReuse_F32_ObserverModel end
+PSE.inputs_(::F32Observer) = (xs=Required(AbstractVector),)
+PSE.outputs_(::F32Observer) = (total=0f0,)
+PSE.run!(::F32Observer, status, environment, constants, context) = (status.total = sum(PSE.bound_input(context, :xs)); nothing)
+function _float32_state()
+    previous = (PreviousTimeStep(:previous_x) => One(within=Self(), application=:f32_source, var=:x),)
+    many = Many(scale=:Leaf, within=SelfPlant(), application=:f32_source, var=:x)
+    specs = (_application(F32Source(), :f32_source, :Leaf),
+        _application(F32Reader(), :f32_reader, :Leaf; inputs=previous),
+        _application(F32Observer(), :f32_observer, :Plant; inputs=(xs=many,)))
+    initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
+    return RP.instantiate(RP.prepare(specs; initial), map(spec -> spec.model, specs), _tree([30, 10]);
+        initial, objects=_empty_objects(initial), retain=true)
+end
+
 function run_checks()
     result = @testset "Full program reuse and invalidation" begin
         @testset "stable memberships, live values and real Ref replacement" begin
@@ -334,6 +389,51 @@ function run_checks()
             @test environment.order == [10] && _status(state, 10).x == 2.0 && _status(state, 30).x == 1.0
             @test_throws ArgumentError RP.step!(state, environment)
             @test environment.order == [10] && _status(state, 2).total == 0.0
+        end
+        @testset "growth in another plant preserves an unchanged selected carrier" begin
+            state = _two_plants_state()
+            order = Int[]
+            RP.step!(state, (delta=1.0, order=order, create=false))
+            first_carrier = _status(state, 2).xs
+            @test _status(state, 2).total == 4.0 && _status(state, 2).seen_ids == _status(state, 2).call_ids == [10, 30]
+            @test _status(state, 3).total == 0.0 && isempty(_status(state, 3).seen_ids) && isempty(_status(state, 3).call_ids)
+            RP.step!(state, (delta=1.0, order=order, create=true))
+            @test _status(state, 2).xs === first_carrier
+            @test _status(state, 2).total == 6.0 && _status(state, 2).seen_ids == _status(state, 2).call_ids == [10, 30]
+            @test _status(state, 3).total == 50.0 && _status(state, 3).seen_ids == _status(state, 3).call_ids == [40]
+            @test _status(state, 40).tick_count == 1
+            second_carrier = _status(state, 3).xs
+            RP.step!(state, (delta=1.0, order=order, create=false))
+            @test _status(state, 2).xs === first_carrier && _status(state, 2).total == 8.0
+            @test _status(state, 3).xs === second_carrier && _status(state, 3).total == 51.0
+            @test _status(state, 2).seen_ids == _status(state, 2).call_ids == [10, 30]
+            @test _status(state, 3).seen_ids == _status(state, 3).call_ids == [40]
+            @test _status(state, 40).tick_count == 2
+            @test order == [10, 30, 10, 30, 10, 30, 40]
+        end
+        @testset "Float32 live Many and same-object temporal values" begin
+            state = _float32_state()
+            RP.step!(state, (delta=1f0,))
+            carrier = _status(state, 2).xs
+            @test _status(state, 2).total === 4f0
+            @test all(id -> _status(state, id).x === 2f0 && _status(state, id).previous_seen === 1f0, (10, 30))
+            @test eltype(carrier) === Float32
+            RP.step!(state, (delta=1f0,))
+            @test _status(state, 2).total === 6f0
+            @test _status(state, 2).xs === carrier
+            @test all(id -> _status(state, id).x === 3f0 && _status(state, id).previous_seen === 2f0, (10, 30))
+            @test all(id -> _status(state, id).previous_x isa Float32, (10, 30))
+            source = state.applications[1].streams.x
+            reader = state.applications[2].streams.previous_seen
+            observer = state.applications[3].streams.total
+            @test [sample.value for sample in source.retained if sample.object_id == 10] == [2f0, 3f0]
+            @test [sample.value for sample in reader.retained if sample.object_id == 10] == [1f0, 2f0]
+            @test [sample.value for sample in observer.retained] == [4f0, 6f0]
+            temporal = (source.initial[10], source.prior[10].value, source.last[10].value)
+            @test temporal == (1f0, 2f0, 3f0)
+            @test all(value -> value isa Float32, temporal)
+            @test all(application -> all(stream -> all(sample -> sample.value isa Float32,
+                stream.retained), values(application.streams)), state.applications)
         end
         @testset "temporal arrays, consumer isolation and producer snapshots" begin
             for retain in (true, false)
