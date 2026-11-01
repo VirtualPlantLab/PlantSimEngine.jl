@@ -1,3 +1,8 @@
+The complete 61-application XPalm graph now passes a Julia-level carbon parity
+case, including typed Many inputs, distributed allocation/reserves and temporal
+streams. Reproductive and full native qualification are in progress; see the
+[full-graph evidence](results/full/README.md).
+
 A structural XPalm entry is now also available: original phytomer emission,
 targeted calls and newborn initialization with initially empty Internode/Leaf
 cohorts. See [structural qualification and CLI](results/phytomer/README.md).
@@ -37,9 +42,11 @@ sources are required even for potentially skipped children, as in ordinary PSE.
 `add_object!` adds a known-schema object at a host-controlled timestep boundary,
 including to an empty cohort. The XPalm case tests root-depth growth and addition
 of independent soil columns. The homogeneous layout does not implement MTG lifecycle. The new cohort layout
-covers the bounded phytomer subtree described above. Evaluate/accept, temporal
-policies, distributed outputs, custom spatial environments and a whole palm
-remain unsupported or unqualified.
+covers the bounded phytomer subtree described above. The full layout extends
+the same grammar to the pinned daily whole-palm graph, PreviousTimeStep inputs,
+distributed columns and ordered writers. Its qualification is reported separately
+in the full-graph evidence above. Evaluate/accept, general temporal policies and
+custom spatial environments remain outside the current cases.
 Unknown declarations/context operations are rejected or fail explicitly; no
 ordinary runtime fallback is hidden inside this prototype.
 

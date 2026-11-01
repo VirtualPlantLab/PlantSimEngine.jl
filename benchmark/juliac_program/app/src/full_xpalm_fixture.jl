@@ -39,7 +39,7 @@ end
 """All original architecture=false applications, in the original authored order."""
 specs(value::XPalm.Palm) = XPalm.model_applications(value; architecture=false)
 models(applications::Tuple) = map(application -> application.model, applications)
-models(applications::AbstractVector) = Tuple(application.spec.model for application in applications)
+models(applications::AbstractVector) = Tuple(application.model for application in applications)
 
 function _categories(value, applications)
     categories = Symbol[PSE.criteria(application.applies_to).scale for application in applications]

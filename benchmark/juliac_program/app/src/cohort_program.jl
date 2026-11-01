@@ -290,7 +290,7 @@ function _new_status(cohort,state,node,initial)
     refs=NamedTuple{keys(cohort.defaults)}(map((port,value)->_alias_ref(port.alias,value,state,node),values(cohort.recipe.ports),values(values_)))
     return Status(refs)
 end
-function _insert!(state,cohort,slot,node,status)
+function _insert_registry!(state,cohort,slot,node,status)
     id=MTG.node_id(node)
     haskey(state.nodes,id) && throw(ArgumentError("duplicate object ID"))
     push!(cohort.ids,id); push!(cohort.rows,status); push!(cohort.nodes,node)
@@ -298,6 +298,7 @@ function _insert!(state,cohort,slot,node,status)
     state.identities[PSE._status_identity(status)]=id
     return status
 end
+_insert!(state,cohort,slot,node,status)=_insert_registry!(state,cohort,slot,node,status)
 function _register_tree!(state,node)
     isempty(MTG.node_attributes(node)) || throw(ArgumentError("native cohort input requires empty MTG attrs; supply typed status inputs explicitly"))
     _register_node!(state,state.cohorts,node,1)
@@ -365,6 +366,7 @@ function _scope_matches(::CohortCall{SLOT,MODE,SCOPE},context,node) where {SLOT,
 end
 _cohort_context_type(app,state,cohort::Cohort{K,P,D,S},environment,constants) where {K,P,D,S} =
     CohortContext{typeof(app),typeof(state),S,typeof(environment),typeof(constants)}
+_application_status(app,row)=app.cohort.rows[row]
 function _cohort_targets(c,route::CohortCall{SLOT,MODE,SCOPE,MULT},objects=nothing) where {SLOT,MODE,SCOPE,MULT}
     app=c.state.applications[SLOT]; cohort=app.cohort
     # Context's status type is the callee's, even for initially empty cohorts.
@@ -378,7 +380,7 @@ function _cohort_targets(c,route::CohortCall{SLOT,MODE,SCOPE,MULT},objects=nothi
         id=cohort.ids[row]
         (isnothing(objects) || ObjectId(id)==ObjectId(objects)) || continue
         _scope_matches(route,c,cohort.nodes[row]) || continue
-        child=CohortContext(app,c.state,cohort.rows[row],row,c.environment,c.constants,c.step,c.suppress)
+        child=CohortContext(app,c.state,_application_status(app,row),row,c.environment,c.constants,c.step,c.suppress)
         push!(targets,CohortTarget(child))
     end
     MULT===:one && isnothing(objects) && length(targets)!=1 && throw(ArgumentError("One call requires exactly one target"))
@@ -466,7 +468,7 @@ end
 _step_order!(state,::Tuple{},environment,constants)=nothing
 function _step_order!(state,order::Tuple,environment,constants)
     _step_cohort_slot!(state,first(order),environment,constants)
-    _step_order!(state,Base.tail(order),environment,constants)
+    _step_order!(state,_schema_tail(order),environment,constants)
 end
 _step_cohort_slot!(state,::Val{I},environment,constants) where {I} =
     _step_cohort_application!(state,state.applications[I],environment,constants)

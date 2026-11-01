@@ -4,6 +4,12 @@ using PlantSimEngine
 using Dates
 const PSE = PlantSimEngine
 
+# Schema tuples can exceed Base.tail's inference threshold. Their lengths are
+# application metadata, so generate direct field access without value dispatch.
+@generated function _schema_tail(values::T) where {T<:Tuple}
+    return Expr(:tuple,[:(getfield(values,$i)) for i in 2:fieldcount(T)]...)
+end
+
 # Deliberately outside src/: this is an admitted subset, not a second public API.
 struct Region{M,I,O,E,C,D,V}
     model_type::Type{M}
@@ -92,6 +98,8 @@ unknown operations fail explicitly rather than using the ordinary runtime.
 """
 function prepare(specs::Tuple; initial=NamedTuple())
     isempty(specs) && throw(ArgumentError("empty program"))
+    any(s -> !isempty(s.outputs_to) || !isempty(s.updates) || any(x->x isa Many,values(s.inputs)),specs) &&
+        return _prepare_full(specs;initial)
     any(s -> haskey(PSE.criteria(s.applies_to),:scale),specs) && return _prepare_cohorts(specs;initial)
     kinds = map(_admit, specs)
     all(==(first(kinds)), kinds) || throw(ArgumentError("one object category per program is admitted"))
@@ -393,5 +401,7 @@ function step!(state::State, environment; constants=nothing)
 end
 
 include("cohort_program.jl")
+include("full_program_plan.jl")
+include("full_program_runtime.jl")
 
 end

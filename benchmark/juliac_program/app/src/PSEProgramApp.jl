@@ -3,6 +3,8 @@ include("program.jl")
 include("fixture.jl")
 include("xpalm_fixture.jl")
 include("phytomer_fixture.jl")
+include("full_xpalm_fixture.jl")
+include("full_xpalm_entry.jl")
 
 const XPALM_PROGRAM = ReusableProgram.prepare(XPalmFixture.specs();initial=XPalmFixture.initial())
 
@@ -98,6 +100,12 @@ end
 function (@main)(args::Vector{String})
     isempty(args) && throw(ArgumentError("expected mode"))
     mode = args[1]
+    if mode=="full"
+        length(args)==4 || throw(ArgumentError("full days rate reproductive"))
+        state=simulate_full_xpalm(parse(Int,args[2]),parse(Float64,args[3]),parse(Bool,args[4]))
+        _print_full_xpalm(state)
+        return 0
+    end
     if mode=="phytomer"
         length(args)==7 || throw(ArgumentError("phytomer days rate biomass Tmin Tmax initiation_age"))
         state=simulate_phytomers(parse(Int,args[2]),parse(Float64,args[3]),parse(Float64,args[4]),

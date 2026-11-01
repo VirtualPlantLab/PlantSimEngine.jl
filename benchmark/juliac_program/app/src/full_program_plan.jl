@@ -55,6 +55,10 @@ struct FullProgram{C,A,O}
     order::O
     cadence_ms::Int64
 end
+Base.show(io::IO,program::FullProgram)=print(io,"FullProgram(",length(program.applications),
+    " applications, ",length(program.cohorts)," cohorts)")
+Base.show(io::IO,recipe::FullApplicationRecipe)=print(io,"FullApplicationRecipe(",recipe.name,")")
+Base.show(io::IO,recipe::FullCohortRecipe{K}) where {K}=print(io,"FullCohortRecipe(",K,")")
 _app_slot(::FullApplicationRecipe{M,C,SLOT}) where {M,C,SLOT}=SLOT
 _app_cohort(::FullApplicationRecipe{M,C}) where {M,C}=C
 _cohort_route_slot(::FullCallRoute{SLOT}) where {SLOT}=SLOT
