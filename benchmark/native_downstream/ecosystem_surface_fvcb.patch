@@ -1,0 +1,19 @@
+--- a/dev/native/pse_physiology.jl
++++ b/dev/native/pse_physiology.jl
+@@ -339,7 +339,7 @@
+ end
+ PSE.inputs_(model::SurfaceFvcb) = merge(PSE.inputs_(model.model),
+     (area_m2=PSE.Required(Real),))
+-PSE.outputs_(::SurfaceFvcb) = (A=0.0, Gₛ=0.0, Cᵢ=0.0)
++PSE.outputs_(::SurfaceFvcb) = (A=0.0, Gₛ=0.0, Gₗw=0.0, Cᵢ=0.0)
+ PSE.dep(model::SurfaceFvcb) = PSE.dep(model.model)
+ PSE.variable_contracts_(model::SurfaceFvcb) = merge(PSE.variable_contracts_(model.model),
+     (area_m2=AREA_CONTRACT,))
+@@ -350,6 +350,7 @@
+     if iszero(area)
+         status.A = 0.0
+         status.Gₛ = 0.0
++        status.Gₗw = 0.0
+         status.Cᵢ = 0.0
+     else
+         PSE.run!(model.model, status, environment, constants, context)

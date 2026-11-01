@@ -149,6 +149,13 @@ function scientific_witness(simulation)
             daylight=status.leaf_exchange_daylight,
             daylight_available=status.leaf_exchange_daylight_available,
             controller_available=status.non_tuzet_crown_leaf_exchange_controller_available,
+            astronomical_daylight=status.astronomical_daylight,
+            allocated_leaf_slots=length(status.logical_leaf_unit_active),
+            active_leaf_slots=count(identity,status.logical_leaf_unit_active),
+            declared_active_leaf_slots=status.active_logical_leaf_unit_count,
+            effective_radiation_classes=status.effective_leaf_radiation_class_count,
+            accepted_mask_matches_active=isequal(status.non_tuzet_logical_leaf_exchange_available,
+                status.logical_leaf_unit_active),
             accepted_leaf_slots=count(identity,status.non_tuzet_logical_leaf_exchange_available),
             accepted_leaf_trials=sum(status.non_tuzet_logical_leaf_temperature_trial_count),
             net_assimilation=repr(status.net_assimilation_crown_umol_co2_s),
@@ -173,6 +180,8 @@ function work(simulation,fixture,configuration)
         retained_samples=sum(length(stream) for stream in values(PSE.outputs(simulation));init=0),
         ordinary_executor_verified=all(batch->batch isa PSE.CompiledExecutionBatch,
             simulation.execution_plan.batches),
+        allocated_leaf_slots=sum(row.allocated_leaf_slots for row in witness;init=0),
+        active_leaf_slots=sum(row.active_leaf_slots for row in witness;init=0),
         accepted_leaf_slots=sum(row.accepted_leaf_slots for row in witness;init=0),
         accepted_leaf_trials=sum(row.accepted_leaf_trials for row in witness;init=0),
         daylight_crowns=count(row->row.daylight,witness),
@@ -231,8 +240,16 @@ function _check_science(simulation,fixture,configuration)
     @test actual.objects_by_scale[:Crown]==configuration.trees
     @test isempty(actual.added_ids)
     @test actual.ordinary_executor_verified
-    @test actual.accepted_leaf_slots==configuration.logical_leaf_units
-    @test actual.accepted_leaf_trials>=configuration.logical_leaf_units
+    # Objects cover fixed radiation slots. Only active classes are evaluated;
+    # diffuse/night branches intentionally leave spare slots zero/unavailable.
+    @test actual.allocated_leaf_slots==configuration.logical_leaf_units
+    @test actual.active_leaf_slots>0
+    @test actual.accepted_leaf_slots==actual.active_leaf_slots
+    @test actual.accepted_leaf_trials>=actual.active_leaf_slots
+    for row in scientific_witness(simulation)
+        @test row.accepted_mask_matches_active
+        @test row.active_leaf_slots==row.declared_active_leaf_slots
+    end
     for object in PSE.model_objects(simulation.model)
         object.scale===:Crown || continue
         status=PSE.final_state(simulation,object.id)
