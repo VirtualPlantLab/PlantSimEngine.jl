@@ -85,6 +85,15 @@ function prepare(specs::Tuple)
         haskey(writers, key) && throw(ArgumentError("duplicate writer"))
         writers[key] = i
     end
+    defaults = Dict{Symbol,Any}()
+    for spec in specs, (var, declaration) in pairs(PSE.inputs_(spec))
+        declaration isa PSE.Default || continue
+        haskey(writers, (first(kinds), var)) && continue
+        if haskey(defaults, var) && !(typeof(defaults[var]) === typeof(declaration.value) && isequal(defaults[var], declaration.value))
+            throw(ArgumentError("contradictory input defaults"))
+        end
+        defaults[var] = declaration.value
+    end
     edges = [Int[] for _ in specs]
     for (i, spec) in enumerate(specs), (var, declaration) in pairs(PSE.inputs_(spec))
         producer = get(writers, (kinds[i], var), 0)
@@ -115,15 +124,34 @@ end
 
 function _bind(recipe::Region{M,I,O,E}, models, kinds) where {M,I,O,E}
     model = models[recipe.slot]::M
+    isempty(PSE.dep(model)) && isempty(PSE.environment_outputs_(model)) &&
+        PSE._is_default_clock(PSE.timespec(model)) || throw(ArgumentError("changed model dependencies or clock"))
     typeof(PSE.inputs_(model)) === I && typeof(PSE.outputs_(model)) === O &&
         typeof(PSE.environment_inputs_(model)) === E || throw(ArgumentError("changed declaration schema"))
     return BoundRegion(model, findall(==(recipe.kind), kinds))
+end
+
+function _validate_defaults(models::Tuple)
+    for model in models, (var, declaration) in pairs(PSE.inputs_(model))
+        declaration isa PSE.Default || continue
+        any(other -> haskey(PSE.outputs_(other), var), models) && continue
+        for other in models
+            input = PSE.inputs_(other)
+            haskey(input, var) || continue
+            candidate = input[var]
+            candidate isa PSE.Default || continue
+            typeof(candidate.value) === typeof(declaration.value) &&
+                isequal(candidate.value, declaration.value) || throw(ArgumentError("contradictory input defaults"))
+        end
+    end
+    return nothing
 end
 
 function instantiate(program::Program, models::Tuple, ids::Vector{I}, kinds::Vector{Symbol}; initial=NamedTuple()) where {I}
     length(ids) == length(kinds) || throw(ArgumentError("unaligned object columns"))
     length(unique(ids)) == length(ids) || throw(ArgumentError("duplicate object IDs"))
     length(models) == length(program.regions) || throw(ArgumentError("wrong model count"))
+    _validate_defaults(models)
     defaults = _seeds(models)
     typeof(Status(defaults)) === program.status_type || throw(ArgumentError("changed status schema"))
     seed = _initial(defaults, initial)

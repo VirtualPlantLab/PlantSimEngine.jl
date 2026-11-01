@@ -24,6 +24,33 @@ struct MutableDefault <: AbstractNative_Check_Mutable_DefaultModel end
 PSE.inputs_(::MutableDefault) = (payload=Default([1.0]),)
 PSE.outputs_(::MutableDefault) = (value=0.0,)
 
+PSE.@process "native_check_typed_consumer" verbose = false
+struct TypedConsumer{T} <: AbstractNative_Check_Typed_ConsumerModel end
+PSE.inputs_(::TypedConsumer{T}) where {T} = (carbon=Required(T),)
+PSE.outputs_(::TypedConsumer{T}) where {T} = (seen=zero(T),)
+
+PSE.@process "native_check_default_reader" verbose = false
+struct DefaultReader <: AbstractNative_Check_Default_ReaderModel
+    seed::Float64
+end
+PSE.inputs_(model::DefaultReader) = (shared=Default(model.seed),)
+PSE.outputs_(::DefaultReader) = NamedTuple()
+
+# The parameter changes protocols without changing the model type or any status
+# port type. Checking only types of inputs_/outputs_ would silently admit these.
+PSE.@process "native_check_protocol_switch" verbose = false
+struct ProtocolSwitch <: AbstractNative_Check_Protocol_SwitchModel
+    mode::Symbol
+end
+PSE.inputs_(::ProtocolSwitch) = NamedTuple()
+PSE.outputs_(::ProtocolSwitch) = (value=0.0,)
+PSE.dep(model::ProtocolSwitch) = model.mode === :dep ?
+    (helper=Call(One(within=Self(), application=:helper)),) : NamedTuple()
+PSE.environment_outputs_(model::ProtocolSwitch) = model.mode === :environment ?
+    (T=0.0,) : NamedTuple()
+PSE.timespec(model::ProtocolSwitch) = model.mode === :clock ?
+    PSE.ClockSpec(2.0) : PSE.ClockSpec(1.0)
+
 _models(specs) = map(s -> s.model, specs)
 _initial(::Type{T}) where {T} = (leaf_area=T(1.5), biomass=T(2))
 _rows(::Type{T}) where {T} = [(T=T(8),), (T=T(16),), (T=T(4),)]
@@ -131,6 +158,41 @@ function run_checks()
                 end
                 @test all(i -> saved_refs[i] === PSE.refvalue(native.statuses[i], :carbon), eachindex(saved_refs))
                 @test newborn.biomass == 5.75
+            end
+        end
+
+        @testset "port compatibility and parameter-dependent protocols" begin
+            producer = NF.specs()[2]
+            int_consumer = ModelSpec(TypedConsumer{Int}(); name=:integer_consumer,
+                on=Many(kind=:leaf), every=Day(1))
+            @test_throws ArgumentError RP.prepare((producer, int_consumer))
+            float_consumer = ModelSpec(TypedConsumer{Float64}(); name=:float_consumer,
+                on=Many(kind=:leaf), every=Day(1))
+            @test RP.prepare((producer, float_consumer)) isa RP.Program
+
+            default_a = ModelSpec(DefaultReader(1.0); name=:default_a,
+                on=Many(kind=:leaf), every=Day(1))
+            default_b = ModelSpec(DefaultReader(2.0); name=:default_b,
+                on=Many(kind=:leaf), every=Day(1))
+            @test_throws ArgumentError RP.prepare((default_a, default_b))
+            equal_default = ModelSpec(DefaultReader(1.0); name=:equal_default,
+                on=Many(kind=:leaf), every=Day(1))
+            @test RP.prepare((default_a, equal_default)) isa RP.Program
+            defaults_program = RP.prepare((default_a, equal_default))
+            @test_throws ArgumentError RP.instantiate(defaults_program, (default_a.model, default_b.model), [1], [:leaf])
+
+            plain = ProtocolSwitch(:plain)
+            spec = ModelSpec(plain; name=:protocol,
+                on=Many(kind=:leaf), every=Day(1))
+            program = RP.prepare((spec,))
+            benign = RP.instantiate(program, (ProtocolSwitch(:benign),), [1], [:leaf])
+            @test benign.program === program
+            for mode in (:dep, :environment, :clock)
+                altered = ProtocolSwitch(mode)
+                @test typeof(altered) === typeof(plain)
+                @test typeof(PSE.inputs_(altered)) === typeof(PSE.inputs_(plain))
+                @test typeof(PSE.outputs_(altered)) === typeof(PSE.outputs_(plain))
+                @test_throws ArgumentError RP.instantiate(program, (altered,), [1], [:leaf])
             end
         end
 

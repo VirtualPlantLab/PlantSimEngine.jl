@@ -49,7 +49,7 @@ include("benchmark/juliac_program/checks.jl")
 ReusableProgramChecks.run_checks()
 ```
 
-The initial local Julia 1.13.1 run passed **466 assertions**. This is a targeted
+The initial local Julia 1.13.1 run passed **484 assertions**. This is a targeted
 prototype qualification, not a full PSE test-suite or scientific qualification.
 
 ## Native executable
@@ -69,11 +69,14 @@ Open a **separate Kaimon session at `buildenv/`**, inspect the environment, then
 `include("../build.jl")`. This pins JuliaC 0.3.12 outside PSE's dependencies and
 uses `trim_mode="safe"`, `cpu_target="generic"`. JuliaC orchestrates its normal
 compiler subprocesses from that Kaimon-controlled build. No unsafe trimming or
-arbitrary extra entrypoints are used. The whole resulting `build/` directory is
-the runtime bundle, not only `bin/pse_program`.
+arbitrary extra entrypoints are used. Each successful build writes its bundle path to `build/latest.txt`. Run
+`bin/run-pse-program` within that bundle: it configures bundled artifact lookup
+before starting the native `bin/pse_program` image. Distribute the full bundle.
 
-Native build and execution results are recorded separately as they become
-available. A Julia-level comparison alone does not qualify the native artifact.
+Safe native compilation and five exact ordinary/native comparisons now pass,
+including a relocated bundle with an empty external depot and three rejected
+invalid CLI cases. Reproduce with `native_checks.jl` after `checks.jl` is loaded.
+Initial raw native and timing results are in `results/`. A Julia-level comparison alone does not qualify the native artifact.
 The fixed input schema does not itself prove closure of internal call paths.
 No zero-JIT or cross-platform binary portability claim is made.
 
