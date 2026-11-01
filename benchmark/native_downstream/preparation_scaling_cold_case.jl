@@ -97,6 +97,29 @@ function _load_definitions!(root)
     end
     return nothing
 end
+# Package/module bindings are created after this bootstrap module was defined.
+# Invoke these complete bodies in the latest world, not just a method fetched
+# from a too-new Main binding in the bootstrap caller's older world.
+function _verify_loaded_project(root,expected_project)
+    PSE=getfield(Main,:PlantSimEngine)
+    realpath(Base.pathof(PSE))==realpath(joinpath(root,"src","PlantSimEngine.jl")) || error("Unexpected PSE source")
+    realpath(Base.active_project())==realpath(expected_project) || error("Unexpected active project")
+    return nothing
+end
+function _claim_first_case!()
+    H=getfield(Main,:DirectPlannerMeasurements)
+    M=getfield(Main,:NativeDownstreamMeasurements)
+    iszero(H.COLD_COUNT[]) && iszero(M.MEASUREMENT_COUNT[]) && isempty(M.FIRST_USE_RECORDS) || error("A harness case already ran")
+    H.COLD_COUNT[]+=1
+    M.MEASUREMENT_COUNT[]+=1
+    return nothing
+end
+Base.@nospecializeinfer @noinline function _write_result(io,result)
+    @nospecialize io result
+    PSE=getfield(Main,:PlantSimEngine)
+    PSE.JSON.print(io,result,2)
+    return nothing
+end
 Base.@nospecializeinfer @noinline function _register(kind,steps,nobjects,profile,outputs,seed)
     @nospecialize outputs
     if kind===:pb
@@ -227,16 +250,12 @@ Base.@nospecializeinfer @noinline function run_preparation_scaling_cold_case(
     setup=Dict{Symbol,Any}()
     _stage(stage_path,kind,arm,"before_package_imports")
     measured=_timed(_import_packages!,root);setup[:package_imports]=_phase(measured)
-    PSE=getfield(Main,:PlantSimEngine)
-    realpath(Base.pathof(PSE))==realpath(joinpath(root,"src","PlantSimEngine.jl")) || error("Unexpected PSE source")
-    realpath(Base.active_project())==realpath(expected_project) || error("Unexpected active project")
+    Base.invokelatest(_verify_loaded_project,root,expected_project)
     realpath(DRIVER_PATH)==realpath(joinpath(root,"benchmark","native_downstream","preparation_scaling_cold_case.jl")) || error("Copy the frozen driver into the active source cohort before cold runs")
     image=Base.invokelatest(_check_image,root,expected_source_hashes)
     _stage(stage_path,kind,arm,"before_driver_load")
     measured=_timed(_load_definitions!,root);setup[:driver_load]=_phase(measured)
-    H=getfield(Main,:DirectPlannerMeasurements);M=getfield(Main,:NativeDownstreamMeasurements)
-    iszero(H.COLD_COUNT[]) && iszero(M.MEASUREMENT_COUNT[]) && isempty(M.FIRST_USE_RECORDS) || error("A harness case already ran")
-    H.COLD_COUNT[]+=1;M.MEASUREMENT_COUNT[]+=1
+    Base.invokelatest(_claim_first_case!)
     _stage(stage_path,kind,arm,"before_case_registration")
     measured=_timed(_register,kind,steps,nobjects,profile,outputs,seed)
     spec=measured.value;setup[:case_registration]=_phase(measured)
@@ -275,7 +294,7 @@ Base.@nospecializeinfer @noinline function run_preparation_scaling_cold_case(
         warm_scope=:one_new_independent_model_after_first_case_and_diagnostics_not_a_reused_timeline_or_steady_state_trial)
     mkpath(dirname(abspath(output_path)))
     open(output_path,"w") do io
-        Base.invokelatest(PSE.JSON.print,io,result,2)
+        Base.invokelatest(_write_result,io,result)
     end
     _stage(stage_path,kind,arm,"after_all_diagnostics_and_write")
     return (protocol=PROTOCOL,kind,arm,pid=getpid(),output_path,digest=first_record.digest,
