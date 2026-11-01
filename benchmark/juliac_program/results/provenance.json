@@ -31,10 +31,15 @@
     "benchmark/juliac_program/app/src/program.jl": "fa7c39699e49b76466735a5be69324d87e3c749796814872b24b715630c67f65",
     "benchmark/juliac_program/app/Project.toml": "156b5086c40be740dcb239473bd2ee2307f3dfdaac1936a703e0c135eb58de94",
     "benchmark/juliac_program/launcher.sh": "69545dd09b8938f196bcaa538fd7cd23044c2fa1589ad4381f2cca7b09d904ef",
-    "benchmark/juliac_program/build.jl": "95d4b212b7c60da0df257d6b9cd9eca579dd46afe6b9e3d97108ba901bf11968"
+    "benchmark/juliac_program/build.jl": "95d4b212b7c60da0df257d6b9cd9eca579dd46afe6b9e3d97108ba901bf11968",
+    "benchmark/juliac_program/checks.jl": "e3316aed127ca2dd20ee3dbbaf34fac95fcf02bf1703a4def1701b4a7048a1a8",
+    "benchmark/juliac_program/native_checks.jl": "7cf8188ba97d112233212ef87ed132db6464d1aa860521d1022c29da2e5bcfb5",
+    "benchmark/juliac_program/screen.jl": "a88554f4fc9c9497fe37ad561fd03e74ee04dd069c3287277cb5e375d319d30e"
   },
   "binary_sha256": "ffaf0414f862e0774aa69dbe03ae01256d9e1ce16328ab8295c316ca17f7763b",
   "binary_bytes": 2706448,
-  "bundle_file_bytes": 153252138,
-  "qualification_scope": "one category; scalar local state; one cadence; host births between timesteps; original fixture kernels; no downstream/full-suite qualification"
+  "qualification_scope": "one category; scalar local state; one cadence; host births between timesteps; original fixture kernels; no downstream/full-suite qualification",
+  "bundle_file_bytes_including_symlink_aliases": 153252138,
+  "bundle_regular_file_bytes": 63335034,
+  "bundle_disk_kib": 65968
 }
