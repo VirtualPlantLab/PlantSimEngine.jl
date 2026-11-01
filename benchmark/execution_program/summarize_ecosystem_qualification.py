@@ -422,16 +422,86 @@ def scientific_sources(screens, raw, current, frozen):
     return records, {key: blobs[key] for key in sorted(referenced)}
 
 
+def qualification_records(scope, parsed, raw, declared):
+    """Require quietness for the selected cohort; preserve other attempts raw.
+
+    Diagnostic attempts may have busy CPUs, earlier source images or no result
+    artifact after a failed call. They are never converted to timing ratios or
+    rejected merely because the final cohort now uses a different worker.
+    """
+    original = parsed.get("qualification.json", {"artifacts": []})
+    if not isinstance(original, dict) or not isinstance(original.get("artifacts"), list):
+        raise ValueError("qualification.json must contain an artifacts list")
+    rows = original["artifacts"] + original.get("excluded_artifacts", [])
+    names = [row["artifact"] for row in rows]
+    if len(names) != len(set(names)):
+        raise ValueError("Duplicate final/diagnostic qualification artifact")
+    final_rows, diagnostics = [], []
+    for row in rows:
+        name = row["artifact"]
+        if name in declared:
+            if row not in original["artifacts"]:
+                raise ValueError("Declared final screen is recorded as an excluded diagnostic")
+            final_rows.append(row)
+            continue
+        expected = row.get("artifact_sha256")
+        if expected is None:
+            if name in raw or row.get("qualified") is not False or not row.get("failure"):
+                raise ValueError("A diagnostic without result bytes needs an explicit failed attempt")
+        elif name not in raw or sha(raw[name]) != expected:
+            raise ValueError("Diagnostic result bytes differ from their recorded checksum")
+        cpu_name = row["cpu_record"]
+        if cpu_name not in raw or sha(raw[cpu_name]) != row["cpu_sha256"]:
+            raise ValueError("Diagnostic CPU record differs from its recorded checksum")
+        optional = {key: shared.bound_raw(row[key], raw) for key in ("script", "receipt", "source_image")
+            if row.get(key) is not None}
+        diagnostics.append(dict(source=name, result_available=expected is not None,
+            raw_sha256=expected, cpu_record=cpu_name, cpu_sha256=row["cpu_sha256"],
+            optional_evidence=optional, controller_qualified=row.get("qualified"),
+            failure=row.get("failure"), included_in_final_timings=False,
+            interpretation="raw_diagnostic_only_no_derived_ratios_or_speedup_claim"))
+    selected = dict(parsed)
+    selected["qualification.json"] = dict(original, artifacts=final_rows, excluded_artifacts=[])
+    bindings = previous.strict_qualification(selected, raw)
+    workers = scope.get("workers_by_screen", {})
+    for row in final_rows:
+        name = row["artifact"]
+        image = row.get("source_image")
+        if not isinstance(image, dict):
+            raise ValueError("Final screen lacks a hash-bound whole-cohort source image")
+        image_name = shared.bound_raw(image, raw)
+        expected_image = scope.get("source_images", {}).get(name, scope.get("source_image", "screen-source-image.json"))
+        if image_name != expected_image:
+            raise ValueError("Qualification source image differs from the declared per-screen image")
+        worker = row.get("worker")
+        if not isinstance(worker, dict) or number(worker.get("pid"), integer=True) <= 0 or \
+                not isinstance(worker.get("session"), str) or not worker["session"]:
+            raise ValueError("Final screen lacks an explicit Kaimon worker PID/session binding")
+        if name not in parsed or parsed[name]["provenance"]["process_id"] != worker["pid"]:
+            raise ValueError("Qualification worker PID differs from the measured scientific screen")
+        expected_worker = workers.get(name, scope.get("worker"))
+        if expected_worker is not None:
+            expected_pid = expected_worker["pid"] if isinstance(expected_worker, dict) else expected_worker
+            if worker["pid"] != expected_pid or (isinstance(expected_worker, dict) and
+                    "session" in expected_worker and worker["session"] != expected_worker["session"]):
+                raise ValueError("Qualification worker differs from the declared per-screen PID/session")
+        receipt = parsed[bindings[name]["optional_evidence"]["receipt"]]
+        if receipt["tool"] == "ex" and receipt.get("arguments", {}).get("ses") != worker["session"]:
+            raise ValueError("Final Kaimon execution receipt belongs to a different declared worker session")
+        bindings[name].update(source_image=image_name, source_image_sha256=image["sha256"], worker=worker)
+    return bindings, diagnostics
+
+
 def summarize(parsed, raw):
     scope = parsed.get("run-scope.json", {})
     repairs = parsed.get("source-freeze.json", {}).get("applied_patches", [])
     if repairs and scope.get("downstream_compatibility_repair") is not True:
         raise ValueError("A frozen downstream repair must be explicit in the run scope")
-    bindings = previous.strict_qualification(parsed, raw)
     candidates = {name: value for name,value in parsed.items() if "/" not in name and name.endswith("-screen.json")}
     declared = scope.get("final_screens", sorted(candidates))
     if len(declared) != len(set(declared)) or not set(declared) <= set(candidates):
         raise ValueError("Missing or duplicate declared final ecosystem screen")
+    bindings, diagnostics = qualification_records(scope, parsed, raw, declared)
     qualified, unqualified, selected = [], [], {}
     for name in declared:
         record = dict(source=name, cpu=shared.cpu_qualification(name, bindings), **screen_summary(candidates[name]))
@@ -456,6 +526,7 @@ def summarize(parsed, raw):
         gates.append(dict(source=name, sha256=sha(raw[name]), passed=True))
     return dict(protocol=PROTOCOL, run_scope=scope, qualified_warm_screens=qualified,
         unqualified_declared_final_screens=unqualified, final_gates=gates,
+        diagnostic_attempts=diagnostics,
         downstream_compatibility_repair=bool(repairs),
         downstream_compatibility_scope="same_exact_frozen_repair_in_all_ordinary_and_candidate_arms" if repairs else "unmodified_frozen_scientific_packages",
         old_results_used_as_baselines=False, cold_claim=False, peak_RSS_claim=False,
@@ -479,6 +550,9 @@ def source_guard(scope, parsed, raw):
         return dict(verified=False, reason="controller_has_not_supplied_before_after_source_guard")
     roots = {"PSE": ROOT}
     roots.update({key: Path(value["frozen"]) for key,value in parsed["source-freeze.json"]["packages"].items()})
+    expected_inventories = {key: value["frozen_files"] for key,value in parsed["source-freeze.json"]["packages"].items()}
+    expected_inventories["PSE"] = {name: sha(payload) for name,payload in source_inputs().items()
+        if name.endswith(".jl") or name in ("Project.toml", "Manifest.toml")}
     # Controller images may wrap the package map in `sources`; the concrete
     # hashes must remain directly auditable, not only an aggregate assertion.
     reports = []
@@ -489,6 +563,8 @@ def source_guard(scope, parsed, raw):
         for package, paths in mapping.items():
             if package not in roots:
                 raise ValueError(f"Unknown source-guard package: {package}")
+            if paths != expected_inventories[package]:
+                raise ValueError("Whole-cohort source guard differs from its complete frozen/current file inventory")
             for relative, expected in paths.items():
                 path = Path(relative)
                 if path.is_absolute() or ".." in path.parts or not re.fullmatch(r"[0-9a-f]{64}", expected):
