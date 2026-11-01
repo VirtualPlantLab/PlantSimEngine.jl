@@ -40,8 +40,8 @@ are distinct; the native entry currently uses unretained simulation outputs and
 prints the final state table. No complete-package or scientific qualification is
 inferred from these targeted checks. The CI state is reported in the PR itself.
 
-The successful final build records 11.36 s for app instantiate/precompile + native
-compilation, 0.049 s linking and 0.527 s bundling. Caches were warm; initial JuliaC
+The successful final build records 11.96 s for app instantiate/precompile + native
+compilation, 0.051 s linking and 0.583 s bundling. Caches were warm; initial JuliaC
 loading and prior failed builds are excluded. These are build phases, not
 scientific runtime or process-cold measurements. No XPalm timing speedup was
 benchmarked. A separate allocation diagnostic observes **1,536 bytes** in each

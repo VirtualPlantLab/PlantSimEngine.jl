@@ -307,7 +307,6 @@ function Base.getproperty(target::Target,name::Symbol)
     context = getfield(target,:context)
     name === :context && return context
     name === :status && return context.status
-    name === :model && return context.kernel.model
     name === :object_id && return ObjectId(context.state.ids[context.row])
     throw(ArgumentError("unsupported target property"))
 end

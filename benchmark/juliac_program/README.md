@@ -22,7 +22,8 @@ Manual calls identify one application on the same object; the parent decides
 which targets to execute and when. Callees are excluded from the root schedule.
 Call-only inputs do not introduce new implicit ordering on their parent.
 
-Call targets and returned collections preserve live status aliases. Published
+Call targets expose status/object ID and returned collections preserve live
+status aliases. Runtime graph access through targets is not implemented. Published
 calls retain one final sample per application/object/timestep. Unpublished
 ancestors suppress descendant publications transitively. Targets capture their
 invocation timestep. Scientific variable contracts use PSE's existing validator
