@@ -1,0 +1,72 @@
+[
+  {
+    "blob": "forcing-blobs/3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653.gz",
+    "full_file_captured": true,
+    "interpretation": "exact_full_original_weather_file_requested_prefix_copied_per_simulation",
+    "location": "screen",
+    "path": "/Users/rvezy/Documents/dev/XPalm/0-data/meteo.csv",
+    "requested_rows": 12,
+    "sha256": "3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653",
+    "source": "xp12-screen.json"
+  },
+  {
+    "blob": "forcing-blobs/3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653.gz",
+    "full_file_captured": true,
+    "interpretation": "exact_full_original_weather_file_requested_prefix_copied_per_simulation",
+    "location": "screen",
+    "path": "/Users/rvezy/Documents/dev/XPalm/0-data/meteo.csv",
+    "requested_rows": 128,
+    "sha256": "3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653",
+    "source": "xp128-screen.json"
+  },
+  {
+    "blob": "forcing-blobs/3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653.gz",
+    "full_file_captured": true,
+    "interpretation": "exact_full_original_weather_file_requested_prefix_copied_per_simulation",
+    "location": "screen",
+    "path": "/Users/rvezy/Documents/dev/XPalm/0-data/meteo.csv",
+    "requested_rows": 32,
+    "sha256": "3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653",
+    "source": "xp32-screen.json"
+  },
+  {
+    "blob": "forcing-blobs/3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653.gz",
+    "full_file_captured": true,
+    "interpretation": "exact_full_original_weather_file_requested_prefix_copied_per_simulation",
+    "location": "screen",
+    "path": "/Users/rvezy/Documents/dev/XPalm/0-data/meteo.csv",
+    "requested_rows": 64,
+    "sha256": "3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653",
+    "source": "xp64-screen.json"
+  },
+  {
+    "blob": "forcing-blobs/3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653.gz",
+    "full_file_captured": true,
+    "interpretation": "exact_full_original_weather_file_requested_prefix_copied_per_simulation",
+    "location": "screen",
+    "path": "/Users/rvezy/Documents/dev/XPalm/0-data/meteo.csv",
+    "requested_rows": 64,
+    "sha256": "3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653",
+    "source": "xp64defaults-screen.json"
+  },
+  {
+    "blob": "forcing-blobs/3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653.gz",
+    "full_file_captured": true,
+    "interpretation": "exact_full_original_weather_file_requested_prefix_copied_per_simulation",
+    "location": "",
+    "path": "/Users/rvezy/Documents/dev/XPalm/0-data/meteo.csv",
+    "requested_rows": 2,
+    "sha256": "3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653",
+    "source": "cold-xp-ordinary_a.json"
+  },
+  {
+    "blob": "forcing-blobs/3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653.gz",
+    "full_file_captured": true,
+    "interpretation": "exact_full_original_weather_file_requested_prefix_copied_per_simulation",
+    "location": "",
+    "path": "/Users/rvezy/Documents/dev/XPalm/0-data/meteo.csv",
+    "requested_rows": 2,
+    "sha256": "3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653",
+    "source": "cold-xp-typed_graph.json"
+  }
+]
