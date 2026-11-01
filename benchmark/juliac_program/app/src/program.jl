@@ -21,9 +21,9 @@ struct Program{R,S}
     cadence_ms::Int64
 end
 
-struct BoundRegion{M}
+struct BoundRegion{M,S}
     model::M                      # parameters belong to this simulation
-    rows::Vector{Int}
+    rows::Vector{S}                # the canonical vector, shared by all regions
 end
 
 mutable struct State{P,R,S,I,D}
@@ -122,13 +122,13 @@ function prepare(specs::Tuple)
     return Program(regions, typeof(Status(defaults)), cadence)
 end
 
-function _bind(recipe::Region{M,I,O,E}, models, kinds) where {M,I,O,E}
+function _bind(recipe::Region{M,I,O,E}, models, statuses) where {M,I,O,E}
     model = models[recipe.slot]::M
     isempty(PSE.dep(model)) && isempty(PSE.environment_outputs_(model)) &&
         PSE._is_default_clock(PSE.timespec(model)) || throw(ArgumentError("changed model dependencies or clock"))
     typeof(PSE.inputs_(model)) === I && typeof(PSE.outputs_(model)) === O &&
         typeof(PSE.environment_inputs_(model)) === E || throw(ArgumentError("changed declaration schema"))
-    return BoundRegion(model, findall(==(recipe.kind), kinds))
+    return BoundRegion(model, statuses)
 end
 
 function _validate_defaults(models::Tuple)
@@ -150,13 +150,15 @@ end
 function instantiate(program::Program, models::Tuple, ids::Vector{I}, kinds::Vector{Symbol}; initial=NamedTuple()) where {I}
     length(ids) == length(kinds) || throw(ArgumentError("unaligned object columns"))
     length(unique(ids)) == length(ids) || throw(ArgumentError("duplicate object IDs"))
+    all(==(first(program.regions).kind), kinds) || throw(ArgumentError("unsupported object category"))
     length(models) == length(program.regions) || throw(ArgumentError("wrong model count"))
     _validate_defaults(models)
     defaults = _seeds(models)
     typeof(Status(defaults)) === program.status_type || throw(ArgumentError("changed status schema"))
     seed = _initial(defaults, initial)
-    regions = map(r -> _bind(r, models, kinds), program.regions)
-    return State(program, regions, copy(ids), copy(kinds), [Status(seed) for _ in ids], defaults, 0)
+    statuses = [Status(seed) for _ in ids]
+    regions = map(r -> _bind(r, models, statuses), program.regions)
+    return State(program, regions, copy(ids), copy(kinds), statuses, defaults, 0)
 end
 
 function _initial(defaults, initial)
@@ -171,26 +173,20 @@ All schema/model families are known even when a region initially has no rows.
 """
 function add_object!(state::State{P,R,S,I}, id::I, kind::Symbol; initial=NamedTuple()) where {P,R,S,I}
     id in state.ids && throw(ArgumentError("duplicate object ID"))
+    kind === first(state.program.regions).kind || throw(ArgumentError("unsupported object category"))
     status = Status(_initial(state.defaults, initial))::S
     push!(state.ids, id); push!(state.kinds, kind); push!(state.statuses, status)
-    _append_rows!(state.program.regions, state.regions, kind, length(state.ids))
     return status
 end
-_append_rows!(::Tuple{}, ::Tuple{}, kind, row) = nothing
-function _append_rows!(recipes::Tuple, regions::Tuple, kind, row)
-    first(recipes).kind === kind && push!(first(regions).rows, row)
-    _append_rows!(Base.tail(recipes), Base.tail(regions), kind, row)
-end
-
-_run!(::Tuple{}, statuses, environment, constants) = nothing
-function _run!(regions::Tuple, statuses, environment, constants)
+_run!(::Tuple{}, environment, constants) = nothing
+function _run!(regions::Tuple, environment, constants)
     region = first(regions)
-    _run_region!(region, statuses, environment, constants)
-    _run!(Base.tail(regions), statuses, environment, constants)
+    _run_region!(region, environment, constants)
+    _run!(Base.tail(regions), environment, constants)
 end
-function _run_region!(region::BoundRegion, statuses, environment, constants)
-    for row in region.rows
-        PSE.run!(region.model, statuses[row], environment, constants, nothing)
+function _run_region!(region::BoundRegion, environment, constants)
+    for status in region.rows
+        PSE.run!(region.model, status, environment, constants, nothing)
     end
 end
 _validate_environment(::Tuple{}, row) = nothing
@@ -206,7 +202,7 @@ end
 
 function step!(state::State, environment; constants=nothing)
     _validate_environment(state.regions, environment)
-    _run!(state.regions, state.statuses, environment, constants)
+    _run!(state.regions, environment, constants)
     state.step += 1
     return state
 end

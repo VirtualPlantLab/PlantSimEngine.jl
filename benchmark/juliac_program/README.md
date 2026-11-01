@@ -11,7 +11,7 @@ It is not yet a production backend or an XPalm release.
 model/schema types, target category and fixed cadence. It stores no model
 parameter values, object IDs, memberships, weather or simulation statuses.
 Instantiation supplies concrete models and allocates fresh canonical Ref-backed
-statuses and row indices. The row loop calls the original `PlantSimEngine.run!`
+statuses. All admitted regions share the canonical status vector directly. The row loop calls the original `PlantSimEngine.run!`
 methods directly. Two applications on an object see the same live references.
 Neither source AST concatenation nor runtime `eval` is used.
 
@@ -49,8 +49,13 @@ include("benchmark/juliac_program/checks.jl")
 ReusableProgramChecks.run_checks()
 ```
 
-The initial local Julia 1.13.1 run passed **484 assertions**. This is a targeted
+The initial local Julia 1.13.1 run passed **512 assertions**. This is a targeted
 prototype qualification, not a full PSE test-suite or scientific qualification.
+
+For a small warm comparison, load `screen.jl` after the two modules and call
+`ProgramScreen.screen(32,128;cycles=6)`. `ProgramScreen.allocation_gate()` checks
+five warmed executions without construction or collection. See
+[the measured results](results/README.md) for phase costs and limitations.
 
 ## Native executable
 
@@ -75,8 +80,14 @@ before starting the native `bin/pse_program` image. Distribute the full bundle.
 
 Safe native compilation and five exact ordinary/native comparisons now pass,
 including a relocated bundle with an empty external depot and three rejected
-invalid CLI cases. Reproduce with `native_checks.jl` after `checks.jl` is loaded.
-Initial raw native and timing results are in `results/`. A Julia-level comparison alone does not qualify the native artifact.
+invalid CLI cases. After loading `checks.jl`, evaluate:
+
+```julia
+include("benchmark/juliac_program/native_checks.jl")
+NativeProgramChecks.run_checks()
+```
+Raw native and timing results are in `results/`; the indexed-row predecessor
+is retained under `results/indexed/`. A Julia-level comparison alone does not qualify the native artifact.
 The fixed input schema does not itself prove closure of internal call paths.
 No zero-JIT or cross-platform binary portability claim is made.
 

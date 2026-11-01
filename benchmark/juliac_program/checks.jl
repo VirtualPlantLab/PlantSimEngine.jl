@@ -94,6 +94,7 @@ function run_checks()
                 rows = variant == 1 ? _rows(T) : reverse(_rows(T))
                 native = RP.instantiate(program, _models(specs), ids, fill(:leaf, n); initial)
                 @test native.program === program
+                @test all(region -> region.rows === native.statuses, native.regions)
                 if representative_type === nothing
                     representative_type = typeof(native)
                 end
@@ -224,6 +225,7 @@ function run_checks()
             models = _models(specs)
             @test_throws ArgumentError RP.instantiate(program, models, [1, 1], [:leaf, :leaf])
             @test_throws ArgumentError RP.instantiate(program, models, [1], Symbol[])
+            @test_throws ArgumentError RP.instantiate(program, models, [1], [:other])
             @test_throws ArgumentError RP.instantiate(program, models, [1], [:leaf]; initial=(unknown=0.0,))
             native = RP.instantiate(program, models, [1], [:leaf])
             before = NamedTuple(native.statuses[1])
@@ -232,6 +234,9 @@ function run_checks()
             @test native.step == 0
             @test_throws ArgumentError RP.add_object!(native, 1, :leaf)
             @test native.ids == [1]
+            @test_throws ArgumentError RP.add_object!(native, 2, :other)
+            @test native.ids == [1]
+            @test length(native.statuses) == 1
         end
     end
     counts = Test.get_test_counts(result)

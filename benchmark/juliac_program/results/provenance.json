@@ -1,0 +1,40 @@
+{
+  "recorded_at": "2026-11-01T15:30:51.759265+00:00",
+  "base_commit": "3d1e9e3f1",
+  "cpu": "Apple M3 Max",
+  "platform": "arm64-apple-darwin27.0.0",
+  "checks": {
+    "passes": 512,
+    "fails": 0,
+    "errors": 0,
+    "kaimon_eval": "45fa7995"
+  },
+  "native_checks": {
+    "parity_cases": 5,
+    "relocation_cases": 1,
+    "invalid_cli_cases": 3,
+    "kaimon_eval": "850eca22"
+  },
+  "build": {
+    "julia": "1.13.1",
+    "bundle_s": 0.422515583,
+    "compilation_s": 10.358948459,
+    "bundle": "/Users/rvezy/.codex/worktrees/pse-juliac-program/PlantSimEngine/benchmark/juliac_program/build/bundle-gH26QT",
+    "juliac": "0.3.12",
+    "trim": "safe",
+    "link_s": 0.045218375,
+    "cpu": "generic"
+  },
+  "source_sha256": {
+    "benchmark/juliac_program/app/src/PSEProgramApp.jl": "f2b8fc3bb8cc647c704e4335a103d701a6f5f5ba05a4197728d8f5abf04fd6ba",
+    "benchmark/juliac_program/app/src/fixture.jl": "32fcddd0fefd470be8b40c44a2e80bea78e847b0858b82b9a0ca2c001d7bdb72",
+    "benchmark/juliac_program/app/src/program.jl": "fa7c39699e49b76466735a5be69324d87e3c749796814872b24b715630c67f65",
+    "benchmark/juliac_program/app/Project.toml": "156b5086c40be740dcb239473bd2ee2307f3dfdaac1936a703e0c135eb58de94",
+    "benchmark/juliac_program/launcher.sh": "69545dd09b8938f196bcaa538fd7cd23044c2fa1589ad4381f2cca7b09d904ef",
+    "benchmark/juliac_program/build.jl": "95d4b212b7c60da0df257d6b9cd9eca579dd46afe6b9e3d97108ba901bf11968"
+  },
+  "binary_sha256": "ffaf0414f862e0774aa69dbe03ae01256d9e1ce16328ab8295c316ca17f7763b",
+  "binary_bytes": 2706448,
+  "bundle_file_bytes": 153252138,
+  "qualification_scope": "one category; scalar local state; one cadence; host births between timesteps; original fixture kernels; no downstream/full-suite qualification"
+}
