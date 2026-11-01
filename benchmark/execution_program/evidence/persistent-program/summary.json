@@ -1,0 +1,1726 @@
+{
+  "cold_claim": false,
+  "core_base": {
+    "files": 45,
+    "revision": "a016b511d7919e1af88505be9ce000c8d643c56c",
+    "scope": "exact_current_src_and_ext_bytes_equal_declared_core_base",
+    "verified": true
+  },
+  "diagnostic_or_historical_raw": [
+    "conditional-before-fix-test-output.txt",
+    "conditional-before-fix.json",
+    "downstream-gates-test-output.txt",
+    "downstream-gates.json",
+    "epoch-gates-test-output.txt",
+    "epoch-gates.json",
+    "feature-gates-test-output.txt",
+    "feature-gates.json",
+    "feature-preview-gates-test-output.txt",
+    "feature-preview-gates.json",
+    "feature-v2-gates-test-output.txt",
+    "feature-v2-gates.json",
+    "final-downstream-gates-test-output.txt",
+    "final-gates-test-output.txt",
+    "generic-gates-test-output.txt",
+    "generic-gates.json",
+    "gradual-gates-test-output.txt",
+    "pb-small-cpu.json",
+    "qualification-after-repeat.json",
+    "qualification-initial-screens.json",
+    "qualification.json",
+    "receipts/conditional-before-fix.json",
+    "receipts/downstream-gates-complete.json",
+    "receipts/downstream-gates.json",
+    "receipts/epoch-gates.json",
+    "receipts/epoch-load.json",
+    "receipts/feature-gates.json",
+    "receipts/feature-preview-gates.json",
+    "receipts/feature-v2-gates.json",
+    "receipts/final-downstream-gates.json",
+    "receipts/final-gates.json",
+    "receipts/generic-gates.json",
+    "receipts/gradual-gates.json",
+    "receipts/pb-small-01-ex.json",
+    "receipts/quiet-prewarm.json",
+    "receipts/reload-functions.json",
+    "receipts/tiny-first.json",
+    "receipts/tiny-v2.json",
+    "receipts/xp-quiet-01-ex.json",
+    "receipts/xp-repeat-01-ex.json",
+    "receipts/xp-small-01-ex.json",
+    "reproduction/pb-small.jl",
+    "reproduction/pse-persistent-conditional-before-fix.jl",
+    "reproduction/pse-persistent-epoch-gates.jl",
+    "reproduction/pse-persistent-feature-gates.jl",
+    "reproduction/pse-persistent-feature-preview-gates.jl",
+    "reproduction/pse-persistent-feature-v2-gates.jl",
+    "reproduction/pse-persistent-final-downstream-gates.jl",
+    "reproduction/pse-persistent-final-gates.jl",
+    "reproduction/pse-persistent-final-load.jl",
+    "reproduction/pse-persistent-generic-gates.jl",
+    "reproduction/pse-persistent-gradual-gates.jl",
+    "reproduction/pse-persistent-program-independent-audit.json",
+    "reproduction/pse-persistent-program-review.md",
+    "reproduction/pse-persistent-reload-functions.jl",
+    "reproduction/screen-runner-quiet.py",
+    "reproduction/screen-runner.py",
+    "reproduction/xp-meteo.csv",
+    "reproduction/xp-quiet.jl",
+    "reproduction/xp-repeat.jl",
+    "reproduction/xp-small.jl",
+    "run-scope.json",
+    "screen-source-image.json",
+    "source-before-conditional/benchmark/native_downstream/persistent_feature_checks.jl",
+    "source-before-late-unqueried/benchmark/native_downstream/persistent_feature_checks.jl",
+    "source-before-retry-oracle/benchmark/native_downstream/persistent_feature_checks.jl",
+    "tiny-first.json",
+    "tiny-v2-test-output.txt",
+    "tiny-v2.json",
+    "xp-quiet-cpu.json",
+    "xp-repeat-cpu.json",
+    "xp-repeat-screen.json",
+    "xp-screen.json",
+    "xp-small-cpu.json"
+  ],
+  "excluded_diagnostic_screens": [
+    {
+      "cpu_record": "xp-small-cpu.json",
+      "cpu_sha256": "f8183e4027e34cabc2471849238d4b3223140018462a79d116f469317b05f13e",
+      "interpretation": "raw_diagnostic_only_no_derived_timing_ratios_or_speedup_claim",
+      "optional_evidence": {
+        "receipt": "receipts/xp-small-01-ex.json",
+        "script": "reproduction/xp-small.jl"
+      },
+      "raw_sha256": "d355d02156275e2bd67f236ca07b9da8c5ada5d9a075c12f6607b73aab4a6524",
+      "reason": "whole-RPC broker CPU5.3percent",
+      "source": "xp-screen.json",
+      "timing_qualified": false
+    },
+    {
+      "cpu_record": "xp-repeat-cpu.json",
+      "cpu_sha256": "57380b118a9aa4b2ff0e94d2e12ed120ded6eb2a98cd394193376f08d35f6b7f",
+      "interpretation": "raw_diagnostic_only_no_derived_timing_ratios_or_speedup_claim",
+      "optional_evidence": {
+        "receipt": "receipts/xp-repeat-01-ex.json",
+        "script": "reproduction/xp-repeat.jl"
+      },
+      "raw_sha256": "fd50022604b8304309feb480002324f75d3bea480fa7537a7d59e3060c4dadf9",
+      "reason": "whole-RPC broker CPU5.4percent",
+      "source": "xp-repeat-screen.json",
+      "timing_qualified": false
+    }
+  ],
+  "final_gates": [
+    {
+      "passed": true,
+      "scope": "controller_declared_final_gate_not_all_historical_passed_files",
+      "sha256": "063cd120ab179fed43895d76c30eb0f2dc3e1b71dfc55b42f5b54ea7880a6c97",
+      "source": "final-gates.json"
+    },
+    {
+      "passed": true,
+      "scope": "controller_declared_final_gate_not_all_historical_passed_files",
+      "sha256": "894012fe5dacfeda347ab83762594a538839aff419dfd68d0f2f66a4d054010a",
+      "source": "final-downstream-gates.json"
+    },
+    {
+      "passed": true,
+      "scope": "controller_declared_final_gate_not_all_historical_passed_files",
+      "sha256": "31e1c21582eb20c03629757e3d59767f8b7168b2a75e08e457cd415386a786a2",
+      "source": "gradual-gates.json"
+    }
+  ],
+  "forcing": {
+    "captured": true,
+    "path": "/Users/rvezy/Documents/dev/XPalm/0-data/meteo.csv",
+    "raw_artifact": "reproduction/xp-meteo.csv",
+    "scope": "controller_supplied_exact_forcing_copy_not_an_independent_during_screen_IO_guard",
+    "sha256": "3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653"
+  },
+  "limitations": [
+    "Two paired cycles are a small screen, not robust speedup evidence.",
+    "A/A spread includes cache, timer and OS effects; it is not an isolated noise estimate.",
+    "Typed installation is charged after ordinary plan preparation.",
+    "Batch-entry counts do not imply numerical-root counters when their tracing is compiled out.",
+    "No million-organ, peak-RSS, full-monolith or cold-compilation claim follows."
+  ],
+  "old_results_used_as_baselines": false,
+  "protocol": "persistent_program_small_screen_v1",
+  "qualified_warm_screens": [
+    {
+      "arms": [
+        {
+          "actual_work": [
+            {
+              "arm": "ordinary_a",
+              "cycle": 1,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            },
+            {
+              "arm": "ordinary_a",
+              "cycle": 2,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            }
+          ],
+          "arm": "ordinary_a",
+          "complete_allocated_bytes": 1744320.0,
+          "complete_ratio": 1.0,
+          "complete_seconds": 0.002621145,
+          "execution_ratio": 1.0,
+          "jit_events": [],
+          "paired_cycles": [
+            {
+              "complete_allocated_bytes": 1.0,
+              "complete_seconds": 1.0,
+              "cycle": 1,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "execution": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                }
+              }
+            },
+            {
+              "complete_allocated_bytes": 1.0,
+              "complete_seconds": 1.0,
+              "cycle": 2,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "execution": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                }
+              }
+            }
+          ],
+          "phase_medians": {
+            "backend_lowering": {
+              "allocated_bytes": 96.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 1.8954999999999999e-06
+            },
+            "construction": {
+              "allocated_bytes": 77152.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.000267312
+            },
+            "execution": {
+              "allocated_bytes": 48080.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.000127646
+            },
+            "pse_preparation": {
+              "allocated_bytes": 1618992.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0022242915
+            }
+          },
+          "samples": 2
+        },
+        {
+          "actual_work": [
+            {
+              "arm": "ordinary_b",
+              "cycle": 1,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            },
+            {
+              "arm": "ordinary_b",
+              "cycle": 2,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            }
+          ],
+          "arm": "ordinary_b",
+          "complete_allocated_bytes": 1745448.0,
+          "complete_ratio": 0.9560539732176524,
+          "complete_seconds": 0.002507124,
+          "execution_ratio": 1.058076127979378,
+          "jit_events": [],
+          "paired_cycles": [
+            {
+              "complete_allocated_bytes": 1.0,
+              "complete_seconds": 0.9756896155521999,
+              "cycle": 1,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.9786012526096034
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.9657871198568873
+                },
+                "execution": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0490838981253876
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.972812600572055
+                }
+              }
+            },
+            {
+              "complete_allocated_bytes": 1.0012933406714364,
+              "complete_seconds": 0.9364183308831049,
+              "cycle": 2,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.9333333333333333
+                },
+                "construction": {
+                  "allocated_bytes": 1.0292409788469514,
+                  "seconds": 0.8413306711322942
+                },
+                "execution": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0670683578333686
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.939582745569328
+                }
+              }
+            }
+          ],
+          "phase_medians": {
+            "backend_lowering": {
+              "allocated_bytes": 96.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 1.8125e-06
+            },
+            "construction": {
+              "allocated_bytes": 78280.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.000242708
+            },
+            "execution": {
+              "allocated_bytes": 48080.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.000135062
+            },
+            "pse_preparation": {
+              "allocated_bytes": 1618992.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0021275415
+            }
+          },
+          "samples": 2
+        },
+        {
+          "actual_work": [
+            {
+              "arm": "preparation_only",
+              "cycle": 1,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            },
+            {
+              "arm": "preparation_only",
+              "cycle": 2,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            }
+          ],
+          "arm": "preparation_only",
+          "complete_allocated_bytes": 1343320.0,
+          "complete_ratio": 0.8449275171820936,
+          "complete_seconds": 0.0022133134999999995,
+          "execution_ratio": 1.0784278144219197,
+          "jit_events": [],
+          "paired_cycles": [
+            {
+              "complete_allocated_bytes": 0.770757659145111,
+              "complete_seconds": 0.8219944311473747,
+              "cycle": 1,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.304801670146138
+                },
+                "construction": {
+                  "allocated_bytes": 1.0292409788469514,
+                  "seconds": 0.9705948121645798
+                },
+                "execution": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.046468708033267
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 0.7516182908871692,
+                  "seconds": 0.7901916282552236
+                }
+              }
+            },
+            {
+              "complete_allocated_bytes": 0.7694643184736746,
+              "complete_seconds": 0.8678606032168126,
+              "cycle": 2,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.9781333333333333
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0484791639829962
+                },
+                "execution": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.110386920810572
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 0.7516182908871692,
+                  "seconds": 0.8330029641625782
+                }
+              }
+            }
+          ],
+          "phase_medians": {
+            "backend_lowering": {
+              "allocated_bytes": 96.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 2.167e-06
+            },
+            "construction": {
+              "allocated_bytes": 78280.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0002691255
+            },
+            "execution": {
+              "allocated_bytes": 48080.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.000137667
+            },
+            "pse_preparation": {
+              "allocated_bytes": 1216864.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.001804354
+            }
+          },
+          "samples": 2
+        },
+        {
+          "actual_work": [
+            {
+              "arm": "typed_only",
+              "cycle": 1,
+              "driver_entries": 8,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            },
+            {
+              "arm": "typed_only",
+              "cycle": 2,
+              "driver_entries": 8,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            }
+          ],
+          "arm": "typed_only",
+          "complete_allocated_bytes": 5998848.0,
+          "complete_ratio": 1.6894978845413975,
+          "complete_seconds": 0.004427416,
+          "execution_ratio": 0.9887652334443863,
+          "jit_events": [],
+          "paired_cycles": [
+            {
+              "complete_allocated_bytes": 3.439075399009356,
+              "complete_seconds": 1.6726359235760035,
+              "cycle": 1,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 44744.0,
+                  "seconds": 986.9300626304803
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.8404412175760287
+                },
+                "execution": {
+                  "allocated_bytes": 0.15141430948419302,
+                  "seconds": 1.0013115217579103
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.9821390652433133
+                }
+              }
+            },
+            {
+              "complete_allocated_bytes": 3.439075399009356,
+              "complete_seconds": 1.7063598455067914,
+              "cycle": 2,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 44744.0,
+                  "seconds": 967.7333333333332
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0008413306711321
+                },
+                "execution": {
+                  "allocated_bytes": 0.15141430948419302,
+                  "seconds": 0.9762189451308623
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.9998474866905803
+                }
+              }
+            }
+          ],
+          "phase_medians": {
+            "backend_lowering": {
+              "allocated_bytes": 4295424.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.001852729
+            },
+            "construction": {
+              "allocated_bytes": 77152.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.000244583
+            },
+            "execution": {
+              "allocated_bytes": 7280.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.000126208
+            },
+            "pse_preparation": {
+              "allocated_bytes": 1618992.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0022038960000000003
+            }
+          },
+          "samples": 2
+        },
+        {
+          "actual_work": [
+            {
+              "arm": "combined",
+              "cycle": 1,
+              "driver_entries": 8,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            },
+            {
+              "arm": "combined",
+              "cycle": 2,
+              "driver_entries": 8,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            }
+          ],
+          "arm": "combined",
+          "complete_allocated_bytes": 5591112.0,
+          "complete_ratio": 1.525476717121629,
+          "complete_seconds": 0.0039978545,
+          "execution_ratio": 0.9365631711197826,
+          "jit_events": [],
+          "paired_cycles": [
+            {
+              "complete_allocated_bytes": 3.2050174279948633,
+              "complete_seconds": 1.5146969511576414,
+              "cycle": 1,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 44680.0,
+                  "seconds": 995.0417536534447
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.8944543828264758
+                },
+                "execution": {
+                  "allocated_bytes": 0.15141430948419302,
+                  "seconds": 0.957465857240464
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 0.7516182908871692,
+                  "seconds": 0.7840110684995854
+                }
+              }
+            },
+            {
+              "complete_allocated_bytes": 3.2056319941295177,
+              "complete_seconds": 1.536256483085617,
+              "cycle": 2,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 44680.0,
+                  "seconds": 976.6890666666667
+                },
+                "construction": {
+                  "allocated_bytes": 1.0138946495230194,
+                  "seconds": 0.9758509918845807
+                },
+                "execution": {
+                  "allocated_bytes": 0.15141430948419302,
+                  "seconds": 0.9156604849991012
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 0.7516182908871692,
+                  "seconds": 0.7989773822304133
+                }
+              }
+            }
+          ],
+          "phase_medians": {
+            "backend_lowering": {
+              "allocated_bytes": 4289280.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.001868896
+            },
+            "construction": {
+              "allocated_bytes": 77688.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0002492085
+            },
+            "execution": {
+              "allocated_bytes": 7280.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.000119542
+            },
+            "pse_preparation": {
+              "allocated_bytes": 1216864.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.001760208
+            }
+          },
+          "samples": 2
+        }
+      ],
+      "case": "persistent_pb_small",
+      "cold_compilation_claim": false,
+      "config": {
+        "additions": 3,
+        "emission_speed": 0.2,
+        "interpretation": "warm_fresh_scene_with_charged_ordinary_plan_then_typed_installation",
+        "kind": "pb",
+        "nobjects": 16,
+        "outputs": "none",
+        "protocol": "persistent_program_small_screen_v1",
+        "seed": 1,
+        "statistical_unit": "one_independent_scene",
+        "steps": 8,
+        "storage": "ordinary_references"
+      },
+      "cpu": {
+        "artifact_sha256": "00db0f70a2fb8ba41833684243c1bd264844b014fc6082fa8b1f4ee0551f9064",
+        "busy_observations": 0,
+        "controller_assertion": "explicit whole-RPC artifact-to-CPU binding; not filename inference",
+        "cpu_sha256": "87b825190d3bd3cabe63470c0d535943dc7b70b75e978a50aebe008047c0ca13",
+        "optional_evidence": {
+          "receipt": "receipts/pb-small-01-ex.json",
+          "script": "reproduction/pb-small.jl"
+        },
+        "qualification_manifest": "qualification.json",
+        "qualification_sha256": "25217b7382af7e0ad2462c66bf01711a0b1f1830dabca85e321926232bf206e0",
+        "qualified": true,
+        "record": "pb-small-cpu.json",
+        "samples": 3,
+        "scope": "other Julia CPU >=5 percent; own process and descendants excluded; strict healthy sampling"
+      },
+      "cycles": 2,
+      "digest": "15bfd31a317a94c2bd0d24969fdd94a39f7140b286d91c25422cacf71744416f",
+      "driver_work": "actual_batch_entries_not_prepared_regions_or_inferred_numerical_roots",
+      "interpretation": "small_warm_fresh_scene_screen_two_cycles_do_not_establish_robust_speedup",
+      "kind": "pb",
+      "ordinary_A_A": {
+        "actual_work": [
+          {
+            "arm": "ordinary_b",
+            "cycle": 1,
+            "driver_entries": 0,
+            "numerical_calls": null,
+            "numerical_roots": null,
+            "ordinary_fallbacks": 0,
+            "readmitted": 0,
+            "refreshes": 0,
+            "reused": 0
+          },
+          {
+            "arm": "ordinary_b",
+            "cycle": 2,
+            "driver_entries": 0,
+            "numerical_calls": null,
+            "numerical_roots": null,
+            "ordinary_fallbacks": 0,
+            "readmitted": 0,
+            "refreshes": 0,
+            "reused": 0
+          }
+        ],
+        "arm": "ordinary_b",
+        "complete_allocated_bytes": 1745448.0,
+        "complete_ratio": 0.9560539732176524,
+        "complete_seconds": 0.002507124,
+        "execution_ratio": 1.058076127979378,
+        "jit_events": [],
+        "paired_cycles": [
+          {
+            "complete_allocated_bytes": 1.0,
+            "complete_seconds": 0.9756896155521999,
+            "cycle": 1,
+            "phases": {
+              "backend_lowering": {
+                "allocated_bytes": 1.0,
+                "seconds": 0.9786012526096034
+              },
+              "construction": {
+                "allocated_bytes": 1.0,
+                "seconds": 0.9657871198568873
+              },
+              "execution": {
+                "allocated_bytes": 1.0,
+                "seconds": 1.0490838981253876
+              },
+              "pse_preparation": {
+                "allocated_bytes": 1.0,
+                "seconds": 0.972812600572055
+              }
+            }
+          },
+          {
+            "complete_allocated_bytes": 1.0012933406714364,
+            "complete_seconds": 0.9364183308831049,
+            "cycle": 2,
+            "phases": {
+              "backend_lowering": {
+                "allocated_bytes": 1.0,
+                "seconds": 0.9333333333333333
+              },
+              "construction": {
+                "allocated_bytes": 1.0292409788469514,
+                "seconds": 0.8413306711322942
+              },
+              "execution": {
+                "allocated_bytes": 1.0,
+                "seconds": 1.0670683578333686
+              },
+              "pse_preparation": {
+                "allocated_bytes": 1.0,
+                "seconds": 0.939582745569328
+              }
+            }
+          }
+        ],
+        "phase_medians": {
+          "backend_lowering": {
+            "allocated_bytes": 96.0,
+            "compilation_seconds": 0.0,
+            "gc_seconds": 0.0,
+            "recompilation_seconds": 0.0,
+            "seconds": 1.8125e-06
+          },
+          "construction": {
+            "allocated_bytes": 78280.0,
+            "compilation_seconds": 0.0,
+            "gc_seconds": 0.0,
+            "recompilation_seconds": 0.0,
+            "seconds": 0.000242708
+          },
+          "execution": {
+            "allocated_bytes": 48080.0,
+            "compilation_seconds": 0.0,
+            "gc_seconds": 0.0,
+            "recompilation_seconds": 0.0,
+            "seconds": 0.000135062
+          },
+          "pse_preparation": {
+            "allocated_bytes": 1618992.0,
+            "compilation_seconds": 0.0,
+            "gc_seconds": 0.0,
+            "recompilation_seconds": 0.0,
+            "seconds": 0.0021275415
+          }
+        },
+        "samples": 2
+      },
+      "peak_RSS_claim": false,
+      "sample_cohort_sha256": "837c15c24065ee993cb01299926cf6ae33c942b5328ea93a24627e06cb1b5ae9",
+      "snapshot_sha256": "5a1c0ee056cddd2de5d06fd7f21e9c19267e27a77e5a4fc029f423537d468617",
+      "source": "pb-screen.json",
+      "source_epoch": {
+        "interpretation": "recorded_per_screen_source_cohort_not_independently_reinferred_types",
+        "process_id": 13886,
+        "recorded": {
+          "active_manifest_sha256": "7906004d51dfd193974b88cd1169e4af59b1c3c903df436abbfe78069f3f9a8d",
+          "active_project": "/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/Project.toml",
+          "active_project_sha256": "1dfd1efd51ccf8e60fe04d38455537bcfd719a6f9e7c237b45cf8a108cc5c22e",
+          "experimental_sources_sha256": "15680030d0ad5b413daa50aa80135c85bc99c8a5de859c20ba5e109a9bcab5eb",
+          "harness_sha256": "716049f2ba028d3dbe05b22ea9a0c0fea34ec6924f363735af7179d3ddf20f39",
+          "julia": "1.13.1",
+          "packages": [
+            {
+              "name": "PlantSimEngine",
+              "path": "/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/src/PlantSimEngine.jl",
+              "revision": "44a9b8813eaba7dcabdaef8c0625a5dbb8149d85",
+              "source_manifest_sha256": "7761ca0a69d987b9c210edcb4751e5ce5dbf3bdf9233bec30e6391b928a84008"
+            },
+            {
+              "name": "PlantBiophysics",
+              "path": "/Users/rvezy/Documents/dev/PlantBiophysics/src/PlantBiophysics.jl",
+              "revision": "10758c5c7211fc96b625a542ca525cb7856a9ae2",
+              "source_manifest_sha256": "4a33d44acf1f435cdbab988ae80ced482891840a0423fa002e8db37b323f53a0"
+            },
+            {
+              "name": "XPalm",
+              "path": "/Users/rvezy/Documents/dev/XPalm/src/XPalm.jl",
+              "revision": "5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd",
+              "source_manifest_sha256": "edc15633f61bdf88728bf9686525867d842d8e30106a5b26bcd05b193cad484f"
+            }
+          ]
+        },
+        "sha256": "4a3947bafe830b9f66985bd070f93920bff12df906a782a2e57eb8ace6bf624e"
+      },
+      "work": {
+        "added_ids": [],
+        "objects": 16,
+        "objects_by_scale": {
+          "diagnostic_unit": 16
+        },
+        "steps": 8,
+        "streams": 0
+      }
+    },
+    {
+      "arms": [
+        {
+          "actual_work": [
+            {
+              "arm": "ordinary_a",
+              "cycle": 1,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            },
+            {
+              "arm": "ordinary_a",
+              "cycle": 2,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            }
+          ],
+          "arm": "ordinary_a",
+          "complete_allocated_bytes": 24668848.0,
+          "complete_ratio": 1.0,
+          "complete_seconds": 0.0359759365,
+          "execution_ratio": 1.0,
+          "jit_events": [],
+          "paired_cycles": [
+            {
+              "complete_allocated_bytes": 1.0,
+              "complete_seconds": 1.0,
+              "cycle": 1,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "execution": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                }
+              }
+            },
+            {
+              "complete_allocated_bytes": 1.0,
+              "complete_seconds": 1.0,
+              "cycle": 2,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "execution": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0
+                }
+              }
+            }
+          ],
+          "phase_medians": {
+            "backend_lowering": {
+              "allocated_bytes": 96.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 5.2495e-06
+            },
+            "construction": {
+              "allocated_bytes": 1035448.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0039564585
+            },
+            "execution": {
+              "allocated_bytes": 12471664.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0149009995
+            },
+            "pse_preparation": {
+              "allocated_bytes": 11161640.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.017113229
+            }
+          },
+          "samples": 2
+        },
+        {
+          "actual_work": [
+            {
+              "arm": "ordinary_b",
+              "cycle": 1,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            },
+            {
+              "arm": "ordinary_b",
+              "cycle": 2,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            }
+          ],
+          "arm": "ordinary_b",
+          "complete_allocated_bytes": 24668848.0,
+          "complete_ratio": 0.9765420720617217,
+          "complete_seconds": 0.035122604,
+          "execution_ratio": 0.9455233484359744,
+          "jit_events": [],
+          "paired_cycles": [
+            {
+              "complete_allocated_bytes": 1.00009145555406,
+              "complete_seconds": 0.9896573382994975,
+              "cycle": 1,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.35836221280965214
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.1469127758169562
+                },
+                "execution": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0466199820792588
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 1.00020214126377,
+                  "seconds": 0.9123710427840197
+                }
+              }
+            },
+            {
+              "complete_allocated_bytes": 0.9999085528092934,
+              "complete_seconds": 0.963426805823946,
+              "cycle": 2,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 2.5232644017725256
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.9323133837037966
+                },
+                "execution": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.8444267147926899
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 0.9997978995890625,
+                  "seconds": 1.0894344739132427
+                }
+              }
+            }
+          ],
+          "phase_medians": {
+            "backend_lowering": {
+              "allocated_bytes": 96.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 4.8125e-06
+            },
+            "construction": {
+              "allocated_bytes": 1035448.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0041098955
+            },
+            "execution": {
+              "allocated_bytes": 12471664.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0139447295
+            },
+            "pse_preparation": {
+              "allocated_bytes": 11161640.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0170631665
+            }
+          },
+          "samples": 2
+        },
+        {
+          "actual_work": [
+            {
+              "arm": "preparation_only",
+              "cycle": 1,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            },
+            {
+              "arm": "preparation_only",
+              "cycle": 2,
+              "driver_entries": 0,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 0,
+              "readmitted": 0,
+              "refreshes": 0,
+              "reused": 0
+            }
+          ],
+          "arm": "preparation_only",
+          "complete_allocated_bytes": 12505568.0,
+          "complete_ratio": 0.7941449903498068,
+          "complete_seconds": 0.028560311999999997,
+          "execution_ratio": 0.8437365876022288,
+          "jit_events": [],
+          "paired_cycles": [
+            {
+              "complete_allocated_bytes": 0.506954027368561,
+              "complete_seconds": 0.8077983950006482,
+              "cycle": 1,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.2673597740983185
+                },
+                "construction": {
+                  "allocated_bytes": 1.0002317837303274,
+                  "seconds": 1.1048193587434076
+                },
+                "execution": {
+                  "allocated_bytes": 0.5466510322920822,
+                  "seconds": 0.9298398008067524
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 0.4168238876495989,
+                  "seconds": 0.6506323681435852
+                }
+              }
+            },
+            {
+              "complete_allocated_bytes": 0.5069212876413013,
+              "complete_seconds": 0.7804915856989654,
+              "cycle": 2,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 2.3079763663220088
+                },
+                "construction": {
+                  "allocated_bytes": 1.0005562809527857,
+                  "seconds": 0.96196081136157
+                },
+                "execution": {
+                  "allocated_bytes": 0.5466510322920822,
+                  "seconds": 0.7576333743977052
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 0.4167396473706163,
+                  "seconds": 0.7588470218191258
+                }
+              }
+            }
+          ],
+          "phase_medians": {
+            "backend_lowering": {
+              "allocated_bytes": 96.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 4.1665e-06
+            },
+            "construction": {
+              "allocated_bytes": 1035856.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0040863745
+            },
+            "execution": {
+              "allocated_bytes": 6817648.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0124494375
+            },
+            "pse_preparation": {
+              "allocated_bytes": 4651968.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0120203335
+            }
+          },
+          "samples": 2
+        },
+        {
+          "actual_work": [
+            {
+              "arm": "typed_only",
+              "cycle": 1,
+              "driver_entries": 32,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 124,
+              "readmitted": 24,
+              "refreshes": 4,
+              "reused": 8
+            },
+            {
+              "arm": "typed_only",
+              "cycle": 2,
+              "driver_entries": 32,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 124,
+              "readmitted": 24,
+              "refreshes": 4,
+              "reused": 8
+            }
+          ],
+          "arm": "typed_only",
+          "complete_allocated_bytes": 28716248.0,
+          "complete_ratio": 1.2115579404040846,
+          "complete_seconds": 0.043574771,
+          "execution_ratio": 1.3584961470147943,
+          "jit_events": [],
+          "paired_cycles": [
+            {
+              "complete_allocated_bytes": 1.164173097473135,
+              "complete_seconds": 1.2285039462445357,
+              "cycle": 1,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 10147.166666666666,
+                  "seconds": 257.8668977024772
+                },
+                "construction": {
+                  "allocated_bytes": 1.0002317837303274,
+                  "seconds": 0.9794734412826762
+                },
+                "execution": {
+                  "allocated_bytes": 1.2464184410356147,
+                  "seconds": 1.4720971416707265
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 1.00020214126377,
+                  "seconds": 0.9874602368381078
+                }
+              }
+            },
+            {
+              "complete_allocated_bytes": 1.1639654614986248,
+              "complete_seconds": 1.1946119345636335,
+              "cycle": 2,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 10147.166666666666,
+                  "seconds": 715.2267355982274
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 0.9499744803586544
+                },
+                "execution": {
+                  "allocated_bytes": 1.2464184410356147,
+                  "seconds": 1.2448951523588623
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 0.9997978995890625,
+                  "seconds": 1.0859379170293009
+                }
+              }
+            }
+          ],
+          "phase_medians": {
+            "backend_lowering": {
+              "allocated_bytes": 974128.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0019729375
+            },
+            "construction": {
+              "allocated_bytes": 1035568.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.003816438
+            },
+            "execution": {
+              "allocated_bytes": 15544912.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0200805625
+            },
+            "pse_preparation": {
+              "allocated_bytes": 11161640.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.017704833
+            }
+          },
+          "samples": 2
+        },
+        {
+          "actual_work": [
+            {
+              "arm": "combined",
+              "cycle": 1,
+              "driver_entries": 32,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 124,
+              "readmitted": 24,
+              "refreshes": 4,
+              "reused": 8
+            },
+            {
+              "arm": "combined",
+              "cycle": 2,
+              "driver_entries": 32,
+              "numerical_calls": null,
+              "numerical_roots": null,
+              "ordinary_fallbacks": 124,
+              "readmitted": 24,
+              "refreshes": 4,
+              "reused": 8
+            }
+          ],
+          "arm": "combined",
+          "complete_allocated_bytes": 16537312.0,
+          "complete_ratio": 1.0588079484244526,
+          "complete_seconds": 0.03809698,
+          "execution_ratio": 1.3544687422426684,
+          "jit_events": [],
+          "paired_cycles": [
+            {
+              "complete_allocated_bytes": 0.6703604548778728,
+              "complete_seconds": 1.0513212593267316,
+              "cycle": 1,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 10147.166666666666,
+                  "seconds": 257.369657296881
+                },
+                "construction": {
+                  "allocated_bytes": 1.0002317837303274,
+                  "seconds": 0.9914137070940081
+                },
+                "execution": {
+                  "allocated_bytes": 0.7917532095155867,
+                  "seconds": 1.387217542521676
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 0.4168238876495989,
+                  "seconds": 0.6991810659462435
+                }
+              }
+            },
+            {
+              "complete_allocated_bytes": 0.6703841138718578,
+              "complete_seconds": 1.0662946375221733,
+              "cycle": 2,
+              "phases": {
+                "backend_lowering": {
+                  "allocated_bytes": 10147.166666666666,
+                  "seconds": 693.59305760709
+                },
+                "construction": {
+                  "allocated_bytes": 1.0,
+                  "seconds": 1.0206394331755335
+                },
+                "execution": {
+                  "allocated_bytes": 0.7917532095155867,
+                  "seconds": 1.321719941963661
+                },
+                "pse_preparation": {
+                  "allocated_bytes": 0.41694891446279275,
+                  "seconds": 0.7081164093872628
+                }
+              }
+            }
+          ],
+          "phase_medians": {
+            "backend_lowering": {
+              "allocated_bytes": 974128.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0019417085
+            },
+            "construction": {
+              "allocated_bytes": 1035568.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.0039807505
+            },
+            "execution": {
+              "allocated_bytes": 9874480.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.020136125
+            },
+            "pse_preparation": {
+              "allocated_bytes": 4653136.0,
+              "compilation_seconds": 0.0,
+              "gc_seconds": 0.0,
+              "recompilation_seconds": 0.0,
+              "seconds": 0.012038396
+            }
+          },
+          "samples": 2
+        }
+      ],
+      "case": "persistent_xp_small_quiet",
+      "cold_compilation_claim": false,
+      "config": {
+        "additions": 3,
+        "emission_speed": 0.2,
+        "interpretation": "warm_fresh_scene_with_charged_ordinary_plan_then_typed_installation",
+        "kind": "xp",
+        "nobjects": 4,
+        "outputs": "none",
+        "protocol": "persistent_program_small_screen_v1",
+        "seed": 1,
+        "statistical_unit": "one_independent_scene",
+        "steps": 4,
+        "storage": "ordinary_references"
+      },
+      "cpu": {
+        "artifact_sha256": "db7d13fda0c6f291d7664490cb5a5f2853235fe91f658abb44d7e535007a0283",
+        "busy_observations": 0,
+        "controller_assertion": "explicit whole-RPC artifact-to-CPU binding; not filename inference",
+        "cpu_sha256": "2b12e3c2dd64e938bfac136126720459bbe1a05007e6a8c877958c0b53fca11d",
+        "optional_evidence": {
+          "receipt": "receipts/xp-quiet-01-ex.json",
+          "script": "reproduction/xp-quiet.jl"
+        },
+        "qualification_manifest": "qualification.json",
+        "qualification_sha256": "25217b7382af7e0ad2462c66bf01711a0b1f1830dabca85e321926232bf206e0",
+        "qualified": true,
+        "record": "xp-quiet-cpu.json",
+        "samples": 2,
+        "scope": "other Julia CPU >=5 percent; own process and descendants excluded; strict healthy sampling"
+      },
+      "cycles": 2,
+      "digest": "e9f1d648664b591d79d73a59417a0e4efbf3b1ba34e0e4f73e9d5e297f059826",
+      "driver_work": "actual_batch_entries_not_prepared_regions_or_inferred_numerical_roots",
+      "interpretation": "small_warm_fresh_scene_screen_two_cycles_do_not_establish_robust_speedup",
+      "kind": "xp",
+      "ordinary_A_A": {
+        "actual_work": [
+          {
+            "arm": "ordinary_b",
+            "cycle": 1,
+            "driver_entries": 0,
+            "numerical_calls": null,
+            "numerical_roots": null,
+            "ordinary_fallbacks": 0,
+            "readmitted": 0,
+            "refreshes": 0,
+            "reused": 0
+          },
+          {
+            "arm": "ordinary_b",
+            "cycle": 2,
+            "driver_entries": 0,
+            "numerical_calls": null,
+            "numerical_roots": null,
+            "ordinary_fallbacks": 0,
+            "readmitted": 0,
+            "refreshes": 0,
+            "reused": 0
+          }
+        ],
+        "arm": "ordinary_b",
+        "complete_allocated_bytes": 24668848.0,
+        "complete_ratio": 0.9765420720617217,
+        "complete_seconds": 0.035122604,
+        "execution_ratio": 0.9455233484359744,
+        "jit_events": [],
+        "paired_cycles": [
+          {
+            "complete_allocated_bytes": 1.00009145555406,
+            "complete_seconds": 0.9896573382994975,
+            "cycle": 1,
+            "phases": {
+              "backend_lowering": {
+                "allocated_bytes": 1.0,
+                "seconds": 0.35836221280965214
+              },
+              "construction": {
+                "allocated_bytes": 1.0,
+                "seconds": 1.1469127758169562
+              },
+              "execution": {
+                "allocated_bytes": 1.0,
+                "seconds": 1.0466199820792588
+              },
+              "pse_preparation": {
+                "allocated_bytes": 1.00020214126377,
+                "seconds": 0.9123710427840197
+              }
+            }
+          },
+          {
+            "complete_allocated_bytes": 0.9999085528092934,
+            "complete_seconds": 0.963426805823946,
+            "cycle": 2,
+            "phases": {
+              "backend_lowering": {
+                "allocated_bytes": 1.0,
+                "seconds": 2.5232644017725256
+              },
+              "construction": {
+                "allocated_bytes": 1.0,
+                "seconds": 0.9323133837037966
+              },
+              "execution": {
+                "allocated_bytes": 1.0,
+                "seconds": 0.8444267147926899
+              },
+              "pse_preparation": {
+                "allocated_bytes": 0.9997978995890625,
+                "seconds": 1.0894344739132427
+              }
+            }
+          }
+        ],
+        "phase_medians": {
+          "backend_lowering": {
+            "allocated_bytes": 96.0,
+            "compilation_seconds": 0.0,
+            "gc_seconds": 0.0,
+            "recompilation_seconds": 0.0,
+            "seconds": 4.8125e-06
+          },
+          "construction": {
+            "allocated_bytes": 1035448.0,
+            "compilation_seconds": 0.0,
+            "gc_seconds": 0.0,
+            "recompilation_seconds": 0.0,
+            "seconds": 0.0041098955
+          },
+          "execution": {
+            "allocated_bytes": 12471664.0,
+            "compilation_seconds": 0.0,
+            "gc_seconds": 0.0,
+            "recompilation_seconds": 0.0,
+            "seconds": 0.0139447295
+          },
+          "pse_preparation": {
+            "allocated_bytes": 11161640.0,
+            "compilation_seconds": 0.0,
+            "gc_seconds": 0.0,
+            "recompilation_seconds": 0.0,
+            "seconds": 0.0170631665
+          }
+        },
+        "samples": 2
+      },
+      "peak_RSS_claim": false,
+      "sample_cohort_sha256": "c0396499302b126d936840e19a2c4f8c4ba617c78c15aa662422fe2cee1d0e70",
+      "snapshot_sha256": "fadb4237f9b8e414961e5edeaa67321bf3e7c70149034d512818faa054f340fc",
+      "source": "xp-quiet-screen.json",
+      "source_epoch": {
+        "interpretation": "recorded_per_screen_source_cohort_not_independently_reinferred_types",
+        "process_id": 13886,
+        "recorded": {
+          "active_manifest_sha256": "7906004d51dfd193974b88cd1169e4af59b1c3c903df436abbfe78069f3f9a8d",
+          "active_project": "/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/Project.toml",
+          "active_project_sha256": "1dfd1efd51ccf8e60fe04d38455537bcfd719a6f9e7c237b45cf8a108cc5c22e",
+          "experimental_sources_sha256": "15680030d0ad5b413daa50aa80135c85bc99c8a5de859c20ba5e109a9bcab5eb",
+          "harness_sha256": "716049f2ba028d3dbe05b22ea9a0c0fea34ec6924f363735af7179d3ddf20f39",
+          "julia": "1.13.1",
+          "packages": [
+            {
+              "name": "PlantSimEngine",
+              "path": "/Users/rvezy/.codex/worktrees/pse-interface-plan-prototypes/PlantSimEngine/src/PlantSimEngine.jl",
+              "revision": "44a9b8813eaba7dcabdaef8c0625a5dbb8149d85",
+              "source_manifest_sha256": "7761ca0a69d987b9c210edcb4751e5ce5dbf3bdf9233bec30e6391b928a84008"
+            },
+            {
+              "name": "PlantBiophysics",
+              "path": "/Users/rvezy/Documents/dev/PlantBiophysics/src/PlantBiophysics.jl",
+              "revision": "10758c5c7211fc96b625a542ca525cb7856a9ae2",
+              "source_manifest_sha256": "4a33d44acf1f435cdbab988ae80ced482891840a0423fa002e8db37b323f53a0"
+            },
+            {
+              "name": "XPalm",
+              "path": "/Users/rvezy/Documents/dev/XPalm/src/XPalm.jl",
+              "revision": "5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd",
+              "source_manifest_sha256": "edc15633f61bdf88728bf9686525867d842d8e30106a5b26bcd05b193cad484f"
+            }
+          ]
+        },
+        "sha256": "4a3947bafe830b9f66985bd070f93920bff12df906a782a2e57eb8ace6bf624e"
+      },
+      "work": {
+        "added_ids": [
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          9
+        ],
+        "objects": 20,
+        "objects_by_scale": {
+          "Internode": 5,
+          "Leaf": 5,
+          "Phytomer": 5,
+          "Plant": 1,
+          "RootSystem": 1,
+          "Scene": 1,
+          "Soil": 1,
+          "Stem": 1
+        },
+        "steps": 4,
+        "streams": 34
+      }
+    }
+  ],
+  "run_scope": {
+    "backend_sha256": "2e2232708a0c4e9fc9f73d9f8026abf0b0db0dd3e8fa15b6da8684b0139b45dd",
+    "checkpoint_revision": "9bc9b8338",
+    "core_base_revision": "a016b511d7919e1af88505be9ce000c8d643c56c",
+    "excluded_screens": [
+      {
+        "artifact": "xp-screen.json",
+        "reason": "whole-RPC broker CPU5.3percent"
+      },
+      {
+        "artifact": "xp-repeat-screen.json",
+        "reason": "whole-RPC broker CPU5.4percent"
+      }
+    ],
+    "final_gates": [
+      "final-gates.json",
+      "final-downstream-gates.json",
+      "gradual-gates.json"
+    ],
+    "final_screens": [
+      "pb-screen.json",
+      "xp-quiet-screen.json"
+    ],
+    "forcing": {
+      "path": "/Users/rvezy/Documents/dev/XPalm/0-data/meteo.csv",
+      "raw_artifact": "reproduction/xp-meteo.csv",
+      "sha256": "3406fa2cc253c40d84610aacebe7e537fe9d2205882e1dc040c58cf169c7c653"
+    },
+    "frozen": true,
+    "gate_controller_copies": [
+      {
+        "path": "reproduction/pse-persistent-final-load.jl",
+        "sha256": "f57d48d4d5cf50140960186640c03dc6e7d2f1740063214c6a8c4dbdf04c48bd"
+      },
+      {
+        "path": "reproduction/pse-persistent-final-gates.jl",
+        "sha256": "9c215c2c8bce4ff3ef7c580c9dd0e1460dec6097e81be9b323d69316a4468455"
+      },
+      {
+        "path": "reproduction/pse-persistent-final-downstream-gates.jl",
+        "sha256": "e1ec25f4acbed83a6e9a6f07bf7717a9c5733be0b434f0d6817faed3b817d140"
+      },
+      {
+        "path": "reproduction/pse-persistent-gradual-gates.jl",
+        "sha256": "6a8c8e5d154fed266c39d8512f297808c62d977a0f1e3ca2bd06cc5c3e384907"
+      }
+    ],
+    "screen_source_image_sha256": "2a0a2f400bfd1b15e082cf533039b7e2dd60571fbf4e78cecc75276c43807623",
+    "timing_scope": "two balanced warm cycles, fresh independent scientific states, no cold performance conclusion"
+  },
+  "unqualified_declared_final_screens": []
+}
