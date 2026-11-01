@@ -92,6 +92,7 @@ unknown operations fail explicitly rather than using the ordinary runtime.
 """
 function prepare(specs::Tuple; initial=NamedTuple())
     isempty(specs) && throw(ArgumentError("empty program"))
+    any(s -> haskey(PSE.criteria(s.applies_to),:scale),specs) && return _prepare_cohorts(specs;initial)
     kinds = map(_admit, specs)
     all(==(first(kinds)), kinds) || throw(ArgumentError("one object category per program is admitted"))
     cadence = Dates.value(convert(Millisecond, first(specs).timestep))
@@ -390,5 +391,7 @@ function step!(state::State, environment; constants=nothing)
     state.step += 1
     return state
 end
+
+include("cohort_program.jl")
 
 end

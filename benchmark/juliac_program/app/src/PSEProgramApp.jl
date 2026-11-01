@@ -2,8 +2,12 @@ module PSEProgramApp
 include("program.jl")
 include("fixture.jl")
 include("xpalm_fixture.jl")
+include("phytomer_fixture.jl")
 
 const XPALM_PROGRAM = ReusableProgram.prepare(XPalmFixture.specs();initial=XPalmFixture.initial())
+
+const GROWTH_MODELS = PhytomerFixture.models(PhytomerFixture.tree())
+const GROWTH_PROGRAM = ReusableProgram.prepare(PhytomerFixture.specs(PhytomerFixture.tree());initial=PhytomerFixture.initial())
 
 const PROGRAM = ReusableProgram.prepare(NativeFixture.specs())
 
@@ -54,9 +58,55 @@ function simulate_xpalm(population::Int, steps::Int, birth_at::Int, newborns::In
     return state
 end
 
+# Release defaults are loaded at authoring/build time. Runtime parameters replace
+# immutable model values without invoking YAML loading or ModelSpec construction.
+function simulate_phytomers(days::Int,rate::Float64,biomass::Float64,Tmin::Float64,Tmax::Float64,age::Int)
+    days>=0 && rate>=0 && biomass>=0 || throw(ArgumentError("negative growth input"))
+    t=GROWTH_MODELS
+    models=(t[1],PhytomerFixture.Models.DailyPlantAgeModel(age),
+        PhytomerFixture.Models.PhyllochronModel(t[3].age_palm_maturity,rate,rate),
+        t[4],t[5],t[6],t[7],t[8],t[9],t[10],t[11])
+    state=ReusableProgram.instantiate(GROWTH_PROGRAM,models,PhytomerFixture.tree();
+        initial=PhytomerFixture.initial(;biomass,initiation_age=age))
+    constants=XPalmFixture.PSE.Constants()
+    for row in PhytomerFixture.rows(days;Tmin,Tmax)
+        ReusableProgram.step!(state,row;constants)
+    end
+    return state
+end
+_print_growth_value(value)=print(Core.stdout,value)
+_print_growth_value(value::XPalmFixture.PSE.ObjectId)=print(Core.stdout,value.value)
+_print_growth_values(::Tuple{})=nothing
+function _print_growth_values(values::Tuple)
+    print(Core.stdout,','); _print_growth_value(first(values))
+    _print_growth_values(Base.tail(values))
+end
+_print_growth_cohorts(::Tuple{})=nothing
+function _print_growth_cohorts(cohorts::Tuple)
+    cohort=first(cohorts)
+    for i in eachindex(cohort.ids)
+        node=cohort.nodes[i]; parent=PhytomerFixture.MTG.parent(node)
+        print(Core.stdout,ReusableProgram._cohort_key(cohort),',',cohort.ids[i],',',
+            isnothing(parent) ? 0 : PhytomerFixture.MTG.node_id(parent),',',
+            PhytomerFixture.MTG.link(node),',',PhytomerFixture.MTG.index(node))
+        _print_growth_values(values(NamedTuple(cohort.rows[i])))
+        println(Core.stdout)
+    end
+    _print_growth_cohorts(Base.tail(cohorts))
+end
+
 function (@main)(args::Vector{String})
-    length(args) == 9 || throw(ArgumentError("expected mode plus eight numeric inputs"))
+    isempty(args) && throw(ArgumentError("expected mode"))
     mode = args[1]
+    if mode=="phytomer"
+        length(args)==7 || throw(ArgumentError("phytomer days rate biomass Tmin Tmax initiation_age"))
+        state=simulate_phytomers(parse(Int,args[2]),parse(Float64,args[3]),parse(Float64,args[4]),
+            parse(Float64,args[5]),parse(Float64,args[6]),parse(Int,args[7]))
+        println(Core.stdout,length(state.nodes),',',state.step)
+        _print_growth_cohorts(state.cohorts)
+        return 0
+    end
+    length(args) == 9 || throw(ArgumentError("expected mode plus eight numeric inputs"))
     inputs = (parse(Int,args[2]),parse(Int,args[3]),parse(Int,args[4]),
         parse(Int,args[5]),parse(Int,args[6]),parse(Float64,args[7]),
         parse(Float64,args[8]),parse(Float64,args[9]))
