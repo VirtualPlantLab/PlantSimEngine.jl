@@ -262,6 +262,10 @@ else
         include("test-model-configuration-errors.jl")
     end
 
+    @testset "Model discovery" begin
+        include("test-model-discovery.jl")
+    end
+
     @testset "Model graph viewer" begin
         include("test-model-graph-view.jl")
     end

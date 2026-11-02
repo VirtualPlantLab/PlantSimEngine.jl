@@ -121,16 +121,46 @@ function _model_constructor_descriptor(::Type{T}, default_instance) where {T<:Ab
     )
 end
 
-function _abstract_model_subtypes(root::Type=AbstractModel, seen=Set{Type}())
+_abstract_model_subtypes(root::Type=AbstractModel) =
+    _abstract_model_subtypes_in_modules(Base.loaded_modules_array(), root)
+
+function _abstract_model_subtypes_in_modules(roots, root::Type=AbstractModel)
     found = Type[]
-    root in seen && return found
-    push!(seen, root)
-    for child in InteractiveUtils.subtypes(root)
-        child in seen && continue
-        push!(found, child)
-        append!(found, _abstract_model_subtypes(child, seen))
+    isabstracttype(root) || return found
+    pending = Module[roots...]
+    scanned = Set{Module}()
+    seen = Set{Type}()
+    # InteractiveUtils.subtypes scans the loaded modules for each parent type.
+    # Discover the nominal model bindings in one traversal instead, without
+    # retaining a cache that could hide types loaded after this query.
+    while !isempty(pending)
+        module_ = pop!(pending)
+        module_ in scanned && continue
+        push!(scanned, module_)
+        for name in names(module_; all=true)
+            Base.isdeprecated(module_, name) && continue
+            isdefined(module_, name) || continue
+            value = getfield(module_, name)
+            unwrapped = value isa UnionAll ? Base.unwrap_unionall(value) : value
+            if unwrapped isa DataType
+                # Imported names and aliases are not additional type definitions.
+                unwrapped.name.name === name && unwrapped.name.module === module_ || continue
+                value <: AbstractModel || continue
+                candidate = typeintersect(value, root)
+                candidate === Union{} && continue
+                candidate === root && continue
+                candidate in seen && continue
+                push!(seen, candidate)
+                push!(found, candidate)
+            elseif value isa Module && nameof(value) === name &&
+                   parentmodule(value) === module_ && value !== module_
+                push!(pending, value)
+            end
+        end
     end
-    return found
+    # Establish deterministic ties for the public process/name sorts, regardless
+    # of the order in which packages and their modules were encountered.
+    return sort!(found; by=string)
 end
 
 function _is_process_type(type::Type)
