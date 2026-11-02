@@ -449,7 +449,7 @@ function allocation_fixture(::Type{T}) where {T}
         ), environment=backend)
     simulation = run!(model; steps=1, outputs=:none)
     target = only(call_targets(capture[], :leaf))
-    return (; simulation, backend, target, row)
+    return (; simulation, backend, target, row, context=capture[])
 end
 
 function allocation_opaque_loop!(target, operations, ::Val{Publish}) where {Publish}
@@ -461,6 +461,18 @@ end
 function allocation_typed_loop!(target, row, operations, ::Val{Publish}) where {Publish}
     for _ in 1:operations
         run_call!(target; sampled_environment=row, publish=Publish)
+    end
+    return nothing
+end
+function allocation_bulk_loop!(context, operations, ::Val{Publish}) where {Publish}
+    for _ in 1:operations
+        run_call!(context, :leaf; publish=Publish)
+    end
+    return nothing
+end
+function allocation_bulk_typed_loop!(context, row, operations, ::Val{Publish}) where {Publish}
+    for _ in 1:operations
+        run_call!(context, :leaf; sampled_environment=row, publish=Publish)
     end
     return nothing
 end
@@ -523,6 +535,37 @@ end
         end
         @test evidence.total_calls == 2 * (evidence.warmup + 3 * evidence.operations)
         @test evidence.total_samples == 2 * (evidence.warmup + 3 * evidence.operations)
+        @test backend.row === row
+        @test target.status.seen === T(13)
+        @test target.status.padding_1 === one(T)
+    end
+end
+
+@testset "opaque sampled rows do not box wide bulk-call payloads" begin
+    for T in (Float32, Float64), publication in (Val(false), Val(true))
+        data = allocation_fixture(T)
+        context, target, backend, row = data.context, data.target, data.backend, data.row
+        warmup, operations = 3072, 1024
+        initial_calls, initial_samples = target.status.calls, backend.samples
+        allocation_bulk_loop!(context, warmup, publication)
+        allocation_bulk_typed_loop!(context, row, warmup, publication)
+        samples = map(1:3) do _
+            before_calls, before_samples = target.status.calls, backend.samples
+            opaque_bytes = @allocated allocation_bulk_loop!(context, operations, publication)
+            opaque_calls = target.status.calls - before_calls
+            opaque_samples = backend.samples - before_samples
+            before_calls, before_samples = target.status.calls, backend.samples
+            typed_bytes = @allocated allocation_bulk_typed_loop!(context, row, operations, publication)
+            (; opaque_bytes, typed_bytes, opaque_calls, opaque_samples,
+                typed_calls=target.status.calls-before_calls,
+                typed_samples=backend.samples-before_samples)
+        end
+        @test minimum(sample.opaque_bytes for sample in samples) <=
+              minimum(sample.typed_bytes for sample in samples) + 64
+        @test all(sample -> sample.opaque_calls == sample.typed_calls == operations, samples)
+        @test all(sample -> sample.opaque_samples == operations && sample.typed_samples == 0, samples)
+        @test target.status.calls - initial_calls == 2 * (warmup + 3 * operations)
+        @test backend.samples - initial_samples == warmup + 3 * operations
         @test backend.row === row
         @test target.status.seen === T(13)
         @test target.status.padding_1 === one(T)
