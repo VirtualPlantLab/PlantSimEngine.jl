@@ -1,0 +1,207 @@
+--- a/dev/native/pse.jl
++++ b/dev/native/pse.jl
+@@ -144 +144 @@
+-mutable struct NativePSEState{N,F,C,D,G}
++mutable struct NativePSEState{N,F,C,D,G,I<:PSE.ObjectId,R<:PSE.ObjectId}
+@@ -146 +146 @@
+-    plant_id::PSE.ObjectId
++    plant_id::I
+@@ -149 +149 @@
+-    registered::Dict{Tuple{Symbol,Int},PSE.ObjectId}
++    registered::Dict{Tuple{Symbol,Int},R}
+@@ -168,0 +169,9 @@
++
++# Fixed property names/sources are adapter metadata, not scientific values.
++# Keep them visible to the compiler while retaining the original publisher kernel.
++struct _StaticProperties{PAIRS} end
++Base.length(::_StaticProperties{PAIRS}) where {PAIRS} = length(PAIRS)
++Base.iterate(::_StaticProperties{PAIRS}) where {PAIRS} = iterate(PAIRS)
++Base.iterate(::_StaticProperties{PAIRS}, state) where {PAIRS} = iterate(PAIRS, state)
++Base.eltype(::Type{<:_StaticProperties}) = Tuple{Symbol,Symbol}
++_static_properties(properties) = _StaticProperties{Tuple((name, source) for (name, source) in properties)}()
+--- a/dev/native/pse_projection.jl
++++ b/dev/native/pse_projection.jl
+@@ -379 +379 @@
+-    return PSE.ModelSpec(NativePropertyPublisher(defaults, Tuple(properties), revision);
++    return PSE.ModelSpec(NativePropertyPublisher(defaults, _static_properties(properties), revision);
+@@ -604 +604 @@
+-            Dict{Tuple{Symbol,Int},PSE.ObjectId}(), geometry, status_factory,
++            Dict{Tuple{Symbol,Int},typeof(native_object_id(plant.id, :Internode, 1))}(), geometry, status_factory,
+--- a/dev/native/geometry.jl
++++ b/dev/native/geometry.jl
+@@ -159,0 +160,6 @@
++    return _geometry_typed!(plant,geometry_draws,rng,geometry_parameters,dimension_provider,observation_times)
++end
++# A positional callback barrier preserves its concrete closure type. The entire
++# scientific geometry body below is unchanged.
++function _geometry_typed!(plant::Engine.NativePlant,geometry_draws::F,rng,
++    geometry_parameters,dimension_provider,observation_times) where {F}
+--- a/dev/native/parameters.jl
++++ b/dev/native/parameters.jl
+@@ -302,0 +303,72 @@
++# Closed storage for the ORIGINAL planner's finite native payload. Every
++# scientific value and vector reference is preserved; optional values remain
++# optional. No outcome or branch is inferred from benchmark parameter values.
++struct NativeApicalPlan
++    reference_age::Float64
++    starts_growth_unit::Bool
++    starts_cycle::Bool
++    growth_unit_sympody::Union{Nothing,AMAPSim.SympodialTransition}
++    cycle_sympody::Union{Nothing,AMAPSim.SympodialTransition}
++    starts_neoformed_zone::Bool
++    creates_test_site::Bool
++    zone_kind::Symbol
++    zone_test_index::Int
++    realized::Bool
++    cycle_ended::Bool
++    growth_unit_ended::Bool
++    axis_ended::Bool
++    mortality_position::Int
++    mortality_death_position::Union{Nothing,Int}
++    survived::Bool
++    bud_died::Bool
++    cycle_tail_test_count::Int
++    cycle_tail_survival_test_count::Int
++    theoretical_growth_unit_test_count::Int
++    theoretical_growth_unit_end_time::Float64
++    theoretical_growth_unit_duration::Union{Nothing,Float64}
++    branch_position::Int
++    branching_zone_index::Int
++    bearer_axis_internode_index::Int
++    immediate_branches::Vector{NamedTuple}
++    floating_cleanup_lateral_indices::Vector{Int}
++    next_time::Union{Nothing,Float64}
++end
++function _closed_plan(plan)
++    return NativeApicalPlan(
++        getfield(plan,:reference_age)::Float64,
++        getfield(plan,:starts_growth_unit)::Bool,
++        getfield(plan,:starts_cycle)::Bool,
++        getfield(plan,:growth_unit_sympody)::Union{Nothing,AMAPSim.SympodialTransition},
++        getfield(plan,:cycle_sympody)::Union{Nothing,AMAPSim.SympodialTransition},
++        getfield(plan,:starts_neoformed_zone)::Bool,
++        getfield(plan,:creates_test_site)::Bool,
++        getfield(plan,:zone_kind)::Symbol,
++        getfield(plan,:zone_test_index)::Int,
++        getfield(plan,:realized)::Bool,
++        getfield(plan,:cycle_ended)::Bool,
++        getfield(plan,:growth_unit_ended)::Bool,
++        getfield(plan,:axis_ended)::Bool,
++        getfield(plan,:mortality_position)::Int,
++        getfield(plan,:mortality_death_position)::Union{Nothing,Int},
++        getfield(plan,:survived)::Bool,
++        getfield(plan,:bud_died)::Bool,
++        getfield(plan,:cycle_tail_test_count)::Int,
++        getfield(plan,:cycle_tail_survival_test_count)::Int,
++        getfield(plan,:theoretical_growth_unit_test_count)::Int,
++        getfield(plan,:theoretical_growth_unit_end_time)::Float64,
++        getfield(plan,:theoretical_growth_unit_duration)::Union{Nothing,Float64},
++        getfield(plan,:branch_position)::Int,
++        getfield(plan,:branching_zone_index)::Int,
++        getfield(plan,:bearer_axis_internode_index)::Int,
++        getfield(plan,:immediate_branches)::Vector{NamedTuple},
++        getfield(plan,:floating_cleanup_lateral_indices)::Vector{Int},
++        getfield(plan,:next_time)::Union{Nothing,Float64})
++end
++@generated function Base.merge(plan::NativeApicalPlan,overrides::NamedTuple{N}) where {N}
++    names=fieldnames(NativeApicalPlan)
++    all(name->name in names,N) || return :(throw(ArgumentError("unknown NativeApicalPlan override field")))
++    values=[name in N ? :(getfield(overrides,$(QuoteNode(name)))) : :(getfield(plan,$i))
++        for (i,name) in enumerate(names)]
++    return :(NativeApicalPlan($(values...)))
++end
++
+@@ -306,2 +378,2 @@
+-    return AMAPSim._plan_apical_test!(state,rng,parameters,Float64(time),0,0,0.0,
+-        false,nothing,nothing,nothing,state.first_dispatch_time)
++    return _closed_plan(AMAPSim._plan_apical_test!(state,rng,parameters,Float64(time),0,0,0.0,
++        false,nothing,nothing,nothing,state.first_dispatch_time))
+@@ -348 +420 @@
+-        state.cycle = nothing
++        setfield!(state,:cycle,nothing)
+@@ -352 +424 @@
+-        state.cycle = nothing
++        setfield!(state,:cycle,nothing)
+@@ -356 +428 @@
+-    state.next_time = plan.next_time === nothing ? Inf : plan.next_time
++    setfield!(state,:next_time,plan.next_time === nothing ? Inf : (plan.next_time::Float64))
+--- a/dev/native/engine.jl
++++ b/dev/native/engine.jl
+@@ -283,0 +284,64 @@
++# Explicit finite optional-argument barriers; every leaf invokes the original sampler.
++function _closed_sample_immediate_markov_state(rng,zone,age,pos,old,lp,previous_zone::Int,previous_pos::Float64)
++    previous_branching=previous_zone==0 ? nothing : lp.zones[previous_zone].branching
++    previous_position=isnan(previous_pos) ? nothing : previous_pos
++    if old===nothing
++        if previous_branching===nothing
++            if previous_position===nothing
++                return AMAPSim.sample_immediate_markov_state(rng,zone,age,pos,nothing;previous_branching=nothing,previous_position=nothing)
++            else
++                return AMAPSim.sample_immediate_markov_state(rng,zone,age,pos,nothing;previous_branching=nothing,previous_position=previous_position)
++            end
++        else
++            if previous_position===nothing
++                return AMAPSim.sample_immediate_markov_state(rng,zone,age,pos,nothing;previous_branching=previous_branching,previous_position=nothing)
++            else
++                return AMAPSim.sample_immediate_markov_state(rng,zone,age,pos,nothing;previous_branching=previous_branching,previous_position=previous_position)
++            end
++        end
++    else
++        if previous_branching===nothing
++            if previous_position===nothing
++                return AMAPSim.sample_immediate_markov_state(rng,zone,age,pos,old;previous_branching=nothing,previous_position=nothing)
++            else
++                return AMAPSim.sample_immediate_markov_state(rng,zone,age,pos,old;previous_branching=nothing,previous_position=previous_position)
++            end
++        else
++            if previous_position===nothing
++                return AMAPSim.sample_immediate_markov_state(rng,zone,age,pos,old;previous_branching=previous_branching,previous_position=nothing)
++            else
++                return AMAPSim.sample_immediate_markov_state(rng,zone,age,pos,old;previous_branching=previous_branching,previous_position=previous_position)
++            end
++        end
++    end
++end
++function _closed_sample_cycle_delayed_markov_state(rng,zone,age,pos,old,previous_initial_probability)
++    if old===nothing
++        if previous_initial_probability===nothing
++            return AMAPSim.sample_cycle_delayed_markov_state(rng,zone,age,pos,nothing;previous_initial_probability=nothing)
++        else
++            return AMAPSim.sample_cycle_delayed_markov_state(rng,zone,age,pos,nothing;previous_initial_probability=previous_initial_probability)
++        end
++    else
++        if previous_initial_probability===nothing
++            return AMAPSim.sample_cycle_delayed_markov_state(rng,zone,age,pos,old;previous_initial_probability=nothing)
++        else
++            return AMAPSim.sample_cycle_delayed_markov_state(rng,zone,age,pos,old;previous_initial_probability=previous_initial_probability)
++        end
++    end
++end
++function _closed_sample_traumatic_markov_state(rng,zone,age,pos,old,previous_initial_probability)
++    if old===nothing
++        if previous_initial_probability===nothing
++            return AMAPSim.sample_traumatic_markov_state(rng,zone,age,pos,nothing;previous_initial_probability=nothing)
++        else
++            return AMAPSim.sample_traumatic_markov_state(rng,zone,age,pos,nothing;previous_initial_probability=previous_initial_probability)
++        end
++    else
++        if previous_initial_probability===nothing
++            return AMAPSim.sample_traumatic_markov_state(rng,zone,age,pos,old;previous_initial_probability=nothing)
++        else
++            return AMAPSim.sample_traumatic_markov_state(rng,zone,age,pos,old;previous_initial_probability=previous_initial_probability)
++        end
++    end
++end
+@@ -305,3 +369 @@
+-            transition=AMAPSim.sample_immediate_markov_state(plant.rng,zone,age,pos,previous;
+-                previous_branching=previous_zone==0 ? nothing : lp.zones[previous_zone].branching,
+-                previous_position=isnan(previous_pos) ? nothing : previous_pos)
++            transition=_closed_sample_immediate_markov_state(plant.rng,zone,age,pos,previous,lp,previous_zone,previous_pos)
+@@ -461,2 +523 @@
+-            transition=AMAPSim.sample_cycle_delayed_markov_state(plant.rng,zone,age,pos,old;
+-                previous_initial_probability=prev_p)
++            transition=_closed_sample_cycle_delayed_markov_state(plant.rng,zone,age,pos,old,prev_p)
+@@ -472,2 +533 @@
+-                transition=AMAPSim.sample_traumatic_markov_state(plant.rng,zone,age,pos,old;
+-                    previous_initial_probability=prev_p)
++                transition=_closed_sample_traumatic_markov_state(plant.rng,zone,age,pos,old,prev_p)

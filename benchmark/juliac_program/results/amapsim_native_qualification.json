@@ -1,0 +1,37 @@
+{
+  "format_version": 1,
+  "scope": "complete_selected_original_native_AMAP_architecture_geometry_internode_projection",
+  "build": {
+    "julia": "1.13.1",
+    "bundle_s": 1.123206917,
+    "compilation_s": 21.484864292,
+    "bundle": "/private/tmp/pse-juliac-large-20261102/amap-native-bundle-6",
+    "juliac": "0.3.12",
+    "trim": "safe",
+    "link_s": 0.103889833,
+    "cpu": "generic",
+    "binary_sha256": "2d0b60b39a2221e356d44db1f808eac8e8885f829963ea38f66b3575454313b3"
+  },
+  "source_typing_manifest_sha256": "770eb2c9fec27df8c58655c99e125a32889d4233dfdd4be0936e632f165f4d09",
+  "source_patch_sha256": "c3246dcbc19b20903bf394ff8ee8ed43c06a8968ee249d7942d67a11e37cd805",
+  "cases": [
+    {
+      "profile": "merisier",
+      "plants": 1,
+      "steps": 2,
+      "increment": 0.5,
+      "seed": 1,
+      "outputs": "all",
+      "native_snapshot_bytes": 412010,
+      "native_snapshot_sha256": "435e0b4844049455bba8b034ad99207d7d176498f35c7dd929dcb89e417a9da8",
+      "original_ordinary_byte_exact": true,
+      "objects": 24,
+      "internodes": 22,
+      "rng_draws": [
+        36
+      ],
+      "kaimon_evaluation_id": "849e91bd"
+    }
+  ],
+  "timings_qualified": false
+}
