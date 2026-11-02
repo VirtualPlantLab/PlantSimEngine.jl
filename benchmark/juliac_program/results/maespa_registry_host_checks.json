@@ -11,7 +11,15 @@
     "committed_environment_record_bytes": 562,
     "backend_identity_restored": true,
     "kaimon_session": "54d141b7",
-    "kaimon_eval": "6d4c8481"
+    "kaimon_eval": "6d4c8481",
+    "dynamic_route_inference": {
+      "route_count": 18,
+      "unconstrained_route_length_infers_Int": false,
+      "bounded_route_length_infers_Int": true,
+      "all_route_lengths_equal": true,
+      "fresh_runtime_namespace": "RegistryBoundProbe",
+      "kaimon_eval": "5917c151"
+    }
   },
   "earlier_scientific_gate": {
     "initial_and_two_daylight_steps_full_host_snapshot_equal": true,

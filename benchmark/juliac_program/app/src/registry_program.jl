@@ -93,7 +93,7 @@ struct RegistryContext{S,T,E}
     time::Float64
     publication_allowed::Bool
 end
-struct RegistryCallTarget{S,R,E,I}
+struct RegistryCallTarget{S,R<:RegistryCallRoute,E,I}
     state::S
     route::R
     override::E
@@ -102,7 +102,7 @@ struct RegistryCallTarget{S,R,E,I}
     time::Float64
     publication_allowed::Bool
 end
-struct RegistryCallTargets{V,S,R,E} <: AbstractVector{V}
+struct RegistryCallTargets{V,S,R<:RegistryCallRoute,E} <: AbstractVector{V}
     state::S
     route::R
     override::E
