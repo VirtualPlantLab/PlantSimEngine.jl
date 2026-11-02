@@ -1,0 +1,5 @@
+name = "PSETypedCopyProbe"
+uuid = "70da46b9-d36e-4aac-a6f7-162af71df9bf"
+version = "0.1.0"
+[deps]
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"

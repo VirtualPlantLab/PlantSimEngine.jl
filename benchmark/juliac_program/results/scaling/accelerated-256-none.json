@@ -1,0 +1,308 @@
+{
+  "settings": {
+    "days": 256,
+    "profile": "accelerated",
+    "rate": 0.3,
+    "reproductive": true,
+    "retain": false
+  },
+  "profile": {
+    "name": "accelerated",
+    "package_parameters_untouched": false,
+    "initiation_age": 0,
+    "architecture": false,
+    "forcing": "FullXPalmFixture.rows synthetic daily forcing",
+    "phyllochron_initial": 0.3,
+    "phyllochron_mature": 0.3,
+    "flowering": 30.0,
+    "abortion_duration": 6.0,
+    "sex_duration": 12.0,
+    "sex_seed": 1,
+    "abortion_seed": 1
+  },
+  "scope": "Fresh simulation including forcing/Constants; scientific authoring/program preparation/explicit GC/validation excluded",
+  "metadata": {
+    "current": {
+      "compiler": "warm Julia JIT; not a JuliaC/AOT measurement",
+      "julia": "1.13.1",
+      "plant_sim_engine": "0.15.1",
+      "xpalm": "0.7.0",
+      "xpalm_manifest_revision": "5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd",
+      "active_project": "/Users/rvezy/.codex/worktrees/pse-juliac-program/PlantSimEngine/benchmark/juliac_program/app/Project.toml",
+      "plant_sim_engine_source": "/Users/rvezy/.codex/worktrees/pse-juliac-program/PlantSimEngine/src/PlantSimEngine.jl",
+      "xpalm_source": "/Users/rvezy/.julia/packages/XPalm/deFaa/src/XPalm.jl",
+      "source_revision": "54e5abf31feeba47b2ab42cccd03edf34f961af0",
+      "source_dirty": true,
+      "cpu": "apple-m3",
+      "machine": "arm64-apple-darwin27.0.0",
+      "julia_threads": 2,
+      "manifest": "/Users/rvezy/.codex/worktrees/pse-juliac-program/PlantSimEngine/benchmark/juliac_program/app/Manifest.toml"
+    },
+    "previous_module": "Main.FullProgramReusePerformance.BeforeReuse.FullXPalmPerformance",
+    "current_module": "Main.FullXPalmPerformance",
+    "previous_runtime_source_sha256": {
+      "cohort_program.jl": "aa124eba9288f4a6ecf4710ad30b0fc2badc4212093378745e7b235285d177dc",
+      "full_program_bindings.jl": "054b661b8fa2ba7ca3142978371b4e6f0591260a97a5562011357ddbd85542bc",
+      "full_program_history.jl": "37117995ac3bfe1f9f4920e8db64904417c814e979a77d459923e6d40ac2d36d",
+      "full_program_plan.jl": "adc518b8d4bebd583dc8fb73f3e369325e912499f1a7da407ec4d9c06388a594",
+      "full_program_runtime.jl": "23fa98909fb30f6f02b508c5055d2fd05f17b30cfa3db357d2033be3c667f33b",
+      "program.jl": "47be0682c08df45afb3e16162084c487a6324816a9fd1bd4d44ea4693f86d00c"
+    },
+    "current_runtime_source_sha256": {
+      "cohort_program.jl": "aa124eba9288f4a6ecf4710ad30b0fc2badc4212093378745e7b235285d177dc",
+      "full_program_bindings.jl": "0a79559b343f2634e7ec12f22a6a754473285ab68969ec736d60c5f90df385f7",
+      "full_program_history.jl": "3e0906b38615a51518cb1180b0d62e5660dd4ac60a10f87481136620c411ba45",
+      "full_program_plan.jl": "ad38c1d1e3509edfb4d88400a4cf7dc2ef44f8288aad8e2a9911194339a75afd",
+      "full_program_runtime.jl": "f5fa30675d6ad9c3412453cb1f0d313f4e3780362b1218be158d1f2a92ba0de1",
+      "program.jl": "47be0682c08df45afb3e16162084c487a6324816a9fd1bd4d44ea4693f86d00c"
+    }
+  },
+  "work": {
+    "days": 256,
+    "initial_objects": 8,
+    "final_objects": 1030,
+    "objects_by_category": {
+      "Female": 63,
+      "Internode": 257,
+      "Leaf": 257,
+      "Male": 191,
+      "Phytomer": 257,
+      "Plant": 1,
+      "RootSystem": 1,
+      "Scene": 1,
+      "Soil": 1,
+      "Stem": 1
+    },
+    "applications": 61,
+    "retained_samples": 0
+  },
+  "validated": {
+    "canonical_state": true,
+    "ordered_topology": true,
+    "owned_rng": true,
+    "retained_sample_parity": false
+  },
+  "ordinary_pse": {
+    "median_s": 2.382432167,
+    "min_s": 2.267741167,
+    "median_bytes": 2.209622376e9,
+    "min_bytes": 2209609896,
+    "median_gc_s": 0.142188709,
+    "min_gc_s": 0.132390833
+  },
+  "previous_prepared_bf4c3ab7": {
+    "median_s": 8.2566615,
+    "min_s": 8.006788083,
+    "median_bytes": 1.844099312e9,
+    "min_bytes": 1844097056,
+    "median_gc_s": 0.082453876,
+    "min_gc_s": 0.079682833
+  },
+  "current_prepared": {
+    "median_s": 0.55976025,
+    "min_s": 0.475446583,
+    "median_bytes": 1.489447648e9,
+    "min_bytes": 1485253312,
+    "median_gc_s": 0.062562083,
+    "min_gc_s": 0.056460334
+  },
+  "current_juliac_safe": {
+    "supported": true,
+    "arm": "current_juliac_safe",
+    "median_s": 0.514621917,
+    "min_s": 0.498443542,
+    "trials": [
+      {
+        "launch": 1,
+        "trial": 1,
+        "time_s": 0.544153875
+      },
+      {
+        "launch": 1,
+        "trial": 2,
+        "time_s": 0.529802375
+      },
+      {
+        "launch": 1,
+        "trial": 3,
+        "time_s": 0.516581583
+      },
+      {
+        "launch": 2,
+        "trial": 1,
+        "time_s": 0.508938417
+      },
+      {
+        "launch": 2,
+        "trial": 2,
+        "time_s": 0.511740875
+      },
+      {
+        "launch": 2,
+        "trial": 3,
+        "time_s": 0.498443542
+      },
+      {
+        "launch": 3,
+        "trial": 1,
+        "time_s": 0.514621917
+      },
+      {
+        "launch": 3,
+        "trial": 2,
+        "time_s": 0.520632583
+      },
+      {
+        "launch": 3,
+        "trial": 3,
+        "time_s": 0.504620625
+      }
+    ],
+    "warmups": [
+      {
+        "launch": 1,
+        "trial": 0,
+        "time_s": 0.559535958
+      },
+      {
+        "launch": 2,
+        "trial": 0,
+        "time_s": 0.549510166
+      },
+      {
+        "launch": 3,
+        "trial": 0,
+        "time_s": 0.603794208
+      }
+    ],
+    "validation": [
+      {
+        "launch": 1,
+        "canonical_fields": 21157,
+        "retained_samples": 0,
+        "rng_streams": 2,
+        "objects": 1030,
+        "topology_schema": "category/parent/link/index; existing native full protocol"
+      },
+      {
+        "launch": 2,
+        "canonical_fields": 21157,
+        "retained_samples": 0,
+        "rng_streams": 2,
+        "objects": 1030,
+        "topology_schema": "category/parent/link/index; existing native full protocol"
+      },
+      {
+        "launch": 3,
+        "canonical_fields": 21157,
+        "retained_samples": 0,
+        "rng_streams": 2,
+        "objects": 1030,
+        "topology_schema": "category/parent/link/index; existing native full protocol"
+      }
+    ],
+    "metadata": {
+      "bundle": "/var/folders/vs/0g9ggg9s58x7w0pc906m0zr00000gn/T/pse-native-perf-NeSKfQ/bundle",
+      "binary_sha256": "4d724fbbc731ea030e987f1c30a5812f94f5d24c0be0f2a10a7a13e283603951",
+      "app_sha256": "040eb06c78e4e5162ddfb3267ff311c9ff91cb7dbd5b2dfaf8c35229724f64cf",
+      "julia": "1.13.1",
+      "juliac": "0.3.12",
+      "trim": "safe",
+      "cpu": "generic"
+    },
+    "scope": "Internal simulate_full_xpalm fresh setup/forcing/Constants/daily steps; program/scientific authoring, startup, P0, explicit GC, printing and host parity excluded; native allocation bytes not measured"
+  },
+  "reachable_state_bytes": {
+    "ordinary_pse": 35135685,
+    "previous_prepared_bf4c3ab7": 23425266,
+    "current_prepared": 27232845
+  },
+  "warmups": [
+    {
+      "trial": 0,
+      "arm": "ordinary_pse",
+      "time_s": 2.281425625,
+      "bytes": 2209677112,
+      "gc_s": 0.127688
+    },
+    {
+      "trial": 0,
+      "arm": "previous_prepared_bf4c3ab7",
+      "time_s": 7.786546625,
+      "bytes": 1844090464,
+      "gc_s": 0.126334376
+    },
+    {
+      "trial": 0,
+      "arm": "current_prepared",
+      "time_s": 0.74162125,
+      "bytes": 1485255568,
+      "gc_s": 0.311464044
+    }
+  ],
+  "trials": [
+    {
+      "trial": 1,
+      "arm": "ordinary_pse",
+      "time_s": 2.896602416,
+      "bytes": 2209622376,
+      "gc_s": 0.149211332
+    },
+    {
+      "trial": 1,
+      "arm": "previous_prepared_bf4c3ab7",
+      "time_s": 8.006788083,
+      "bytes": 1844097056,
+      "gc_s": 0.082453876
+    },
+    {
+      "trial": 1,
+      "arm": "current_prepared",
+      "time_s": 0.562968542,
+      "bytes": 1489447648,
+      "gc_s": 0.065321002
+    },
+    {
+      "trial": 2,
+      "arm": "previous_prepared_bf4c3ab7",
+      "time_s": 8.37382875,
+      "bytes": 1844099312,
+      "gc_s": 0.090845585
+    },
+    {
+      "trial": 2,
+      "arm": "ordinary_pse",
+      "time_s": 2.267741167,
+      "bytes": 2209609896,
+      "gc_s": 0.132390833
+    },
+    {
+      "trial": 2,
+      "arm": "current_prepared",
+      "time_s": 0.475446583,
+      "bytes": 1489447648,
+      "gc_s": 0.056460334
+    },
+    {
+      "trial": 3,
+      "arm": "previous_prepared_bf4c3ab7",
+      "time_s": 8.2566615,
+      "bytes": 1844105520,
+      "gc_s": 0.079682833
+    },
+    {
+      "trial": 3,
+      "arm": "current_prepared",
+      "time_s": 0.55976025,
+      "bytes": 1485253312,
+      "gc_s": 0.062562083
+    },
+    {
+      "trial": 3,
+      "arm": "ordinary_pse",
+      "time_s": 2.382432167,
+      "bytes": 2209674040,
+      "gc_s": 0.142188709
+    }
+  ]
+}
