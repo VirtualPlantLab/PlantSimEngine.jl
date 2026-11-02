@@ -34,7 +34,8 @@ Provider/sink values specialize the original immutable handle at the binding
 boundary; the original sampling, sink and duration checks still execute.
 
 Application/object identities, root execution order and call memberships remain
-data. Iterative refinement groups targets by their model/carrier/call schemas:
+data. The compiled root-family set excludes manual-only groups from root execution
+specializations. Iterative refinement groups targets by their model/carrier/call schemas:
 one and four tiles both use 68 families (145 and 481 targets). Four original
 scientific models retain population-sized weight/ID tuple parameters, so the two
 populations have distinct model specializations. The native suite is explicitly

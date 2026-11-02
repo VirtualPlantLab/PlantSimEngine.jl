@@ -58,6 +58,9 @@ struct RegistryHistory{K,S}
     key::K
     samples::S
 end
+struct RegistrySchedule{FAMILIES}
+    entries::Vector{Tuple{Int,Int}}
+end
 struct RegistrySeed{G,O,H,E,C,R,A}
     groups::G
     objects::O
@@ -317,8 +320,10 @@ Base.@nospecializeinfer function _lower_registry_seed(simulation,raws)
         (parent=object.parent,children=_typed_ids(object.children),scale=object.scale,kind=object.kind,
          species=object.species,geometry=PSE.geometry(object))) for object in PSE.model_objects(private_model)])
     histories=_group_values([RegistryHistory(key,stream) for (key,stream) in simulation.temporal_streams])
-    order=Tuple{Int,Int}[lookup[(group.application.id,target.object_id)]
+    ordered_entries=Tuple{Int,Int}[lookup[(group.application.id,target.object_id)]
         for group in simulation.execution_plan.groups for batch in group.batches for target in batch.targets]
+    root_families=Tuple(sort!(unique(first.(ordered_entries))))
+    order=RegistrySchedule{root_families}(ordered_entries)
     application_rows=[(application.id,lookup[(application.id,first(application.target_ids))]...)
         for application in applications]
     # The entire graph already belongs to the private authoring model. Project
@@ -546,18 +551,22 @@ end
     target.dt>0 || throw(ArgumentError("application cadence must be positive"))
     return target.dt<=1 || isapprox(mod(time-target.phase,target.dt),0;atol=1.0e-8,rtol=0)
 end
-@generated function _run_roots!(state::RegistryState{G,O,H,E,C,R,A,V},time) where {G,O,H,E,C,R,A,V}
-    # Order is authoring metadata, but slots remain ordinary integer data.
+@generated function _run_roots!(state::RegistryState{G,O,H,E,C,R,A,V},time) where {G,O,H,E,C,R<:RegistrySchedule,A,V}
+    # Only root-scheduled families are callable in this context. In particular,
+    # manual-only groups must not acquire a NoOverride execution specialization.
+    # Their actual order, object rows and repetitions remain ordinary data.
+    families=R.parameters[1]
     branches=[:(if slot==$i
         target=getfield(state.groups,$i).targets[row]
         if _due(target,time)
             _execute!(target,state,time,true,NoOverride(),NoSample())
         end
         continue
-    end) for i in 1:fieldcount(G)]
+    end) for i in families]
     return quote
-        for (slot,row) in state.order
+        for (slot,row) in state.order.entries
             $(branches...)
+            throw(ArgumentError("invalid fixed registry root membership"))
         end
         nothing
     end

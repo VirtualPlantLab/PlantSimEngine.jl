@@ -43,6 +43,14 @@
         "8b3f288f",
         "c2cd18c9"
       ]
+    },
+    "root_schedule_projection": {
+      "ordered_root_targets": 66,
+      "root_families": 44,
+      "all_families": 68,
+      "manual_only_families_excluded_from_root_context": 24,
+      "ordered_entries_exact": true,
+      "kaimon_eval": "22bf78bd"
     }
   },
   "earlier_scientific_gate": {
@@ -97,6 +105,14 @@
       "verifier_errors": 580,
       "log_sha256": "aa794613f1773ec61f769d5a69a5857906f67fe26cb43e510ea5657d93710789",
       "root_repairs": "literal named-call dispatch needs const propagation; remaining source/error roots under review"
+    },
+    {
+      "id": "r4",
+      "status": "safe_verifier_rejected",
+      "safe_qualification": false,
+      "verifier_errors": 408,
+      "log_sha256": "81e0eb75f577d616eba8ead2ed4106dd23a4e0bc21bb3cda7001138769c06026",
+      "root_repairs": "root dispatcher was compiling manual-only families with an unadmitted NoOverride context; encode the actual scheduled family set and retain the exact ordered entries"
     }
   ]
 }
