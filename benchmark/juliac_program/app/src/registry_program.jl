@@ -439,7 +439,7 @@ end
     return RegistryCallTargets{V,S,R,E}(
         context.state,route,context.override,context.time,context.publication_allowed)
 end
-@generated function _call_targets_named(context::RegistryContext{S,T,E},name::Symbol) where {S,T,E}
+@inline Base.@constprop :aggressive @generated function _call_targets_named(context::RegistryContext{S,T,E},name::Symbol) where {S,T,E}
     names=fieldnames(fieldtype(T,:calls))
     branches=[:(name===$(QuoteNode(key)) && return _call_targets_for_route(context,getfield(context.target.calls,$index)))
         for (index,key) in enumerate(names)]
@@ -467,7 +467,7 @@ function _run_call_route!(context,route,publish,environment,sampled_environment)
     end
     return targets
 end
-@generated function _run_call_named!(context::RegistryContext{S,T,E},name::Symbol,publish,environment,sampled_environment) where {S,T,E}
+@inline Base.@constprop :aggressive @generated function _run_call_named!(context::RegistryContext{S,T,E},name::Symbol,publish,environment,sampled_environment) where {S,T,E}
     names=fieldnames(fieldtype(T,:calls))
     branches=[:(name===$(QuoteNode(key)) && return _run_call_route!(context,getfield(context.target.calls,$index),
         publish,environment,sampled_environment)) for (index,key) in enumerate(names)]

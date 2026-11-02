@@ -19,6 +19,13 @@
       "all_route_lengths_equal": true,
       "fresh_runtime_namespace": "RegistryBoundProbe",
       "kaimon_eval": "5917c151"
+    },
+    "literal_call_inference": {
+      "call_result_concrete": true,
+      "only_result_concrete": true,
+      "only_result_bottom": false,
+      "generated_dispatch_constprop": "aggressive",
+      "kaimon_eval": "774d8ffc"
     }
   },
   "earlier_scientific_gate": {
@@ -60,6 +67,14 @@
       "status": "safe_verifier_rejected",
       "safe_qualification": false,
       "root_repairs": "output union branch, finite call routing, concrete temporal fallback, inference-only downstream field/error/closure changes; next build pending"
+    },
+    {
+      "id": "r3",
+      "status": "safe_verifier_rejected",
+      "safe_qualification": false,
+      "verifier_errors": 580,
+      "log_sha256": "aa794613f1773ec61f769d5a69a5857906f67fe26cb43e510ea5657d93710789",
+      "root_repairs": "literal named-call dispatch needs const propagation; remaining source/error roots under review"
     }
   ]
 }
