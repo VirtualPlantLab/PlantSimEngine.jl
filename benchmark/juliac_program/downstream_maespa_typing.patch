@@ -1,0 +1,861 @@
+--- a/src/config/species_physiology.jl
++++ b/src/config/species_physiology.jl
+@@ -246,12 +246,12 @@
+ `sla` is `nothing` when a legacy input omits the optional SLA table. Strict
+ inputs always contain a positive-valued SLA table.
+ """
+-struct SpeciesPhysiologyConfig{T<:AbstractFloat}
++struct SpeciesPhysiologyConfig{T<:AbstractFloat,S<:AbstractStomatalParameters{T}}
+     source::String
+     canopy_layers::Int
+     age_classes::FoliageAgeClasses{T}
+     optics::LeafOptics{T}
+-    stomatal::AbstractStomatalParameters{T}
++    stomatal::S
+     leaf_respiration::LeafRespirationParameters{T}
+     woody_respiration::WoodyRespirationParameters{T}
+     root_respiration::RootRespirationParameters{T}
+@@ -312,7 +312,7 @@
+     sla::Union{Nothing,SpeciesParameterTable{T}},
+     ajq::SpeciesParameterTable{T},
+ ) where {T<:AbstractFloat}
+-    return SpeciesPhysiologyConfig{T}(
++    return SpeciesPhysiologyConfig{T,typeof(stomatal)}(
+         String(source),
+         Int(canopy_layers),
+         age_classes,
+@@ -347,7 +347,7 @@
+     sla::Union{Nothing,SpeciesParameterTable{T}},
+     ajq::SpeciesParameterTable{T},
+ ) where {T<:AbstractFloat}
+-    return SpeciesPhysiologyConfig{T}(
++    return SpeciesPhysiologyConfig{T,typeof(stomatal)}(
+         String(source),
+         Int(canopy_layers),
+         age_classes,
+@@ -384,7 +384,7 @@
+     sla::Union{Nothing,SpeciesParameterTable{T}},
+     ajq::SpeciesParameterTable{T},
+ ) where {T<:AbstractFloat}
+-    return SpeciesPhysiologyConfig{T}(
++    return SpeciesPhysiologyConfig{T,typeof(stomatal)}(
+         String(source),
+         Int(canopy_layers),
+         age_classes,
+@@ -423,7 +423,7 @@
+     sla::Union{Nothing,SpeciesParameterTable{T}},
+     ajq::SpeciesParameterTable{T},
+ ) where {T<:AbstractFloat}
+-    return SpeciesPhysiologyConfig{T}(
++    return SpeciesPhysiologyConfig{T,typeof(stomatal)}(
+         String(source),
+         Int(canopy_layers),
+         age_classes,
+@@ -2313,7 +2313,7 @@
+         mode,
+         T,
+     )
+-    return SpeciesPhysiologyConfig{T}(
++    return SpeciesPhysiologyConfig{T,typeof(stomatal)}(
+         document.source,
+         layers,
+         age_classes,
+--- a/src/processes/species_physiology_process.jl
++++ b/src/processes/species_physiology_process.jl
+@@ -10,9 +10,9 @@
+ stomatal conductance, respiration, and energy balance remain separate
+ scientific processes.
+ """
+-struct MAESPASpeciesPhysiologyTrajectory{T<:AbstractFloat} <:
++struct MAESPASpeciesPhysiologyTrajectory{T<:AbstractFloat,S<:AbstractStomatalParameters{T}} <:
+        AbstractSpecies_Physiology_TrajectoryModel
+-    config::SpeciesPhysiologyConfig{T}
++    config::SpeciesPhysiologyConfig{T,S}
+ end
+ 
+ _stomatal_sensitivity(parameters::TuzetStomatalParameters) =
+--- a/src/config/species_structure.jl
++++ b/src/config/species_structure.jl
+@@ -769,7 +769,7 @@
+     date::Union{LegacyDate,Integer},
+ ) where {T<:AbstractFloat}
+     target = _structure_ordinal(date)
+-    days = getfield.(distribution.dates, :days_since_1950)
++    days = [item.days_since_1950 for item in distribution.dates]
+     target <= first(days) && return copy(view(distribution.fractions, :, 1))
+     target >= last(days) && return copy(view(distribution.fractions, :, length(days)))
+     lower = searchsortedlast(days, target)
+@@ -793,7 +793,7 @@
+     date::Union{LegacyDate,Integer},
+ )
+     target = _structure_ordinal(date)
+-    days = getfield.(density.dates, :days_since_1950)
++    days = [item.days_since_1950 for item in density.dates]
+     date_index = clamp(searchsortedlast(days, target), 1, length(days))
+     return copy(view(density.beta_coefficients, :, :, date_index))
+ end
+--- a/src/processes/canopy_air_trial_evaluation.jl
++++ b/src/processes/canopy_air_trial_evaluation.jl
+@@ -16,6 +16,11 @@
+     :tuzet_crown_leaf_exchange_controller,
+ )
+ 
++# Error text is fixed authoring metadata; do not invoke Tuple/Symbol
++# display from the native runtime's validation branch.
++const _MAESPA_CANOPY_AIR_TRIAL_LEAF_EXCHANGE_DESCRIPTION =
++    string(_MAESPA_CANOPY_AIR_TRIAL_LEAF_EXCHANGE_PROCESSES)
++
+ @noinline function _throw_canopy_air_trial_evaluation(
+     name::Symbol,
+     value,
+@@ -28,7 +33,7 @@
+         throw(
+             ArgumentError(
+                 "$label must be one of " *
+-                "$(_MAESPA_CANOPY_AIR_TRIAL_LEAF_EXCHANGE_PROCESSES)",
++                "$(_MAESPA_CANOPY_AIR_TRIAL_LEAF_EXCHANGE_DESCRIPTION)",
+             ),
+         )
+     elseif reason === :targets
+--- a/src/coupling/canopy_environment.jl
++++ b/src/coupling/canopy_environment.jl
+@@ -102,7 +102,7 @@
+     return variables
+ end
+ 
+-function _sample_canopy_air_trial_metadata(
++@inline Base.@constprop :aggressive function _sample_canopy_air_trial_metadata(
+     state::MAESPACanopyAirTrialEnvironment,
+     variable::Symbol,
+ )
+@@ -164,7 +164,7 @@
+     return MAESPACanopyEnvironmentHandle(provider, sink, forcing_handle)
+ end
+ 
+-@noinline function _missing_committed_canopy_atmosphere(variable::Symbol)
++@noinline Base.@constprop :aggressive function _missing_committed_canopy_atmosphere(variable::Symbol)
+     throw(
+         ArgumentError(
+             "no accepted canopy atmosphere is available while sampling " *
+@@ -174,7 +174,7 @@
+     )
+ end
+ 
+-@inline function _sample_canopy_atmosphere(
++@inline Base.@constprop :aggressive function _sample_canopy_atmosphere(
+     state::MAESPACanopyAtmosphere,
+     variable::Symbol,
+ )
+@@ -186,7 +186,7 @@
+     return getproperty(state, variable)
+ end
+ 
+-function PlantSimEngine.EnvironmentAPI.sample(
++@inline Base.@constprop :aggressive function PlantSimEngine.EnvironmentAPI.sample(
+     backend::MAESPACanopyEnvironment,
+     handle::MAESPACanopyEnvironmentHandle,
+     variable::Symbol,
+@@ -205,7 +205,7 @@
+     return _sample_canopy_atmosphere(state, variable)
+ end
+ 
+-function PlantSimEngine.EnvironmentAPI.sample(
++@inline Base.@constprop :aggressive function PlantSimEngine.EnvironmentAPI.sample(
+     backend::MAESPACanopyEnvironment,
+     handle::MAESPACanopyEnvironmentHandle,
+     state::MAESPACanopyAirTrialEnvironment,
+@@ -235,7 +235,7 @@
+     return _sample_canopy_atmosphere(state.atmosphere, variable)
+ end
+ 
+-function PlantSimEngine.EnvironmentAPI.sample(
++@inline Base.@constprop :aggressive function PlantSimEngine.EnvironmentAPI.sample(
+     backend::MAESPACanopyEnvironment,
+     handle::MAESPACanopyEnvironmentHandle,
+     state::MAESPACanopyAtmosphere,
+@@ -255,7 +255,7 @@
+     return _sample_canopy_atmosphere(state, variable)
+ end
+ 
+-function PlantSimEngine.EnvironmentAPI.commit_environment!(
++@inline Base.@constprop :aggressive function PlantSimEngine.EnvironmentAPI.commit_environment!(
+     backend::MAESPACanopyEnvironment,
+     handle::MAESPACanopyEnvironmentHandle,
+     state::MAESPACanopyAtmosphere,
+--- a/src/processes/radiation/radiation_transmission.jl
++++ b/src/processes/radiation/radiation_transmission.jl
+@@ -2396,24 +2396,24 @@
+     end
+ 
+     function uniform_state(crown_index)
+-        values = common_values(crown_index)
++        uniform_values = common_values(crown_index)
+         density = _transmission_float(
+             T,
+-            uniform_leaf_area_density[values.object_id],
++            uniform_leaf_area_density[uniform_values.object_id],
+             "leaf_area_density",
+         )
+         _transmission_nonnegative(density, "leaf_area_density")
+         return _borrowed_uniform_crown_ray_state(
+-            values.tree_id,
+-            values.shape_code;
+-            position=values.position,
+-            crown_base=values.crown_base,
+-            radius_x=values.radius_x,
+-            radius_y=values.radius_y,
+-            crown_depth=values.crown_depth,
++            uniform_values.tree_id,
++            uniform_values.shape_code;
++            position=uniform_values.position,
++            crown_base=uniform_values.crown_base,
++            radius_x=uniform_values.radius_x,
++            radius_y=uniform_values.radius_y,
++            crown_depth=uniform_values.crown_depth,
+             leaf_area_density=density,
+-            extinction=values.extinction,
+-            extinction_by_angle=values.extinction_by_angle,
++            extinction=uniform_values.extinction,
++            extinction_by_angle=uniform_values.extinction_by_angle,
+         )
+     end
+ 
+--- a/src/processes/soil_water_balance.jl
++++ b/src/processes/soil_water_balance.jl
+@@ -284,7 +284,7 @@
+     return destination
+ end
+ 
+-function _load_layer_flux!(
++@inline Base.@constprop :aggressive function _load_layer_flux!(
+     destination,
+     status,
+     context,
+@@ -423,11 +423,9 @@
+     return NamedTuple{names}(map(name -> getproperty(status, name), names))
+ end
+ 
+-function _restore_soil_water_balance_status!(status, snapshot)
+-    for name in keys(snapshot)
+-        setproperty!(status, name, getproperty(snapshot, name))
+-    end
+-    return nothing
++@generated function _restore_soil_water_balance_status!(status, snapshot::S) where {S<:NamedTuple}
++    assignments = [:(setproperty!(status, $(QuoteNode(name)), getproperty(snapshot, $(QuoteNode(name))))) for name in fieldnames(S)]
++    return Expr(:block, assignments..., :(return nothing))
+ end
+ 
+ # Per-call scratch belongs to this computation, never to a model parameter or
+--- a/src/processes/daily_whole_plant_respiration_scene_aggregation.jl
++++ b/src/processes/daily_whole_plant_respiration_scene_aggregation.jl
+@@ -282,8 +282,8 @@
+             :float_output,
+         )
+ 
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_FLOAT_VECTOR_OUTPUTS
+-        values = getproperty(status, name)
++    let name = :physical_tree_maintenance_respiration_by_species_mol_co2_day
++        values = getproperty(status, :physical_tree_maintenance_respiration_by_species_mol_co2_day)
+         values isa AbstractVector ||
+             _throw_daily_respiration_scene_aggregation(
+                 name,
+@@ -303,8 +303,113 @@
+             ),
+         )
+     end
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_FLOAT_SCALAR_OUTPUTS
+-        value = getproperty(status, name)
++    let name = :weighted_target_maintenance_respiration_by_species_mol_co2_day
++        values = getproperty(status, :weighted_target_maintenance_respiration_by_species_mol_co2_day)
++        values isa AbstractVector ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :float_output,
++            )
++        Base.require_one_based_indexing(values)
++        eltype(values) === T ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :float_output,
++            )
++        length(values) == model.species_count || throw(
++            DimensionMismatch(
++                "$(String(name)) must contain $(model.species_count) values",
++            ),
++        )
++    end
++    let name = :physical_tree_whole_plant_growth_respiration_by_species_mol_co2_day
++        values = getproperty(status, :physical_tree_whole_plant_growth_respiration_by_species_mol_co2_day)
++        values isa AbstractVector ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :float_output,
++            )
++        Base.require_one_based_indexing(values)
++        eltype(values) === T ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :float_output,
++            )
++        length(values) == model.species_count || throw(
++            DimensionMismatch(
++                "$(String(name)) must contain $(model.species_count) values",
++            ),
++        )
++    end
++    let name = :weighted_target_whole_plant_growth_respiration_by_species_mol_co2_day
++        values = getproperty(status, :weighted_target_whole_plant_growth_respiration_by_species_mol_co2_day)
++        values isa AbstractVector ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :float_output,
++            )
++        Base.require_one_based_indexing(values)
++        eltype(values) === T ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :float_output,
++            )
++        length(values) == model.species_count || throw(
++            DimensionMismatch(
++                "$(String(name)) must contain $(model.species_count) values",
++            ),
++        )
++    end
++    let name = :physical_tree_total_respiration_by_species_mol_co2_day
++        values = getproperty(status, :physical_tree_total_respiration_by_species_mol_co2_day)
++        values isa AbstractVector ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :float_output,
++            )
++        Base.require_one_based_indexing(values)
++        eltype(values) === T ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :float_output,
++            )
++        length(values) == model.species_count || throw(
++            DimensionMismatch(
++                "$(String(name)) must contain $(model.species_count) values",
++            ),
++        )
++    end
++    let name = :weighted_target_total_respiration_by_species_mol_co2_day
++        values = getproperty(status, :weighted_target_total_respiration_by_species_mol_co2_day)
++        values isa AbstractVector ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :float_output,
++            )
++        Base.require_one_based_indexing(values)
++        eltype(values) === T ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :float_output,
++            )
++        length(values) == model.species_count || throw(
++            DimensionMismatch(
++                "$(String(name)) must contain $(model.species_count) values",
++            ),
++        )
++    end
++    let name = :physical_tree_maintenance_respiration_scene_mol_co2_day
++        value = getproperty(status, :physical_tree_maintenance_respiration_scene_mol_co2_day)
+         typeof(value) === T ||
+             _throw_daily_respiration_scene_aggregation(
+                 name,
+@@ -312,8 +417,53 @@
+                 :float_output,
+             )
+     end
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_INT_VECTOR_OUTPUTS
+-        values = getproperty(status, name)
++    let name = :weighted_target_maintenance_respiration_scene_mol_co2_day
++        value = getproperty(status, :weighted_target_maintenance_respiration_scene_mol_co2_day)
++        typeof(value) === T ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                value,
++                :float_output,
++            )
++    end
++    let name = :physical_tree_whole_plant_growth_respiration_scene_mol_co2_day
++        value = getproperty(status, :physical_tree_whole_plant_growth_respiration_scene_mol_co2_day)
++        typeof(value) === T ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                value,
++                :float_output,
++            )
++    end
++    let name = :weighted_target_whole_plant_growth_respiration_scene_mol_co2_day
++        value = getproperty(status, :weighted_target_whole_plant_growth_respiration_scene_mol_co2_day)
++        typeof(value) === T ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                value,
++                :float_output,
++            )
++    end
++    let name = :physical_tree_total_respiration_scene_mol_co2_day
++        value = getproperty(status, :physical_tree_total_respiration_scene_mol_co2_day)
++        typeof(value) === T ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                value,
++                :float_output,
++            )
++    end
++    let name = :weighted_target_total_respiration_scene_mol_co2_day
++        value = getproperty(status, :weighted_target_total_respiration_scene_mol_co2_day)
++        typeof(value) === T ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                value,
++                :float_output,
++            )
++    end
++    let name = :daily_respiration_date50_by_species
++        values = getproperty(status, :daily_respiration_date50_by_species)
+         values isa AbstractVector ||
+             _throw_daily_respiration_scene_aggregation(
+                 name,
+@@ -333,8 +483,50 @@
+             ),
+         )
+     end
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_INT_SCALAR_OUTPUTS
+-        value = getproperty(status, name)
++    let name = :physical_tree_count_by_species
++        values = getproperty(status, :physical_tree_count_by_species)
++        values isa AbstractVector ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :int_output,
++            )
++        Base.require_one_based_indexing(values)
++        eltype(values) === Int ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :int_output,
++            )
++        length(values) == model.species_count || throw(
++            DimensionMismatch(
++                "$(String(name)) must contain $(model.species_count) values",
++            ),
++        )
++    end
++    let name = :weighted_target_count_by_species
++        values = getproperty(status, :weighted_target_count_by_species)
++        values isa AbstractVector ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :int_output,
++            )
++        Base.require_one_based_indexing(values)
++        eltype(values) === Int ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :int_output,
++            )
++        length(values) == model.species_count || throw(
++            DimensionMismatch(
++                "$(String(name)) must contain $(model.species_count) values",
++            ),
++        )
++    end
++    let name = :daily_respiration_scene_date50
++        value = getproperty(status, :daily_respiration_scene_date50)
+         typeof(value) === Int ||
+             _throw_daily_respiration_scene_aggregation(
+                 name,
+@@ -342,8 +534,26 @@
+                 :int_output,
+             )
+     end
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_BOOL_VECTOR_OUTPUTS
+-        values = getproperty(status, name)
++    let name = :physical_tree_count
++        value = getproperty(status, :physical_tree_count)
++        typeof(value) === Int ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                value,
++                :int_output,
++            )
++    end
++    let name = :weighted_target_count
++        value = getproperty(status, :weighted_target_count)
++        typeof(value) === Int ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                value,
++                :int_output,
++            )
++    end
++    let name = :daily_maintenance_respiration_available_by_species
++        values = getproperty(status, :daily_maintenance_respiration_available_by_species)
+         values isa AbstractVector ||
+             _throw_daily_respiration_scene_aggregation(
+                 name,
+@@ -363,8 +573,86 @@
+             ),
+         )
+     end
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_BOOL_SCALAR_OUTPUTS
+-        value = getproperty(status, name)
++    let name = :whole_plant_growth_respiration_available_by_species
++        values = getproperty(status, :whole_plant_growth_respiration_available_by_species)
++        values isa AbstractVector ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :bool_output,
++            )
++        Base.require_one_based_indexing(values)
++        eltype(values) === Bool ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :bool_output,
++            )
++        length(values) == model.species_count || throw(
++            DimensionMismatch(
++                "$(String(name)) must contain $(model.species_count) values",
++            ),
++        )
++    end
++    let name = :daily_total_respiration_available_by_species
++        values = getproperty(status, :daily_total_respiration_available_by_species)
++        values isa AbstractVector ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :bool_output,
++            )
++        Base.require_one_based_indexing(values)
++        eltype(values) === Bool ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                values,
++                :bool_output,
++            )
++        length(values) == model.species_count || throw(
++            DimensionMismatch(
++                "$(String(name)) must contain $(model.species_count) values",
++            ),
++        )
++    end
++    let name = :daily_maintenance_respiration_scene_available
++        value = getproperty(status, :daily_maintenance_respiration_scene_available)
++        value isa Bool ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                value,
++                :bool_output,
++            )
++    end
++    let name = :whole_plant_growth_respiration_scene_available
++        value = getproperty(status, :whole_plant_growth_respiration_scene_available)
++        value isa Bool ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                value,
++                :bool_output,
++            )
++    end
++    let name = :daily_total_respiration_scene_available
++        value = getproperty(status, :daily_total_respiration_scene_available)
++        value isa Bool ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                value,
++                :bool_output,
++            )
++    end
++    let name = :daily_respiration_dates_consistent
++        value = getproperty(status, :daily_respiration_dates_consistent)
++        value isa Bool ||
++            _throw_daily_respiration_scene_aggregation(
++                name,
++                value,
++                :bool_output,
++            )
++    end
++    let name = :daily_whole_plant_respiration_scene_aggregation_available
++        value = getproperty(status, :daily_whole_plant_respiration_scene_aggregation_available)
+         value isa Bool ||
+             _throw_daily_respiration_scene_aggregation(
+                 name,
+@@ -381,25 +669,90 @@
+     ::Type{T},
+ ) where {T}
+     n = model.species_count
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_FLOAT_VECTOR_OUTPUTS
+-        setproperty!(status, name, zeros(T, n))
+-    end
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_FLOAT_SCALAR_OUTPUTS
+-        setproperty!(status, name, zero(T))
+-    end
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_INT_VECTOR_OUTPUTS
+-        setproperty!(status, name, zeros(Int, n))
+-    end
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_INT_SCALAR_OUTPUTS
+-        setproperty!(status, name, 0)
+-    end
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_BOOL_VECTOR_OUTPUTS
+-        setproperty!(status, name, fill(false, n))
+-    end
+-    for name in _DAILY_WHOLE_PLANT_RESPIRATION_SCENE_BOOL_SCALAR_OUTPUTS
+-        setproperty!(status, name, false)
++    let name = :physical_tree_maintenance_respiration_by_species_mol_co2_day
++        setproperty!(status, :physical_tree_maintenance_respiration_by_species_mol_co2_day, zeros(T, n))
++    end
++    let name = :weighted_target_maintenance_respiration_by_species_mol_co2_day
++        setproperty!(status, :weighted_target_maintenance_respiration_by_species_mol_co2_day, zeros(T, n))
++    end
++    let name = :physical_tree_whole_plant_growth_respiration_by_species_mol_co2_day
++        setproperty!(status, :physical_tree_whole_plant_growth_respiration_by_species_mol_co2_day, zeros(T, n))
++    end
++    let name = :weighted_target_whole_plant_growth_respiration_by_species_mol_co2_day
++        setproperty!(status, :weighted_target_whole_plant_growth_respiration_by_species_mol_co2_day, zeros(T, n))
++    end
++    let name = :physical_tree_total_respiration_by_species_mol_co2_day
++        setproperty!(status, :physical_tree_total_respiration_by_species_mol_co2_day, zeros(T, n))
++    end
++    let name = :weighted_target_total_respiration_by_species_mol_co2_day
++        setproperty!(status, :weighted_target_total_respiration_by_species_mol_co2_day, zeros(T, n))
++    end
++    let name = :physical_tree_maintenance_respiration_scene_mol_co2_day
++        setproperty!(status, :physical_tree_maintenance_respiration_scene_mol_co2_day, zero(T))
++    end
++    let name = :weighted_target_maintenance_respiration_scene_mol_co2_day
++        setproperty!(status, :weighted_target_maintenance_respiration_scene_mol_co2_day, zero(T))
++    end
++    let name = :physical_tree_whole_plant_growth_respiration_scene_mol_co2_day
++        setproperty!(status, :physical_tree_whole_plant_growth_respiration_scene_mol_co2_day, zero(T))
++    end
++    let name = :weighted_target_whole_plant_growth_respiration_scene_mol_co2_day
++        setproperty!(status, :weighted_target_whole_plant_growth_respiration_scene_mol_co2_day, zero(T))
++    end
++    let name = :physical_tree_total_respiration_scene_mol_co2_day
++        setproperty!(status, :physical_tree_total_respiration_scene_mol_co2_day, zero(T))
++    end
++    let name = :weighted_target_total_respiration_scene_mol_co2_day
++        setproperty!(status, :weighted_target_total_respiration_scene_mol_co2_day, zero(T))
++    end
++    let name = :daily_respiration_date50_by_species
++        setproperty!(status, :daily_respiration_date50_by_species, zeros(Int, n))
++    end
++    let name = :physical_tree_count_by_species
++        setproperty!(status, :physical_tree_count_by_species, zeros(Int, n))
++    end
++    let name = :weighted_target_count_by_species
++        setproperty!(status, :weighted_target_count_by_species, zeros(Int, n))
++    end
++    let name = :daily_respiration_scene_date50
++        setproperty!(status, :daily_respiration_scene_date50, 0)
++    end
++    let name = :physical_tree_count
++        setproperty!(status, :physical_tree_count, 0)
++    end
++    let name = :weighted_target_count
++        setproperty!(status, :weighted_target_count, 0)
++    end
++    let name = :daily_maintenance_respiration_available_by_species
++        setproperty!(status, :daily_maintenance_respiration_available_by_species, fill(false, n))
++    end
++    let name = :whole_plant_growth_respiration_available_by_species
++        setproperty!(status, :whole_plant_growth_respiration_available_by_species, fill(false, n))
++    end
++    let name = :daily_total_respiration_available_by_species
++        setproperty!(status, :daily_total_respiration_available_by_species, fill(false, n))
++    end
++    let name = :daily_maintenance_respiration_scene_available
++        setproperty!(status, :daily_maintenance_respiration_scene_available, false)
++    end
++    let name = :whole_plant_growth_respiration_scene_available
++        setproperty!(status, :whole_plant_growth_respiration_scene_available, false)
++    end
++    let name = :daily_total_respiration_scene_available
++        setproperty!(status, :daily_total_respiration_scene_available, false)
++    end
++    let name = :daily_respiration_dates_consistent
++        setproperty!(status, :daily_respiration_dates_consistent, false)
++    end
++    let name = :daily_whole_plant_respiration_scene_aggregation_available
++        setproperty!(status, :daily_whole_plant_respiration_scene_aggregation_available, false)
+     end
+     return nothing
++end
++
++@generated function _assign_daily_respiration_result!(status, result::R) where {R}
++    assignments = [:(setproperty!(status, $(QuoteNode(name)), getproperty(result, $(QuoteNode(name))))) for name in fieldnames(R)]
++    return Expr(:block, assignments..., :(return nothing))
+ end
+ 
+ function PlantSimEngine.run!(
+@@ -440,8 +793,6 @@
+         status.whole_plant_growth_respiration_date50;
+         species_count=model.species_count,
+     )
+-    for name in fieldnames(typeof(result))
+-        setproperty!(status, name, getproperty(result, name))
+-    end
++    _assign_daily_respiration_result!(status, result)
+     return nothing
+ end
+--- a/src/processes/radiation/crown_radiation.jl
++++ b/src/processes/radiation/crown_radiation.jl
+@@ -224,13 +224,30 @@
+     T = eltype(status.radiation_workspace_values)
+     status.simulation_step isa Integer && !(status.simulation_step isa Bool) && status.simulation_step > 0 ||
+         throw(ArgumentError("simulation_step must be a positive integer, not Bool"))
+-    for name in (:diffuse_transmittance_up, :diffuse_transmittance_down, :relative_diffuse_penetration)
+-        values = getproperty(status,name)
++    let name = :diffuse_transmittance_up
++        values = getproperty(status,:diffuse_transmittance_up)
+         length(values) == model.point_count && eltype(values) === T ||
+             throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
+     end
+-    for name in (:equivalent_point_layer_index,:equivalent_point_layer_count)
+-        values = getproperty(status,name)
++    let name = :diffuse_transmittance_down
++        values = getproperty(status,:diffuse_transmittance_down)
++        length(values) == model.point_count && eltype(values) === T ||
++            throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
++    end
++    let name = :relative_diffuse_penetration
++        values = getproperty(status,:relative_diffuse_penetration)
++        length(values) == model.point_count && eltype(values) === T ||
++            throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
++    end
++    let name = :equivalent_point_layer_index
++        values = getproperty(status,:equivalent_point_layer_index)
++        length(values) == model.point_count ||
++            throw(DimensionMismatch("$name must match radiation point count"))
++        eltype(values) <: Integer && !(eltype(values) <: Bool) ||
++            throw(ArgumentError("$name requires integer, non-Bool storage"))
++    end
++    let name = :equivalent_point_layer_count
++        values = getproperty(status,:equivalent_point_layer_count)
+         length(values) == model.point_count ||
+             throw(DimensionMismatch("$name must match radiation point count"))
+         eltype(values) <: Integer && !(eltype(values) <: Bool) ||
+@@ -245,8 +262,18 @@
+     all(slope -> isfinite(slope) && abs(slope) < T(π)/T(2),(status.slope_x_rad,status.slope_y_rad)) ||
+         throw(ArgumentError("radiation slopes must lie in (-π/2, π/2)"))
+     if isnothing(model.precomputed) || model.shortwave
+-        for name in (:representative_x,:representative_y,:representative_z)
+-            values = getproperty(status,name)
++        let name = :representative_x
++            values = getproperty(status,:representative_x)
++            length(values) == model.point_count && eltype(values) === T ||
++                throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
++        end
++        let name = :representative_y
++            values = getproperty(status,:representative_y)
++            length(values) == model.point_count && eltype(values) === T ||
++                throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
++        end
++        let name = :representative_z
++            values = getproperty(status,:representative_z)
+             length(values) == model.point_count && eltype(values) === T ||
+                 throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
+         end
+@@ -263,9 +290,32 @@
+     if model.shortwave
+         length(status.target_leaf_angle_class_centres_rad) == model.leaf_angle_count ||
+             throw(DimensionMismatch("target leaf-angle grid changed"))
+-        for name in (:target_leaf_angle_class_centres_rad,:target_diffuse_extinction_coefficients,
+-                     :leaf_angle_fractions,:leaf_reflectance,:leaf_transmittance,:leaf_absorptance,:soil_reflectance)
+-            eltype(getproperty(status,name)) === T ||
++        let name = :target_leaf_angle_class_centres_rad
++            eltype(getproperty(status,:target_leaf_angle_class_centres_rad)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :target_diffuse_extinction_coefficients
++            eltype(getproperty(status,:target_diffuse_extinction_coefficients)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :leaf_angle_fractions
++            eltype(getproperty(status,:leaf_angle_fractions)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :leaf_reflectance
++            eltype(getproperty(status,:leaf_reflectance)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :leaf_transmittance
++            eltype(getproperty(status,:leaf_transmittance)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :leaf_absorptance
++            eltype(getproperty(status,:leaf_absorptance)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :soil_reflectance
++            eltype(getproperty(status,:soil_reflectance)) === T ||
+                 throw(ArgumentError("$name and radiation storage must share a numeric type"))
+         end
+         length(status.target_diffuse_extinction_coefficients) == model.zenith_count ||
+@@ -274,8 +324,20 @@
+             throw(DimensionMismatch("target leaf-angle fractions changed"))
+         length(status.physiological_layers) == model.point_count ||
+             throw(DimensionMismatch("physiological layers must match point count"))
+-        for name in (:leaf_reflectance,:leaf_transmittance,:leaf_absorptance)
+-            values = getproperty(status,name)
++        let name = :leaf_reflectance
++            values = getproperty(status,:leaf_reflectance)
++            size(values,2) >= 2 && all(layer -> layer isa Integer && !(layer isa Bool) &&
++                1 <= layer <= size(values,1),status.physiological_layers) ||
++                throw(DimensionMismatch("$name must contain both wavebands and all physiological layers"))
++        end
++        let name = :leaf_transmittance
++            values = getproperty(status,:leaf_transmittance)
++            size(values,2) >= 2 && all(layer -> layer isa Integer && !(layer isa Bool) &&
++                1 <= layer <= size(values,1),status.physiological_layers) ||
++                throw(DimensionMismatch("$name must contain both wavebands and all physiological layers"))
++        end
++        let name = :leaf_absorptance
++            values = getproperty(status,:leaf_absorptance)
+             size(values,2) >= 2 && all(layer -> layer isa Integer && !(layer isa Bool) &&
+                 1 <= layer <= size(values,1),status.physiological_layers) ||
+                 throw(DimensionMismatch("$name must contain both wavebands and all physiological layers"))
+@@ -306,9 +368,18 @@
+         fraction_tolerance = max(T(1.0e-4),T(20)*eps(T))
+         isapprox(sum(status.leaf_angle_fractions),one(T);atol=fraction_tolerance,rtol=fraction_tolerance) ||
+             throw(ArgumentError("leaf_angle_fractions must sum to one"))
+-        for name in (:leaf_radiation_area_fraction,:leaf_radiation_absorbed_par_w_m2_leaf,
+-                     :leaf_radiation_absorbed_nir_w_m2_leaf)
+-            values = getproperty(status,name)
++        let name = :leaf_radiation_area_fraction
++            values = getproperty(status,:leaf_radiation_area_fraction)
++            size(values) == (model.point_count,model.slot_count) && eltype(values) === T ||
++                throw(DimensionMismatch("$name must match radiation point/class layout and storage"))
++        end
++        let name = :leaf_radiation_absorbed_par_w_m2_leaf
++            values = getproperty(status,:leaf_radiation_absorbed_par_w_m2_leaf)
++            size(values) == (model.point_count,model.slot_count) && eltype(values) === T ||
++                throw(DimensionMismatch("$name must match radiation point/class layout and storage"))
++        end
++        let name = :leaf_radiation_absorbed_nir_w_m2_leaf
++            values = getproperty(status,:leaf_radiation_absorbed_nir_w_m2_leaf)
+             size(values) == (model.point_count,model.slot_count) && eltype(values) === T ||
+                 throw(DimensionMismatch("$name must match radiation point/class layout and storage"))
+         end
