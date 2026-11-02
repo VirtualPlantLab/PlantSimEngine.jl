@@ -10,7 +10,35 @@ The earlier [structural phytomer](results/phytomer/README.md) and
 [soil/root](results/xpalm/README.md) entries remain available and pass in the same
 final executable. XPalm is pinned to
 `5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd` in the isolated app environment.
-Scientific kernels and downstream sources are unchanged.
+XPalm's scientific kernels and sources are unchanged. The separate AMAPSim and
+MAESPA experiments use archived inference-typing variants and retain untouched
+ordinary-PSE source controls.
+
+## Larger workloads and registry scenarios
+
+The [XPalm scaling report](results/scaling/README.md) compares ordinary PSE,
+prepared execution and actual safe/generic JuliaC binaries. Unchanged package
+parameters are distinct from the accelerated stress profile. At 4,160 days,
+the native run takes 3.879 s versus ordinary PSE's 4.744 s: the short-case
+speedups do not extrapolate to long trajectories.
+
+The [complete selected AMAPSim scenario](downstream_amapsim.md) now runs native
+architecture, geometry, registry growth/removal and original internode consumers
+with safe trimming. Seven cases compare original ordinary PSE, inference-typed
+ordinary PSE, a common-precompiled-input ordinary control, the registry JIT
+runtime and its native binary. Warm execution gains range from 11.3 to 34.1×
+over original PSE; construction and preparation are separate measurements.
+Full native snapshots and positive-RNG same-host relocation match original PSE.
+
+The full selected MAESPA canopy/soil experiment is being qualified separately.
+Its [eight original ordinary controls](downstream_maespa_original_results.md)
+cover two/eight trees, 24/96 half-hour steps and both retention policies.
+Native support and speedups must pass their own gates before being reported.
+
+The new registry runtimes may resolve a private ordinary graph at authoring
+time, then retain only owned typed numerical data and execution recipes.
+Their runtime contains no ordinary executor fallback. This is distinct from
+the original XPalm frontend's direct `ModelSpec` lowering described below.
 
 ## Prepared program and admitted subset
 
@@ -47,10 +75,12 @@ custom spatial environments remain outside the current cases.
 Unknown declarations/context operations are rejected or fail explicitly; no
 ordinary runtime fallback is hidden inside this prototype.
 
-A small production correction in `src/composite_model/selectors.jl` preserves
+A production correction in `src/composite_model/selectors.jl` preserves
 concrete tuple types while normalizing selector keywords and validating their
 names. This closes the original XPalm `dep(Call(process=...))` path under safe
-trimming without changing selector semantics. Downstream sources are untouched.
+trimming without changing selector semantics. Process authoring also constructs
+terminal tutorials only when they are actually displayed, avoiding unused
+terminal backend initialization in noninteractive JuliaC builds.
 
 ## Julia-level checks through Kaimon
 
@@ -121,7 +151,8 @@ copies the bundle to a new directory before repeating a birth case with an
 empty external depot. The launcher replaces that depot with the shipped one.
 Native final-state parity and Julia-level publication-series checks are distinct.
 No process-cold speedup, universal zero-JIT or cross-platform portability claim
-is made. A native library ABI and original whole-palm growth remain future work; the new
-`phytomer` mode covers the qualified structural subtree.
+is made. A native library ABI remains future work. The `phytomer` mode covers
+the qualified structural subtree, while `full` runs the complete pinned daily
+`architecture=false` XPalm graph described at the top of this page.
 
 Official compiler: [JuliaC](https://github.com/JuliaLang/JuliaC.jl).
