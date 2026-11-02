@@ -1,0 +1,16 @@
+{
+  "format_version": 1,
+  "source_file_count": 96,
+  "changed_files": [
+    "dev/native/engine.jl",
+    "dev/native/geometry.jl",
+    "dev/native/parameters.jl",
+    "dev/native/pse.jl",
+    "dev/native/pse_projection.jl"
+  ],
+  "fresh_regeneration_exact": true,
+  "immutable_baseline_matches": true,
+  "owned_typed_source_matches": true,
+  "patch_sha256": "c3246dcbc19b20903bf394ff8ee8ed43c06a8968ee249d7942d67a11e37cd805",
+  "typing_script_sha256": "13e7487767d13f6b8033b55c47dd4964296cbc21ed7886ca7dcde32e5e0abc17"
+}

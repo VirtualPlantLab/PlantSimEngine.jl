@@ -11,6 +11,11 @@ function OP.admit_native_state(state::Adapter.NativePSEState)
     state.geometry && !state.coupled_pending && isempty(state.registered) ||
         throw(ArgumentError("prepare requires fresh native architecture with geometry"))
     state.growth_runtime[] === nothing || throw(ArgumentError("active growth runtime"))
+    length(state.groups)==1 || throw(ArgumentError("exactly one original internode exposure group required"))
+    isempty(state.native.plant.organs) && isempty(state.native.plant.trace) && state.native.plant.time==0 ||
+        throw(ArgumentError("prepare requires an unadvanced native scientific state"))
+    Bench.fingerprint(state.native)==Bench.fingerprint(OP.clone_native_state(state).native) ||
+        throw(ArgumentError("native seed differs from its original fresh initializer"))
     for group in state.groups
         group.mapping.symbol===:Internode && group.mapping.scale===:IN && group.mapping.kind===:internode &&
             isnothing(group.ids) && isempty(group.required) && Tuple(group.properties)==(:length=>:length,) ||

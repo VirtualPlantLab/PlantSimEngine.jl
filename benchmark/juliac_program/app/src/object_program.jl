@@ -101,7 +101,8 @@ function _self_source(selector, application, variable)
     selector isa PSE.One || return false
     c = _criteria(selector)
     return get(c,:within,nothing) isa PSE.Self && isempty(c.selectors) &&
-        get(c,:application,nothing) === application && get(c,:var,variable) === variable
+        get(c,:application,nothing) === application && get(c,:var,variable) === variable &&
+        all(key -> key in (:selectors,:within,:application,:var),keys(c))
 end
 function _target_scale(spec, category)
     spec.applies_to isa PSE.Many || return false
@@ -109,6 +110,7 @@ function _target_scale(spec, category)
     return get(c,:scale,nothing) === category && isempty(c.selectors) &&
         all(key -> key in (:selectors,:scale,:id), keys(c))
 end
+_target_all_scale(spec,category)=_target_scale(spec,category) && !haskey(_criteria(spec.applies_to),:id)
 
 """Prepare the admitted original AMAP architecture/geometry/IN projection graph.
 The temporary ordinary zero-step compilation verifies ordering only. It is
@@ -116,6 +118,8 @@ released here; no ordinary plan, execution target, simulation or runtime is
 retained or used by instantiate/step!.
 """
 function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
+    isnothing(model.environment) && isempty(model.instances) && isnothing(model.source_adapter) ||
+        throw(ArgumentError("only the original global registry without environments/instances/adapters is admitted"))
     specs = Tuple(model.applications)
     roles = map(spec -> model_role(spec.model), specs)
     all(role -> role in (:architecture,:publisher,:length,:count), roles) ||
@@ -138,9 +142,9 @@ function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
     end
     _target_scale(architecture,:Plant) && isempty(architecture.inputs) && isempty(architecture.outputs_to) ||
         throw(ArgumentError("unsupported architecture routing"))
-    _target_scale(length_spec,:IN) && isempty(length_spec.inputs) && isempty(length_spec.outputs_to) ||
+    _target_all_scale(length_spec,:IN) && isempty(length_spec.inputs) && isempty(length_spec.outputs_to) ||
         throw(ArgumentError("unsupported length consumer routing"))
-    _target_scale(count_spec,:IN) && keys(count_spec.inputs)==(:observed_length,) &&
+    _target_all_scale(count_spec,:IN) && isempty(count_spec.outputs_to) && keys(count_spec.inputs)==(:observed_length,) &&
         _self_source(count_spec.inputs.observed_length,length_spec.name,:observed_length) ||
         throw(ArgumentError("counter must read the original same-object LengthProbe"))
     keys(PSE.inputs_(architecture.model)) == (:_native_pse_state,:development_increment) &&
@@ -152,7 +156,9 @@ function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
     objects = PSE.model_objects(model)
     scenes = filter(object -> object.scale===:Scene, objects)
     scene = only(scenes)
-    scene.id isa PlantId && scene.kind===:scene && isnothing(scene.parent) || throw(ArgumentError("unsupported scene identity/labels"))
+    scene.id isa PlantId && scene.kind===:scene && isnothing(scene.parent) &&
+        isnothing(scene.name) && isnothing(scene.species) && isnothing(PSE.geometry(scene)) &&
+        (isnothing(scene.status) || isempty(propertynames(scene.status))) || throw(ArgumentError("unsupported scene identity/labels"))
     plants = filter(object -> object.scale===:Plant, objects)
     isempty(plants) && throw(ArgumentError("at least one native plant required"))
     length(objects)==length(plants)+1 || throw(ArgumentError("prepare from the original empty-organ initial graph"))
@@ -161,6 +167,16 @@ function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
         throw(ArgumentError("unsupported plant identity/metadata"))
     plant_ids = PlantId[object.id for object in plants]
     lookup = Dict(id=>row for (row,id) in enumerate(plant_ids))
+    for object in plants
+        initial=NamedTuple(object.status)
+        all(name->name in (:_native_pse_state,:development_increment,:native_revision),keys(initial)) ||
+            throw(ArgumentError("extra initial plant variables are outside this registry schema"))
+        if hasproperty(initial,:native_revision)
+            default=PSE.outputs_(architecture.model).native_revision
+            typeof(initial.native_revision)===typeof(default) && isequal(initial.native_revision,default) ||
+                throw(ArgumentError("prepare requires the original fresh native revision"))
+        end
+    end
     initials = [merge(NamedTuple(object.status),PSE.outputs_(architecture.model)) for object in plants]
     PI = typeof(first(initials))
     all(initial -> typeof(initial)===PI, initials) || throw(ArgumentError("heterogeneous native plant input schemas"))
@@ -184,7 +200,7 @@ function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
         destination = only(spec.outputs_to)
         dc = _criteria(destination.selector)
         destination.selector isa PSE.Many && get(dc,:scale,nothing)===:IN &&
-            get(dc,:kind,nothing)===:internode && get(dc,:within,nothing) isa PSE.Subtree &&
+            get(dc,:kind,nothing)===:internode && get(dc,:within,nothing) isa PSE.Subtree && isempty(dc.selectors) &&
             all(key->key in (:selectors,:scale,:kind,:within),keys(dc)) || throw(ArgumentError("unsupported publisher destination"))
         keys(PSE.outputs_(spec.model))==(:length,) || throw(ArgumentError("only the exact original length property is admitted"))
         push!(publisher_plants,lookup[id])

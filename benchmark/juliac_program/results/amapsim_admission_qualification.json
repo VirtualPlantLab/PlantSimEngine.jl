@@ -1,0 +1,19 @@
+{
+  "format_version": 1,
+  "scope": "authoring-only bounded admission tightening",
+  "passes": 31,
+  "failures": 0,
+  "measured_runtime_commit": "c1113b506",
+  "runtime_sections_byte_identical": true,
+  "runtime_section_sha256": {
+    "app/src/object_program.jl": "96689a2746917aa2ece58d5f1507ff4b0ba7a908b2f9ebef40fb29967c3a5895",
+    "downstream_amapsim_bridge.jl": "96bce5b3ea063df82f20084bb9027aa9614f42e2a0473baf85449794f5a8ff8e"
+  },
+  "changes": [
+    "reject filtered IN targets and additional input selector criteria",
+    "reject environments, instances and source adapters in this lane",
+    "reject extra scene/plant status metadata and nonfresh output revisions",
+    "reject nonfresh native arenas or modified initializer/RNG seed state"
+  ],
+  "native_runtime_and_scientific_source_variant_unchanged": true
+}

@@ -124,3 +124,12 @@ internodes and removes 545, ending with 2,679 internodes/2,684 objects. Removed
 objects' retained histories and complete native RNG/event/arena state are part
 of the exact comparison. No larger-case or cross-host performance extrapolation
 is implied.
+
+A final admission review tightened authoring-only guards for this bounded lane:
+filtered IN targets, additional input criteria, environments/instances/adapters,
+extra initial metadata and advanced/modified native seed state are rejected.
+Both original profiles still pass exact parity. The executable runtime sections
+remain byte-identical to the measured commit; the final admission record stores
+their hashes. An untimed copied-bundle check also passed with fresh HOME, empty
+external depot/cwd, and Julia project/load path unset, reproducing Merisier's
+positive-RNG snapshot exactly. This is a same-host relocation check.
