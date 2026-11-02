@@ -91,4 +91,51 @@ end
     typed[1][1] = 9
     @test private[1][1] === 9f0
 end
+
+function rebuild_input(ids, initial)
+    binding = (multiplicity=:many, source_ids=ObjectId.(ids))
+    storage = PSE.RefVector(Base.RefValue{Any}[
+        Ref{Any}(deepcopy(value)) for value in initial
+    ])
+    return PSE.CompiledTemporalInput(binding, fill(nothing, length(ids)), initial, Ref(storage))
+end
+
+@testset "rebuilding temporal membership preserves the saved initial schema" begin
+    for saved in (1.25f0, 1 // 3, Float32[1, 2])
+        fresh = saved isa AbstractVector ? [Float64[9, 10], Float64[11, 12]] : [9.0, 11.0]
+        previous = rebuild_input((:retained, :removed), [saved, deepcopy(saved)])
+        current = rebuild_input((:newborn, :retained), fresh)
+        carrier = current.reference[]
+        restored = PSE._preserve_temporal_input_state!(
+            current, previous, previous.binding.source_ids,
+        )
+        @test restored.initial isa Vector{Any}
+        @test restored.initial !== current.initial
+        @test restored.initial[1] === current.initial[1]
+        @test typeof(restored.initial[2]) === typeof(saved)
+        @test isequal(restored.initial[2], saved)
+        @test restored.reference === current.reference
+        @test restored.reference[] === carrier
+        @test typeof(carrier[2]) === typeof(saved)
+        @test isequal(carrier[2], saved)
+        if saved isa AbstractVector
+            @test restored.initial[2] !== previous.initial[1]
+            @test carrier[2] !== previous.reference[][1]
+            restored.initial[2][1] = 7f0
+            @test previous.initial[1] == Float32[1, 2]
+        end
+    end
+    # Compatible homogeneous and heterogeneous snapshots keep the existing
+    # vector, including when surviving identities change their positions.
+    for initial in (Float32[9, 11], Any[9.0, 11.0])
+        previous = rebuild_input((:b, :a), Float32[2, 3])
+        current = rebuild_input((:a, :b), initial)
+        restored = PSE._preserve_temporal_input_state!(
+            current, previous, previous.binding.source_ids,
+        )
+        @test restored.initial === initial
+        @test restored.initial[1] === 3f0
+        @test restored.initial[2] === 2f0
+    end
+end
 end

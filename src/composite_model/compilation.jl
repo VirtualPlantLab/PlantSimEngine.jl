@@ -2653,8 +2653,15 @@ function _preserve_temporal_input_state!(
     for (current_index, object_id) in pairs(current.binding.source_ids)
         previous_index = get(previous_indices, object_id, nothing)
         isnothing(previous_index) && continue
-        current_initial[current_index] =
+        preserved_initial =
             _private_temporal_value(previous_initial[previous_index])
+        if !(preserved_initial isa eltype(current_initial))
+            # A rebuilt binding's current source values need not have the
+            # schema of its saved initial values. Preserve those snapshots
+            # exactly rather than converting them into the fresh schema.
+            current_initial = Any[current_initial...]
+        end
+        current_initial[current_index] = preserved_initial
         current_storage[current_index] =
             _private_temporal_value(previous_storage[previous_index])
     end
