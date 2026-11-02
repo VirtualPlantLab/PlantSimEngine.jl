@@ -49,7 +49,25 @@ function verify_bundle(bundle,source;variant::Symbol)
     all(name->haskey(entries,name),REQUIRED_ENTRIES) || error("native entry manifest omits a required source file")
     for (relative,hash) in entries
         snapshot[joinpath("entry_sources",relative)]=_require_hash(joinpath(root,"entry_sources",relative),hash)
-        _require_hash(joinpath(@__DIR__,relative),hash)
+        # The host build recipe is archived provenance, not an input included
+        # by the native entrypoint. Actual entry/runtime/typing inputs must
+        # also match the current control. Freeze today's host recipe below.
+        relative=="downstream_maespa_build.jl" || _require_hash(joinpath(@__DIR__,relative),hash)
+    end
+    builder_sha=_hash(joinpath(@__DIR__,"downstream_maespa_build.jl"))
+    snapshot["current_host_build_recipe"]=builder_sha
+    metadata["compilation_s_available"] isa Bool || error("invalid compilation-time availability metadata")
+    metadata["host_recipe_recovered"] isa Bool || error("invalid host build-recovery metadata")
+    if metadata["host_recipe_recovered"]
+        haskey(metadata,"host_recipe_correction_sha256") || error("recovered build omits its correction audit")
+        correction_path=joinpath(root,"host_recipe_correction.json")
+        snapshot["host_recipe_correction.json"]=_require_hash(correction_path,metadata["host_recipe_correction_sha256"])
+        correction=JSON.parsefile(correction_path)
+        correction["scope"]=="host_stage_namedtuple_metadata" || error("unadmitted build-recovery scope")
+        correction["archived_builder_sha256"]==entries["downstream_maespa_build.jl"] || error("recovery audit names another archived recipe")
+        correction["corrected_builder_sha256"]==builder_sha || error("recovery audit names another current recipe")
+        correction["compiler_object_reused"]===true && correction["native_inputs_unchanged"]===true ||
+            error("build recovery changed native compilation inputs")
     end
     typing=JSON.parse(read(joinpath(root,"source-typing.json"),String))
     typing["patch_sha256"]==metadata["source_patch_sha256"] || error("typing patch differs from its scientific manifest")
@@ -95,7 +113,9 @@ function verify_bundle(bundle,source;variant::Symbol)
     chomp(read(joinpath(root,"source_snapshot_sha256.txt"),String))==typed_sha || error("native authoring source snapshot changed")
     return (bundle=root,launcher=joinpath(root,"bin","run-pse-program"),metadata,snapshot,
         source_variant=variant,entry_hashes=entries,cases=actual_cases,loaded_scientific_source=source.aggregate_sha256,
-        pse_dependency_source_sha256=current_pse.aggregate_sha256)
+        pse_dependency_source_sha256=current_pse.aggregate_sha256,
+        host_build_recipe=(archived_sha256=entries["downstream_maespa_build.jl"],current_sha256=builder_sha,
+            current_matches_archived=builder_sha==entries["downstream_maespa_build.jl"]))
 end
 
 function require_case(provenance,configuration)

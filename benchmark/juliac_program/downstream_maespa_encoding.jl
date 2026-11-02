@@ -1,10 +1,13 @@
 module DownstreamMAESPAEncoding
 
-export encode, encode_record
+export encode, encode_record, record_prefix
 
 # Text tags are derived from closed Julia schemas while authoring/compiling.
 # The runtime never asks generic display to inspect scientific payloads.
-@generated _type_tag(::Type{T}) where {T}=QuoteNode(string(T))
+# An explicit context prevents Main's imports from shortening package names;
+# noncompact rendering also avoids context-dependent type-alias selection.
+@generated _type_tag(::Type{T}) where {T}=QuoteNode(
+    sprint(show,T;context=(:module=>nothing,:compact=>false)))
 function _prefix(io,value)
     print(io,_type_tag(typeof(value)),':')
     return nothing
@@ -49,6 +52,18 @@ end
 @generated function encode_record(io,fields::T) where {T<:Tuple}
     calls=[:(begin encode(io,getfield(fields,$index)); print(io,'|') end) for index in 1:fieldcount(T)]
     return Expr(:block,calls...,:(println(io)),:(nothing))
+end
+
+"""Return one encoded String record-kind field, including its separator.
+
+Host record readers derive their prefixes through this codec instead of
+assuming a displayed String type name or alias.
+"""
+function record_prefix(kind::AbstractString)
+    return sprint(io -> begin
+        encode(io,String(kind))
+        print(io,'|')
+    end)
 end
 
 end

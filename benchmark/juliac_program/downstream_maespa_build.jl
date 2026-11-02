@@ -39,7 +39,7 @@ function build_maespa_registry(;project="/private/tmp/pse-juliac-large-20261102/
     image=JuliaC.ImageRecipe(file=entry,project=project,output_type="--output-exe",
         trim_mode="safe",cpu_target="generic",verbose=false,quiet=true)
     MAESPA_BUILD_IMAGES[abspath(destination)]=image
-    _maespa_build_stage(destination,:compile;details=(entry,project,profile=String(profile),source_root,
+    _maespa_build_stage(destination,:compile;details=(;entry,project,profile=String(profile),source_root,
         instantiated_project=string(image.instantiated_project)))
     compilation_s=@elapsed open(joinpath(destination,"compile.log"),"w") do io
         redirect_stdout(io) do
@@ -56,11 +56,11 @@ function build_maespa_registry(;project="/private/tmp/pse-juliac-large-20261102/
     DownstreamMAESPAPSESources.verify_unchanged(pse_source)
     DownstreamMAESPAPSESources.verify_archived(joinpath(destination,"pse_source_snapshot.json");
         current=pse_source,expected_aggregate=pse_source.aggregate_sha256)
-    _maespa_build_stage(destination,:link;details=(compilation_s,))
+    _maespa_build_stage(destination,:link;details=(;compilation_s))
     link=JuliaC.LinkRecipe(image_recipe=image,outname=joinpath(destination,"pse_program"),rpath="@bundle")
     MAESPA_BUILD_LINKS[abspath(destination)]=link
     link_s=@elapsed JuliaC.link_products(link)
-    _maespa_build_stage(destination,:bundle;details=(compilation_s,link_s))
+    _maespa_build_stage(destination,:bundle;details=(;compilation_s,link_s))
     bundle_s=@elapsed JuliaC.bundle_products(JuliaC.BundleRecipe(link_recipe=link,output_dir=destination))
     launcher=joinpath(destination,"bin","run-pse-program")
     cp(joinpath(@__DIR__,"launcher.sh"),launcher;force=true);chmod(launcher,0o755)
@@ -83,6 +83,7 @@ function build_maespa_registry(;project="/private/tmp/pse-juliac-large-20261102/
     DownstreamMAESPAPSESources.verify_unchanged(pse_source)
     result=(format_version=1,julia=string(VERSION),juliac=string(Base.pkgversion(JuliaC)),trim="safe",cpu="generic",source_root,
         profile=String(profile),case_count,
+        host_recipe_recovered=false,compilation_s_available=true,
         compilation_s,link_s,bundle_s,bundle=destination,
         binary_sha256=bytes2hex(sha256(read(joinpath(destination,"bin","pse_program")))),
         launcher_sha256=bytes2hex(sha256(read(launcher))),
@@ -100,6 +101,6 @@ function build_maespa_registry(;project="/private/tmp/pse-juliac-large-20261102/
     open(joinpath(destination,"build.toml"),"w") do io
         TOML.print(io,Dict(string(key)=>value for (key,value) in pairs(result)))
     end
-    _maespa_build_stage(destination,:complete;details=(compilation_s,link_s,bundle_s))
+    _maespa_build_stage(destination,:complete;details=(;compilation_s,link_s,bundle_s))
     return result
 end

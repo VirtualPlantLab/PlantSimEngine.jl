@@ -104,7 +104,21 @@ window; that timeout is not a native verifier result.
 Native checks require the completed bundle and its safe/generic build metadata,
 binary/launcher hashes, archived/current entry sources, source-typing inventory,
 case inventory, the loaded PSE dependency source inventory and construction RNG
-provenance. Full records include empty
+provenance. The host build recipe is archived as build provenance; executable
+entry, runtime, typing and scientific inputs must also match the current control.
+Qualification freezes the current host recipe separately. R7 reused its successful
+safe compiler object after correcting only progress-record NamedTuples; its audit
+binds the original and corrected recipes, and its exact compilation duration is
+explicitly unavailable. The final matrix uses the corrected recipe directly.
+
+Observation type tags use an explicit module/display context at authoring time.
+This avoids `Main` import aliases changing a type label between Julia and a
+standalone image. The codec passes 82 context, type-identity and unchanged-payload
+checks; the four actual build progress calls pass nine regression assertions.
+Previous raw records remain archived. Fresh canonical-format ordinary records
+preserve their complete scientific/RNG snapshots.
+
+Full records include empty
 stream keys (`H`) as well as final status/topology (`F/T/S`), samples (`O`) and
 committed air (`E`). Both the manifest-approved original ordinary arm and the
 inference-typed ordinary arm must match the candidate exactly. Final safe/matrix qualification is pending before any native speed claim.

@@ -1,0 +1,32 @@
+{
+  "actual_build_progress_calls": 4,
+  "artifacts": {
+    "downstream_maespa_build.jl": "19d00bd2f073023d07b4f3c577f9515ff1e2d633373c8daf16c2148cb2772b69",
+    "downstream_maespa_build_checks.jl": "443777c6c2f2117ab107f0d2122b757284e9774fa18ec14d3d3f1e73ea28829a",
+    "downstream_maespa_encoding.jl": "12a632923304499694d3d6ec59d9c125eacfa82bd08d3f50745fe7b02c2b3501",
+    "downstream_maespa_encoding_checks.jl": "63038832f3b03816d56673ed10e78ca3012a4bb389b7eb23eb3b7337b05b3148",
+    "downstream_maespa_provenance.jl": "58b8eb05da72500c35f5150eaccd4771cf6a808caf53f65dcd211cdf8bd085e0"
+  },
+  "build_call_assertions": 9,
+  "checks": [
+    "actual build progress calls all pass named fields",
+    "type tags independent of module imports and IO context",
+    "distinct module/type-parameter identity retained",
+    "String and Symbol payload bytes unchanged including UTF-8 and qualifier-like text",
+    "record-kind prefixes derived from the codec"
+  ],
+  "codec_assertions": 82,
+  "encoder_contexts": 3,
+  "format_version": 1,
+  "io_contexts": 4,
+  "julia": "1.13.1",
+  "kaimon_session": "873dd3b7",
+  "native_matrix_parity": "pending",
+  "reproduce": [
+    "Through Kaimon include downstream_maespa_build_checks.jl; DownstreamMAESPABuildChecks.run_checks().",
+    "Through Kaimon include downstream_maespa_encoding_checks.jl; DownstreamMAESPAEncodingChecks.check_encoding()."
+  ],
+  "scientific_execution": false,
+  "scope": "host_build_stage_and_observation_codec_checks",
+  "type_schemas": 15
+}
