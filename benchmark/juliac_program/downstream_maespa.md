@@ -47,7 +47,9 @@ timestamp, committed atmosphere and complete host RNG fingerprints. The daylight
 case executes eight accepted logical leaf units and 24 original temperature
 trials per step. The nine-file variant also passed all eight ordinary matrix cases and a complete
 24-step daylight candidate case against the untouched original. The expanded
-23-file inference variant is now undergoing fresh ordinary/candidate checks. Eight focused temporal-initial checks preserve Float32 values,
+25-file inference variant is now undergoing fresh ordinary/candidate checks.
+The preceding 23-file variant also passed the complete 24-step ordinary and
+schedule-aware candidate case against the original records and RNG snapshot. Eight focused temporal-initial checks preserve Float32 values,
 nested aliases and rejection of mismatched fallback schemas. Native safe
 qualification remains pending: early compiler gates exposed output/call typing
 and scientific field-projection roots, now being repaired and rechecked. No

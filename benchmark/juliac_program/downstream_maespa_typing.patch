@@ -96,18 +96,20 @@
  end
 --- a/src/processes/canopy_air_trial_evaluation.jl
 +++ b/src/processes/canopy_air_trial_evaluation.jl
-@@ -16,6 +16,11 @@
+@@ -16,7 +16,12 @@
      :tuzet_crown_leaf_exchange_controller,
  )
  
+-@noinline function _throw_canopy_air_trial_evaluation(
 +# Error text is fixed authoring metadata; do not invoke Tuple/Symbol
 +# display from the native runtime's validation branch.
 +const _MAESPA_CANOPY_AIR_TRIAL_LEAF_EXCHANGE_DESCRIPTION =
 +    string(_MAESPA_CANOPY_AIR_TRIAL_LEAF_EXCHANGE_PROCESSES)
 +
- @noinline function _throw_canopy_air_trial_evaluation(
++@inline Base.@constprop :aggressive function _throw_canopy_air_trial_evaluation(
      name::Symbol,
      value,
+     reason::Symbol,
 @@ -28,7 +33,7 @@
          throw(
              ArgumentError(
@@ -355,7 +357,7 @@
  end
 +
 +# Finite Nothing-tag dispatch only; every leaf invokes the original kernel.
-+function _closed_soil_gravitational_drainage(model, water, ice, drainage_limit, plateau_drainage, seconds, water_table_layer, capillary_gain_m, bottom_water_content)
++@inline function _closed_soil_gravitational_drainage(model, water, ice, drainage_limit, plateau_drainage, seconds, water_table_layer, capillary_gain_m, bottom_water_content)
 +    if water_table_layer === nothing
 +        if bottom_water_content === nothing
 +            return soil_gravitational_drainage(model, water, ice; drainage_limit=drainage_limit, plateau_drainage=plateau_drainage, timestep_seconds=seconds, water_table_layer=nothing, capillary_gain_m=capillary_gain_m, bottom_water_content=nothing)
@@ -619,7 +621,7 @@
  end
 +
 +# Finite Nothing-tag dispatch only; every leaf invokes the original kernel.
-+function _closed_soil_water_potential_result(water, method, pore_fraction, b_parameter, air_entry_water_potential_mpa, alpha_mpa_inverse, saturated_water_content, residual_water_content, shape_parameter_n)
++@inline function _closed_soil_water_potential_result(water, method, pore_fraction, b_parameter, air_entry_water_potential_mpa, alpha_mpa_inverse, saturated_water_content, residual_water_content, shape_parameter_n)
 +    if b_parameter === nothing
 +        if air_entry_water_potential_mpa === nothing
 +            if alpha_mpa_inverse === nothing
@@ -876,7 +878,7 @@
 +end
 +
 +# Finite Nothing-tag dispatch only; every leaf invokes the original kernel.
-+function _closed_soil_hydraulic_conductivity_result(water, method, saturated_hydraulic_conductivity_m_s, pore_fraction, b_parameter, saturated_water_content, residual_water_content, shape_parameter_n)
++@inline function _closed_soil_hydraulic_conductivity_result(water, method, saturated_hydraulic_conductivity_m_s, pore_fraction, b_parameter, saturated_water_content, residual_water_content, shape_parameter_n)
 +    if b_parameter === nothing
 +        if saturated_water_content === nothing
 +            if residual_water_content === nothing
@@ -983,7 +985,7 @@
  end
 +
 +# Finite Nothing-tag dispatch only; every leaf invokes the original kernel.
-+function _closed_soil_capillary_potential(water, method, pore, b, air_entry, alpha, saturated, residual, shape)
++@inline function _closed_soil_capillary_potential(water, method, pore, b, air_entry, alpha, saturated, residual, shape)
 +    if b === nothing
 +        if air_entry === nothing
 +            if alpha === nothing
@@ -1240,7 +1242,7 @@
 +end
 +
 +# Finite Nothing-tag dispatch only; every leaf invokes the original kernel.
-+function _closed_soil_capillary_conductivity(water, method, saturated_conductivity, pore, b, saturated, residual, shape)
++@inline function _closed_soil_capillary_conductivity(water, method, saturated_conductivity, pore, b, saturated, residual, shape)
 +    if b === nothing
 +        if saturated === nothing
 +            if residual === nothing
@@ -1310,7 +1312,7 @@
  end
  
 -@noinline function _throw_crown_leaf_respiration_accounting(
-+@noinline Base.@constprop :aggressive function _throw_crown_leaf_respiration_accounting(
++@inline Base.@constprop :aggressive function _throw_crown_leaf_respiration_accounting(
      name::Symbol,
      value,
      reason::Symbol,
@@ -1346,6 +1348,61 @@
          throw(DimensionMismatch("Crown aggregation expects $(model.logical_leaf_unit_count) logical leaves; got $sizes"))
      end
      _require_crown_leaf_exchange_length(
+--- a/src/processes/leaf_exchange/calls.jl
++++ b/src/processes/leaf_exchange/calls.jl
+@@ -7,15 +7,13 @@
+         process=:leaf_energy_balance_controller)),
+ )
+ 
+-@inline function _leaf_status_snapshot(status, ::Val{names}) where {names}
+-    return NamedTuple{names}(
+-        ntuple(index -> getproperty(status, names[index]), length(names)),
+-    )
++@inline @generated function _leaf_status_snapshot(status, ::Val{names}) where {names}
++    fields = [:(getproperty(status, $(QuoteNode(name)))) for name in names]
++    return Expr(:call, NamedTuple{names}, Expr(:tuple, fields...))
+ end
+ 
+-@inline function _set_leaf_trial_inputs!(status, inputs::NamedTuple)
+-    for name in keys(inputs)
+-        setproperty!(status, name, getproperty(inputs, name))
+-    end
+-    return nothing
++@inline @generated function _set_leaf_trial_inputs!(status, inputs::NamedTuple{names}) where {names}
++    assignments = [:(setproperty!(status, $(QuoteNode(name)), getproperty(inputs, $(QuoteNode(name)))))
++        for name in names]
++    return Expr(:block, assignments..., :(return nothing))
+ end
+--- a/src/processes/soil_drainage.jl
++++ b/src/processes/soil_drainage.jl
+@@ -279,19 +279,18 @@
+     layer_index::Int,
+     water_content::T,
+ ) where {T<:AbstractFloat}
+-    return _soil_hydraulic_conductivity_result(
++    return _closed_soil_hydraulic_conductivity_result(
+         water_content,
+-        model.method;
+-        saturated_hydraulic_conductivity_m_s=
+-            model.saturated_hydraulic_conductivity_m_s[layer_index],
+-        pore_fraction=model.pore_fraction[layer_index],
+-        b_parameter=isnothing(model.b_parameter) ?
++        model.method,
++        model.saturated_hydraulic_conductivity_m_s[layer_index],
++        model.pore_fraction[layer_index],
++        isnothing(model.b_parameter) ?
+                     nothing : model.b_parameter[layer_index],
+-        saturated_water_content=isnothing(model.saturated_water_content) ?
++        isnothing(model.saturated_water_content) ?
+                                   nothing : model.saturated_water_content[layer_index],
+-        residual_water_content=isnothing(model.residual_water_content) ?
++        isnothing(model.residual_water_content) ?
+                                  nothing : model.residual_water_content[layer_index],
+-        shape_parameter_n=isnothing(model.shape_parameter_n) ?
++        isnothing(model.shape_parameter_n) ?
+                           nothing : model.shape_parameter_n[layer_index],
+     ).value
+ end
 --- a/src/processes/daily_whole_plant_respiration_scene_aggregation.jl
 +++ b/src/processes/daily_whole_plant_respiration_scene_aggregation.jl
 @@ -282,8 +282,8 @@

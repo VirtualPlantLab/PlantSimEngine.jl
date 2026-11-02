@@ -19,6 +19,8 @@ REPAIRED=(
     "src/processes/meteorology.jl",
     "src/processes/solar_geometry.jl",
     "src/processes/coupled_leaf_energy_balance.jl",
+    "src/processes/canopy_air_trial_evaluation.jl",
+    "src/processes/crown_leaf_respiration_accounting.jl",
 )
 
 def unroll_named_loops(text, constants=True):
@@ -140,4 +142,14 @@ def repair(relative,source):
         old="        for (name, value) in pairs(PlantSimEngine.outputs_(model))\n            setproperty!(status, name, oftype(getproperty(status, name), value))\n        end"
         result=_replace_once(source,old,"        _reset_coupled_leaf_energy_fields!(status, PlantSimEngine.outputs_(model))")
         return result+"\n@generated function _reset_coupled_leaf_energy_fields!(status, defaults::NamedTuple{N}) where {N}\n    assignments = [:(let value = getproperty(defaults, $(QuoteNode(name))); setproperty!(status, $(QuoteNode(name)), oftype(getproperty(status, $(QuoteNode(name))), value)); end) for name in N]\n    return Expr(:block, assignments..., :(return nothing))\nend\n"
+    if relative in REPAIRED[11:13]:
+        helper=("_throw_canopy_air_trial_evaluation" if relative==REPAIRED[11]
+            else "_throw_crown_leaf_respiration_accounting")
+        # Both helpers return Bottom for every reason. Force literal-reason
+        # propagation at their call sites; avoid compiling unrelated display
+        # branches for NamedTuple/Type payloads. Messages/checks stay untouched.
+        pattern=r"@noinline(?: Base\.@constprop :aggressive)? function "+re.escape(helper)+r"\("
+        result,count=re.subn(pattern,"@inline Base.@constprop :aggressive function "+helper+"(",source)
+        assert count==1,(relative,count)
+        return result
     raise ValueError("not an owned closed-field source: "+relative)

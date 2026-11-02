@@ -18,6 +18,8 @@ REPAIRED = (
     "src/processes/soil_capillarity.jl",
     "src/processes/crown_leaf_respiration_accounting.jl",
     "src/processes/crown_leaf_exchange_aggregation.jl",
+    "src/processes/leaf_exchange/calls.jl",
+    "src/processes/soil_drainage.jl",
 )
 
 
@@ -59,7 +61,7 @@ def _optional_barrier(name, arguments, optionals, forwarded, *, keywords=(), wra
 
     wrapper = "_closed" + name if wrapper is None else wrapper
     return ("\n# Finite Nothing-tag dispatch only; every leaf invokes the original kernel.\n"
-            "function " + wrapper + "(" + ", ".join(arguments) + ")\n" +
+            "@inline function " + wrapper + "(" + ", ".join(arguments) + ")\n" +
             branch(0, {}, "    ") + "end\n")
 
 
@@ -240,5 +242,44 @@ end
         # comma-space delimiter; no generic status lookup on the error path.
         fragments = ['"' + name + '=$(length(getproperty(status, :' + name + ')))"' for name in names]
         new = "        sizes = join((\n" + "".join("            " + item + ",\n" for item in fragments) + '        ), ", ")'
+        return replace_exact(source, old, new)
+    if relative == REPAIRED[10]:
+        old = """@inline function _leaf_status_snapshot(status, ::Val{names}) where {names}
+    return NamedTuple{names}(
+        ntuple(index -> getproperty(status, names[index]), length(names)),
+    )
+end"""
+        new = """@inline @generated function _leaf_status_snapshot(status, ::Val{names}) where {names}
+    fields = [:(getproperty(status, $(QuoteNode(name)))) for name in names]
+    return Expr(:call, NamedTuple{names}, Expr(:tuple, fields...))
+end"""
+        source = replace_exact(source, old, new)
+        old = """@inline function _set_leaf_trial_inputs!(status, inputs::NamedTuple)
+    for name in keys(inputs)
+        setproperty!(status, name, getproperty(inputs, name))
+    end
+    return nothing
+end"""
+        new = """@inline @generated function _set_leaf_trial_inputs!(status, inputs::NamedTuple{names}) where {names}
+    assignments = [:(setproperty!(status, $(QuoteNode(name)), getproperty(inputs, $(QuoteNode(name)))))
+        for name in names]
+    return Expr(:block, assignments..., :(return nothing))
+end"""
+        return replace_exact(source, old, new)
+    if relative == REPAIRED[11]:
+        # Reuse the same finite conductivity dispatcher as the hydraulic
+        # process. Every argument expression retains its original order.
+        start = source.index("    return _soil_hydraulic_conductivity_result(\n")
+        end = source.index("\n    ).value", start) + len("\n    ).value")
+        old = source[start:end]
+        new = replace_exact(old, "    return _soil_hydraulic_conductivity_result(\n",
+            "    return _closed_soil_hydraulic_conductivity_result(\n")
+        new = replace_exact(new, "        model.method;\n", "        model.method,\n")
+        for name in ("saturated_hydraulic_conductivity_m_s", "pore_fraction", "b_parameter",
+                     "saturated_water_content", "residual_water_content", "shape_parameter_n"):
+            if "        " + name + "=\n" in new:
+                new = replace_exact(new, "        " + name + "=\n            ", "        ")
+            else:
+                new = replace_exact(new, "        " + name + "=", "        ")
         return replace_exact(source, old, new)
     raise ValueError("Not an owned runtime-typing source: " + relative)

@@ -65,19 +65,22 @@
       "committed_atmosphere",
       "host_rng_fingerprints"
     ],
-    "final_variant_matrix": "new 23-file variant pending independent ordinary/JIT controls",
+    "final_variant_matrix": "new 25-file variant pending independent ordinary/JIT controls",
     "nine_file_variant_full_ordinary_matrix_exact_original": true,
     "nine_file_variant_candidate_24_daylight_steps_exact_original": true,
     "candidate_records": 28202,
-    "candidate_record_sha256": "5ba1fdaf715bb0387aec768a608f528e68736288fb76d03dba50c73acc08b6a0"
+    "candidate_record_sha256": "5ba1fdaf715bb0387aec768a608f528e68736288fb76d03dba50c73acc08b6a0",
+    "twentythree_file_variant_ordinary_24_steps_exact_original": true,
+    "twentythree_file_variant_schedule_candidate_24_steps_exact_original": true
   },
   "inference_variant": {
-    "aggregate_sha256": "ba3c0eb6e0273ee845a73cd8cc76bfeb8d236df42ec0fc5741c2875309f0ca61",
-    "typing_manifest_sha256": "00fa24c4ae6e5ff3e878627408ce5dfdb642c2c692b199f6218b00509cc1d753",
+    "aggregate_sha256": "fab5ba1c17e47b21de00e7871e99c6366cb22c2dcd95cc78b2de2534fed6f266",
+    "typing_manifest_sha256": "8aa78d1ad877519b4d74bb005f3c5a1096f79bd8879971117ec9d781af024319",
     "inventoried_files": 208,
-    "changed_files": 23,
-    "unchanged_files": 185,
-    "independent_reproduction_checks_passed": 7
+    "changed_files": 25,
+    "unchanged_files": 183,
+    "independent_reproduction_checks_passed": 0,
+    "independent_reproduction_status": "pending final 25-file independent reproduction"
   },
   "coverage_limits": [
     "fixed registry",
@@ -113,6 +116,14 @@
       "verifier_errors": 408,
       "log_sha256": "81e0eb75f577d616eba8ead2ed4106dd23a4e0bc21bb3cda7001138769c06026",
       "root_repairs": "root dispatcher was compiling manual-only families with an unadmitted NoOverride context; encode the actual scheduled family set and retain the exact ordered entries"
+    },
+    {
+      "id": "r5",
+      "status": "safe_verifier_rejected",
+      "safe_qualification": false,
+      "verifier_errors": 82,
+      "log_sha256": "370f2f48a245041ef0e3e11a2db4d800ce24ba375e5dd5fc2e51c35f4e4ea32e",
+      "root_repairs": "root context closure removed all environment diagnostics; remaining exact literal leaf snapshots/trial writes and forced inline finite optional/error dispatchers prepared for next gate"
     }
   ]
 }
