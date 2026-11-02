@@ -2,7 +2,7 @@
   "format": 1,
   "recorded_at": "2026-11-02",
   "scope": "fixed-registry full original MAESPA canopy-soil scenario; inference-only source variant",
-  "native_status": "pending_safe_verification",
+  "native_status": "all eight cases compiled safe/generic; full original/native raw record parity and timing/relocation qualification pending",
   "focused_runtime": {
     "temporal_initial_assertions": 8,
     "hard_call_view_assertions": 293,
@@ -101,8 +101,9 @@
     "inventoried_files": 208,
     "changed_files": 26,
     "unchanged_files": 182,
-    "independent_reproduction_checks_passed": 0,
-    "independent_reproduction_status": "pending final 26-file independent reproduction"
+    "independent_reproduction_checks_passed": 8,
+    "independent_reproduction_status": "all final26 inventories, patch bytes and four script hashes reproduced exactly",
+    "independent_reproduction_receipt_sha256": "79ff7746c0befcb11c7186fbf0fb3c02962e2ea97a1f4b51249ade09a093fae8"
   },
   "coverage_limits": [
     "fixed registry",
@@ -155,7 +156,28 @@
       "unique_verifier_errors": 5,
       "log_sha256": "dc1dac63b4c74e8644d7f3fe2bf159e899d2e3e34c5827812ccccb6bfc49c0db",
       "root_repairs": "literal compact leaf-output installer, three capillarity call-site inline annotations, civil-day Bottom error helper inline annotation"
+    },
+    {
+      "id": "r7",
+      "compiler_status": "safe_generic_passed",
+      "verifier_errors": 0,
+      "compile_log_bytes": 0,
+      "host_stage_status": "namedtuple_metadata_error_after_successful_compilation_recovered_without_recompile",
+      "compiler_object_sha256": "bc5e51935578b3f23064a53a91a72fa803270ee20a160323c90a89d6cfc8f626",
+      "binary_sha256": "3716f822c7e0e0a46972cfa3d6aa020aaf3331824a5a75a33269426cee6c3a77",
+      "smoke": "MAESPA_DONE,1,27,100,68",
+      "exact_compilation_s_available": false,
+      "full_record_gate": "raw type-tag qualification mismatch; diagnostic tag-only differences are not accepted as exact proof"
     }
   ],
-  "historical_25_file_independent_reproduction_checks_passed": 7
+  "historical_25_file_independent_reproduction_checks_passed": 7,
+  "native_matrix_build": {
+    "binary_sha256": "e0c0f133b1235c4f08ac6ea0d00ed857aede56c2e24bebfbdfa8eadda60c710b",
+    "case_count": 8,
+    "compilation_s": 746.825960542,
+    "compilation_s_available": true,
+    "host_recipe_recovered": false,
+    "scientific_source_sha256": "2134bb3606ebd31e97948d24d09dce3619d941a0105ce6bb9d478a3846205163",
+    "pse_source_sha256": "259ae8b19d267b954e81043ef34d1e8d72947162688f37727dd2b851c2c77a93"
+  }
 }
