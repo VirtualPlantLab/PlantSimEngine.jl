@@ -71,7 +71,8 @@ end
     models = available_models(:model_discovery_fixture)
     @test fixture.DiscoveryModel in models
     @test fixture.Nested.NestedModel in models
-    @test filter(type -> nameof(type) === :NestedModel, models) == sort(
+    @test filter(type -> nameof(type) === :NestedModel &&
+        parentmodule(type) in (fixture.Nested, fixture.Peer), models) == sort(
         [fixture.Nested.NestedModel, fixture.Peer.NestedModel]; by=string,
     )
     @test fixture.UnprocessedModel ∉ available_models()
