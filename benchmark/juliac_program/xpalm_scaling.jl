@@ -188,6 +188,8 @@ for example `Main.CV.BeforeReuse.FullXPalmPerformance` and
 `Main.DV.FullXPalmPerformance`. Every case benchmarks ordinary PSE, previous
 prepared bf4c3ab7, and current prepared execution with the same inputs. Modules
 must already be loaded through Kaimon; this driver never starts Julia.
+Pass `nothing` for `previous` to measure ordinary PSE and the current executor
+without the optional historical prepared arm. Ordinary PSE is always included.
 
 The fresh-simulation boundary includes forcing/Constants construction plus
 ordinary scene/run! or typed runtime model projection/MTG/state instantiation
@@ -225,28 +227,29 @@ function compare_scaling(previous, current; days=256, profile=:accelerated,
     retain && days > 256 && throw(ArgumentError("retained-output scaling cases are bounded to <=256 days"))
     settings = (; days=Int(days), profile, rate, reproductive, retain)
     profile_metadata = _profile_metadata(current.XF, settings)
-    before = _context(previous, settings)
+    arms = isnothing(previous) ? (:ordinary_pse, :current_prepared) : ARM_LABELS
+    before = isnothing(previous) ? nothing : _context(previous, settings)
     after = _context(current, settings)
-    previous_rng = previous.XF.rng_fingerprint(before.setup.models)
+    previous_rng = isnothing(previous) ? nothing : previous.XF.rng_fingerprint(before.setup.models)
     current_rng = current.XF.rng_fingerprint(after.setup.models)
     expected = _oracle(current, after, max_reachable_bytes)
-    previous_memory = _typed_memory(previous, before, expected, max_reachable_bytes, ARM_LABELS[2])
+    previous_memory = isnothing(previous) ? nothing : _typed_memory(previous, before, expected, max_reachable_bytes, ARM_LABELS[2])
     current_memory = _typed_memory(current, after, expected, max_reachable_bytes, ARM_LABELS[3])
     warmups = NamedTuple[]
-    for arm in ARM_LABELS
+    for arm in arms
         perf, ctx = arm === ARM_LABELS[2] ? (previous, before) : (current, after)
         push!(warmups, _trial(perf, ctx, expected, arm, 0))
     end
     trials = NamedTuple[]
     for trial in 1:repeats
-        order = circshift(collect(ARM_LABELS), mod(trial - 1, 3))
+        order = circshift(collect(arms), mod(trial - 1, length(arms)))
         iseven(trial) && reverse!(order)
         for arm in order
             perf, ctx = arm === ARM_LABELS[2] ? (previous, before) : (current, after)
             push!(trials, _trial(perf, ctx, expected, arm, trial))
         end
     end
-    isequal(previous.XF.rng_fingerprint(before.setup.models), previous_rng) || error("previous caller RNG mutated")
+    isnothing(previous) || isequal(previous.XF.rng_fingerprint(before.setup.models), previous_rng) || error("previous caller RNG mutated")
     isequal(current.XF.rng_fingerprint(after.setup.models), current_rng) || error("current caller RNG mutated")
     native = _native_scaling(native_bundle, native_checks, current, after, expected;
         command_factory=native_command, repeats, launches=native_launches)
@@ -262,7 +265,8 @@ function compare_scaling(previous, current; days=256, profile=:accelerated,
         work=(days=days, initial_objects=length(after.setup.topology), final_objects=length(expected.objects),
             objects_by_category=categories, applications=length(after.setup.applications), retained_samples=length(expected.samples)),
         validated=(canonical_state=true, ordered_topology=true, owned_rng=true, retained_sample_parity=retain),
-        ordinary_pse=_summary(trials, ARM_LABELS[1]), previous_prepared_bf4c3ab7=_summary(trials, ARM_LABELS[2]),
+        ordinary_pse=_summary(trials, ARM_LABELS[1]), previous_prepared_bf4c3ab7=isnothing(previous) ?
+            (supported=false, reason="historical prepared arm not selected; ordinary PSE baseline retained") : _summary(trials, ARM_LABELS[2]),
         current_prepared=_summary(trials, ARM_LABELS[3]), current_juliac_safe=native,
         reachable_state_bytes=(ordinary_pse=expected.reachable_bytes,
             previous_prepared_bf4c3ab7=previous_memory, current_prepared=current_memory), warmups=warmups, trials=trials)

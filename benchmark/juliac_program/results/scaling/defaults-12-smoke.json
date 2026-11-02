@@ -1,0 +1,213 @@
+{
+  "settings": {
+    "days": 12,
+    "profile": "package_defaults",
+    "rate": 0.3,
+    "reproductive": true,
+    "retain": false
+  },
+  "profile": {
+    "name": "package_defaults",
+    "package_parameters_untouched": true,
+    "initiation_age": 0,
+    "architecture": false,
+    "forcing": "FullXPalmFixture.rows synthetic daily forcing",
+    "phyllochron_initial": 0.0111,
+    "phyllochron_mature": 0.0074,
+    "flowering": 10530.0,
+    "abortion_duration": 540.0,
+    "sex_duration": 1350.0,
+    "sex_seed": 1,
+    "abortion_seed": 1
+  },
+  "scope": "Fresh simulation including forcing/Constants; scientific authoring/program preparation/explicit GC/validation excluded",
+  "metadata": {
+    "current": {
+      "compiler": "warm Julia JIT; not a JuliaC/AOT measurement",
+      "julia": "1.13.1",
+      "plant_sim_engine": "0.15.1",
+      "xpalm": "0.7.0",
+      "xpalm_manifest_revision": "5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd",
+      "active_project": "/Users/rvezy/.codex/worktrees/pse-juliac-program/PlantSimEngine/benchmark/juliac_program/app/Project.toml",
+      "plant_sim_engine_source": "/Users/rvezy/.codex/worktrees/pse-juliac-program/PlantSimEngine/src/PlantSimEngine.jl",
+      "xpalm_source": "/Users/rvezy/.julia/packages/XPalm/deFaa/src/XPalm.jl",
+      "source_revision": "8c4154df6c2cc2b6eec8cd05fb13e2c91bb93134",
+      "source_dirty": true,
+      "cpu": "apple-m3",
+      "machine": "arm64-apple-darwin27.0.0",
+      "julia_threads": 2,
+      "manifest": "/Users/rvezy/.codex/worktrees/pse-juliac-program/PlantSimEngine/benchmark/juliac_program/app/Manifest.toml"
+    },
+    "previous_module": "nothing",
+    "current_module": "Main.FullXPalmPerformance",
+    "previous_runtime_source_sha256": null,
+    "current_runtime_source_sha256": {
+      "cohort_program.jl": "aa124eba9288f4a6ecf4710ad30b0fc2badc4212093378745e7b235285d177dc",
+      "full_program_bindings.jl": "0a79559b343f2634e7ec12f22a6a754473285ab68969ec736d60c5f90df385f7",
+      "full_program_history.jl": "3e0906b38615a51518cb1180b0d62e5660dd4ac60a10f87481136620c411ba45",
+      "full_program_plan.jl": "ad38c1d1e3509edfb4d88400a4cf7dc2ef44f8288aad8e2a9911194339a75afd",
+      "full_program_runtime.jl": "f5fa30675d6ad9c3412453cb1f0d313f4e3780362b1218be158d1f2a92ba0de1",
+      "program.jl": "47be0682c08df45afb3e16162084c487a6324816a9fd1bd4d44ea4693f86d00c"
+    }
+  },
+  "work": {
+    "days": 12,
+    "initial_objects": 8,
+    "final_objects": 11,
+    "objects_by_category": {
+      "Internode": 2,
+      "Leaf": 2,
+      "Phytomer": 2,
+      "Plant": 1,
+      "RootSystem": 1,
+      "Scene": 1,
+      "Soil": 1,
+      "Stem": 1
+    },
+    "applications": 61,
+    "retained_samples": 0
+  },
+  "validated": {
+    "canonical_state": true,
+    "ordered_topology": true,
+    "owned_rng": true,
+    "retained_sample_parity": false
+  },
+  "ordinary_pse": {
+    "median_s": 0.022147042,
+    "min_s": 0.022016125,
+    "median_bytes": 26394640.0,
+    "min_bytes": 26392384,
+    "median_gc_s": 0.0,
+    "min_gc_s": 0.0
+  },
+  "previous_prepared_bf4c3ab7": {
+    "supported": false,
+    "reason": "historical prepared arm not selected; ordinary PSE baseline retained"
+  },
+  "current_prepared": {
+    "median_s": 0.0008025,
+    "min_s": 0.000793417,
+    "median_bytes": 813024.0,
+    "min_bytes": 810768,
+    "median_gc_s": 0.0,
+    "min_gc_s": 0.0
+  },
+  "current_juliac_safe": {
+    "supported": true,
+    "arm": "current_juliac_safe",
+    "median_s": 0.00018175,
+    "min_s": 0.00017329200000000002,
+    "trials": [
+      {
+        "launch": 1,
+        "trial": 1,
+        "time_s": 0.00020258300000000002
+      },
+      {
+        "launch": 1,
+        "trial": 2,
+        "time_s": 0.00018175
+      },
+      {
+        "launch": 1,
+        "trial": 3,
+        "time_s": 0.00017329200000000002
+      }
+    ],
+    "warmups": [
+      {
+        "launch": 1,
+        "trial": 0,
+        "time_s": 0.002234166
+      }
+    ],
+    "validation": [
+      {
+        "launch": 1,
+        "canonical_fields": 220,
+        "retained_samples": 0,
+        "rng_streams": 2,
+        "objects": 11,
+        "topology_schema": "category/parent/link/index; existing native full protocol"
+      }
+    ],
+    "metadata": {
+      "bundle": "/private/tmp/pse-juliac-large-20261102/xpalm-defaults-bundle",
+      "binary_sha256": "2e51e47ed2026ae18d0dea3c49bfd11b062618469f7973f67b00806e8e064133",
+      "app_sha256": "5354b8080237d04c353c4996fbe9b37f208b317092a3b4e07db8847d31047cbc",
+      "julia": "1.13.1",
+      "juliac": "0.3.12",
+      "trim": "safe",
+      "cpu": "generic"
+    },
+    "scope": "Internal simulate_full_xpalm fresh setup/forcing/Constants/daily steps; program/scientific authoring, startup, P0, explicit GC, printing and host parity excluded; native allocation bytes not measured"
+  },
+  "reachable_state_bytes": {
+    "ordinary_pse": 549413,
+    "previous_prepared_bf4c3ab7": null,
+    "current_prepared": 272574
+  },
+  "warmups": [
+    {
+      "trial": 0,
+      "arm": "ordinary_pse",
+      "time_s": 0.036559416,
+      "bytes": 26394640,
+      "gc_s": 0.0
+    },
+    {
+      "trial": 0,
+      "arm": "current_prepared",
+      "time_s": 0.0019605,
+      "bytes": 813024,
+      "gc_s": 0.0
+    }
+  ],
+  "trials": [
+    {
+      "trial": 1,
+      "arm": "ordinary_pse",
+      "time_s": 0.025518666,
+      "bytes": 26392384,
+      "gc_s": 0.0
+    },
+    {
+      "trial": 1,
+      "arm": "current_prepared",
+      "time_s": 0.0008025,
+      "bytes": 820448,
+      "gc_s": 0.0
+    },
+    {
+      "trial": 2,
+      "arm": "ordinary_pse",
+      "time_s": 0.022147042,
+      "bytes": 26394928,
+      "gc_s": 0.0
+    },
+    {
+      "trial": 2,
+      "arm": "current_prepared",
+      "time_s": 0.000793417,
+      "bytes": 813024,
+      "gc_s": 0.0
+    },
+    {
+      "trial": 3,
+      "arm": "ordinary_pse",
+      "time_s": 0.022016125,
+      "bytes": 26394640,
+      "gc_s": 0.0
+    },
+    {
+      "trial": 3,
+      "arm": "current_prepared",
+      "time_s": 0.00085,
+      "bytes": 810768,
+      "gc_s": 0.0
+    }
+  ],
+  "excluded_from_performance_summary": true,
+  "exclusion_reason": "Warmup/parity smoke only; other sessions were compiling concurrently."
+}

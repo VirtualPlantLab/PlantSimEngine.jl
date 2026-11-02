@@ -43,21 +43,31 @@ intervals.
 | Package parameters / 256 / none | 86 | 107.20 ms | 37.40 ms | 12.99 ms | 10.51 ms | 10.20× |
 | Package parameters / 256 / all | 86 | 139.79 ms | 51.61 ms | 22.02 ms | 18.64 ms | 7.50× |
 | Package parameters / 1,024 / none | 311 | 553.00 ms | 1,824.22 ms | 185.68 ms | 161.41 ms | 3.43× |
+| Package parameters / 4,160 / none | 1,190 | 4,744.27 ms | Not selected | 4,563.05 ms | 3,878.87 ms | 1.22× |
 
-All rows pass full final canonical-state, ordered-topology and owned-RNG
-checks. The retained case additionally matches every one of its 202,846
-samples. JSON files contain individual trials, warmups, source hashes,
+All JIT rows pass full final canonical-state, ordered-topology and owned-RNG
+checks. Native comparisons cover every canonical field, RNG probes, and the
+existing topology protocol's category/parent/link/index values; that protocol
+does not separately transmit child ordering or MTG levels. The retained case
+additionally matches every one of its 202,846 samples. JSON files contain
+individual trials, warmups, source hashes,
 allocation/GC measurements, native binary identity and parity counts.
 
-The previous prepared executor is slower than ordinary PSE in both larger
-rows. Current reuse repairs that regression, but the native speedup over
+The previous prepared executor is slower than ordinary PSE in its two larger
+comparisons. The optional historical executor was not selected for the
+4,160-day case; its ordinary PSE baseline is still measured. Current reuse
+repairs the earlier regression, but the native speedup over
 ordinary PSE decreases substantially with workload size. The earlier short
 trajectory speedups do not extrapolate to longer simulations.
 
-An untimed 4,160-day package-parameter preflight also passes full Julia/PSE
-state, topology and RNG parity, reaching 1,190 objects including 140 female
-and 19 male organs. Its timing and native gate are separate pending work;
-`defaults-4160-preflight.json` contains no performance claim.
+The 4,160-day package-parameter case reaches 1,190 objects including 140 female
+and 19 male organs, and passes both Julia/PSE and native/PSE state, topology
+and RNG parity. At this size the native advantage is about 18% less elapsed
+time; the current prepared JIT runtime is close to ordinary PSE. Its JIT
+allocated volume remains 4.94 GB versus 5.41 GB for ordinary PSE. Native
+allocation volume is not measured. The earlier untimed preflight is retained
+separately; the 12-day smoke result is excluded from performance summaries
+because other sessions were compiling concurrently.
 
 `../../xpalm_scaling_native_defaults.jl` builds a separate safe/generic copied
 app for unchanged package parameters. The established single-rate `perffull`
