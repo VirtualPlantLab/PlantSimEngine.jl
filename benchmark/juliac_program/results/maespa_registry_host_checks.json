@@ -2,7 +2,7 @@
   "format": 1,
   "recorded_at": "2026-11-02",
   "scope": "fixed-registry full original MAESPA canopy-soil scenario; inference-only source variant",
-  "native_status": "all eight cases compiled safe/generic; full original/native raw record parity and timing/relocation qualification pending",
+  "native_status": "eight-case safe/generic native matrix exact original-record parity, original/native timings and same-host relocation passed; typed/JIT measurements pending",
   "focused_runtime": {
     "temporal_initial_assertions": 8,
     "hard_call_view_assertions": 293,
@@ -179,5 +179,18 @@
     "host_recipe_recovered": false,
     "scientific_source_sha256": "2134bb3606ebd31e97948d24d09dce3619d941a0105ce6bb9d478a3846205163",
     "pse_source_sha256": "259ae8b19d267b954e81043ef34d1e8d72947162688f37727dd2b851c2c77a93"
+  },
+  "native_matrix_qualification": {
+    "cases": 8,
+    "total_records": 512836,
+    "exact_raw_records": true,
+    "same_host_relocation_largest_case_records": 283780,
+    "original_native_execution_ratio_range": [
+      4.5609426439110194,
+      6.554642805729354
+    ],
+    "typed_ordinary_full_snapshot_and_rng_cases_passed": 8,
+    "typed_jit_measurement_attribution_pending": true,
+    "details": "benchmark/juliac_program/results/maespa_native_qualification.json"
   }
 }

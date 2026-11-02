@@ -1,124 +1,177 @@
 # Complete MAESPA scenario: fixed registry prototype
 
-This experiment uses the public two-species, non-Tuzet canopy/soil builder with
-`mount_leaf_exchange=true`. It includes the original leaf energy/photosynthesis
-calls, radiation, water balance, accepted canopy commits and daily/subdaily
-clocks. Trial calls and accepted replay execute the original scientific work.
-The one-tile case has 27 objects and 100 applications; four adjacent equal-area
-tiles have 99 objects and 292 applications. Plot density is preserved.
+The complete selected public non-Tuzet canopy/soil scenario compiles with
+**JuliaC safe/generic**. All eight native cases match untouched-source ordinary
+PSE exactly: final canonical status, topology/geometry, committed atmosphere,
+stream keys and every retained sample/timestamp. Warm execution is **4.56–6.55×**
+faster than the original ordinary executor in these cases. Final inference-typed
+ordinary and registry-JIT measurements are still pending, so attribution among
+source typing, the new runtime and AOT compilation remains open.
 
-The original ordinary PSE executor remains the primary baseline. A separately
-inventoried inference-typed source copy supplies the ordinary control and the
-candidate. Its patch changes concrete storage/type propagation, literal field
-access, fixed-name assignments, closure binding and error formatting; it does
-not change equations, validation predicates, solver iterations or scientific
-calls. `downstream_maespa_typing.py`, its three helper modules, patch and full file
-manifest reproduce and identify that copy. The original frozen source is kept
-unchanged.
+## Original PSE versus native execution
+
+The primary baseline is a fresh ordinary PSE simulation using the unchanged
+frozen MAESPA source. One tile contains two trees, 27 objects and 100 applications;
+four adjacent equal-area tiles contain eight trees, 99 objects and 292
+applications. Plot density is preserved. The 24-step cases start at slot 13;
+the 96-step cases start at slot 1 and cover two days, including the night mask
+and second-day forcing/rainfall. Each base step is 1,800 seconds.
+
+Median execution milliseconds, three measured fresh simulations per case:
+
+| Trees | Steps | Retained outputs | Original PSE (ms) | JuliaC safe (ms) | Original/native |
+| ---: | ---: | :--- | ---: | ---: | ---: |
+| 2 | 24 | `all` | 86.657 | 19.000 | 4.56× |
+| 2 | 24 | `none` | 80.566 | 17.586 | 4.58× |
+| 2 | 96 | `all` | 245.589 | 52.171 | 4.71× |
+| 2 | 96 | `none` | 239.512 | 45.545 | 5.26× |
+| 8 | 24 | `all` | 359.748 | 68.195 | 5.28× |
+| 8 | 24 | `none` | 350.862 | 61.302 | 5.72× |
+| 8 | 96 | `all` | 1037.115 | 198.841 | 5.22× |
+| 8 | 96 | `none` | 984.623 | 150.218 | 6.55× |
+
+These ratios time the complete simulation advance after setup. Fresh scientific
+construction, ordinary preparation, reusable-program authoring, private
+instantiation, native build/startup, explicit GC, formatting and parity checks
+are separate. GC during execution remains included. Each native process runs
+one internally timed P0 warmup, excluded from summaries, followed by trials 1–3.
+Native launches request `JULIA_NUM_THREADS=2` and Julia's default GC-thread
+setting; the CLI does not report the observed native thread count. The Julia
+control sessions observed two threads. Other workers were paused during final
+measurement windows.
+
+Every measured ordinary run matches both full records and a full host snapshot
+including RNG fingerprints. Each native process emits and validates its final
+measured trial; intermediate timed trials are not emitted. An independent,
+untimed full native emit also passes for every case. The eight cases compare
+512,836 records in total; the largest retained case contains 283,780 records.
+
+[All scalar samples, setup phases and record hashes](results/maespa_scaling/canonical/native_original_summary.json)
+and [native qualification/provenance](results/maespa_native_qualification.json)
+keep the measured arms and qualification limits explicit. The inference-typed
+ordinary arm already passes all eight record and RNG-inclusive snapshot gates.
+Its final timings and the registry-JIT matrix are being completed separately;
+this table does not attribute the entire ratio to JuliaC.
+
+## Scientific and execution scope
+
+The fixture uses the original public two-species builder with
+`mount_leaf_exchange=true`. It executes leaf energy/photosynthesis calls,
+radiation, soil water balance, accepted canopy commits, daily/subdaily cadence,
+and the original trial evaluation followed by accepted replay. Scientific
+kernels, equations, validation predicates, solver work and call ordering are
+preserved.
+
+A separate inference-typed source copy supplies the candidate and its typed
+ordinary control. Its 26 changed files, out of 208 inventoried files, make
+storage types, finite field projections, optional-argument dispatch and compiler
+annotations explicit. The original source remains unchanged.
+`downstream_maespa_typing.py`, its three helper modules, exact patch and complete
+file manifest reproduce the variant. No compatibility layer or alternative
+scientific equations are introduced.
 
 `RegistryPrograms.prepare` resolves an ordinary scenario on a private deep copy
-at host authoring time, then projects the resolved references and schedule into
-independent typed storage. That setup cost is reported. The resulting program
-contains no ordinary `Simulation`, `CompiledCompositeModel`, execution target or
-`RunContext`; an ownership traversal checks this boundary. Runtime instantiation,
-calls, temporal inputs, publication and environment sampling use the new backend
-and the original scientific kernels. The registry is fixed; lifecycle changes
-and temporal policies other than `PreviousTimeStep` are not admitted here.
+at host authoring time, then projects its resolved references and schedule into
+owned typed storage. That setup cost is separate from execution. The resulting
+program retains no ordinary `Simulation`, `CompiledCompositeModel`, execution
+target or `RunContext`; an ownership traversal checks the boundary. Runtime
+instantiation, calls, temporal inputs, publication and environment sampling use
+the new backend and original scientific kernels. There is no ordinary runtime
+fallback.
 
-The compiled environment retains the original MAESPA backend and validators. Its
-`GlobalConstant` forcing view shares the original table's concrete NamedTuple row
-storage, which avoids an abstract row-name tuple in timestep validation. Each
-instance preserves that alias while owning private rows. Row-value mutations are
-read fresh; wholesale replacement of the table storage or schema is not admitted.
-Provider/sink values specialize the original immutable handle at the binding
-boundary; the original sampling, sink and duration checks still execute.
+Application/object identities, ordered execution entries and call memberships
+remain data. The compiled root-family set excludes manual-only groups from root
+execution contexts. One/four tiles use 68 families, with 145/481 targets. Four
+scientific models retain population-sized weight/ID tuples, so the populations
+have distinct specializations. This is a fixed-registry, Float64 qualification;
+lifecycle changes and temporal policies beyond the selected original
+`PreviousTimeStep` policies are not admitted here.
 
-Application/object identities, root execution order and call memberships remain
-data. The compiled root-family set excludes manual-only groups from root execution
-specializations. Iterative refinement groups targets by their model/carrier/call schemas:
-one and four tiles both use 68 families (145 and 481 targets). Four original
-scientific models retain population-sized weight/ID tuple parameters, so the two
-populations have distinct model specializations. The native suite is explicitly
-bounded to Float64, one/four tiles, starts 1/13 and retention `none`/`all`.
+The compiled environment retains the original MAESPA backend, sampler and
+validators. Its `GlobalConstant` view shares the original table's concrete
+NamedTuple row storage; every instance owns private rows while preserving that
+alias. Row values and duration are read fresh. Whole table-storage/schema
+replacement is outside this admission. Provider/sink values specialize the
+original immutable handle; the original sink and duration checks still run.
 
-The earlier inference variant passed exact initial and two-step
-daylight parity for canonical statuses, topology/geometry, every stream and
-timestamp, committed atmosphere and complete host RNG fingerprints. The daylight
-case executes eight accepted logical leaf units and 24 original temperature
-trials per step. The nine-file variant also passed all eight ordinary matrix cases and a complete
-24-step daylight candidate case against the untouched original. The expanded
-26-file inference variant is now undergoing fresh ordinary/candidate checks.
-The preceding 23-file variant also passed the complete 24-step ordinary and
-schedule-aware candidate case against the original records and RNG snapshot. Eight focused temporal-initial checks preserve Float32 values,
-nested aliases and rejection of mismatched fallback schemas. Native safe
-qualification remains pending: early compiler gates exposed output/call typing
-and scientific field-projection roots, now being repaired and rechecked. No
-native performance result is claimed by this checkpoint.
-
-The actual owned seed contains no runtime RNG. Fixed subdaily forcing and
+The owned seed contains **zero runtime RNGs**. Fixed subdaily forcing and
 `AllTargetTrees` do not exercise runtime stochastic branches. Native authoring
-records the two construction RNGs' serialized-state hashes and four draws from
-private copies as provenance, explicitly outside runtime stochastic coverage.
+archives the two construction RNGs' serialized-state hashes and four draws
+from independent copies. These are construction provenance, not native
+stochastic coverage; the native record protocol has no RNG rows.
+
+## Native build and relocation
+
+The final eight-case matrix compiled in **746.826 s**, linked in 0.084 s and
+bundled in 0.502 s with Julia 1.13.1 / JuliaC 0.3.12, safe trimming and the generic
+CPU target. It uses the corrected host build recipe directly, with exact build
+time available and no verifier override. The native binary SHA-256 is
+`e0c0f133b1235c4f08ac6ea0d00ed857aede56c2e24bebfbdfa8eadda60c710b`.
+
+The largest eight-tree/96-step/all-output case also passes same-host copied-bundle
+relocation against a fresh original ordinary simulation: all 283,780 records
+match exactly, including 272,336 samples and 4,391 stream keys. It runs with a
+fresh empty HOME/cwd and empty external depot; the launcher supplies the copied
+bundled depot. Artifact/provenance hashes remain unchanged. The test did not
+hide authoring sources or establish system-library/cross-host portability.
+
+R7 is retained as a diagnostic predecessor. Its safe compilation and smoke run
+succeeded; a host progress-record Tuple/NamedTuple bug required linking the
+already compiled object, with an explicit recovery audit and unavailable exact
+compile duration. Its raw parity gate then rejected `Main`-dependent type-tag
+qualification. It is excluded from final parity and timings. R8 uses stable,
+explicit-context type tags and freshly encoded ordinary records, with **raw
+exact equality and no normalization**.
+
+The shared codec passes 82 namespace/context/type-identity/payload assertions;
+the build-stage calls pass nine regression assertions. Focused runtime evidence
+also covers eight temporal-fallback checks, 293 hard-call-view assertions,
+private reference ownership, fresh environment rows and exact original
+sink/duration errors. Separate installer tests preserve both controller result
+prefixes, Float32 values, destination identity and overlapping-vector write order.
+
+Build metadata binds the binary/launcher, entry/runtime/typing sources,
+Project/Manifest, complete scientific typing inventory, case/construction
+manifests and loaded PSE dependency source inventory. The host build recipe is
+archived as build provenance and frozen separately during qualification.
+
+## Reproduction
 
 Run Julia work through Kaimon. Load PSE from the active pinned project before
-inserting the chosen MAESPA source after `@` in `LOAD_PATH`; keep the app project
-as a fallback when the active build environment does not provide PSE. Set
-`ENV["PSE_MAESPA_PATH"]` to that exact source root. Then:
+inserting the selected frozen MAESPA project after `@` in `LOAD_PATH`. Set
+`ENV["PSE_MAESPA_PATH"]` to that exact source root. The dedicated build environment
+is `benchmark/juliac_program/buildenv`; the isolated native project and full
+source hashes are recorded in build metadata.
 
 ```julia
-include("benchmark/juliac_program/downstream_maespa_native_checks.jl")
-F = DownstreamMAESPAFixture
-C = DownstreamMAESPAChecks
-R = DownstreamMAESPARegistry
-config = F.configuration(steps=2, copies=1, start_slot=13, outputs=:all)
-C.check_ordinary(; config)
-C.check_candidate(R.candidate(); config)
-DownstreamMAESPANativeChecks.check_temporal_initials()
-```
-
-Use 24 steps from slot 13 or 96 steps from slot 1 for the larger cases.
-`downstream_maespa_measurements.jl` separates fresh construction, ordinary
-preparation, one-time candidate authoring, private instantiation and complete
-execution. Observation/hash work is outside timers. Trial zero is internally
-timed but excluded from measured summaries. Every measured run must match the
-original full records; timing windows are serialized across workers.
-
-Native builds use an isolated pinned project and `JuliaC` safe/generic recipes.
-The `daylight` profile contains the complete one-tile/start-13/all-output graph;
-`matrix` contains all eight population/start/retention combinations. Duration
-remains runtime data within the original forcing coverage. Launch long builds
-from a held Main task in Kaimon, rather than waiting in one long tool cell:
-
-```julia
+using PlantSimEngine
+push!(LOAD_PATH, abspath("benchmark/juliac_program/buildenv"))
+using JuliaC
 include("benchmark/juliac_program/downstream_maespa_build.jl")
-global build_task = @async build_maespa_registry(profile=:daylight,
+global build_task = @async build_maespa_registry(
+    profile=:matrix,
     destination="/private/tmp/maespa-safe-bundle")
 ```
 
-Poll `istaskdone(build_task)` and the bundle's `stage.toml`; the build helper keeps
-its `ImageRecipe`/`LinkRecipe` in `MAESPA_BUILD_IMAGES`/`MAESPA_BUILD_LINKS` for
-recovery. A production orchestration cell should also write its result or bounded
-failure to a disk receipt. First authoring can exceed the outer tool's inactivity
-window; that timeout is not a native verifier result.
+Poll `istaskdone(build_task)` and `stage.toml`. Keep a bounded result/failure disk
+receipt around the held Main task: first authoring can exceed the outer tool's
+inactivity window, which is not a verifier result. The helper preserves recipes
+in `MAESPA_BUILD_IMAGES`/`MAESPA_BUILD_LINKS`. Exact native commands include:
 
-Native checks require the completed bundle and its safe/generic build metadata,
-binary/launcher hashes, archived/current entry sources, source-typing inventory,
-case inventory, the loaded PSE dependency source inventory and construction RNG
-provenance. The host build recipe is archived as build provenance; executable
-entry, runtime, typing and scientific inputs must also match the current control.
-Qualification freezes the current host recipe separately. R7 reused its successful
-safe compiler object after correcting only progress-record NamedTuples; its audit
-binds the original and corrected recipes, and its exact compilation duration is
-explicitly unavailable. The final matrix uses the corrected recipe directly.
+```text
+run-pse-program emit 24 1 13 all
+run-pse-program emit 96 4 1 all
+run-pse-program perf 96 4 1 none 3
+```
 
-Observation type tags use an explicit module/display context at authoring time.
-This avoids `Main` import aliases changing a type label between Julia and a
-standalone image. The codec passes 82 context, type-identity and unchanged-payload
-checks; the four actual build progress calls pass nine regression assertions.
-Previous raw records remain archived. Fresh canonical-format ordinary records
-preserve their complete scientific/RNG snapshots.
+`downstream_maespa_native_checks.jl` compares fresh ordinary and native records;
+`downstream_maespa_native_scaling.jl` owns the original/native matrix and timing
+environment; `downstream_maespa_relocation.jl` qualifies a copied bundle. Host
+ordinary/typed/JIT drivers and their raw setup/execution samples remain separate.
+The admitted duration stays within the original 96-row forcing coverage.
 
-Full records include empty
-stream keys (`H`) as well as final status/topology (`F/T/S`), samples (`O`) and
-committed air (`E`). Both the manifest-approved original ordinary arm and the
-inference-typed ordinary arm must match the candidate exactly. Final safe/matrix qualification is pending before any native speed claim.
+This is execution equivalence for the stated fixed scenario and source variants,
+not scientific calibration, arbitrary MAESPA/Tuzet support, general spatial or
+lifecycle support, or a build/setup-inclusive speedup. The complete attribution
+matrix remains pending until the final typed-ordinary and registry-JIT results
+arrive.
