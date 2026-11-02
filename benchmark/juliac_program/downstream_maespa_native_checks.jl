@@ -108,6 +108,11 @@ function check_reuse(;config=Fixture.configuration())
     untouched=Adapter.snapshot(right,fixture)
     @testset "MAESPA one-program private state ownership" begin
         @test left.environment!==right.environment
+        @test left.environment.forcing_backend.source===getfield(left.environment.forcing,:ts)
+        @test right.environment.forcing_backend.source===getfield(right.environment.forcing,:ts)
+        @test left.environment.forcing_backend.source!==right.environment.forcing_backend.source
+        @test all(target.environment.backend===left.environment for group in left.groups for target in group.targets)
+        @test all(target.environment.backend===right.environment for group in right.groups for target in group.targets)
         Registry.step!(left)
         @test isequal(Adapter.snapshot(right,fixture),untouched)
         third=Registry.instantiate(program)

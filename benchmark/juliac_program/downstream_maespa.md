@@ -25,6 +25,14 @@ calls, temporal inputs, publication and environment sampling use the new backend
 and the original scientific kernels. The registry is fixed; lifecycle changes
 and temporal policies other than `PreviousTimeStep` are not admitted here.
 
+The compiled environment retains the original MAESPA backend and validators. Its
+`GlobalConstant` forcing view shares the original table's concrete NamedTuple row
+storage, which avoids an abstract row-name tuple in timestep validation. Each
+instance preserves that alias while owning private rows. Row-value mutations are
+read fresh; wholesale replacement of the table storage or schema is not admitted.
+Provider/sink values specialize the original immutable handle at the binding
+boundary; the original sampling, sink and duration checks still execute.
+
 Application/object identities, root execution order and call memberships remain
 data. Iterative refinement groups targets by their model/carrier/call schemas:
 one and four tiles both use 68 families (145 and 481 targets). Four original
@@ -36,8 +44,9 @@ The earlier inference variant passed exact initial and two-step
 daylight parity for canonical statuses, topology/geometry, every stream and
 timestamp, committed atmosphere and complete host RNG fingerprints. The daylight
 case executes eight accepted logical leaf units and 24 original temperature
-trials per step. The final nine-file variant is undergoing independent ordinary
-and candidate matrix checks. Eight focused temporal-initial checks preserve Float32 values,
+trials per step. The nine-file variant also passed all eight ordinary matrix cases and a complete
+24-step daylight candidate case against the untouched original. The expanded
+23-file inference variant is now undergoing fresh ordinary/candidate checks. Eight focused temporal-initial checks preserve Float32 values,
 nested aliases and rejection of mismatched fallback schemas. Native safe
 qualification remains pending: early compiler gates exposed output/call typing
 and scientific field-projection roots, now being repaired and rechecked. No

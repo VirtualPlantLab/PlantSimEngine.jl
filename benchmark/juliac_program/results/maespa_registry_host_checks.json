@@ -26,6 +26,23 @@
       "only_result_bottom": false,
       "generated_dispatch_constprop": "aggressive",
       "kaimon_eval": "774d8ffc"
+    },
+    "prepared_environment_projection": {
+      "original_target_sample_rows_exact": 145,
+      "original_handle_values_exact": true,
+      "base_step_equal": true,
+      "row_storage_aliased_without_value_copy": true,
+      "row_mutations_visible_to_both_representations": true,
+      "cloned_alias_preserved": true,
+      "cloned_rows_private": true,
+      "original_valid_commit": true,
+      "original_invalid_sink_error_exact": true,
+      "original_duration_mismatch_error_exact": true,
+      "mutable_duration_read_fresh": true,
+      "kaimon_evals": [
+        "8b3f288f",
+        "c2cd18c9"
+      ]
     }
   },
   "earlier_scientific_gate": {
@@ -40,21 +57,26 @@
       "committed_atmosphere",
       "host_rng_fingerprints"
     ],
-    "final_variant_matrix": "pending independent ordinary/JIT controls"
+    "final_variant_matrix": "new 23-file variant pending independent ordinary/JIT controls",
+    "nine_file_variant_full_ordinary_matrix_exact_original": true,
+    "nine_file_variant_candidate_24_daylight_steps_exact_original": true,
+    "candidate_records": 28202,
+    "candidate_record_sha256": "5ba1fdaf715bb0387aec768a608f528e68736288fb76d03dba50c73acc08b6a0"
   },
   "inference_variant": {
-    "aggregate_sha256": "3dd5dce17771e470981b26353097fbf1f64a97992dc8254700964ed5b8cd5531",
-    "typing_manifest_sha256": "121cb2c5d74cab61e388dd4bfdb5f2ed37d08a5d373db124d2b3b4f4dc4fca03",
+    "aggregate_sha256": "ba3c0eb6e0273ee845a73cd8cc76bfeb8d236df42ec0fc5741c2875309f0ca61",
+    "typing_manifest_sha256": "00fa24c4ae6e5ff3e878627408ce5dfdb642c2c692b199f6218b00509cc1d753",
     "inventoried_files": 208,
-    "changed_files": 9,
-    "unchanged_files": 199,
+    "changed_files": 23,
+    "unchanged_files": 185,
     "independent_reproduction_checks_passed": 7
   },
   "coverage_limits": [
     "fixed registry",
     "PreviousTimeStep temporal inputs only",
     "selected native suite Float64",
-    "owned scenario has zero runtime RNG objects; no runtime stochastic branch coverage"
+    "owned scenario has zero runtime RNG objects; no runtime stochastic branch coverage",
+    "forcing row storage and column schema are fixed; row values are read fresh, wholesale table storage replacement is not admitted"
   ],
   "prior_native_attempts": [
     {

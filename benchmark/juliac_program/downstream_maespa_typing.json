@@ -284,7 +284,7 @@
     "src/processes/biomass_trajectories.jl": "64d26b8794ae4f8f122aec6e4efee2e5d9b7a6fdac95283af581dff281bf0297",
     "src/processes/calendar.jl": "a02de47429e4e506199d29d336c1590264cf6f4bf741261e486c6f94422e2841",
     "src/processes/canopy_air_iteration_controller.jl": "f2d567b546926f00696706f4e6ddac06b31d12c3c7b68126b26995452e89833b",
-    "src/processes/canopy_air_microclimate.jl": "11355b0bc8f22c3b42409c5c1805229aa700c7e2babbd5bf6df3836724f96ca3",
+    "src/processes/canopy_air_microclimate.jl": "051aa15d4683ed5c0ce5792e6986f2bf609c3d6c7bd76a8a41ad17233e1cadec",
     "src/processes/canopy_air_trial_evaluation.jl": "8e2b74389b79bd330e290a10e8a4bc9e8fbfdd37c3a84a3a52c6453ca3ef7fd2",
     "src/processes/canopy_air_trial_longwave_forcing.jl": "319fb5088bc8e128906c363bc90b5cb8c2d9a26a06fe0c0eb0d6afbbd82fa4a4",
     "src/processes/canopy_air_trial_readiness.jl": "f64b58b0f2cd3cd298f16f13ad8d406cd8d207f9db3a5585578cc41c2c4cab4b",
@@ -297,11 +297,11 @@
     "src/processes/canopy_water_contracts.jl": "2808ef237a06dedd45c650f4633b98c42addbdeee7090c047931318da4f1de50",
     "src/processes/canopy_water_storage.jl": "a624b10f1b3464c5f99abdc43cbba7ecfa7f8557e9668a7fef02881b95017b57",
     "src/processes/canopy_wind_profile.jl": "b185bd95138ea2bd7be1e7f350ab6d8e8f790d5cf44932f301456b8ef44be487",
-    "src/processes/civil_day_respiration_accumulator.jl": "7d886e1e069be5838379a2ce29ef493275dafa44ed48a0bf34ebf808f5131b54",
+    "src/processes/civil_day_respiration_accumulator.jl": "0fc554ae2a7bf25019c5d8b12b7ece3d06341abf58263f6b76927af3c0d905b6",
     "src/processes/conservative_wet_canopy_evaporation.jl": "00b68b397444852e6d83408e8045a0e9484ce850e1c11242112c5ba6a620e8da",
-    "src/processes/coupled_leaf_energy_balance.jl": "ecb692ce7a1460bb354278cde393e51687a6835babc282027dbcdcba22eb39a8",
-    "src/processes/crown_leaf_exchange_aggregation.jl": "9d8635487e3359206460ddbf6ac7d36e5dfd548c7aec587fc830fc072ed51c98",
-    "src/processes/crown_leaf_respiration_accounting.jl": "f84af16f50d10f75af408a32d1beba43a33dd148c519f38eff47f15b106f4c51",
+    "src/processes/coupled_leaf_energy_balance.jl": "b8f28ec3cb4ba9f8594a8fd2d67eb495d2179390372e960609d90b17a85e4b7b",
+    "src/processes/crown_leaf_exchange_aggregation.jl": "138840b2ed8418c15781734c66c8d159e710a66400a37217fb28da5f9ba58f74",
+    "src/processes/crown_leaf_respiration_accounting.jl": "782d036b9b8ce305ecc2bfdb11b80a723ac01e16ebd84ff1d7e482d601aba083",
     "src/processes/crown_leaf_thermal_snapshot.jl": "0ee94726d9ff8b0467ccd7586f265a4326523a6c5362997d2d99c65b17693de9",
     "src/processes/crown_radiation_aggregation.jl": "dcf6969348e66da236aa4b02ffccd508e843f8ca6636f9fe2454e24d5f4f39d7",
     "src/processes/daily_meteorology.jl": "ad88f5c1c6e798f2f17a0048e4a44a0282f00e66402a065a8fe228e151f7cba1",
@@ -327,16 +327,16 @@
     "src/processes/leaf_surface_water_partition.jl": "9e91706f1c7f39a529c8ef1ab4d46f10391c4ffe6f68cc261fa49aec16b11292",
     "src/processes/leaf_thermodynamic_forcing.jl": "e163d098a0dbeda540e0432a740ba555a72c89c33eb261f465e41577078da40a",
     "src/processes/leaf_tuzet_hydraulic_closure.jl": "5e8490772f42907a92feea083c5f195e0f96a0daad83d4f6acbd213d8d725749",
-    "src/processes/logical_leaf_unit_layout.jl": "385463ab37a39b2119b95e2b289d0c89b6347f672ded967e2df251b195073b22",
+    "src/processes/logical_leaf_unit_layout.jl": "0bc858b4edde9f983d2c64a54240471ded8e7641090a8c3e5ca6ee0ff79badef",
     "src/processes/longwave_canopy_exchange.jl": "ae555f805b87d8113309e15a997c24d689e29162b9b437903d428a85d1cab4e8",
     "src/processes/maintenance_respiration.jl": "8ff542a1263420119b0edaff1133c9c3abd6d695e593d0b0ea7b4e7588de65e1",
     "src/processes/measured_content_root_water_uptake.jl": "dfc78137e654deb47253b689c4aef9d20aa471938266654cfde78819743d7020",
     "src/processes/measured_potential_root_water_uptake.jl": "694f0bd17c117b5abed3b7e621554ebfbab1669596e7a3a92ba3ad5df04a0c56",
-    "src/processes/meteorology.jl": "45298221db8cec80eba51aecf305aaa135ae03bee7fe97609077ed7ec19a9cb6",
-    "src/processes/meteorology_scenarios.jl": "e9f8ff19be63ac0e1927de790480330038ce77b977b3359d35f6b6df3d046cd3",
+    "src/processes/meteorology.jl": "7916cba2f244b0b7a789ccd6b8d90220d2f23f5a7b345ad56c12effc38e2628d",
+    "src/processes/meteorology_scenarios.jl": "89f0414b8daef5bb74922c29e1dffefa978d141b942bb7ec2c832c1abe5fa5dd",
     "src/processes/mono_pass_longwave_forcing.jl": "268a20f26d86ed05e789e4cdf87c074d64e5987b2ffbb04a2977b267f02bcc79",
-    "src/processes/non_tuzet_crown_leaf_exchange_controller.jl": "3efa69396a94048bf67b5a3c70197fe9435dc89e32a280948e01798a9178eb99",
-    "src/processes/non_tuzet_leaf_process_calls.jl": "20e539cfda855b0a0efd5aa0d78dc99831bab3558b98e5e2ab71ce8f959ef016",
+    "src/processes/non_tuzet_crown_leaf_exchange_controller.jl": "c372e5d0d9a83a8fa6fa8ca5f655b829fa354ee0981475d754688824f7c928ec",
+    "src/processes/non_tuzet_leaf_process_calls.jl": "9703523ed65ef6ae3a7da0837a53eda285e95ec7f30941565ca03d2d2746924b",
     "src/processes/optical_paths.jl": "d5821c4c0366674cf585d094f37144983790569fc3575008cdfdbda6dc71de1f",
     "src/processes/par_radiation_contracts.jl": "962f29800077e406d2f32be7772a18f4acdcbcc0fe5dddfc96475374fd8254ed",
     "src/processes/photosynthetic_capacity_temperature_response.jl": "bd42355f8136ddcbfbb30e85163544665dde87ff47e339ef12dd87fa27ba575d",
@@ -345,10 +345,10 @@
     "src/processes/point_par_radiation.jl": "0e4a9358f55317abd2e1777b57de201985c25119b66beec50dd8f83cb691b2e2",
     "src/processes/prescribed_canopy_atmosphere.jl": "214030ce73c2879fe38c14130cad5def0ed1ae1f49aee11e715ede4ab47f1046",
     "src/processes/prescribed_soil_surface_temperature.jl": "6f5d02e373e676bab499d903cbdc0fa6aa73f914eb628b8d22c3f850512175b1",
-    "src/processes/radiation/crown_radiation.jl": "4367596c2f7089e5cf087b3b232986a219c41fd23d423192708647cfec59b302",
+    "src/processes/radiation/crown_radiation.jl": "da41442c3b179810763c2b3135cd4cc534de1d8d05e1cf2496be8fd36095adfb",
     "src/processes/radiation/equivalent_horizontal_canopy.jl": "32237d93a87406ee910fa0bf3fc082dc551ef61548074b2ff478cb700d369937",
     "src/processes/radiation/leaf_radiation_partitioning.jl": "f2f4f26e7e4e7c061a410f248b6608dd3a22a7b1650d694ca33865bfd1115318",
-    "src/processes/radiation/radiation_transmission.jl": "c14020ecad864886250564febc80ad04617af22dd2ecb63c29190ac2c2416440",
+    "src/processes/radiation/radiation_transmission.jl": "d08011894ffb6464f66a0513bea09bfb9b3f35b618cf6b377c2a3ae34eb7bae6",
     "src/processes/radiation/shortwave_multiple_scattering.jl": "250e5cff20d9c9830d8db973c8c0e16a0ed9819844342b3325cf1d581d223b20",
     "src/processes/radiation/shortwave_radiation_absorption.jl": "2b61edf69fe5fcb1c5415e87e9309518a1f0d229f94d69af6d31a6231d0e7a1d",
     "src/processes/radiation_contracts.jl": "20627b984438dc3ee306e747b97c6d888f9806d9b161030e41ff98b045aa881b",
@@ -361,13 +361,13 @@
     "src/processes/sensor_radiation.jl": "ecaac6c3bb8ee473e3f8ac11e68061d1374cbb1ce689b5cad48f4cd05de3230e",
     "src/processes/simulated_soil_longwave_forcing.jl": "d2365aa3ec8e4c8b6c31e592defd737454a3e9bfd7c6351ae6788decf6c55b79",
     "src/processes/slope_radiation_correction.jl": "0cbab882c2f5e5485df6fd026d5c3fa0c3138e738be8800c5620ee4d60d6ad6c",
-    "src/processes/soil_capillarity.jl": "b89dca41822a36d3b70d6c9bec6a6636ae8edf88228d4f70f604b0612092b0ab",
+    "src/processes/soil_capillarity.jl": "f9ec31769d37b439ef5b27fc92156848dbb8db3e8933397f39766b108ce8d7b5",
     "src/processes/soil_drainage.jl": "4e7ee3395d109059f0554b6d77281979467372e1fdc352b82ec6cc5d274a44f1",
     "src/processes/soil_heat_transfer.jl": "3b24c42f8184612677a299a451b2f4d12c3468fbd99ecaaf1602b920d9ad23ce",
-    "src/processes/soil_hydraulics.jl": "e8d3d149a4c128587ebe6f127fa1a8cb69d216e482ff2133debbcc59c4365d74",
+    "src/processes/soil_hydraulics.jl": "f0b5acdfa9cafdc6aadc8c01c88516fe95b1523346f59cd71c0a60e67bf15c34",
     "src/processes/soil_longwave_radiation.jl": "8ed3eb70b244ea480a5cd155f5af238482021c28f998075072601c039333fd39",
     "src/processes/soil_profile.jl": "964efb8f97f6cf7222e0a9a092dfedfb821f4f72193460bbf19cf3f2db847479",
-    "src/processes/soil_shortwave_radiation.jl": "8aefed44856452ed6a282facfe18e9a506784d7c6f0c9e5eb01eebf0d17eacb4",
+    "src/processes/soil_shortwave_radiation.jl": "bd191996ced80c5a1d49fe0e331568ccc860a13a3d0d1161b052d22e3cbe0746",
     "src/processes/soil_surface_aerodynamics.jl": "1e4a0a935e92b08c5aca0b1248e503edc4f72a9d582b669da3e7bfb37541baa8",
     "src/processes/soil_surface_energy_balance.jl": "29105523062b9f8ca9774c02e1701c06d349b1230bff74311c78dc0ec1b10037",
     "src/processes/soil_surface_energy_forcing.jl": "386299865416a14a356ce8a91191875ce7cdfb4a0232b7a753caf1aa75b00118",
@@ -376,12 +376,12 @@
     "src/processes/soil_temperature_contracts.jl": "7d0ddb1ee2ea4eaf1a5d4aff8573e98ca79be15a08c281b6085387aafc223a05",
     "src/processes/soil_thermal_properties.jl": "6878a8e7cd57461e01f60fed50e01c450a4a96b9dd361a9d32e9d6cd59d33d50",
     "src/processes/soil_to_leaf_hydraulic_supply.jl": "6099e2090019e7c210bcfe4f68363d0f39a4f43254b65aded122e8425a6e2f2e",
-    "src/processes/soil_water_balance.jl": "ac3c954a7af892394305feb61c262ca90f27a90e884608cc9a4e6d62dbdbc843",
+    "src/processes/soil_water_balance.jl": "ae8450811b8d239dc9a2fe55a7828e4410b462fabe47b48a917f900b4b93aa77",
     "src/processes/soil_water_contracts.jl": "eb5cf1acb1791843bc6513b29d0e349ee7bff6439e68df3e8b508b59fd65aac6",
     "src/processes/soil_water_flux_partition.jl": "9efe8dc2253e23b2d0c6ef1e8d13ebee3c75118f1ce1caa4c799a1e188e0f5cb",
     "src/processes/soil_water_fluxes.jl": "de243582509e005572dec5ae8504db5a8338cd664ed83e324f8e7dc3e351ff62",
     "src/processes/soil_water_stomatal_modifier.jl": "bb63784d78d129f61c757ce92f91f89b8aa1c0ba8e8ba125beb524898e6afba4",
-    "src/processes/solar_geometry.jl": "4815e8966c2352fae51ae199802c8b646f3212349fb18fb7a9e19fdfcbd2ef13",
+    "src/processes/solar_geometry.jl": "9c3b9bba331dc97f80cc90dcea8a4eea67531a68172e4332150c9127b11daa1e",
     "src/processes/species_physiology_process.jl": "7afa4e9c1c96e1f0fa3bf6051031a6d56eed72f20b93150454473cf5692f5a73",
     "src/processes/species_structure_process.jl": "12d55cbfcee6a9bcd062f0407f2c341f8227b47d6e8bc31b8597a7dd18cda6b9",
     "src/processes/stand_leaf_area_statistics.jl": "0aea4d782f5ca112938902f5bbf5b72a34195b524f4a4423ed2541e550436ada",
@@ -437,9 +437,34 @@
       "path": "src/coupling/canopy_environment.jl"
     },
     {
+      "after_sha256": "051aa15d4683ed5c0ce5792e6986f2bf609c3d6c7bd76a8a41ad17233e1cadec",
+      "before_sha256": "11355b0bc8f22c3b42409c5c1805229aa700c7e2babbd5bf6df3836724f96ca3",
+      "path": "src/processes/canopy_air_microclimate.jl"
+    },
+    {
       "after_sha256": "8e2b74389b79bd330e290a10e8a4bc9e8fbfdd37c3a84a3a52c6453ca3ef7fd2",
       "before_sha256": "26103f3af6d560b48c88645d35c00ec318a1390f84b3cc1d12a5e46fcc058e32",
       "path": "src/processes/canopy_air_trial_evaluation.jl"
+    },
+    {
+      "after_sha256": "0fc554ae2a7bf25019c5d8b12b7ece3d06341abf58263f6b76927af3c0d905b6",
+      "before_sha256": "7d886e1e069be5838379a2ce29ef493275dafa44ed48a0bf34ebf808f5131b54",
+      "path": "src/processes/civil_day_respiration_accumulator.jl"
+    },
+    {
+      "after_sha256": "b8f28ec3cb4ba9f8594a8fd2d67eb495d2179390372e960609d90b17a85e4b7b",
+      "before_sha256": "ecb692ce7a1460bb354278cde393e51687a6835babc282027dbcdcba22eb39a8",
+      "path": "src/processes/coupled_leaf_energy_balance.jl"
+    },
+    {
+      "after_sha256": "138840b2ed8418c15781734c66c8d159e710a66400a37217fb28da5f9ba58f74",
+      "before_sha256": "9d8635487e3359206460ddbf6ac7d36e5dfd548c7aec587fc830fc072ed51c98",
+      "path": "src/processes/crown_leaf_exchange_aggregation.jl"
+    },
+    {
+      "after_sha256": "782d036b9b8ce305ecc2bfdb11b80a723ac01e16ebd84ff1d7e482d601aba083",
+      "before_sha256": "f84af16f50d10f75af408a32d1beba43a33dd148c519f38eff47f15b106f4c51",
+      "path": "src/processes/crown_leaf_respiration_accounting.jl"
     },
     {
       "after_sha256": "fd8de26cbf2e860f5350011971b35e92cb8e7938c8c005eafa24d20039469c69",
@@ -447,19 +472,64 @@
       "path": "src/processes/daily_whole_plant_respiration_scene_aggregation.jl"
     },
     {
-      "after_sha256": "4367596c2f7089e5cf087b3b232986a219c41fd23d423192708647cfec59b302",
+      "after_sha256": "0bc858b4edde9f983d2c64a54240471ded8e7641090a8c3e5ca6ee0ff79badef",
+      "before_sha256": "385463ab37a39b2119b95e2b289d0c89b6347f672ded967e2df251b195073b22",
+      "path": "src/processes/logical_leaf_unit_layout.jl"
+    },
+    {
+      "after_sha256": "7916cba2f244b0b7a789ccd6b8d90220d2f23f5a7b345ad56c12effc38e2628d",
+      "before_sha256": "45298221db8cec80eba51aecf305aaa135ae03bee7fe97609077ed7ec19a9cb6",
+      "path": "src/processes/meteorology.jl"
+    },
+    {
+      "after_sha256": "89f0414b8daef5bb74922c29e1dffefa978d141b942bb7ec2c832c1abe5fa5dd",
+      "before_sha256": "e9f8ff19be63ac0e1927de790480330038ce77b977b3359d35f6b6df3d046cd3",
+      "path": "src/processes/meteorology_scenarios.jl"
+    },
+    {
+      "after_sha256": "c372e5d0d9a83a8fa6fa8ca5f655b829fa354ee0981475d754688824f7c928ec",
+      "before_sha256": "3efa69396a94048bf67b5a3c70197fe9435dc89e32a280948e01798a9178eb99",
+      "path": "src/processes/non_tuzet_crown_leaf_exchange_controller.jl"
+    },
+    {
+      "after_sha256": "9703523ed65ef6ae3a7da0837a53eda285e95ec7f30941565ca03d2d2746924b",
+      "before_sha256": "20e539cfda855b0a0efd5aa0d78dc99831bab3558b98e5e2ab71ce8f959ef016",
+      "path": "src/processes/non_tuzet_leaf_process_calls.jl"
+    },
+    {
+      "after_sha256": "da41442c3b179810763c2b3135cd4cc534de1d8d05e1cf2496be8fd36095adfb",
       "before_sha256": "22341479479ed48686dca7e1cfb3602580fb3d7ce14298d379277f58a015419a",
       "path": "src/processes/radiation/crown_radiation.jl"
     },
     {
-      "after_sha256": "c14020ecad864886250564febc80ad04617af22dd2ecb63c29190ac2c2416440",
+      "after_sha256": "d08011894ffb6464f66a0513bea09bfb9b3f35b618cf6b377c2a3ae34eb7bae6",
       "before_sha256": "7d2282a003563c9e00ab3a6d9871ce6422c386ca6f99f21dfa15ec1572ba6c21",
       "path": "src/processes/radiation/radiation_transmission.jl"
     },
     {
-      "after_sha256": "ac3c954a7af892394305feb61c262ca90f27a90e884608cc9a4e6d62dbdbc843",
+      "after_sha256": "f9ec31769d37b439ef5b27fc92156848dbb8db3e8933397f39766b108ce8d7b5",
+      "before_sha256": "b89dca41822a36d3b70d6c9bec6a6636ae8edf88228d4f70f604b0612092b0ab",
+      "path": "src/processes/soil_capillarity.jl"
+    },
+    {
+      "after_sha256": "f0b5acdfa9cafdc6aadc8c01c88516fe95b1523346f59cd71c0a60e67bf15c34",
+      "before_sha256": "e8d3d149a4c128587ebe6f127fa1a8cb69d216e482ff2133debbcc59c4365d74",
+      "path": "src/processes/soil_hydraulics.jl"
+    },
+    {
+      "after_sha256": "bd191996ced80c5a1d49fe0e331568ccc860a13a3d0d1161b052d22e3cbe0746",
+      "before_sha256": "8aefed44856452ed6a282facfe18e9a506784d7c6f0c9e5eb01eebf0d17eacb4",
+      "path": "src/processes/soil_shortwave_radiation.jl"
+    },
+    {
+      "after_sha256": "ae8450811b8d239dc9a2fe55a7828e4410b462fabe47b48a917f900b4b93aa77",
       "before_sha256": "09110df21358227d982ee542078df05505f6229553d0df9251de405f46ef7e7d",
       "path": "src/processes/soil_water_balance.jl"
+    },
+    {
+      "after_sha256": "9c3b9bba331dc97f80cc90dcea8a4eea67531a68172e4332150c9127b11daa1e",
+      "before_sha256": "4815e8966c2352fae51ae199802c8b646f3212349fb18fb7a9e19fdfcbd2ef13",
+      "path": "src/processes/solar_geometry.jl"
     },
     {
       "after_sha256": "7afa4e9c1c96e1f0fa3bf6051031a6d56eed72f20b93150454473cf5692f5a73",
@@ -470,14 +540,14 @@
   "existing_constructor_implementation_calls_updated": 5,
   "format_version": 1,
   "helper_script_sha256": {
-    "downstream_maespa_closed_fields.py": "0450a7ee3d407319d1b1419af063fe541398f3649a0f7ed0637c1118ad4f3c14",
-    "downstream_maespa_runtime_typing.py": "0113df3f0e865bfd415c588e9d559d159e0e8135d034f77ba4cafe8521110af9"
+    "downstream_maespa_closed_fields.py": "7dbd7f7e70aed44d8d2e82ec2a3dd0654ae5dd79597cc32048bbea92e4c1e57b",
+    "downstream_maespa_runtime_typing.py": "46c3500646d13e765549b0c3426ff8b321a40d7f5c912901cafcd339705c2ee3"
   },
   "new_compatibility_wrappers_or_dual_apis": false,
-  "patch_sha256": "b0319babd62edb678f3f81c8671d78a24b0a98c305bf0c75b5403ec057b6aad5",
+  "patch_sha256": "e3212de7862e9110b03b437d3793b0fa5d18f4d9f56c603f7c58075042355b4b",
   "qualification": "static typing variant; ordinary parity/control and native verifier qualification remain required",
-  "scope": "concrete stomatal config/model parameters, existing constructor targets, literal dated/status field projections, fixed error text at authoring, compiler annotations, and one uncaptured local rename; equations/checks/order unchanged",
-  "script_sha256": "68b67e137a8e21f7b5a89191443037fc4537cfb7ae8915892cb5bb4ca76817a5",
+  "scope": "concrete stomatal config/model parameters, existing constructor targets, literal dated/status/forcing/snapshot projections and diagnostics, concrete identity/tuple storage, finite Nothing-tag argument dispatch to original kernels, fixed error text at authoring, compiler annotations, and one uncaptured local rename; equations/checks/order unchanged",
+  "script_sha256": "067bebfba1d09e715ed8a086a58310556161096c06ad8d1e14269811729eddf3",
   "typed_root": "/private/tmp/pse-juliac-large-20261102/typed-sources/MAESPA",
   "unchanged_scientific_equations_and_declared_interfaces": true
 }

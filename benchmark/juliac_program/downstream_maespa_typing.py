@@ -154,7 +154,7 @@ def main():
     args.manifest.write_text(json.dumps({
         "format_version": 1,
         "baseline_root": str(baseline), "typed_root": str(typed),
-        "scope": "concrete stomatal config/model parameters, existing constructor targets, literal dated/status field projections, fixed error text at authoring, compiler annotations, and one uncaptured local rename; equations/checks/order unchanged",
+        "scope": "concrete stomatal config/model parameters, existing constructor targets, literal dated/status/forcing/snapshot projections and diagnostics, concrete identity/tuple storage, finite Nothing-tag argument dispatch to original kernels, fixed error text at authoring, compiler annotations, and one uncaptured local rename; equations/checks/order unchanged",
         "unchanged_scientific_equations_and_declared_interfaces": True,
         "new_compatibility_wrappers_or_dual_apis": False,
         "existing_constructor_implementation_calls_updated": 5,

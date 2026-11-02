@@ -184,6 +184,24 @@
      state::MAESPACanopyAtmosphere,
 --- a/src/processes/radiation/radiation_transmission.jl
 +++ b/src/processes/radiation/radiation_transmission.jl
+@@ -2295,7 +2295,7 @@
+ PlantSimEngine.variable_contracts_(::MAESPADirectTransmission) =
+     HORIZONTAL_PAR_FORCING_CONTRACTS
+ 
+-function _aligned_radiation_inputs(context, names::Tuple)
++@inline Base.@constprop :aggressive function _aligned_radiation_inputs(context, names::Tuple)
+     values = map(name -> PlantSimEngine.bound_input(context, name), names)
+     reference_ids = PlantSimEngine.object_ids(first(values))
+     for value in Base.tail(values)
+@@ -2322,7 +2322,7 @@
+     :all_leaf_density_legacy_mode,
+ )
+ 
+-function _selected_crowns(
++@inline Base.@constprop :aggressive function _selected_crowns(
+     neighbourhood::Union{RadiationNeighbourhood,RadiationFieldNeighbourhood},
+     context,
+     ::Type{T},
 @@ -2396,24 +2396,24 @@
      end
  
@@ -220,6 +238,15 @@
          )
      end
  
+@@ -2474,7 +2474,7 @@
+     return crowns
+ end
+ 
+-function _validate_selected_angle_grids(
++@inline Base.@constprop :aggressive function _validate_selected_angle_grids(
+     neighbourhood::Union{RadiationNeighbourhood,RadiationFieldNeighbourhood},
+     context,
+     input_name::Symbol,
 --- a/src/processes/soil_water_balance.jl
 +++ b/src/processes/soil_water_balance.jl
 @@ -284,7 +284,7 @@
@@ -246,6 +273,1079 @@
  end
  
  # Per-call scratch belongs to this computation, never to a model parameter or
+@@ -460,12 +458,12 @@
+         timestep_seconds=seconds, water_table_layer=cap.water_table_layer,
+         water_gain_m=work.external_gain_buffer, water_loss_m=work.external_loss_buffer)
+     drain = model.drainage
+-    drainage = soil_gravitational_drainage(
+-        drain.hydraulics, work.water_content_buffer, work.ice_fraction_buffer;
+-        drainage_limit=drain.drainage_limit, plateau_drainage=drain.plateau_drainage,
+-        timestep_seconds=seconds, water_table_layer=drain.water_table_layer,
+-        capillary_gain_m=capillary.upward_interface_flux_m,
+-        bottom_water_content=drain.bottom_water_content)
++    drainage = _closed_soil_gravitational_drainage(
++        drain.hydraulics, work.water_content_buffer, work.ice_fraction_buffer,
++        drain.drainage_limit, drain.plateau_drainage,
++        seconds, drain.water_table_layer,
++        capillary.upward_interface_flux_m,
++        drain.bottom_water_content)
+     work.combined_gain_buffer .= work.external_gain_buffer .+ drainage.represented_layer_gain_m
+     work.combined_loss_buffer .= work.external_loss_buffer .+ drainage.layer_loss_m
+     partition = partition_soil_infiltration(
+@@ -518,12 +516,41 @@
+ end
+ 
+ function _soil_water_balance_layer_snapshot(targets, positions)
+-    names = _SOIL_WATER_BALANCE_LAYER_OUTPUTS
+-    columns = map(names) do name
+-        source = getproperty(targets.columns, name)
+-        [source[position] for position in positions]
+-    end
+-    return NamedTuple{names}(columns)
++    return (
++        soil_water_content=let source = getproperty(targets.columns, :soil_water_content)
++            [source[position] for position in positions]
++        end,
++        soil_ice_fraction=let source = getproperty(targets.columns, :soil_ice_fraction)
++            [source[position] for position in positions]
++        end,
++        soil_saturated_by_water_table=let source = getproperty(targets.columns, :soil_saturated_by_water_table)
++            [source[position] for position in positions]
++        end,
++        soil_infiltration_m=let source = getproperty(targets.columns, :soil_infiltration_m)
++            [source[position] for position in positions]
++        end,
++        soil_downward_drainage_m=let source = getproperty(targets.columns, :soil_downward_drainage_m)
++            [source[position] for position in positions]
++        end,
++        soil_lateral_drainage_m=let source = getproperty(targets.columns, :soil_lateral_drainage_m)
++            [source[position] for position in positions]
++        end,
++        soil_upward_capillary_flux_m=let source = getproperty(targets.columns, :soil_upward_capillary_flux_m)
++            [source[position] for position in positions]
++        end,
++        soil_root_water_uptake_m=let source = getproperty(targets.columns, :soil_root_water_uptake_m)
++            [source[position] for position in positions]
++        end,
++        soil_evaporation_m=let source = getproperty(targets.columns, :soil_evaporation_m)
++            [source[position] for position in positions]
++        end,
++        soil_dew_m=let source = getproperty(targets.columns, :soil_dew_m)
++            [source[position] for position in positions]
++        end,
++        soil_other_water_gain_m=let source = getproperty(targets.columns, :soil_other_water_gain_m)
++            [source[position] for position in positions]
++        end,
++    )
+ end
+ 
+ function PlantSimEngine.run!(model::MAESPASoilWaterBalance, status, environment, constants, context)
+@@ -548,7 +575,7 @@
+     length(layer_indices) == n || throw(DimensionMismatch("soil layer count does not match the model"))
+     positions = sortperm(collect(eachindex(layer_indices)); by=i -> Int(layer_indices[i]))
+     Int[layer_indices[i] for i in positions] == collect(1:n) || throw(ArgumentError("layer_indices must contain 1:$n exactly once"))
+-    ordered_ids = PlantSimEngine.ObjectId[ids[i] for i in positions]
++    ordered_ids = [ids[i] for i in positions]
+     T = eltype(status.soil_water_contents)
+     accepted_parent_outputs = _soil_water_balance_status_snapshot(
+         status,
+@@ -924,3 +951,20 @@
+             soil_layer_storages_mm=PlantSimEngine.Many(scale=:SoilLayer, kind=:soil_layer, within=PlantSimEngine.Subtree(), var=:soil_layer_storage_mm, from_status=true))),
+     )
+ end
++
++# Finite Nothing-tag dispatch only; every leaf invokes the original kernel.
++function _closed_soil_gravitational_drainage(model, water, ice, drainage_limit, plateau_drainage, seconds, water_table_layer, capillary_gain_m, bottom_water_content)
++    if water_table_layer === nothing
++        if bottom_water_content === nothing
++            return soil_gravitational_drainage(model, water, ice; drainage_limit=drainage_limit, plateau_drainage=plateau_drainage, timestep_seconds=seconds, water_table_layer=nothing, capillary_gain_m=capillary_gain_m, bottom_water_content=nothing)
++        else
++            return soil_gravitational_drainage(model, water, ice; drainage_limit=drainage_limit, plateau_drainage=plateau_drainage, timestep_seconds=seconds, water_table_layer=nothing, capillary_gain_m=capillary_gain_m, bottom_water_content=bottom_water_content)
++        end
++    else
++        if bottom_water_content === nothing
++            return soil_gravitational_drainage(model, water, ice; drainage_limit=drainage_limit, plateau_drainage=plateau_drainage, timestep_seconds=seconds, water_table_layer=water_table_layer, capillary_gain_m=capillary_gain_m, bottom_water_content=nothing)
++        else
++            return soil_gravitational_drainage(model, water, ice; drainage_limit=drainage_limit, plateau_drainage=plateau_drainage, timestep_seconds=seconds, water_table_layer=water_table_layer, capillary_gain_m=capillary_gain_m, bottom_water_content=bottom_water_content)
++        end
++    end
++end
+--- a/src/processes/radiation/crown_radiation.jl
++++ b/src/processes/radiation/crown_radiation.jl
+@@ -224,13 +224,30 @@
+     T = eltype(status.radiation_workspace_values)
+     status.simulation_step isa Integer && !(status.simulation_step isa Bool) && status.simulation_step > 0 ||
+         throw(ArgumentError("simulation_step must be a positive integer, not Bool"))
+-    for name in (:diffuse_transmittance_up, :diffuse_transmittance_down, :relative_diffuse_penetration)
+-        values = getproperty(status,name)
++    let name = :diffuse_transmittance_up
++        values = getproperty(status,:diffuse_transmittance_up)
+         length(values) == model.point_count && eltype(values) === T ||
+             throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
+     end
+-    for name in (:equivalent_point_layer_index,:equivalent_point_layer_count)
+-        values = getproperty(status,name)
++    let name = :diffuse_transmittance_down
++        values = getproperty(status,:diffuse_transmittance_down)
++        length(values) == model.point_count && eltype(values) === T ||
++            throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
++    end
++    let name = :relative_diffuse_penetration
++        values = getproperty(status,:relative_diffuse_penetration)
++        length(values) == model.point_count && eltype(values) === T ||
++            throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
++    end
++    let name = :equivalent_point_layer_index
++        values = getproperty(status,:equivalent_point_layer_index)
++        length(values) == model.point_count ||
++            throw(DimensionMismatch("$name must match radiation point count"))
++        eltype(values) <: Integer && !(eltype(values) <: Bool) ||
++            throw(ArgumentError("$name requires integer, non-Bool storage"))
++    end
++    let name = :equivalent_point_layer_count
++        values = getproperty(status,:equivalent_point_layer_count)
+         length(values) == model.point_count ||
+             throw(DimensionMismatch("$name must match radiation point count"))
+         eltype(values) <: Integer && !(eltype(values) <: Bool) ||
+@@ -245,8 +262,18 @@
+     all(slope -> isfinite(slope) && abs(slope) < T(π)/T(2),(status.slope_x_rad,status.slope_y_rad)) ||
+         throw(ArgumentError("radiation slopes must lie in (-π/2, π/2)"))
+     if isnothing(model.precomputed) || model.shortwave
+-        for name in (:representative_x,:representative_y,:representative_z)
+-            values = getproperty(status,name)
++        let name = :representative_x
++            values = getproperty(status,:representative_x)
++            length(values) == model.point_count && eltype(values) === T ||
++                throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
++        end
++        let name = :representative_y
++            values = getproperty(status,:representative_y)
++            length(values) == model.point_count && eltype(values) === T ||
++                throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
++        end
++        let name = :representative_z
++            values = getproperty(status,:representative_z)
+             length(values) == model.point_count && eltype(values) === T ||
+                 throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
+         end
+@@ -263,9 +290,32 @@
+     if model.shortwave
+         length(status.target_leaf_angle_class_centres_rad) == model.leaf_angle_count ||
+             throw(DimensionMismatch("target leaf-angle grid changed"))
+-        for name in (:target_leaf_angle_class_centres_rad,:target_diffuse_extinction_coefficients,
+-                     :leaf_angle_fractions,:leaf_reflectance,:leaf_transmittance,:leaf_absorptance,:soil_reflectance)
+-            eltype(getproperty(status,name)) === T ||
++        let name = :target_leaf_angle_class_centres_rad
++            eltype(getproperty(status,:target_leaf_angle_class_centres_rad)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :target_diffuse_extinction_coefficients
++            eltype(getproperty(status,:target_diffuse_extinction_coefficients)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :leaf_angle_fractions
++            eltype(getproperty(status,:leaf_angle_fractions)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :leaf_reflectance
++            eltype(getproperty(status,:leaf_reflectance)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :leaf_transmittance
++            eltype(getproperty(status,:leaf_transmittance)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :leaf_absorptance
++            eltype(getproperty(status,:leaf_absorptance)) === T ||
++                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++        end
++        let name = :soil_reflectance
++            eltype(getproperty(status,:soil_reflectance)) === T ||
+                 throw(ArgumentError("$name and radiation storage must share a numeric type"))
+         end
+         length(status.target_diffuse_extinction_coefficients) == model.zenith_count ||
+@@ -274,8 +324,20 @@
+             throw(DimensionMismatch("target leaf-angle fractions changed"))
+         length(status.physiological_layers) == model.point_count ||
+             throw(DimensionMismatch("physiological layers must match point count"))
+-        for name in (:leaf_reflectance,:leaf_transmittance,:leaf_absorptance)
+-            values = getproperty(status,name)
++        let name = :leaf_reflectance
++            values = getproperty(status,:leaf_reflectance)
++            size(values,2) >= 2 && all(layer -> layer isa Integer && !(layer isa Bool) &&
++                1 <= layer <= size(values,1),status.physiological_layers) ||
++                throw(DimensionMismatch("$name must contain both wavebands and all physiological layers"))
++        end
++        let name = :leaf_transmittance
++            values = getproperty(status,:leaf_transmittance)
++            size(values,2) >= 2 && all(layer -> layer isa Integer && !(layer isa Bool) &&
++                1 <= layer <= size(values,1),status.physiological_layers) ||
++                throw(DimensionMismatch("$name must contain both wavebands and all physiological layers"))
++        end
++        let name = :leaf_absorptance
++            values = getproperty(status,:leaf_absorptance)
+             size(values,2) >= 2 && all(layer -> layer isa Integer && !(layer isa Bool) &&
+                 1 <= layer <= size(values,1),status.physiological_layers) ||
+                 throw(DimensionMismatch("$name must contain both wavebands and all physiological layers"))
+@@ -306,9 +368,18 @@
+         fraction_tolerance = max(T(1.0e-4),T(20)*eps(T))
+         isapprox(sum(status.leaf_angle_fractions),one(T);atol=fraction_tolerance,rtol=fraction_tolerance) ||
+             throw(ArgumentError("leaf_angle_fractions must sum to one"))
+-        for name in (:leaf_radiation_area_fraction,:leaf_radiation_absorbed_par_w_m2_leaf,
+-                     :leaf_radiation_absorbed_nir_w_m2_leaf)
+-            values = getproperty(status,name)
++        let name = :leaf_radiation_area_fraction
++            values = getproperty(status,:leaf_radiation_area_fraction)
++            size(values) == (model.point_count,model.slot_count) && eltype(values) === T ||
++                throw(DimensionMismatch("$name must match radiation point/class layout and storage"))
++        end
++        let name = :leaf_radiation_absorbed_par_w_m2_leaf
++            values = getproperty(status,:leaf_radiation_absorbed_par_w_m2_leaf)
++            size(values) == (model.point_count,model.slot_count) && eltype(values) === T ||
++                throw(DimensionMismatch("$name must match radiation point/class layout and storage"))
++        end
++        let name = :leaf_radiation_absorbed_nir_w_m2_leaf
++            values = getproperty(status,:leaf_radiation_absorbed_nir_w_m2_leaf)
+             size(values) == (model.point_count,model.slot_count) && eltype(values) === T ||
+                 throw(DimensionMismatch("$name must match radiation point/class layout and storage"))
+         end
+@@ -326,7 +397,9 @@
+     initial = model.initial_canopy
+     current = DiffuseCanopyState(T(status.radius_x),T(status.radius_y),T(status.crown_depth),
+         T(status.crown_base_height),T(status.target_leaf_area),T(status.stand_lai))
+-    reference = DiffuseCanopyState(Tuple(workspace.reference_canopy)...)
++    reference = DiffuseCanopyState(workspace.reference_canopy[1], workspace.reference_canopy[2],
++        workspace.reference_canopy[3], workspace.reference_canopy[4],
++        workspace.reference_canopy[5], workspace.reference_canopy[6])
+     initial_typed = DiffuseCanopyState(T(initial.radius_x),T(initial.radius_y),T(initial.crown_depth),
+         T(initial.crown_base_height),T(initial.leaf_area),T(initial.stand_lai))
+     decision = diffuse_transmission_update_decision(status.simulation_step,model.interval_steps,
+--- a/src/processes/soil_shortwave_radiation.jl
++++ b/src/processes/soil_shortwave_radiation.jl
+@@ -70,8 +70,7 @@
+ end
+ 
+ function _soil_shortwave_target_weights(target_weights)
+-    weights = Int[]
+-    for weight in target_weights
++    weights = map(target_weights) do weight
+         weight isa Integer && !(weight isa Bool) ||
+             _throw_soil_shortwave_value(:target_weights, weight, :integer)
+         weight > 0 ||
+@@ -79,7 +78,7 @@
+         weight <= typemax(Int) || throw(
+             ArgumentError("target_weights values must be representable as Int"),
+         )
+-        push!(weights, Int(weight))
++        Int(weight)
+     end
+     isempty(weights) && throw(
+         ArgumentError("at least one target Crown is required"),
+--- a/src/processes/non_tuzet_leaf_process_calls.jl
++++ b/src/processes/non_tuzet_leaf_process_calls.jl
+@@ -13,9 +13,7 @@
+ # Boundary conversion follows the effective status type (including the
+ # PlantSimEngine type_promotion mapping), not a hard-coded model precision.
+ function _leaf_exchange_forcing(model, status, environment, ::Type{T}) where {T}
+-    forcing = NamedTuple{_NON_TUZET_CROWN_FLOAT_SCALAR_INPUTS}(map(
+-        name -> convert(T, getproperty(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS ?
+-            environment : status, name)), _NON_TUZET_CROWN_FLOAT_SCALAR_INPUTS))
++    forcing = _closed_leaf_exchange_scalar_forcing(status, environment, T)
+     daylight = isnothing(status.leaf_exchange_daylight) ?
+         abs(forcing.sun_zenith_rad) < T(pi) / T(2) &&
+         forcing.incident_par_w_m2 > one(T) && forcing.logical_leaf_area_total_m2 > zero(T) :
+@@ -58,3 +56,11 @@
+     end
+     return result
+ end
++
++# Literal projections preserve the original tuple order and source selection.
++@generated function _closed_leaf_exchange_scalar_forcing(status, environment, ::Type{T}) where {T}
++    names = _NON_TUZET_CROWN_FLOAT_SCALAR_INPUTS
++    fields = [:(convert(T, getproperty($(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS ? :environment : :status),
++        $(QuoteNode(name))))) for name in names]
++    return Expr(:call, NamedTuple{names}, Expr(:tuple, fields...))
++end
+--- a/src/processes/soil_hydraulics.jl
++++ b/src/processes/soil_hydraulics.jl
+@@ -650,26 +650,26 @@
+     effective_pore_fraction =
+         saturated_by_water_table && model.method in (1, 2) ?
+         water : model.pore_fraction[index]
+-    potential = _soil_water_potential_result(
++    potential = _closed_soil_water_potential_result(
+         water,
+-        model.method;
+-        pore_fraction=effective_pore_fraction,
+-        b_parameter=isnothing(model.b_parameter) ? nothing : model.b_parameter[index],
+-        air_entry_water_potential_mpa=isnothing(model.air_entry_water_potential_mpa) ? nothing : model.air_entry_water_potential_mpa[index],
+-        alpha_mpa_inverse=isnothing(model.alpha_mpa_inverse) ? nothing : model.alpha_mpa_inverse[index],
+-        saturated_water_content=isnothing(model.saturated_water_content) ? nothing : model.saturated_water_content[index],
+-        residual_water_content=isnothing(model.residual_water_content) ? nothing : model.residual_water_content[index],
+-        shape_parameter_n=isnothing(model.shape_parameter_n) ? nothing : model.shape_parameter_n[index],
+-    )
+-    conductivity = _soil_hydraulic_conductivity_result(
++        model.method,
++        effective_pore_fraction,
++        isnothing(model.b_parameter) ? nothing : model.b_parameter[index],
++        isnothing(model.air_entry_water_potential_mpa) ? nothing : model.air_entry_water_potential_mpa[index],
++        isnothing(model.alpha_mpa_inverse) ? nothing : model.alpha_mpa_inverse[index],
++        isnothing(model.saturated_water_content) ? nothing : model.saturated_water_content[index],
++        isnothing(model.residual_water_content) ? nothing : model.residual_water_content[index],
++        isnothing(model.shape_parameter_n) ? nothing : model.shape_parameter_n[index],
++    )
++    conductivity = _closed_soil_hydraulic_conductivity_result(
+         water,
+-        model.method;
+-        saturated_hydraulic_conductivity_m_s=model.saturated_hydraulic_conductivity_m_s[index],
+-        pore_fraction=effective_pore_fraction,
+-        b_parameter=isnothing(model.b_parameter) ? nothing : model.b_parameter[index],
+-        saturated_water_content=isnothing(model.saturated_water_content) ? nothing : model.saturated_water_content[index],
+-        residual_water_content=isnothing(model.residual_water_content) ? nothing : model.residual_water_content[index],
+-        shape_parameter_n=isnothing(model.shape_parameter_n) ? nothing : model.shape_parameter_n[index],
++        model.method,
++        model.saturated_hydraulic_conductivity_m_s[index],
++        effective_pore_fraction,
++        isnothing(model.b_parameter) ? nothing : model.b_parameter[index],
++        isnothing(model.saturated_water_content) ? nothing : model.saturated_water_content[index],
++        isnothing(model.residual_water_content) ? nothing : model.residual_water_content[index],
++        isnothing(model.shape_parameter_n) ? nothing : model.shape_parameter_n[index],
+     )
+     storage = soil_layer_storage(
+         water,
+@@ -712,3 +712,325 @@
+     status.soil_water_oversaturated = result.oversaturated
+     return nothing
+ end
++
++# Finite Nothing-tag dispatch only; every leaf invokes the original kernel.
++function _closed_soil_water_potential_result(water, method, pore_fraction, b_parameter, air_entry_water_potential_mpa, alpha_mpa_inverse, saturated_water_content, residual_water_content, shape_parameter_n)
++    if b_parameter === nothing
++        if air_entry_water_potential_mpa === nothing
++            if alpha_mpa_inverse === nothing
++                if saturated_water_content === nothing
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                else
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                end
++            else
++                if saturated_water_content === nothing
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                else
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                end
++            end
++        else
++            if alpha_mpa_inverse === nothing
++                if saturated_water_content === nothing
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                else
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                end
++            else
++                if saturated_water_content === nothing
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                else
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=nothing, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                end
++            end
++        end
++    else
++        if air_entry_water_potential_mpa === nothing
++            if alpha_mpa_inverse === nothing
++                if saturated_water_content === nothing
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                else
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                end
++            else
++                if saturated_water_content === nothing
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                else
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=nothing, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                end
++            end
++        else
++            if alpha_mpa_inverse === nothing
++                if saturated_water_content === nothing
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                else
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=nothing, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                end
++            else
++                if saturated_water_content === nothing
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                else
++                    if residual_water_content === nothing
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                        end
++                    else
++                        if shape_parameter_n === nothing
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                        else
++                            return _soil_water_potential_result(water, method; pore_fraction=pore_fraction, b_parameter=b_parameter, air_entry_water_potential_mpa=air_entry_water_potential_mpa, alpha_mpa_inverse=alpha_mpa_inverse, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                        end
++                    end
++                end
++            end
++        end
++    end
++end
++
++# Finite Nothing-tag dispatch only; every leaf invokes the original kernel.
++function _closed_soil_hydraulic_conductivity_result(water, method, saturated_hydraulic_conductivity_m_s, pore_fraction, b_parameter, saturated_water_content, residual_water_content, shape_parameter_n)
++    if b_parameter === nothing
++        if saturated_water_content === nothing
++            if residual_water_content === nothing
++                if shape_parameter_n === nothing
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=nothing, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=nothing)
++                else
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=nothing, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                end
++            else
++                if shape_parameter_n === nothing
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=nothing, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                else
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=nothing, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                end
++            end
++        else
++            if residual_water_content === nothing
++                if shape_parameter_n === nothing
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=nothing, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=nothing)
++                else
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=nothing, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                end
++            else
++                if shape_parameter_n === nothing
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=nothing, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                else
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=nothing, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                end
++            end
++        end
++    else
++        if saturated_water_content === nothing
++            if residual_water_content === nothing
++                if shape_parameter_n === nothing
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=b_parameter, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=nothing)
++                else
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=b_parameter, saturated_water_content=nothing, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                end
++            else
++                if shape_parameter_n === nothing
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=b_parameter, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                else
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=b_parameter, saturated_water_content=nothing, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                end
++            end
++        else
++            if residual_water_content === nothing
++                if shape_parameter_n === nothing
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=b_parameter, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=nothing)
++                else
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=b_parameter, saturated_water_content=saturated_water_content, residual_water_content=nothing, shape_parameter_n=shape_parameter_n)
++                end
++            else
++                if shape_parameter_n === nothing
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=b_parameter, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=nothing)
++                else
++                    return _soil_hydraulic_conductivity_result(water, method; saturated_hydraulic_conductivity_m_s=saturated_hydraulic_conductivity_m_s, pore_fraction=pore_fraction, b_parameter=b_parameter, saturated_water_content=saturated_water_content, residual_water_content=residual_water_content, shape_parameter_n=shape_parameter_n)
++                end
++            end
++        end
++    end
++end
+--- a/src/processes/soil_capillarity.jl
++++ b/src/processes/soil_capillarity.jl
+@@ -736,7 +736,7 @@
+         upper_shape = isnothing(parameters.shape) ? nothing :
+                       parameters.shape[index]
+ 
+-        lower_potential = _soil_capillary_potential(
++        lower_potential = _closed_soil_capillary_potential(
+             lower_water,
+             parameters.method,
+             lower_pore + regularization,
+@@ -749,7 +749,7 @@
+             lower_residual - regularization,
+             lower_shape,
+         )
+-        upper_potential = _soil_capillary_potential(
++        upper_potential = _closed_soil_capillary_potential(
+             water[index],
+             parameters.method,
+             pores[index] + regularization,
+@@ -785,7 +785,7 @@
+                     (isnothing(upper_residual) ? zero(T) : upper_residual) +
+                     residual_margin
+                 conductivity_water = max(residual_floor, trial)
+-                conductivity = _soil_capillary_conductivity(
++                conductivity = _closed_soil_capillary_conductivity(
+                     conductivity_water,
+                     parameters.method,
+                     parameters.conductivity[index],
+@@ -796,7 +796,7 @@
+                     upper_residual,
+                     upper_shape,
+                 )
+-                trial_potential = _soil_capillary_potential(
++                trial_potential = _closed_soil_capillary_potential(
+                     trial,
+                     parameters.method,
+                     pores[index] + regularization,
+@@ -843,3 +843,325 @@
+         substeps,
+     )
+ end
++
++# Finite Nothing-tag dispatch only; every leaf invokes the original kernel.
++function _closed_soil_capillary_potential(water, method, pore, b, air_entry, alpha, saturated, residual, shape)
++    if b === nothing
++        if air_entry === nothing
++            if alpha === nothing
++                if saturated === nothing
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, nothing, nothing, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, nothing, nothing, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, nothing, nothing, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, nothing, nothing, residual, shape)
++                        end
++                    end
++                else
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, nothing, saturated, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, nothing, saturated, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, nothing, saturated, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, nothing, saturated, residual, shape)
++                        end
++                    end
++                end
++            else
++                if saturated === nothing
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, alpha, nothing, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, alpha, nothing, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, alpha, nothing, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, alpha, nothing, residual, shape)
++                        end
++                    end
++                else
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, alpha, saturated, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, alpha, saturated, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, alpha, saturated, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, nothing, alpha, saturated, residual, shape)
++                        end
++                    end
++                end
++            end
++        else
++            if alpha === nothing
++                if saturated === nothing
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, nothing, nothing, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, nothing, nothing, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, nothing, nothing, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, nothing, nothing, residual, shape)
++                        end
++                    end
++                else
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, nothing, saturated, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, nothing, saturated, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, nothing, saturated, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, nothing, saturated, residual, shape)
++                        end
++                    end
++                end
++            else
++                if saturated === nothing
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, alpha, nothing, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, alpha, nothing, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, alpha, nothing, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, alpha, nothing, residual, shape)
++                        end
++                    end
++                else
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, alpha, saturated, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, alpha, saturated, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, alpha, saturated, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, nothing, air_entry, alpha, saturated, residual, shape)
++                        end
++                    end
++                end
++            end
++        end
++    else
++        if air_entry === nothing
++            if alpha === nothing
++                if saturated === nothing
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, nothing, nothing, nothing, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, nothing, nothing, nothing, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, nothing, nothing, nothing, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, nothing, nothing, nothing, residual, shape)
++                        end
++                    end
++                else
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, nothing, nothing, saturated, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, nothing, nothing, saturated, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, nothing, nothing, saturated, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, nothing, nothing, saturated, residual, shape)
++                        end
++                    end
++                end
++            else
++                if saturated === nothing
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, nothing, alpha, nothing, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, nothing, alpha, nothing, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, nothing, alpha, nothing, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, nothing, alpha, nothing, residual, shape)
++                        end
++                    end
++                else
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, nothing, alpha, saturated, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, nothing, alpha, saturated, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, nothing, alpha, saturated, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, nothing, alpha, saturated, residual, shape)
++                        end
++                    end
++                end
++            end
++        else
++            if alpha === nothing
++                if saturated === nothing
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, nothing, nothing, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, nothing, nothing, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, nothing, nothing, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, nothing, nothing, residual, shape)
++                        end
++                    end
++                else
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, nothing, saturated, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, nothing, saturated, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, nothing, saturated, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, nothing, saturated, residual, shape)
++                        end
++                    end
++                end
++            else
++                if saturated === nothing
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, alpha, nothing, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, alpha, nothing, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, alpha, nothing, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, alpha, nothing, residual, shape)
++                        end
++                    end
++                else
++                    if residual === nothing
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, alpha, saturated, nothing, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, alpha, saturated, nothing, shape)
++                        end
++                    else
++                        if shape === nothing
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, alpha, saturated, residual, nothing)
++                        else
++                            return _soil_capillary_potential(water, method, pore, b, air_entry, alpha, saturated, residual, shape)
++                        end
++                    end
++                end
++            end
++        end
++    end
++end
++
++# Finite Nothing-tag dispatch only; every leaf invokes the original kernel.
++function _closed_soil_capillary_conductivity(water, method, saturated_conductivity, pore, b, saturated, residual, shape)
++    if b === nothing
++        if saturated === nothing
++            if residual === nothing
++                if shape === nothing
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, nothing, nothing, nothing, nothing)
++                else
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, nothing, nothing, nothing, shape)
++                end
++            else
++                if shape === nothing
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, nothing, nothing, residual, nothing)
++                else
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, nothing, nothing, residual, shape)
++                end
++            end
++        else
++            if residual === nothing
++                if shape === nothing
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, nothing, saturated, nothing, nothing)
++                else
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, nothing, saturated, nothing, shape)
++                end
++            else
++                if shape === nothing
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, nothing, saturated, residual, nothing)
++                else
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, nothing, saturated, residual, shape)
++                end
++            end
++        end
++    else
++        if saturated === nothing
++            if residual === nothing
++                if shape === nothing
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, b, nothing, nothing, nothing)
++                else
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, b, nothing, nothing, shape)
++                end
++            else
++                if shape === nothing
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, b, nothing, residual, nothing)
++                else
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, b, nothing, residual, shape)
++                end
++            end
++        else
++            if residual === nothing
++                if shape === nothing
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, b, saturated, nothing, nothing)
++                else
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, b, saturated, nothing, shape)
++                end
++            else
++                if shape === nothing
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, b, saturated, residual, nothing)
++                else
++                    return _soil_capillary_conductivity(water, method, saturated_conductivity, pore, b, saturated, residual, shape)
++                end
++            end
++        end
++    end
++end
+--- a/src/processes/crown_leaf_respiration_accounting.jl
++++ b/src/processes/crown_leaf_respiration_accounting.jl
+@@ -13,7 +13,7 @@
+     crown_leaf_respiration_accounting_available::Bool
+ end
+ 
+-@noinline function _throw_crown_leaf_respiration_accounting(
++@noinline Base.@constprop :aggressive function _throw_crown_leaf_respiration_accounting(
+     name::Symbol,
+     value,
+     reason::Symbol,
+--- a/src/processes/crown_leaf_exchange_aggregation.jl
++++ b/src/processes/crown_leaf_exchange_aggregation.jl
+@@ -1348,13 +1348,22 @@
+         length(status.leaf_water_potential_mpa) ==
+             model.logical_leaf_unit_count
+     if !input_lengths_match
+-        names = (:logical_leaf_area_fraction, :logical_leaf_area_density, :logical_leaf_representative_volume_m3,
+-            :net_assimilation_umol_co2_m2_s, :rd_umol_m2_s,
+-            :actual_transpiration_umol_h2o_m2_s, :transpiration_supply_deficit_mmol_h2o_m2_s,
+-            :actual_wet_surface_evaporation_umol_h2o_m2_s, :sensible_heat_flux_w_m2,
+-            :stomatal_conductance_co2_mol_m2_s, :boundary_layer_heat_conductance_mol_m2_s,
+-            :logical_leaf_temperature_c, :intercellular_co2_umol_mol, :leaf_water_potential_mpa)
+-        sizes = join(("$name=$(length(getproperty(status, name)))" for name in names), ", ")
++        sizes = join((
++            "logical_leaf_area_fraction=$(length(getproperty(status, :logical_leaf_area_fraction)))",
++            "logical_leaf_area_density=$(length(getproperty(status, :logical_leaf_area_density)))",
++            "logical_leaf_representative_volume_m3=$(length(getproperty(status, :logical_leaf_representative_volume_m3)))",
++            "net_assimilation_umol_co2_m2_s=$(length(getproperty(status, :net_assimilation_umol_co2_m2_s)))",
++            "rd_umol_m2_s=$(length(getproperty(status, :rd_umol_m2_s)))",
++            "actual_transpiration_umol_h2o_m2_s=$(length(getproperty(status, :actual_transpiration_umol_h2o_m2_s)))",
++            "transpiration_supply_deficit_mmol_h2o_m2_s=$(length(getproperty(status, :transpiration_supply_deficit_mmol_h2o_m2_s)))",
++            "actual_wet_surface_evaporation_umol_h2o_m2_s=$(length(getproperty(status, :actual_wet_surface_evaporation_umol_h2o_m2_s)))",
++            "sensible_heat_flux_w_m2=$(length(getproperty(status, :sensible_heat_flux_w_m2)))",
++            "stomatal_conductance_co2_mol_m2_s=$(length(getproperty(status, :stomatal_conductance_co2_mol_m2_s)))",
++            "boundary_layer_heat_conductance_mol_m2_s=$(length(getproperty(status, :boundary_layer_heat_conductance_mol_m2_s)))",
++            "logical_leaf_temperature_c=$(length(getproperty(status, :logical_leaf_temperature_c)))",
++            "intercellular_co2_umol_mol=$(length(getproperty(status, :intercellular_co2_umol_mol)))",
++            "leaf_water_potential_mpa=$(length(getproperty(status, :leaf_water_potential_mpa)))",
++        ), ", ")
+         throw(DimensionMismatch("Crown aggregation expects $(model.logical_leaf_unit_count) logical leaves; got $sizes"))
+     end
+     _require_crown_leaf_exchange_length(
 --- a/src/processes/daily_whole_plant_respiration_scene_aggregation.jl
 +++ b/src/processes/daily_whole_plant_respiration_scene_aggregation.jl
 @@ -282,8 +282,8 @@
@@ -720,142 +1820,1190 @@
 +    _assign_daily_respiration_result!(status, result)
      return nothing
  end
---- a/src/processes/radiation/crown_radiation.jl
-+++ b/src/processes/radiation/crown_radiation.jl
-@@ -224,13 +224,30 @@
-     T = eltype(status.radiation_workspace_values)
-     status.simulation_step isa Integer && !(status.simulation_step isa Bool) && status.simulation_step > 0 ||
-         throw(ArgumentError("simulation_step must be a positive integer, not Bool"))
--    for name in (:diffuse_transmittance_up, :diffuse_transmittance_down, :relative_diffuse_penetration)
--        values = getproperty(status,name)
-+    let name = :diffuse_transmittance_up
-+        values = getproperty(status,:diffuse_transmittance_up)
-         length(values) == model.point_count && eltype(values) === T ||
-             throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
+--- a/src/processes/canopy_air_microclimate.jl
++++ b/src/processes/canopy_air_microclimate.jl
+@@ -572,18 +572,32 @@
+ ), (wet_canopy_evaporation_mm_timestep=GROUND_WATER_DEPTH_TIMESTEP_CONTRACT,))
+ 
+ @inline function _reset_canopy_air_microclimate!(status, ::Type{T}) where {T}
+-    for name in (
+-        :canopy_air_temperature_c,
+-        :canopy_vapour_pressure_deficit_pa,
+-        :canopy_relative_humidity,
+-        :canopy_total_net_radiation_w_m2,
+-        :canopy_total_latent_heat_flux_w_m2,
+-        :canopy_total_sensible_heat_flux_w_m2,
+-        :canopy_atmosphere_aerodynamic_conductance_mol_m2_s,
+-        :canopy_air_molar_density_mol_m3,
+-        :canopy_latent_heat_vaporization_j_mol,
+-    )
+-        setproperty!(status, name, zero(T))
++    let name = :canopy_air_temperature_c
++        setproperty!(status, :canopy_air_temperature_c, zero(T))
++    end
++    let name = :canopy_vapour_pressure_deficit_pa
++        setproperty!(status, :canopy_vapour_pressure_deficit_pa, zero(T))
++    end
++    let name = :canopy_relative_humidity
++        setproperty!(status, :canopy_relative_humidity, zero(T))
++    end
++    let name = :canopy_total_net_radiation_w_m2
++        setproperty!(status, :canopy_total_net_radiation_w_m2, zero(T))
++    end
++    let name = :canopy_total_latent_heat_flux_w_m2
++        setproperty!(status, :canopy_total_latent_heat_flux_w_m2, zero(T))
++    end
++    let name = :canopy_total_sensible_heat_flux_w_m2
++        setproperty!(status, :canopy_total_sensible_heat_flux_w_m2, zero(T))
++    end
++    let name = :canopy_atmosphere_aerodynamic_conductance_mol_m2_s
++        setproperty!(status, :canopy_atmosphere_aerodynamic_conductance_mol_m2_s, zero(T))
++    end
++    let name = :canopy_air_molar_density_mol_m3
++        setproperty!(status, :canopy_air_molar_density_mol_m3, zero(T))
++    end
++    let name = :canopy_latent_heat_vaporization_j_mol
++        setproperty!(status, :canopy_latent_heat_vaporization_j_mol, zero(T))
      end
--    for name in (:equivalent_point_layer_index,:equivalent_point_layer_count)
--        values = getproperty(status,name)
-+    let name = :diffuse_transmittance_down
-+        values = getproperty(status,:diffuse_transmittance_down)
-+        length(values) == model.point_count && eltype(values) === T ||
-+            throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
+     status.canopy_air_microclimate_available = false
+     return nothing
+@@ -613,11 +627,67 @@
+         :canopy_air_molar_density_mol_m3,
+         :canopy_latent_heat_vaporization_j_mol,
+     )
+-    for name in output_names
+-        typeof(getproperty(status, name)) === T ||
++    let name = :canopy_vapour_pressure_deficit_pa
++        typeof(getproperty(status, :canopy_vapour_pressure_deficit_pa)) === T ||
+             _throw_canopy_air_microclimate_value(
+                 name,
+-                getproperty(status, name),
++                getproperty(status, :canopy_vapour_pressure_deficit_pa),
++                :output_type,
++            )
 +    end
-+    let name = :relative_diffuse_penetration
-+        values = getproperty(status,:relative_diffuse_penetration)
-+        length(values) == model.point_count && eltype(values) === T ||
-+            throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
++    let name = :canopy_relative_humidity
++        typeof(getproperty(status, :canopy_relative_humidity)) === T ||
++            _throw_canopy_air_microclimate_value(
++                name,
++                getproperty(status, :canopy_relative_humidity),
++                :output_type,
++            )
 +    end
-+    let name = :equivalent_point_layer_index
-+        values = getproperty(status,:equivalent_point_layer_index)
-+        length(values) == model.point_count ||
-+            throw(DimensionMismatch("$name must match radiation point count"))
-+        eltype(values) <: Integer && !(eltype(values) <: Bool) ||
-+            throw(ArgumentError("$name requires integer, non-Bool storage"))
++    let name = :canopy_total_net_radiation_w_m2
++        typeof(getproperty(status, :canopy_total_net_radiation_w_m2)) === T ||
++            _throw_canopy_air_microclimate_value(
++                name,
++                getproperty(status, :canopy_total_net_radiation_w_m2),
++                :output_type,
++            )
 +    end
-+    let name = :equivalent_point_layer_count
-+        values = getproperty(status,:equivalent_point_layer_count)
-         length(values) == model.point_count ||
-             throw(DimensionMismatch("$name must match radiation point count"))
-         eltype(values) <: Integer && !(eltype(values) <: Bool) ||
-@@ -245,8 +262,18 @@
-     all(slope -> isfinite(slope) && abs(slope) < T(π)/T(2),(status.slope_x_rad,status.slope_y_rad)) ||
-         throw(ArgumentError("radiation slopes must lie in (-π/2, π/2)"))
-     if isnothing(model.precomputed) || model.shortwave
--        for name in (:representative_x,:representative_y,:representative_z)
--            values = getproperty(status,name)
-+        let name = :representative_x
-+            values = getproperty(status,:representative_x)
-+            length(values) == model.point_count && eltype(values) === T ||
-+                throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
++    let name = :canopy_total_latent_heat_flux_w_m2
++        typeof(getproperty(status, :canopy_total_latent_heat_flux_w_m2)) === T ||
++            _throw_canopy_air_microclimate_value(
++                name,
++                getproperty(status, :canopy_total_latent_heat_flux_w_m2),
++                :output_type,
++            )
++    end
++    let name = :canopy_total_sensible_heat_flux_w_m2
++        typeof(getproperty(status, :canopy_total_sensible_heat_flux_w_m2)) === T ||
++            _throw_canopy_air_microclimate_value(
++                name,
++                getproperty(status, :canopy_total_sensible_heat_flux_w_m2),
++                :output_type,
++            )
++    end
++    let name = :canopy_atmosphere_aerodynamic_conductance_mol_m2_s
++        typeof(getproperty(status, :canopy_atmosphere_aerodynamic_conductance_mol_m2_s)) === T ||
++            _throw_canopy_air_microclimate_value(
++                name,
++                getproperty(status, :canopy_atmosphere_aerodynamic_conductance_mol_m2_s),
++                :output_type,
++            )
++    end
++    let name = :canopy_air_molar_density_mol_m3
++        typeof(getproperty(status, :canopy_air_molar_density_mol_m3)) === T ||
++            _throw_canopy_air_microclimate_value(
++                name,
++                getproperty(status, :canopy_air_molar_density_mol_m3),
++                :output_type,
++            )
++    end
++    let name = :canopy_latent_heat_vaporization_j_mol
++        typeof(getproperty(status, :canopy_latent_heat_vaporization_j_mol)) === T ||
++            _throw_canopy_air_microclimate_value(
++                name,
++                getproperty(status, :canopy_latent_heat_vaporization_j_mol),
+                 :output_type,
+             )
+     end
+@@ -656,9 +726,12 @@
+         inputs...,
+         _maespa_timestep_seconds(T, environment),
+     )
+-    for name in fieldnames(typeof(result))
+-        setproperty!(status, name, getfield(result, name))
+-    end
++    _assign_canopy_air_microclimate_fields!(status, result)
+     status.canopy_air_microclimate_available = true
+     return nothing
+ end
++
++@generated function _assign_canopy_air_microclimate_fields!(status, result::R) where {R}
++    assignments = [:(setproperty!(status, $(QuoteNode(name)), getfield(result, $(QuoteNode(name))))) for name in fieldnames(R)]
++    return Expr(:block, assignments..., :(return nothing))
++end
+--- a/src/processes/non_tuzet_crown_leaf_exchange_controller.jl
++++ b/src/processes/non_tuzet_crown_leaf_exchange_controller.jl
+@@ -1106,8 +1106,8 @@
+     status,
+     ::Type{T},
+ ) where {T<:AbstractFloat}
+-    for name in _NON_TUZET_CROWN_FLOAT_VECTOR_INPUTS
+-        vector = getproperty(status, name)
++    let name = :logical_leaf_absorbed_par_umol_m2_s
++        vector = getproperty(status, :logical_leaf_absorbed_par_umol_m2_s)
+         vector isa AbstractVector ||
+             _throw_non_tuzet_controller(name, vector, :vector)
+         eltype(vector) === T || throw(
+@@ -1117,20 +1117,395 @@
+         )
+         _non_tuzet_require_length(vector, model.unit_count, name)
+     end
+-    for name in _NON_TUZET_CROWN_FLOAT_SCALAR_INPUTS
+-        name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS && continue
+-        value = getproperty(status, name)
+-        typeof(value) === T || throw(
+-            ArgumentError(
+-                "$(String(name)) must have the effective status type $T",
+-            ),
+-        )
+-    end
+-    for name in (
+-        :logical_leaf_unit_active,
+-        :logical_leaf_unit_forcing_available,
+-    )
+-        vector = getproperty(status, name)
++    let name = :logical_leaf_net_radiation_w_m2
++        vector = getproperty(status, :logical_leaf_net_radiation_w_m2)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status element type $T",
++            ),
++        )
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :logical_leaf_relative_diffuse_penetration
++        vector = getproperty(status, :logical_leaf_relative_diffuse_penetration)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status element type $T",
++            ),
++        )
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :logical_leaf_diffuse_transmittance_up
++        vector = getproperty(status, :logical_leaf_diffuse_transmittance_up)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status element type $T",
++            ),
++        )
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :logical_leaf_diffuse_transmittance_down
++        vector = getproperty(status, :logical_leaf_diffuse_transmittance_down)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status element type $T",
++            ),
++        )
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :logical_leaf_relative_wind_speed
++        vector = getproperty(status, :logical_leaf_relative_wind_speed)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status element type $T",
++            ),
++        )
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :logical_leaf_jmax25_umol_m2_s
++        vector = getproperty(status, :logical_leaf_jmax25_umol_m2_s)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status element type $T",
++            ),
++        )
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :logical_leaf_vcmax25_umol_m2_s
++        vector = getproperty(status, :logical_leaf_vcmax25_umol_m2_s)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status element type $T",
++            ),
++        )
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :logical_leaf_rd0_umol_m2_s
++        vector = getproperty(status, :logical_leaf_rd0_umol_m2_s)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status element type $T",
++            ),
++        )
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :logical_leaf_quantum_yield
++        vector = getproperty(status, :logical_leaf_quantum_yield)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status element type $T",
++            ),
++        )
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :air_temperature_c
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :air_temperature_c)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :representative_y
-+            values = getproperty(status,:representative_y)
-+            length(values) == model.point_count && eltype(values) === T ||
-+                throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
++    end
++    let name = :moving_average_air_temperature_c
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :moving_average_air_temperature_c)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :representative_z
-+            values = getproperty(status,:representative_z)
-             length(values) == model.point_count && eltype(values) === T ||
-                 throw(DimensionMismatch("$name must match radiation workspace storage and point count"))
-         end
-@@ -263,9 +290,32 @@
-     if model.shortwave
-         length(status.target_leaf_angle_class_centres_rad) == model.leaf_angle_count ||
-             throw(DimensionMismatch("target leaf-angle grid changed"))
--        for name in (:target_leaf_angle_class_centres_rad,:target_diffuse_extinction_coefficients,
--                     :leaf_angle_fractions,:leaf_reflectance,:leaf_transmittance,:leaf_absorptance,:soil_reflectance)
--            eltype(getproperty(status,name)) === T ||
-+        let name = :target_leaf_angle_class_centres_rad
-+            eltype(getproperty(status,:target_leaf_angle_class_centres_rad)) === T ||
-+                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++    end
++    let name = :wind_speed_m_s
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :wind_speed_m_s)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :target_diffuse_extinction_coefficients
-+            eltype(getproperty(status,:target_diffuse_extinction_coefficients)) === T ||
-+                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++    end
++    let name = :relative_humidity
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :relative_humidity)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :leaf_angle_fractions
-+            eltype(getproperty(status,:leaf_angle_fractions)) === T ||
-+                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++    end
++    let name = :vapour_pressure_deficit_pa
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :vapour_pressure_deficit_pa)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :leaf_reflectance
-+            eltype(getproperty(status,:leaf_reflectance)) === T ||
-+                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++    end
++    let name = :mole_fraction_deficit_mmol_mol
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :mole_fraction_deficit_mmol_mol)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :leaf_transmittance
-+            eltype(getproperty(status,:leaf_transmittance)) === T ||
-+                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++    end
++    let name = :co2_umol_mol
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :co2_umol_mol)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :leaf_absorptance
-+            eltype(getproperty(status,:leaf_absorptance)) === T ||
-+                throw(ArgumentError("$name and radiation storage must share a numeric type"))
++    end
++    let name = :air_pressure_pa
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :air_pressure_pa)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :soil_reflectance
-+            eltype(getproperty(status,:soil_reflectance)) === T ||
-                 throw(ArgumentError("$name and radiation storage must share a numeric type"))
-         end
-         length(status.target_diffuse_extinction_coefficients) == model.zenith_count ||
-@@ -274,8 +324,20 @@
-             throw(DimensionMismatch("target leaf-angle fractions changed"))
-         length(status.physiological_layers) == model.point_count ||
-             throw(DimensionMismatch("physiological layers must match point count"))
--        for name in (:leaf_reflectance,:leaf_transmittance,:leaf_absorptance)
--            values = getproperty(status,name)
-+        let name = :leaf_reflectance
-+            values = getproperty(status,:leaf_reflectance)
-+            size(values,2) >= 2 && all(layer -> layer isa Integer && !(layer isa Bool) &&
-+                1 <= layer <= size(values,1),status.physiological_layers) ||
-+                throw(DimensionMismatch("$name must contain both wavebands and all physiological layers"))
++    end
++    let name = :latent_heat_vaporization_j_mol
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :latent_heat_vaporization_j_mol)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :leaf_transmittance
-+            values = getproperty(status,:leaf_transmittance)
-+            size(values,2) >= 2 && all(layer -> layer isa Integer && !(layer isa Bool) &&
-+                1 <= layer <= size(values,1),status.physiological_layers) ||
-+                throw(DimensionMismatch("$name must contain both wavebands and all physiological layers"))
++    end
++    let name = :saturation_vapour_pressure_slope_pa_k
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :saturation_vapour_pressure_slope_pa_k)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :leaf_absorptance
-+            values = getproperty(status,:leaf_absorptance)
-             size(values,2) >= 2 && all(layer -> layer isa Integer && !(layer isa Bool) &&
-                 1 <= layer <= size(values,1),status.physiological_layers) ||
-                 throw(DimensionMismatch("$name must contain both wavebands and all physiological layers"))
-@@ -306,9 +368,18 @@
-         fraction_tolerance = max(T(1.0e-4),T(20)*eps(T))
-         isapprox(sum(status.leaf_angle_fractions),one(T);atol=fraction_tolerance,rtol=fraction_tolerance) ||
-             throw(ArgumentError("leaf_angle_fractions must sum to one"))
--        for name in (:leaf_radiation_area_fraction,:leaf_radiation_absorbed_par_w_m2_leaf,
--                     :leaf_radiation_absorbed_nir_w_m2_leaf)
--            values = getproperty(status,name)
-+        let name = :leaf_radiation_area_fraction
-+            values = getproperty(status,:leaf_radiation_area_fraction)
-+            size(values) == (model.point_count,model.slot_count) && eltype(values) === T ||
-+                throw(DimensionMismatch("$name must match radiation point/class layout and storage"))
++    end
++    let name = :leaf_respiration_temperature_coefficient_c_inverse
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :leaf_respiration_temperature_coefficient_c_inverse)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :leaf_radiation_absorbed_par_w_m2_leaf
-+            values = getproperty(status,:leaf_radiation_absorbed_par_w_m2_leaf)
-+            size(values) == (model.point_count,model.slot_count) && eltype(values) === T ||
-+                throw(DimensionMismatch("$name must match radiation point/class layout and storage"))
++    end
++    let name = :minimum_stomatal_conductance_mol_co2_m2_s
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :minimum_stomatal_conductance_mol_co2_m2_s)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
 +        end
-+        let name = :leaf_radiation_absorbed_nir_w_m2_leaf
-+            values = getproperty(status,:leaf_radiation_absorbed_nir_w_m2_leaf)
-             size(values) == (model.point_count,model.slot_count) && eltype(values) === T ||
-                 throw(DimensionMismatch("$name must match radiation point/class layout and storage"))
-         end
++    end
++    let name = :night_stomatal_conductance_mol_co2_m2_s
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :night_stomatal_conductance_mol_co2_m2_s)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :stomatal_g0
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :stomatal_g0)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :stomatal_g1
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :stomatal_g1)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :stomatal_g20
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :stomatal_g20)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :stomatal_g21
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :stomatal_g21)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :co2_compensation_point_umol_mol
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :co2_compensation_point_umol_mol)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :minimum_vpd_pa
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :minimum_vpd_pa)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :characteristic_leaf_width_m
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :characteristic_leaf_width_m)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :weighted_soil_water_potential_mpa
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :weighted_soil_water_potential_mpa)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :soil_to_leaf_hydraulic_conductance_mmol_m2_leaf_s_mpa
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :soil_to_leaf_hydraulic_conductance_mmol_m2_leaf_s_mpa)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :maximum_leaf_transpiration_mmol_m2_leaf_s
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :maximum_leaf_transpiration_mmol_m2_leaf_s)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :dry_canopy_fraction
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :dry_canopy_fraction)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :canopy_surface_water_storage_mm
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :canopy_surface_water_storage_mm)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :sun_zenith_rad
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :sun_zenith_rad)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :incident_par_w_m2
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :incident_par_w_m2)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :logical_leaf_area_total_m2
++        if !(name in _MAESPA_CANOPY_ATMOSPHERE_AIR_FIELDS)
++        value = getproperty(status, :logical_leaf_area_total_m2)
++        typeof(value) === T || throw(
++            ArgumentError(
++                "$(String(name)) must have the effective status type $T",
++            ),
++        )
++        end
++    end
++    let name = :logical_leaf_unit_active
++        vector = getproperty(status, :logical_leaf_unit_active)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === Bool ||
++            _throw_non_tuzet_controller(name, vector, :bool_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :logical_leaf_unit_forcing_available
++        vector = getproperty(status, :logical_leaf_unit_forcing_available)
+         vector isa AbstractVector ||
+             _throw_non_tuzet_controller(name, vector, :vector)
+         eltype(vector) === Bool ||
+@@ -1154,8 +1529,104 @@
+     T <: AbstractFloat && isconcretetype(T) || throw(
+         ArgumentError("non-Tuzet Crown outputs must use a concrete AbstractFloat type"),
+     )
+-    for name in _NON_TUZET_CROWN_STATUS_FLOAT_OUTPUTS
+-        vector = getproperty(status, name)
++    let name = :non_tuzet_accepted_logical_leaf_net_assimilation_umol_co2_m2_s
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_net_assimilation_umol_co2_m2_s)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_rd_umol_m2_s
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_rd_umol_m2_s)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_actual_transpiration_umol_h2o_m2_s
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_actual_transpiration_umol_h2o_m2_s)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_actual_wet_surface_evaporation_umol_h2o_m2_s
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_actual_wet_surface_evaporation_umol_h2o_m2_s)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_sensible_heat_flux_w_m2
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_sensible_heat_flux_w_m2)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_stomatal_conductance_co2_mol_m2_s
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_stomatal_conductance_co2_mol_m2_s)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_boundary_layer_heat_conductance_mol_m2_s
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_boundary_layer_heat_conductance_mol_m2_s)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_temperature_c
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_temperature_c)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_intercellular_co2_umol_mol
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_intercellular_co2_umol_mol)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_water_potential_mpa
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_water_potential_mpa)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_potential_dry_transpiration_umol_h2o_m2_s
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_potential_dry_transpiration_umol_h2o_m2_s)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_potential_wet_surface_evaporation_umol_h2o_m2_s
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_potential_wet_surface_evaporation_umol_h2o_m2_s)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === T ||
++            _throw_non_tuzet_controller(name, T, :float_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_accepted_logical_leaf_transpiration_deficit_mmol_h2o_m2_s
++        vector = getproperty(status, :non_tuzet_accepted_logical_leaf_transpiration_deficit_mmol_h2o_m2_s)
+         vector isa AbstractVector ||
+             _throw_non_tuzet_controller(name, vector, :vector)
+         eltype(vector) === T ||
+@@ -1178,8 +1649,32 @@
+         model.unit_count,
+         :non_tuzet_logical_leaf_temperature_trial_count,
+     )
+-    for name in _NON_TUZET_CROWN_BOOL_VECTOR_OUTPUTS
+-        vector = getproperty(status, name)
++    let name = :non_tuzet_logical_leaf_temperature_converged
++        vector = getproperty(status, :non_tuzet_logical_leaf_temperature_converged)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === Bool ||
++            _throw_non_tuzet_controller(name, vector, :bool_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_logical_leaf_temperature_iteration_limit_reached
++        vector = getproperty(status, :non_tuzet_logical_leaf_temperature_iteration_limit_reached)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === Bool ||
++            _throw_non_tuzet_controller(name, vector, :bool_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_logical_leaf_hydraulic_limitation_applied
++        vector = getproperty(status, :non_tuzet_logical_leaf_hydraulic_limitation_applied)
++        vector isa AbstractVector ||
++            _throw_non_tuzet_controller(name, vector, :vector)
++        eltype(vector) === Bool ||
++            _throw_non_tuzet_controller(name, vector, :bool_type)
++        _non_tuzet_require_length(vector, model.unit_count, name)
++    end
++    let name = :non_tuzet_logical_leaf_exchange_available
++        vector = getproperty(status, :non_tuzet_logical_leaf_exchange_available)
+         vector isa AbstractVector ||
+             _throw_non_tuzet_controller(name, vector, :vector)
+         eltype(vector) === Bool ||
+@@ -1198,13 +1693,58 @@
+ end
+ 
+ function _install_non_tuzet_crown_leaf_exchange_result!(status, result)
+-    for name in _NON_TUZET_CROWN_STATUS_FLOAT_OUTPUTS
+-        setproperty!(status, name, getproperty(result, name))
++    let name = :non_tuzet_accepted_logical_leaf_net_assimilation_umol_co2_m2_s
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_net_assimilation_umol_co2_m2_s, getproperty(result, :non_tuzet_accepted_logical_leaf_net_assimilation_umol_co2_m2_s))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_rd_umol_m2_s
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_rd_umol_m2_s, getproperty(result, :non_tuzet_accepted_logical_leaf_rd_umol_m2_s))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_actual_transpiration_umol_h2o_m2_s
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_actual_transpiration_umol_h2o_m2_s, getproperty(result, :non_tuzet_accepted_logical_leaf_actual_transpiration_umol_h2o_m2_s))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_actual_wet_surface_evaporation_umol_h2o_m2_s
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_actual_wet_surface_evaporation_umol_h2o_m2_s, getproperty(result, :non_tuzet_accepted_logical_leaf_actual_wet_surface_evaporation_umol_h2o_m2_s))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_sensible_heat_flux_w_m2
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_sensible_heat_flux_w_m2, getproperty(result, :non_tuzet_accepted_logical_leaf_sensible_heat_flux_w_m2))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_stomatal_conductance_co2_mol_m2_s
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_stomatal_conductance_co2_mol_m2_s, getproperty(result, :non_tuzet_accepted_logical_leaf_stomatal_conductance_co2_mol_m2_s))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_boundary_layer_heat_conductance_mol_m2_s
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_boundary_layer_heat_conductance_mol_m2_s, getproperty(result, :non_tuzet_accepted_logical_leaf_boundary_layer_heat_conductance_mol_m2_s))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_temperature_c
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_temperature_c, getproperty(result, :non_tuzet_accepted_logical_leaf_temperature_c))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_intercellular_co2_umol_mol
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_intercellular_co2_umol_mol, getproperty(result, :non_tuzet_accepted_logical_leaf_intercellular_co2_umol_mol))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_water_potential_mpa
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_water_potential_mpa, getproperty(result, :non_tuzet_accepted_logical_leaf_water_potential_mpa))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_potential_dry_transpiration_umol_h2o_m2_s
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_potential_dry_transpiration_umol_h2o_m2_s, getproperty(result, :non_tuzet_accepted_logical_leaf_potential_dry_transpiration_umol_h2o_m2_s))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_potential_wet_surface_evaporation_umol_h2o_m2_s
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_potential_wet_surface_evaporation_umol_h2o_m2_s, getproperty(result, :non_tuzet_accepted_logical_leaf_potential_wet_surface_evaporation_umol_h2o_m2_s))
++    end
++    let name = :non_tuzet_accepted_logical_leaf_transpiration_deficit_mmol_h2o_m2_s
++        setproperty!(status, :non_tuzet_accepted_logical_leaf_transpiration_deficit_mmol_h2o_m2_s, getproperty(result, :non_tuzet_accepted_logical_leaf_transpiration_deficit_mmol_h2o_m2_s))
+     end
+     status.non_tuzet_logical_leaf_temperature_trial_count =
+         result.non_tuzet_logical_leaf_temperature_trial_count
+-    for name in _NON_TUZET_CROWN_BOOL_VECTOR_OUTPUTS
+-        setproperty!(status, name, getproperty(result, name))
++    let name = :non_tuzet_logical_leaf_temperature_converged
++        setproperty!(status, :non_tuzet_logical_leaf_temperature_converged, getproperty(result, :non_tuzet_logical_leaf_temperature_converged))
++    end
++    let name = :non_tuzet_logical_leaf_temperature_iteration_limit_reached
++        setproperty!(status, :non_tuzet_logical_leaf_temperature_iteration_limit_reached, getproperty(result, :non_tuzet_logical_leaf_temperature_iteration_limit_reached))
++    end
++    let name = :non_tuzet_logical_leaf_hydraulic_limitation_applied
++        setproperty!(status, :non_tuzet_logical_leaf_hydraulic_limitation_applied, getproperty(result, :non_tuzet_logical_leaf_hydraulic_limitation_applied))
++    end
++    let name = :non_tuzet_logical_leaf_exchange_available
++        setproperty!(status, :non_tuzet_logical_leaf_exchange_available, getproperty(result, :non_tuzet_logical_leaf_exchange_available))
+     end
+     status.non_tuzet_crown_leaf_exchange_daylight =
+         result.non_tuzet_crown_leaf_exchange_daylight
+--- a/src/processes/logical_leaf_unit_layout.jl
++++ b/src/processes/logical_leaf_unit_layout.jl
+@@ -880,16 +880,120 @@
+             "logical-leaf-unit outputs must have a concrete AbstractFloat element type",
+         ),
+     )
+-    for name in _LOGICAL_LEAF_LAYOUT_FLOAT_VECTOR_OUTPUTS
+-        values = getproperty(status, name)
+-        values isa AbstractVector || throw(
+-            ArgumentError("$(String(name)) must be an AbstractVector"),
+-        )
+-        _logical_leaf_layout_require_eltype(values, T, name)
+-        _logical_leaf_layout_require_length(values, unit_count, name)
+-    end
+-    for name in _LOGICAL_LEAF_LAYOUT_INTEGER_VECTOR_OUTPUTS
+-        values = getproperty(status, name)
++    let name = :logical_leaf_area_fraction
++        values = getproperty(status, :logical_leaf_area_fraction)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_area_density
++        values = getproperty(status, :logical_leaf_area_density)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_representative_volume_m3
++        values = getproperty(status, :logical_leaf_representative_volume_m3)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_area_m2
++        values = getproperty(status, :logical_leaf_area_m2)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_absorbed_par_umol_m2_s
++        values = getproperty(status, :logical_leaf_absorbed_par_umol_m2_s)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_net_radiation_w_m2
++        values = getproperty(status, :logical_leaf_net_radiation_w_m2)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_relative_diffuse_penetration
++        values = getproperty(status, :logical_leaf_relative_diffuse_penetration)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_diffuse_transmittance_up
++        values = getproperty(status, :logical_leaf_diffuse_transmittance_up)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_diffuse_transmittance_down
++        values = getproperty(status, :logical_leaf_diffuse_transmittance_down)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_relative_wind_speed
++        values = getproperty(status, :logical_leaf_relative_wind_speed)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_jmax25_umol_m2_s
++        values = getproperty(status, :logical_leaf_jmax25_umol_m2_s)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_vcmax25_umol_m2_s
++        values = getproperty(status, :logical_leaf_vcmax25_umol_m2_s)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_rd0_umol_m2_s
++        values = getproperty(status, :logical_leaf_rd0_umol_m2_s)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_quantum_yield
++        values = getproperty(status, :logical_leaf_quantum_yield)
++        values isa AbstractVector || throw(
++            ArgumentError("$(String(name)) must be an AbstractVector"),
++        )
++        _logical_leaf_layout_require_eltype(values, T, name)
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_physiological_layer
++        values = getproperty(status, :logical_leaf_physiological_layer)
+         values isa AbstractVector{<:Integer} || throw(
+             ArgumentError("$(String(name)) must contain integer values"),
+         )
+@@ -898,45 +1002,138 @@
+         )
+         _logical_leaf_layout_require_length(values, unit_count, name)
+     end
+-    for name in _LOGICAL_LEAF_LAYOUT_BOOL_VECTOR_OUTPUTS
+-        values = getproperty(status, name)
++    let name = :logical_leaf_point_index
++        values = getproperty(status, :logical_leaf_point_index)
++        values isa AbstractVector{<:Integer} || throw(
++            ArgumentError("$(String(name)) must contain integer values"),
++        )
++        eltype(values) === Int || throw(
++            ArgumentError("$(String(name)) must have element type Int"),
++        )
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_radiation_class_index
++        values = getproperty(status, :logical_leaf_radiation_class_index)
++        values isa AbstractVector{<:Integer} || throw(
++            ArgumentError("$(String(name)) must contain integer values"),
++        )
++        eltype(values) === Int || throw(
++            ArgumentError("$(String(name)) must have element type Int"),
++        )
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_physiological_age_index
++        values = getproperty(status, :logical_leaf_physiological_age_index)
++        values isa AbstractVector{<:Integer} || throw(
++            ArgumentError("$(String(name)) must contain integer values"),
++        )
++        eltype(values) === Int || throw(
++            ArgumentError("$(String(name)) must have element type Int"),
++        )
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
++    let name = :logical_leaf_unit_active
++        values = getproperty(status, :logical_leaf_unit_active)
+         values isa AbstractVector{Bool} || throw(
+             ArgumentError("$(String(name)) must contain Bool values"),
+         )
+         _logical_leaf_layout_require_length(values, unit_count, name)
+     end
++    let name = :logical_leaf_unit_forcing_available
++        values = getproperty(status, :logical_leaf_unit_forcing_available)
++        values isa AbstractVector{Bool} || throw(
++            ArgumentError("$(String(name)) must contain Bool values"),
++        )
++        _logical_leaf_layout_require_length(values, unit_count, name)
++    end
+     typeof(status.logical_leaf_area_total_m2) === T || throw(
+         ArgumentError("logical_leaf_area_total_m2 must use output type $T"),
+     )
+-    for name in (
+-        :effective_leaf_radiation_class_count,
+-        :active_logical_leaf_unit_count,
+-    )
+-        value = getproperty(status, name)
++    let name = :effective_leaf_radiation_class_count
++        value = getproperty(status, :effective_leaf_radiation_class_count)
+         value isa Integer && !(value isa Bool) || throw(
+             ArgumentError("$(String(name)) must be an integer, not Bool"),
+         )
+     end
+-    for name in (
+-        :logical_leaf_unit_layout_available,
+-        :logical_leaf_forcing_available,
+-    )
+-        getproperty(status, name) isa Bool || throw(
++    let name = :active_logical_leaf_unit_count
++        value = getproperty(status, :active_logical_leaf_unit_count)
++        value isa Integer && !(value isa Bool) || throw(
++            ArgumentError("$(String(name)) must be an integer, not Bool"),
++        )
++    end
++    let name = :logical_leaf_unit_layout_available
++        getproperty(status, :logical_leaf_unit_layout_available) isa Bool || throw(
+             ArgumentError("$(String(name)) must be Bool"),
+         )
+     end
++    let name = :logical_leaf_forcing_available
++        getproperty(status, :logical_leaf_forcing_available) isa Bool || throw(
++            ArgumentError("$(String(name)) must be Bool"),
++        )
++    end
+     return T
+ end
+ 
+ function _install_logical_leaf_unit_layout_result!(status, result)
+-    for name in _LOGICAL_LEAF_LAYOUT_FLOAT_VECTOR_OUTPUTS
+-        setproperty!(status, name, getproperty(result, name))
+-    end
+-    for name in _LOGICAL_LEAF_LAYOUT_INTEGER_VECTOR_OUTPUTS
+-        setproperty!(status, name, getproperty(result, name))
+-    end
+-    for name in _LOGICAL_LEAF_LAYOUT_BOOL_VECTOR_OUTPUTS
+-        setproperty!(status, name, getproperty(result, name))
++    let name = :logical_leaf_area_fraction
++        setproperty!(status, :logical_leaf_area_fraction, getproperty(result, :logical_leaf_area_fraction))
++    end
++    let name = :logical_leaf_area_density
++        setproperty!(status, :logical_leaf_area_density, getproperty(result, :logical_leaf_area_density))
++    end
++    let name = :logical_leaf_representative_volume_m3
++        setproperty!(status, :logical_leaf_representative_volume_m3, getproperty(result, :logical_leaf_representative_volume_m3))
++    end
++    let name = :logical_leaf_area_m2
++        setproperty!(status, :logical_leaf_area_m2, getproperty(result, :logical_leaf_area_m2))
++    end
++    let name = :logical_leaf_absorbed_par_umol_m2_s
++        setproperty!(status, :logical_leaf_absorbed_par_umol_m2_s, getproperty(result, :logical_leaf_absorbed_par_umol_m2_s))
++    end
++    let name = :logical_leaf_net_radiation_w_m2
++        setproperty!(status, :logical_leaf_net_radiation_w_m2, getproperty(result, :logical_leaf_net_radiation_w_m2))
++    end
++    let name = :logical_leaf_relative_diffuse_penetration
++        setproperty!(status, :logical_leaf_relative_diffuse_penetration, getproperty(result, :logical_leaf_relative_diffuse_penetration))
++    end
++    let name = :logical_leaf_diffuse_transmittance_up
++        setproperty!(status, :logical_leaf_diffuse_transmittance_up, getproperty(result, :logical_leaf_diffuse_transmittance_up))
++    end
++    let name = :logical_leaf_diffuse_transmittance_down
++        setproperty!(status, :logical_leaf_diffuse_transmittance_down, getproperty(result, :logical_leaf_diffuse_transmittance_down))
++    end
++    let name = :logical_leaf_relative_wind_speed
++        setproperty!(status, :logical_leaf_relative_wind_speed, getproperty(result, :logical_leaf_relative_wind_speed))
++    end
++    let name = :logical_leaf_jmax25_umol_m2_s
++        setproperty!(status, :logical_leaf_jmax25_umol_m2_s, getproperty(result, :logical_leaf_jmax25_umol_m2_s))
++    end
++    let name = :logical_leaf_vcmax25_umol_m2_s
++        setproperty!(status, :logical_leaf_vcmax25_umol_m2_s, getproperty(result, :logical_leaf_vcmax25_umol_m2_s))
++    end
++    let name = :logical_leaf_rd0_umol_m2_s
++        setproperty!(status, :logical_leaf_rd0_umol_m2_s, getproperty(result, :logical_leaf_rd0_umol_m2_s))
++    end
++    let name = :logical_leaf_quantum_yield
++        setproperty!(status, :logical_leaf_quantum_yield, getproperty(result, :logical_leaf_quantum_yield))
++    end
++    let name = :logical_leaf_physiological_layer
++        setproperty!(status, :logical_leaf_physiological_layer, getproperty(result, :logical_leaf_physiological_layer))
++    end
++    let name = :logical_leaf_point_index
++        setproperty!(status, :logical_leaf_point_index, getproperty(result, :logical_leaf_point_index))
++    end
++    let name = :logical_leaf_radiation_class_index
++        setproperty!(status, :logical_leaf_radiation_class_index, getproperty(result, :logical_leaf_radiation_class_index))
++    end
++    let name = :logical_leaf_physiological_age_index
++        setproperty!(status, :logical_leaf_physiological_age_index, getproperty(result, :logical_leaf_physiological_age_index))
++    end
++    let name = :logical_leaf_unit_active
++        setproperty!(status, :logical_leaf_unit_active, getproperty(result, :logical_leaf_unit_active))
++    end
++    let name = :logical_leaf_unit_forcing_available
++        setproperty!(status, :logical_leaf_unit_forcing_available, getproperty(result, :logical_leaf_unit_forcing_available))
+     end
+     status.effective_leaf_radiation_class_count =
+         result.effective_leaf_radiation_class_count
+@@ -964,15 +1161,33 @@
+         status.logical_leaf_forcing_available = false
+         rethrow()
+     end
+-    for name in (
+-        :astronomical_daylight,
+-        :leaf_radiation_partitioning_available,
+-        :leaf_radiative_forcing_available,
+-        :diffuse_transmission_available,
+-        :canopy_wind_profile_available,
+-        :logical_leaf_unit_layout_inputs_available,
+-    )
+-        getproperty(status, name) isa Bool || throw(
++    let name = :astronomical_daylight
++        getproperty(status, :astronomical_daylight) isa Bool || throw(
++            ArgumentError("$(String(name)) must be Bool"),
++        )
++    end
++    let name = :leaf_radiation_partitioning_available
++        getproperty(status, :leaf_radiation_partitioning_available) isa Bool || throw(
++            ArgumentError("$(String(name)) must be Bool"),
++        )
++    end
++    let name = :leaf_radiative_forcing_available
++        getproperty(status, :leaf_radiative_forcing_available) isa Bool || throw(
++            ArgumentError("$(String(name)) must be Bool"),
++        )
++    end
++    let name = :diffuse_transmission_available
++        getproperty(status, :diffuse_transmission_available) isa Bool || throw(
++            ArgumentError("$(String(name)) must be Bool"),
++        )
++    end
++    let name = :canopy_wind_profile_available
++        getproperty(status, :canopy_wind_profile_available) isa Bool || throw(
++            ArgumentError("$(String(name)) must be Bool"),
++        )
++    end
++    let name = :logical_leaf_unit_layout_inputs_available
++        getproperty(status, :logical_leaf_unit_layout_inputs_available) isa Bool || throw(
+             ArgumentError("$(String(name)) must be Bool"),
+         )
+     end
+--- a/src/processes/civil_day_respiration_accumulator.jl
++++ b/src/processes/civil_day_respiration_accumulator.jl
+@@ -443,8 +443,11 @@
+         status.previous_current_day_respiration_mol,
+         status.previous_current_day_coverage_complete,
+     )
+-    for name in fieldnames(typeof(result))
+-        setproperty!(status, name, getproperty(result, name))
+-    end
++    _assign_civil_day_accumulator_fields!(status, result)
+     return nothing
+ end
++
++@generated function _assign_civil_day_accumulator_fields!(status, result::R) where {R}
++    assignments = [:(setproperty!(status, $(QuoteNode(name)), getproperty(result, $(QuoteNode(name))))) for name in fieldnames(R)]
++    return Expr(:block, assignments..., :(return nothing))
++end
+--- a/src/processes/meteorology_scenarios.jl
++++ b/src/processes/meteorology_scenarios.jl
+@@ -445,8 +445,11 @@
+         status.incident_par_umol_m2_s,
+         status.beam_fraction_par,
+     )
+-    for variable in keys(result)
+-        setproperty!(status, variable, getproperty(result, variable))
+-    end
++    _assign_meteorology_scenario_fields!(status, result)
+     return nothing
+ end
++
++@generated function _assign_meteorology_scenario_fields!(status, result::R) where {R<:NamedTuple}
++    assignments = [:(setproperty!(status, $(QuoteNode(name)), getproperty(result, $(QuoteNode(name))))) for name in fieldnames(R)]
++    return Expr(:block, assignments..., :(return nothing))
++end
+--- a/src/processes/meteorology.jl
++++ b/src/processes/meteorology.jl
+@@ -444,8 +444,11 @@
+         status.sun_zenith_rad,
+         status.extraterrestrial_irradiance,
+     )
+-    for variable in keys(result)
+-        setproperty!(status, variable, getproperty(result, variable))
+-    end
++    _assign_meteorology_reconstruction_fields!(status, result)
+     return nothing
+ end
++
++@generated function _assign_meteorology_reconstruction_fields!(status, result::R) where {R<:NamedTuple}
++    assignments = [:(setproperty!(status, $(QuoteNode(name)), getproperty(result, $(QuoteNode(name))))) for name in fieldnames(R)]
++    return Expr(:block, assignments..., :(return nothing))
++end
+--- a/src/processes/solar_geometry.jl
++++ b/src/processes/solar_geometry.jl
+@@ -412,8 +412,11 @@
+         status.step_index,
+         typeof(status.sun_zenith_rad),
+     )
+-    for name in keys(result)
+-        setproperty!(status, name, getproperty(result, name))
+-    end
++    _assign_solar_geometry_fields!(status, result)
+     return nothing
+ end
++
++@generated function _assign_solar_geometry_fields!(status, result::R) where {R<:NamedTuple}
++    assignments = [:(setproperty!(status, $(QuoteNode(name)), getproperty(result, $(QuoteNode(name))))) for name in fieldnames(R)]
++    return Expr(:block, assignments..., :(return nothing))
++end
+--- a/src/processes/coupled_leaf_energy_balance.jl
++++ b/src/processes/coupled_leaf_energy_balance.jl
+@@ -173,9 +173,7 @@
+ 
+ function PlantSimEngine.run!(model::MAESPACoupledLeafEnergyBalance, status, environment, constants, context)
+     if !(status.leaf_energy_balance_controller_active && status.leaf_energy_balance_controller_inputs_available)
+-        for (name, value) in pairs(PlantSimEngine.outputs_(model))
+-            setproperty!(status, name, oftype(getproperty(status, name), value))
+-        end
++        _reset_coupled_leaf_energy_fields!(status, PlantSimEngine.outputs_(model))
+         return nothing
+     end
+     T = typeof(status.accepted_leaf_temperature_c)
+@@ -287,3 +285,8 @@
+     maturity=:experimental_legacy_reimplementation,
+     validation=:point_scale_coupling_regressions,
+ )
++
++@generated function _reset_coupled_leaf_energy_fields!(status, defaults::NamedTuple{N}) where {N}
++    assignments = [:(let value = getproperty(defaults, $(QuoteNode(name))); setproperty!(status, $(QuoteNode(name)), oftype(getproperty(status, $(QuoteNode(name))), value)); end) for name in N]
++    return Expr(:block, assignments..., :(return nothing))
++end

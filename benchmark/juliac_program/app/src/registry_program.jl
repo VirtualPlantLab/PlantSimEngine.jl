@@ -196,9 +196,9 @@ function _lower_calls(calls::NamedTuple,lookup)
         RegistryCallRoute{slots,eltype(ids)}(locations,ids)
     end for members in values(calls)))
 end
-function _target_projection(application,raw,atmosphere_type)
+function _target_projection(application,raw,atmosphere_type,backend)
     Base.@nospecialize application raw
-    environment=prepare_environment(raw.environment_binding;atmosphere_type)
+    environment=prepare_environment(raw.environment_binding;atmosphere_type,backend)
     temporal=Tuple(_lower_temporal(input) for input in raw.input_bindings)
     inputs=NamedTuple{keys(raw.bound_inputs)}(Tuple(_lower_many(view) for view in values(raw.bound_inputs)))
     targets=NamedTuple{keys(raw.output_targets)}(Tuple(_lower_output_target(view) for view in values(raw.output_targets)))
@@ -289,8 +289,11 @@ Base.@nospecializeinfer function _lower_registry_seed(simulation,raws)
     private_model=simulation.model
     applications=simulation.compiled.applications
     atmosphere_type=_maespa_atmosphere_type(private_model,raws)
+    all(raw.environment_binding.backend===private_model.environment for (_,targets) in raws for raw in targets) ||
+        throw(ArgumentError("fixed registry applications must share the one original environment backend"))
+    backend=_prepare_maespa_backend(private_model.environment)
     any(pair->isempty(last(pair)),raws) && throw(ArgumentError("fixed registry backend requires nonempty application targets"))
-    entries=[(application,raw,_target_projection(application,raw,atmosphere_type))
+    entries=[(application,raw,_target_projection(application,raw,atmosphere_type,backend))
         for (application,targets) in raws for raw in targets]
     index_by_target=Dict((application.id,raw.object_id)=>index for (index,(application,raw,_)) in enumerate(entries))
     classes=_target_families(entries,index_by_target)
@@ -322,7 +325,7 @@ Base.@nospecializeinfer function _lower_registry_seed(simulation,raws)
     # it without another copy: its shared refs/streams/backend retain their
     # aliases, and the owning ordinary model/executor have no backreferences in
     # this seed (checked below) and become unreachable when authoring returns.
-    seed=RegistrySeed(groups,objects,histories,private_model.environment,simulation.constants,order,application_rows)
+    seed=RegistrySeed(groups,objects,histories,backend,simulation.constants,order,application_rows)
     _assert_owned_graph!(IdDict{Any,Nothing}(),seed)
     @info "Registry authoring: independent seed checked"
     return seed,atmosphere_type
