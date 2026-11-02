@@ -11,7 +11,11 @@ uses public Object/CompositeModel constructors, never a changed scientific model
 Its setup boundary excludes FPA parsing/native parameter compilation in BOTH arms.
 """
 function precompiled_fixture(authored)
-    objects=map(PSE.model_objects(authored.model)) do object
+    scene=only(PSE.model_objects(authored.model;scale=:Scene))
+    # CompositeModel links children in reverse declaration order. Preserve the
+    # original declaration sequence, not model_objects' lexical display order.
+    declarations=[scene;[PSE.model_object(authored.model,id) for id in authored.plant_ids]]
+    objects=map(declarations) do object
         values=isnothing(object.status) ? NamedTuple() : NamedTuple(object.status)
         if hasproperty(values,:_native_pse_state)
             values=merge(values,(_native_pse_state=OP.clone_native_state(values._native_pse_state),))
@@ -97,7 +101,15 @@ function measure_native_case(launcher; nplants=4,steps=8,outputs=:none,increment
     jit=measure_case(;nplants,steps,outputs,increment,seed,samples,profile)
     oc,tc=_configs(profile,nplants,steps,outputs,increment,seed)
     fixture=OF.construct(oc);simulation=OF.prepare_baseline(fixture,oc)
-    for _ in 1:steps;PSE.step!(simulation);end
+    # Untimed original-reference trajectory: the counter is the last app and
+    # runs once per live IN, so this counts calls including later-removed organs.
+    ordinary_entries=0;registrations=0;removals=0;previous=Set(PSE.object_ids(fixture.model;scale=:IN))
+    for _ in 1:steps
+        PSE.step!(simulation)
+        current=Set(PSE.object_ids(fixture.model;scale=:IN))
+        ordinary_entries+=length(current)
+        registrations+=length(setdiff(current,previous));removals+=length(setdiff(previous,current));previous=current
+    end
     expected=IOBuffer();emit_ordinary(expected,simulation,fixture,oc);expected_bytes=take!(expected)
     mode=profile===:merisier ? "rngperf" : "perf"
     process=@timed read(`$launcher $mode $nplants $steps $increment $seed $(outputs===:all) $samples`)
@@ -114,8 +126,14 @@ function measure_native_case(launcher; nplants=4,steps=8,outputs=:none,increment
     actual=read(io)
     actual==expected_bytes || error("AOT state/RNG/history snapshot differs from ORIGINAL ordinary PSE")
     length(trials)==samples || error("missing native trials")
+    all(trial->trial.lifetime_counter_entries==ordinary_entries,trials) || error("native lifetime call count differs from original PSE")
+    all(jit.samples) do trial
+        candidate=trial.typed_compiled
+        candidate.lifetime_counter_entries==ordinary_entries && candidate.registrations==registrations && candidate.removals==removals
+    end || error("registry lifetime work differs from original PSE")
     OF.verify_sources(oc);TF.verify_sources(tc)
     return (profile,jit,native=(samples=trials,process_wall_s=process.time,
+        ordinary_lifetime_counter_entries=ordinary_entries,registrations,removals,
         snapshot_bytes=length(actual),snapshot_sha256=bytes2hex(OF.sha256(actual)),
         parity=:byte_exact_original_ordinary_PSE,work=OF.work(simulation,fixture)))
 end
