@@ -86,12 +86,13 @@ macro process(f, args...)
         PlantSimEngine.process_(::Type{$(esc(process_abstract_type))}) = Symbol($process_name)
     end
 
-    # Print help when creating a process:
-    p = Term.RenderableText(
-        Markdown.parse(_process_model_tutorial(process_name, process_abstract_type))
-    )
-
-    isinteractive() && verbose && print(p)
+    # Rendering loads terminal backends, so construct help only when displayed.
+    if isinteractive() && verbose
+        p = Term.RenderableText(
+            Markdown.parse(_process_model_tutorial(process_name, process_abstract_type))
+        )
+        print(p)
+    end
 
     return expr
 end
