@@ -1,0 +1,60 @@
+{
+  "state": "complete",
+  "configuration": {
+    "label": "regular-root-07",
+    "epoch": "final-01",
+    "cases": [
+      {
+        "arm": "baseline",
+        "kind": "xpalm",
+        "size": 4160,
+        "mode": "none",
+        "copies": 1
+      }
+    ]
+  },
+  "stop": {
+    "event": "stop",
+    "label": "regular-root-07",
+    "pid": 82546,
+    "at": "2026-11-02T23:25:24.546092+00:00",
+    "maximum_s": 55.0
+  },
+  "continue": {
+    "event": "continue",
+    "label": "regular-root-07",
+    "pid": 82546,
+    "at": "2026-11-02T23:26:05.231490+00:00",
+    "elapsed_s": 40.685268041910604,
+    "released_early": true
+  },
+  "all_cases_contained": true,
+  "cases": [
+    {
+      "state": "complete",
+      "arm": "baseline",
+      "kind": "xpalm",
+      "size": 4160,
+      "mode": "none",
+      "copies": 1,
+      "started": 1793661924.631268,
+      "ended": 1793661964.92269,
+      "checkpoint_sha256": "38c3a28358410ea6d22ee0cde778d00ac985e4dcb689b94f105735435f91af32",
+      "result": {
+        "case": "4160-none",
+        "execution_s": [
+          5.258444333,
+          5.190504959,
+          5.106065958
+        ],
+        "preparation_s": [
+          0.028072542,
+          0.026538541,
+          0.024708917
+        ],
+        "objects": 1190
+      }
+    }
+  ],
+  "watchdog_stderr": ""
+}

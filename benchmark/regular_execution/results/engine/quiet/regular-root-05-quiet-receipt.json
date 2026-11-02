@@ -1,0 +1,102 @@
+{
+  "state": "complete",
+  "configuration": {
+    "label": "regular-root-05",
+    "epoch": "final-01",
+    "cases": [
+      {
+        "arm": "baseline",
+        "kind": "maespa",
+        "size": 96,
+        "mode": "all",
+        "copies": 4
+      },
+      {
+        "arm": "candidate",
+        "kind": "maespa",
+        "size": 96,
+        "mode": "all",
+        "copies": 4
+      }
+    ]
+  },
+  "stop": {
+    "event": "stop",
+    "label": "regular-root-05",
+    "pid": 82546,
+    "at": "2026-11-02T23:23:46.245094+00:00",
+    "maximum_s": 55.0
+  },
+  "continue": {
+    "event": "continue",
+    "label": "regular-root-05",
+    "pid": 82546,
+    "at": "2026-11-02T23:24:25.169172+00:00",
+    "elapsed_s": 38.924006583867595,
+    "released_early": true
+  },
+  "all_cases_contained": true,
+  "cases": [
+    {
+      "state": "complete",
+      "arm": "baseline",
+      "kind": "maespa",
+      "size": 96,
+      "mode": "all",
+      "copies": 4,
+      "started": 1793661826.320372,
+      "ended": 1793661845.112798,
+      "checkpoint_sha256": "3dc3636279e396c41fdc8e6a63c0f5bd7ab09db4fdbbb0584396185bbd15d742",
+      "result": {
+        "case": "4-96-all",
+        "execution_s": [
+          1.020981833,
+          1.026568708,
+          1.01358025
+        ],
+        "preparation_s": [
+          0.466971417,
+          0.454408917,
+          0.443990083
+        ],
+        "construction_s": [
+          0.010676916,
+          0.011483666,
+          0.009773334
+        ],
+        "record_count": 283780
+      }
+    },
+    {
+      "state": "complete",
+      "arm": "candidate",
+      "kind": "maespa",
+      "size": 96,
+      "mode": "all",
+      "copies": 4,
+      "started": 1793661845.273981,
+      "ended": 1793661864.99858,
+      "checkpoint_sha256": "4884fdd1b4675bea7b3cfb2c06e4f5f86e5425b5cb60ac42aa38e781b7a769a5",
+      "result": {
+        "case": "4-96-all",
+        "execution_s": [
+          1.015108667,
+          1.04309275,
+          0.990911333
+        ],
+        "preparation_s": [
+          0.527080458,
+          0.460486042,
+          0.488542917
+        ],
+        "construction_s": [
+          0.016283917,
+          0.01450175,
+          0.010466291
+        ],
+        "record_count": 283780
+      }
+    }
+  ],
+  "watchdog_stderr": ""
+}

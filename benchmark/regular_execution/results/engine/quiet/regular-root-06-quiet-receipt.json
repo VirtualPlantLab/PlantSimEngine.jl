@@ -1,0 +1,220 @@
+{
+  "state": "complete",
+  "configuration": {
+    "label": "regular-root-06",
+    "epoch": "final-01",
+    "cases": [
+      {
+        "arm": "baseline",
+        "kind": "xpalm",
+        "size": 256,
+        "mode": "none",
+        "copies": 1
+      },
+      {
+        "arm": "candidate",
+        "kind": "xpalm",
+        "size": 256,
+        "mode": "none",
+        "copies": 1
+      },
+      {
+        "arm": "candidate",
+        "kind": "xpalm",
+        "size": 256,
+        "mode": "all",
+        "copies": 1
+      },
+      {
+        "arm": "baseline",
+        "kind": "xpalm",
+        "size": 256,
+        "mode": "all",
+        "copies": 1
+      },
+      {
+        "arm": "baseline",
+        "kind": "xpalm",
+        "size": 1024,
+        "mode": "none",
+        "copies": 1
+      },
+      {
+        "arm": "candidate",
+        "kind": "xpalm",
+        "size": 1024,
+        "mode": "none",
+        "copies": 1
+      }
+    ]
+  },
+  "stop": {
+    "event": "stop",
+    "label": "regular-root-06",
+    "pid": 82546,
+    "at": "2026-11-02T23:24:40.251844+00:00",
+    "maximum_s": 55.0
+  },
+  "continue": {
+    "event": "continue",
+    "label": "regular-root-06",
+    "pid": 82546,
+    "at": "2026-11-02T23:25:09.460177+00:00",
+    "elapsed_s": 29.208210250129923,
+    "released_early": true
+  },
+  "all_cases_contained": true,
+  "cases": [
+    {
+      "state": "complete",
+      "arm": "baseline",
+      "kind": "xpalm",
+      "size": 256,
+      "mode": "none",
+      "copies": 1,
+      "started": 1793661880.340356,
+      "ended": 1793661883.510507,
+      "checkpoint_sha256": "77dfcf74dcb20ee3d65f91b9a4dbc691036686e06184bf7ae0ee181f0857a721",
+      "result": {
+        "case": "256-none",
+        "execution_s": [
+          0.108617041,
+          0.100965583,
+          0.10622775
+        ],
+        "preparation_s": [
+          0.021949916,
+          0.017740584,
+          0.017314458
+        ],
+        "objects": 86
+      }
+    },
+    {
+      "state": "complete",
+      "arm": "candidate",
+      "kind": "xpalm",
+      "size": 256,
+      "mode": "none",
+      "copies": 1,
+      "started": 1793661883.698137,
+      "ended": 1793661886.807109,
+      "checkpoint_sha256": "8b815946ee96593316495b385fb4699360d8df952dd31298ae431b4260fd2302",
+      "result": {
+        "case": "256-none",
+        "execution_s": [
+          0.099529833,
+          0.095226417,
+          0.118641208
+        ],
+        "preparation_s": [
+          0.022589875,
+          0.018279167,
+          0.035036084
+        ],
+        "objects": 86
+      }
+    },
+    {
+      "state": "complete",
+      "arm": "candidate",
+      "kind": "xpalm",
+      "size": 256,
+      "mode": "all",
+      "copies": 1,
+      "started": 1793661886.925252,
+      "ended": 1793661891.621894,
+      "checkpoint_sha256": "b370ad79fa2ca4e4109d789ac58d30feaf3b577d2af603aafecc107c23b9ba87",
+      "result": {
+        "case": "256-all",
+        "execution_s": [
+          0.169060083,
+          0.154420041,
+          0.1583585
+        ],
+        "preparation_s": [
+          0.022088917,
+          0.021264958,
+          0.020712791
+        ],
+        "objects": 86
+      }
+    },
+    {
+      "state": "complete",
+      "arm": "baseline",
+      "kind": "xpalm",
+      "size": 256,
+      "mode": "all",
+      "copies": 1,
+      "started": 1793661891.691979,
+      "ended": 1793661896.373474,
+      "checkpoint_sha256": "826e462a03416ac83823a565d1fdbc489a4f9e3c74626cac5470771641a6cf50",
+      "result": {
+        "case": "256-all",
+        "execution_s": [
+          0.15266925,
+          0.160338917,
+          0.125756458
+        ],
+        "preparation_s": [
+          0.021748209,
+          0.02188125,
+          0.018560458
+        ],
+        "objects": 86
+      }
+    },
+    {
+      "state": "complete",
+      "arm": "baseline",
+      "kind": "xpalm",
+      "size": 1024,
+      "mode": "none",
+      "copies": 1,
+      "started": 1793661896.396951,
+      "ended": 1793661902.607326,
+      "checkpoint_sha256": "8f550fe5ada5de422998310b48b7d98f4d6d06db6f12c10a6eb21329eae4fdc6",
+      "result": {
+        "case": "1024-none",
+        "execution_s": [
+          0.534044834,
+          0.539511542,
+          0.524430542
+        ],
+        "preparation_s": [
+          0.018390875,
+          0.018784375,
+          0.02037125
+        ],
+        "objects": 311
+      }
+    },
+    {
+      "state": "complete",
+      "arm": "candidate",
+      "kind": "xpalm",
+      "size": 1024,
+      "mode": "none",
+      "copies": 1,
+      "started": 1793661902.643107,
+      "ended": 1793661909.369379,
+      "checkpoint_sha256": "a7a926e1420d53c2d0d6671fd62e9477d52969d8064df05ef47a6bff2dce39df",
+      "result": {
+        "case": "1024-none",
+        "execution_s": [
+          0.559898,
+          0.548242208,
+          0.585586125
+        ],
+        "preparation_s": [
+          0.020583417,
+          0.020014459,
+          0.019962208
+        ],
+        "objects": 311
+      }
+    }
+  ],
+  "watchdog_stderr": ""
+}

@@ -1,0 +1,1171 @@
+{
+  "cases": [
+    {
+      "case": "maespa-1-24-none",
+      "kind": "maespa",
+      "configuration": {
+        "steps": 24,
+        "copies": 1,
+        "start_slot": 13,
+        "outputs": "none",
+        "T": "Float64",
+        "trees": 2,
+        "logical_leaf_slots": 16,
+        "base_step_seconds": 1800,
+        "population_layout": "adjacent_equal_area_two_species_tiles",
+        "shading_tree_count": 2,
+        "scope": "complete_public_native_canopy_soil_non_tuzet",
+        "target_seed": 731,
+        "meteorology_seed": 941
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.004333667,
+          "min_seconds": 0.0042685,
+          "max_seconds": 0.005333833,
+          "median_bytes": 4126048,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.07349925,
+          "min_seconds": 0.069545708,
+          "max_seconds": 0.08240675,
+          "median_bytes": 153814936,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.084110625,
+          "min_seconds": 0.081858791,
+          "max_seconds": 0.084848833,
+          "median_bytes": 122468032,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.161943542,
+          "median_bytes": 280409016
+        },
+        "reachable_simulation_bytes": 2524334
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.004354417,
+          "min_seconds": 0.004236917,
+          "max_seconds": 0.005164833,
+          "median_bytes": 4122480,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.070351292,
+          "min_seconds": 0.069434625,
+          "max_seconds": 0.079421042,
+          "median_bytes": 154006520,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.082264292,
+          "min_seconds": 0.080846208,
+          "max_seconds": 0.08331425,
+          "median_bytes": 120401872,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.15801995900000002,
+          "median_bytes": 278530872
+        },
+        "reachable_simulation_bytes": 2510014
+      },
+      "execution_speedup": 1.0224439177085483,
+      "complete_speedup": 1.0248296672447559,
+      "snapshot_sha256": "4edf2305494be263cd5f1b5f100b55a28435cb86d58738d58b27922ef238e8cb",
+      "record_count": 2153,
+      "objects": null,
+      "executor": {
+        "baseline": {
+          "application_groups": 63,
+          "concrete_batch_groups": 0
+        },
+        "candidate": {
+          "application_groups": 63,
+          "concrete_batch_groups": 63
+        }
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/maespa/maespa-1-24-none.json",
+          "sha256": "856197b45aada54eeb1f50b40b64219a8306ca1122ea27a4a246ff09427c6c60"
+        },
+        "candidate": {
+          "checkpoint": "candidate/maespa/maespa-1-24-none.json",
+          "sha256": "587eab3d414df6a04eb775dd8c01ce93211f3ce1c959966a4920515bae27c81d"
+        }
+      }
+    },
+    {
+      "case": "maespa-1-24-all",
+      "kind": "maespa",
+      "configuration": {
+        "steps": 24,
+        "copies": 1,
+        "start_slot": 13,
+        "outputs": "all",
+        "T": "Float64",
+        "trees": 2,
+        "logical_leaf_slots": 16,
+        "base_step_seconds": 1800,
+        "population_layout": "adjacent_equal_area_two_species_tiles",
+        "shading_tree_count": 2,
+        "scope": "complete_public_native_canopy_soil_non_tuzet",
+        "target_seed": 731,
+        "meteorology_seed": 941
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.004198084,
+          "min_seconds": 0.004048166,
+          "max_seconds": 0.004376583,
+          "median_bytes": 4126048,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.079283042,
+          "min_seconds": 0.078777292,
+          "max_seconds": 0.083465458,
+          "median_bytes": 171706872,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.086443875,
+          "min_seconds": 0.086015917,
+          "max_seconds": 0.101810917,
+          "median_bytes": 128758960,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.1701035,
+          "median_bytes": 304591880
+        },
+        "reachable_simulation_bytes": 4284892
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.004140959,
+          "min_seconds": 0.00413375,
+          "max_seconds": 0.004349167,
+          "median_bytes": 4124656,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.081095334,
+          "min_seconds": 0.079614625,
+          "max_seconds": 0.082071584,
+          "median_bytes": 171899592,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.081619333,
+          "min_seconds": 0.081023667,
+          "max_seconds": 0.082372458,
+          "median_bytes": 126632128,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.166855626,
+          "median_bytes": 302656376
+        },
+        "reachable_simulation_bytes": 4274780
+      },
+      "execution_speedup": 1.059110284569466,
+      "complete_speedup": 1.0194651752407795,
+      "snapshot_sha256": "62e127dc9410d0cf1a2bd260a09777bcc080f73e29af893fed40a1d86f929d33",
+      "record_count": 28202,
+      "objects": null,
+      "executor": {
+        "baseline": {
+          "application_groups": 63,
+          "concrete_batch_groups": 0
+        },
+        "candidate": {
+          "application_groups": 63,
+          "concrete_batch_groups": 63
+        }
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/maespa/maespa-1-24-all.json",
+          "sha256": "15f77ba7b4735f4b1f5b3d5c9fb65e34bb4738a293270a7804b898b515a4c7c8"
+        },
+        "candidate": {
+          "checkpoint": "candidate/maespa/maespa-1-24-all.json",
+          "sha256": "333aa9246ec25c202a5d3078adc2692f6586d13357d5088eb85b77a439fea600"
+        }
+      }
+    },
+    {
+      "case": "maespa-1-96-none",
+      "kind": "maespa",
+      "configuration": {
+        "steps": 96,
+        "copies": 1,
+        "start_slot": 1,
+        "outputs": "none",
+        "T": "Float64",
+        "trees": 2,
+        "logical_leaf_slots": 16,
+        "base_step_seconds": 1800,
+        "population_layout": "adjacent_equal_area_two_species_tiles",
+        "shading_tree_count": 2,
+        "scope": "complete_public_native_canopy_soil_non_tuzet",
+        "target_seed": 731,
+        "meteorology_seed": 941
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.004089333,
+          "min_seconds": 0.00405325,
+          "max_seconds": 0.005100625,
+          "median_bytes": 4135312,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.067458375,
+          "min_seconds": 0.067426542,
+          "max_seconds": 0.074783416,
+          "median_bytes": 153814936,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.233940959,
+          "min_seconds": 0.23321825,
+          "max_seconds": 0.234291709,
+          "median_bytes": 345640848,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.305771501,
+          "median_bytes": 503591464
+        },
+        "reachable_simulation_bytes": 2528350
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.004103084,
+          "min_seconds": 0.004046167,
+          "max_seconds": 0.004340209,
+          "median_bytes": 4131744,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.066393459,
+          "min_seconds": 0.066113958,
+          "max_seconds": 0.069430708,
+          "median_bytes": 154006520,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.228226583,
+          "min_seconds": 0.226193417,
+          "max_seconds": 0.232334667,
+          "median_bytes": 337355040,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.299727209,
+          "median_bytes": 495491208
+        },
+        "reachable_simulation_bytes": 2513006
+      },
+      "execution_speedup": 1.025038170071538,
+      "complete_speedup": 1.020165976990097,
+      "snapshot_sha256": "c40c4e2981b3490218aa2e9b77bf911d28e290bd76b8e2eb14f2cbbbaa93dc59",
+      "record_count": 2157,
+      "objects": null,
+      "executor": {
+        "baseline": {
+          "application_groups": 63,
+          "concrete_batch_groups": 0
+        },
+        "candidate": {
+          "application_groups": 63,
+          "concrete_batch_groups": 63
+        }
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/maespa/maespa-1-96-none.json",
+          "sha256": "51f1f3bc7eda3037dcabd46e3429898036e8f27ac400d11e94ed320030303102"
+        },
+        "candidate": {
+          "checkpoint": "candidate/maespa/maespa-1-96-none.json",
+          "sha256": "4505bac30591d3f2f26837e4d19bf1baa1880d314a135f04a3689e52cdd656b0"
+        }
+      }
+    },
+    {
+      "case": "maespa-1-96-all",
+      "kind": "maespa",
+      "configuration": {
+        "steps": 96,
+        "copies": 1,
+        "start_slot": 1,
+        "outputs": "all",
+        "T": "Float64",
+        "trees": 2,
+        "logical_leaf_slots": 16,
+        "base_step_seconds": 1800,
+        "population_layout": "adjacent_equal_area_two_species_tiles",
+        "shading_tree_count": 2,
+        "scope": "complete_public_native_canopy_soil_non_tuzet",
+        "target_seed": 731,
+        "meteorology_seed": 941
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.004248542,
+          "min_seconds": 0.004138125,
+          "max_seconds": 0.004318458,
+          "median_bytes": 4135392,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.07904325,
+          "min_seconds": 0.076681125,
+          "max_seconds": 0.079408125,
+          "median_bytes": 171706872,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.241716708,
+          "min_seconds": 0.240219416,
+          "max_seconds": 0.248470083,
+          "median_bytes": 366838016,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.323876083,
+          "median_bytes": 542682456
+        },
+        "reachable_simulation_bytes": 8938092
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.004308,
+          "min_seconds": 0.004042875,
+          "max_seconds": 0.004978583,
+          "median_bytes": 4131744,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.081189,
+          "min_seconds": 0.081066417,
+          "max_seconds": 0.09092325,
+          "median_bytes": 171899592,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.240206167,
+          "min_seconds": 0.238692209,
+          "max_seconds": 0.243995084,
+          "median_bytes": 358309520,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.325315459,
+          "median_bytes": 534340856
+        },
+        "reachable_simulation_bytes": 8925932
+      },
+      "execution_speedup": 1.0062885188122586,
+      "complete_speedup": 0.9955754454324902,
+      "snapshot_sha256": "bedc89433bb0d45bddf80c99ecefc1fc515bff68786f6721d54ceed46a5e30a4",
+      "record_count": 90874,
+      "objects": null,
+      "executor": {
+        "baseline": {
+          "application_groups": 63,
+          "concrete_batch_groups": 0
+        },
+        "candidate": {
+          "application_groups": 63,
+          "concrete_batch_groups": 63
+        }
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/maespa/maespa-1-96-all.json",
+          "sha256": "63e01ac41096ce806ce0bc63dc21819e33004f372fbca278d9c78c46c5f0dbed"
+        },
+        "candidate": {
+          "checkpoint": "candidate/maespa/maespa-1-96-all.json",
+          "sha256": "7f6146b85da6bb76fb67900d92978248b14e8f3e317fea78d76aba856e90cf1d"
+        }
+      }
+    },
+    {
+      "case": "maespa-4-24-none",
+      "kind": "maespa",
+      "configuration": {
+        "steps": 24,
+        "copies": 4,
+        "start_slot": 13,
+        "outputs": "none",
+        "T": "Float64",
+        "trees": 8,
+        "logical_leaf_slots": 64,
+        "base_step_seconds": 1800,
+        "population_layout": "adjacent_equal_area_two_species_tiles",
+        "shading_tree_count": 8,
+        "scope": "complete_public_native_canopy_soil_non_tuzet",
+        "target_seed": 731,
+        "meteorology_seed": 941
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.010778,
+          "min_seconds": 0.01031425,
+          "max_seconds": 0.013845042,
+          "median_bytes": 16204448,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.403110083,
+          "min_seconds": 0.403054083,
+          "max_seconds": 0.436059209,
+          "median_bytes": 1054787352,
+          "median_gc_seconds": 0.039802208
+        },
+        "execution": {
+          "median_seconds": 0.33871575,
+          "min_seconds": 0.334411166,
+          "max_seconds": 0.372368917,
+          "median_bytes": 480266192,
+          "median_gc_seconds": 0.031008708
+        },
+        "complete": {
+          "median_seconds": 0.752603833,
+          "median_bytes": 1551255736
+        },
+        "reachable_simulation_bytes": 8178220
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.010633333,
+          "min_seconds": 0.009840667,
+          "max_seconds": 0.016359541,
+          "median_bytes": 16207168,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.414331292,
+          "min_seconds": 0.411692875,
+          "max_seconds": 0.445160208,
+          "median_bytes": 1055145944,
+          "median_gc_seconds": 0.038289125
+        },
+        "execution": {
+          "median_seconds": 0.332604,
+          "min_seconds": 0.327210334,
+          "max_seconds": 0.33401,
+          "median_bytes": 473260208,
+          "median_gc_seconds": 0.022763292
+        },
+        "complete": {
+          "median_seconds": 0.756775959,
+          "median_bytes": 1544613320
+        },
+        "reachable_simulation_bytes": 8169260
+      },
+      "execution_speedup": 1.0183754554966264,
+      "complete_speedup": 0.9944869733897029,
+      "snapshot_sha256": "0ef90ed1cb807655ec8d7f158fb6aa7a40f97c800943a478c448a63836195286",
+      "record_count": 7205,
+      "objects": null,
+      "executor": {
+        "baseline": {
+          "application_groups": 177,
+          "concrete_batch_groups": 0
+        },
+        "candidate": {
+          "application_groups": 177,
+          "concrete_batch_groups": 177
+        }
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/maespa/maespa-4-24-none.json",
+          "sha256": "f933372d82ec7b81fdd085e1be9791dc646a092c75bade4fa5e9813347544f4f"
+        },
+        "candidate": {
+          "checkpoint": "candidate/maespa/maespa-4-24-none.json",
+          "sha256": "dbf83de5dad7034d2a42126fc5d4f54ee8fbae89d123b66f1700c8e29036f0b5"
+        }
+      }
+    },
+    {
+      "case": "maespa-4-24-all",
+      "kind": "maespa",
+      "configuration": {
+        "steps": 24,
+        "copies": 4,
+        "start_slot": 13,
+        "outputs": "all",
+        "T": "Float64",
+        "trees": 8,
+        "logical_leaf_slots": 64,
+        "base_step_seconds": 1800,
+        "population_layout": "adjacent_equal_area_two_species_tiles",
+        "shading_tree_count": 8,
+        "scope": "complete_public_native_canopy_soil_non_tuzet",
+        "target_seed": 731,
+        "meteorology_seed": 941
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.010212333,
+          "min_seconds": 0.00990475,
+          "max_seconds": 0.011828667,
+          "median_bytes": 16212704,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.484472375,
+          "min_seconds": 0.476594833,
+          "max_seconds": 0.488800291,
+          "median_bytes": 1113339608,
+          "median_gc_seconds": 0.057808
+        },
+        "execution": {
+          "median_seconds": 0.366249917,
+          "min_seconds": 0.366021167,
+          "max_seconds": 0.375053208,
+          "median_bytes": 502841856,
+          "median_gc_seconds": 0.0455355
+        },
+        "complete": {
+          "median_seconds": 0.862322209,
+          "median_bytes": 1632396376
+        },
+        "reachable_simulation_bytes": 14463522
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.009918167,
+          "min_seconds": 0.00983875,
+          "max_seconds": 0.010167792,
+          "median_bytes": 16198912,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.446262,
+          "min_seconds": 0.44447925,
+          "max_seconds": 0.454036584,
+          "median_bytes": 1113723480,
+          "median_gc_seconds": 0.045894541
+        },
+        "execution": {
+          "median_seconds": 0.317736917,
+          "min_seconds": 0.311536875,
+          "max_seconds": 0.325817333,
+          "median_bytes": 495660000,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.773837667,
+          "median_bytes": 1625582392
+        },
+        "reachable_simulation_bytes": 14466210
+      },
+      "execution_speedup": 1.1526829191207895,
+      "complete_speedup": 1.114345095584498,
+      "snapshot_sha256": "996c45f988a0bca9083f9c833fa64ee4907b79de133bdfe0768e321a5e86d46d",
+      "record_count": 91244,
+      "objects": null,
+      "executor": {
+        "baseline": {
+          "application_groups": 177,
+          "concrete_batch_groups": 0
+        },
+        "candidate": {
+          "application_groups": 177,
+          "concrete_batch_groups": 177
+        }
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/maespa/maespa-4-24-all.json",
+          "sha256": "b793a650afcee1c994f833862403afc2bc6965a037daf33de13b67aa1ef337cd"
+        },
+        "candidate": {
+          "checkpoint": "candidate/maespa/maespa-4-24-all.json",
+          "sha256": "9d5f626b1239699599544c04b4851fa6569cb84ac30932535b7ccb754c190254"
+        }
+      }
+    },
+    {
+      "case": "maespa-4-96-none",
+      "kind": "maespa",
+      "configuration": {
+        "steps": 96,
+        "copies": 4,
+        "start_slot": 1,
+        "outputs": "none",
+        "T": "Float64",
+        "trees": 8,
+        "logical_leaf_slots": 64,
+        "base_step_seconds": 1800,
+        "population_layout": "adjacent_equal_area_two_species_tiles",
+        "shading_tree_count": 8,
+        "scope": "complete_public_native_canopy_soil_non_tuzet",
+        "target_seed": 731,
+        "meteorology_seed": 941
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.010780833,
+          "min_seconds": 0.009888167,
+          "max_seconds": 0.013720958,
+          "median_bytes": 16213232,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.407664292,
+          "min_seconds": 0.406278542,
+          "max_seconds": 0.438395292,
+          "median_bytes": 1054785096,
+          "median_gc_seconds": 0.032349209
+        },
+        "execution": {
+          "median_seconds": 0.961649834,
+          "min_seconds": 0.950777667,
+          "max_seconds": 1.009364416,
+          "median_bytes": 1336091184,
+          "median_gc_seconds": 0.087342208
+        },
+        "complete": {
+          "median_seconds": 1.4028939169999999,
+          "median_bytes": 2407089512
+        },
+        "reachable_simulation_bytes": 8188764
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.010640416,
+          "min_seconds": 0.009478292,
+          "max_seconds": 0.013856209,
+          "median_bytes": 16207696,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.423789666,
+          "min_seconds": 0.418052583,
+          "max_seconds": 0.445845417,
+          "median_bytes": 1055156456,
+          "median_gc_seconds": 0.050312333
+        },
+        "execution": {
+          "median_seconds": 0.935342084,
+          "min_seconds": 0.901866083,
+          "max_seconds": 0.948300375,
+          "median_bytes": 1308047056,
+          "median_gc_seconds": 0.060443917
+        },
+        "complete": {
+          "median_seconds": 1.369772166,
+          "median_bytes": 2379411208
+        },
+        "reachable_simulation_bytes": 8179804
+      },
+      "execution_speedup": 1.0281263405656835,
+      "complete_speedup": 1.0241804818510234,
+      "snapshot_sha256": "8deec631e6808914f788c192401b5d9e371463262985fcec3bff80206d64db03",
+      "record_count": 7221,
+      "objects": null,
+      "executor": {
+        "baseline": {
+          "application_groups": 177,
+          "concrete_batch_groups": 0
+        },
+        "candidate": {
+          "application_groups": 177,
+          "concrete_batch_groups": 177
+        }
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/maespa/maespa-4-96-none.json",
+          "sha256": "2d7a1843ac41abf8a2905ca82ac27dfb0f94b2c3c1d9ed92c6df1b96eabdf012"
+        },
+        "candidate": {
+          "checkpoint": "candidate/maespa/maespa-4-96-none.json",
+          "sha256": "17fc092dee26521c1cea0622e1b470aacbe84de6ca1d9707a44344755c190b25"
+        }
+      }
+    },
+    {
+      "case": "maespa-4-96-all",
+      "kind": "maespa",
+      "configuration": {
+        "steps": 96,
+        "copies": 4,
+        "start_slot": 1,
+        "outputs": "all",
+        "T": "Float64",
+        "trees": 8,
+        "logical_leaf_slots": 64,
+        "base_step_seconds": 1800,
+        "population_layout": "adjacent_equal_area_two_species_tiles",
+        "shading_tree_count": 8,
+        "scope": "complete_public_native_canopy_soil_non_tuzet",
+        "target_seed": 731,
+        "meteorology_seed": 941
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.010676916,
+          "min_seconds": 0.009773334,
+          "max_seconds": 0.011483666,
+          "median_bytes": 16221488,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.454408917,
+          "min_seconds": 0.443990083,
+          "max_seconds": 0.466971417,
+          "median_bytes": 1113331352,
+          "median_gc_seconds": 0.043228583
+        },
+        "execution": {
+          "median_seconds": 1.020981833,
+          "min_seconds": 1.01358025,
+          "max_seconds": 1.026568708,
+          "median_bytes": 1411768000,
+          "median_gc_seconds": 0.103299498
+        },
+        "complete": {
+          "median_seconds": 1.4924612910000001,
+          "median_bytes": 2541320840
+        },
+        "reachable_simulation_bytes": 31096498
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.01450175,
+          "min_seconds": 0.010466291,
+          "max_seconds": 0.016283917,
+          "median_bytes": 16207696,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.488542917,
+          "min_seconds": 0.460486042,
+          "max_seconds": 0.527080458,
+          "median_bytes": 1113723480,
+          "median_gc_seconds": 0.05433825
+        },
+        "execution": {
+          "median_seconds": 1.015108667,
+          "min_seconds": 0.990911333,
+          "max_seconds": 1.04309275,
+          "median_bytes": 1383012256,
+          "median_gc_seconds": 0.09684025
+        },
+        "complete": {
+          "median_seconds": 1.518080542,
+          "median_bytes": 2512943432
+        },
+        "reachable_simulation_bytes": 31099186
+      },
+      "execution_speedup": 1.0057857510145758,
+      "complete_speedup": 0.9831239184672983,
+      "snapshot_sha256": "3ab0a620ad4fb1186f2f92f782290749389830630a3ecabac9e681764a36d56c",
+      "record_count": 283780,
+      "objects": null,
+      "executor": {
+        "baseline": {
+          "application_groups": 177,
+          "concrete_batch_groups": 0
+        },
+        "candidate": {
+          "application_groups": 177,
+          "concrete_batch_groups": 177
+        }
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/maespa/maespa-4-96-all.json",
+          "sha256": "3dc3636279e396c41fdc8e6a63c0f5bd7ab09db4fdbbb0584396185bbd15d742"
+        },
+        "candidate": {
+          "checkpoint": "candidate/maespa/maespa-4-96-all.json",
+          "sha256": "4884fdd1b4675bea7b3cfb2c06e4f5f86e5425b5cb60ac42aa38e781b7a769a5"
+        }
+      }
+    },
+    {
+      "case": "xpalm-256-none",
+      "kind": "xpalm",
+      "configuration": {
+        "days": 256,
+        "outputs": "none",
+        "samples": 3,
+        "initiation_age": 0,
+        "architecture": false,
+        "parameters": "unchanged_package_defaults",
+        "forcing": "fixture_synthetic_daily"
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.002924459,
+          "min_seconds": 0.002882417,
+          "max_seconds": 0.003114459,
+          "median_bytes": 809800,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.017740584,
+          "min_seconds": 0.017314458,
+          "max_seconds": 0.021949916,
+          "median_bytes": 23434288,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.10622775,
+          "min_seconds": 0.100965583,
+          "max_seconds": 0.108617041,
+          "median_bytes": 105810656,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.12642462499999998,
+          "median_bytes": 130058872
+        },
+        "reachable_simulation_bytes": 3262590
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.003238167,
+          "min_seconds": 0.00322225,
+          "max_seconds": 0.003742959,
+          "median_bytes": 809800,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.022589875,
+          "min_seconds": 0.018279167,
+          "max_seconds": 0.035036084,
+          "median_bytes": 23461008,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.099529833,
+          "min_seconds": 0.095226417,
+          "max_seconds": 0.118641208,
+          "median_bytes": 103761440,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.12586266699999998,
+          "median_bytes": 128032248
+        },
+        "reachable_simulation_bytes": 3273622
+      },
+      "execution_speedup": 1.0672955715699834,
+      "complete_speedup": 1.0044648505660538,
+      "snapshot_sha256": "9a13ba377b8b1ea154b57299dd1c1efcf54fdf5c67c5da08911af9f5a1eaaae1",
+      "record_count": null,
+      "objects": 86,
+      "executor": {
+        "baseline": null,
+        "candidate": null
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/xpalm/xpalm-256-none.json",
+          "sha256": "77dfcf74dcb20ee3d65f91b9a4dbc691036686e06184bf7ae0ee181f0857a721"
+        },
+        "candidate": {
+          "checkpoint": "candidate/xpalm/xpalm-256-none.json",
+          "sha256": "8b815946ee96593316495b385fb4699360d8df952dd31298ae431b4260fd2302"
+        }
+      }
+    },
+    {
+      "case": "xpalm-256-all",
+      "kind": "xpalm",
+      "configuration": {
+        "days": 256,
+        "outputs": "all",
+        "samples": 3,
+        "initiation_age": 0,
+        "architecture": false,
+        "parameters": "unchanged_package_defaults",
+        "forcing": "fixture_synthetic_daily"
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.003489959,
+          "min_seconds": 0.003082042,
+          "max_seconds": 0.0039175,
+          "median_bytes": 810040,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.021748209,
+          "min_seconds": 0.018560458,
+          "max_seconds": 0.02188125,
+          "median_bytes": 23959504,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.15266925,
+          "min_seconds": 0.125756458,
+          "max_seconds": 0.160338917,
+          "median_bytes": 134222448,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.17833495900000002,
+          "median_bytes": 158992232
+        },
+        "reachable_simulation_bytes": 12747350
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.003174959,
+          "min_seconds": 0.003115542,
+          "max_seconds": 0.003210709,
+          "median_bytes": 809800,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.021264958,
+          "min_seconds": 0.020712791,
+          "max_seconds": 0.022088917,
+          "median_bytes": 23986912,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.1583585,
+          "min_seconds": 0.154420041,
+          "max_seconds": 0.169060083,
+          "median_bytes": 132262256,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.18218683300000002,
+          "median_bytes": 157056952
+        },
+        "reachable_simulation_bytes": 12748222
+      },
+      "execution_speedup": 0.9640736051427615,
+      "complete_speedup": 0.9788575610181445,
+      "snapshot_sha256": "eb5ccb0ab2e983d6254c131528acd39d8126be774d8a86cf8bf470d16733a7bc",
+      "record_count": null,
+      "objects": 86,
+      "executor": {
+        "baseline": null,
+        "candidate": null
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/xpalm/xpalm-256-all.json",
+          "sha256": "826e462a03416ac83823a565d1fdbc489a4f9e3c74626cac5470771641a6cf50"
+        },
+        "candidate": {
+          "checkpoint": "candidate/xpalm/xpalm-256-all.json",
+          "sha256": "b370ad79fa2ca4e4109d789ac58d30feaf3b577d2af603aafecc107c23b9ba87"
+        }
+      }
+    },
+    {
+      "case": "xpalm-1024-none",
+      "kind": "xpalm",
+      "configuration": {
+        "days": 1024,
+        "outputs": "none",
+        "samples": 3,
+        "initiation_age": 0,
+        "architecture": false,
+        "parameters": "unchanged_package_defaults",
+        "forcing": "fixture_synthetic_daily"
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.002903292,
+          "min_seconds": 0.0028615,
+          "max_seconds": 0.00297175,
+          "median_bytes": 810040,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.018784375,
+          "min_seconds": 0.018390875,
+          "max_seconds": 0.02037125,
+          "median_bytes": 25305680,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.534044834,
+          "min_seconds": 0.524430542,
+          "max_seconds": 0.539511542,
+          "median_bytes": 616656176,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.555297209,
+          "median_bytes": 642781240
+        },
+        "reachable_simulation_bytes": 11309239
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.003130417,
+          "min_seconds": 0.003047042,
+          "max_seconds": 0.003142792,
+          "median_bytes": 810040,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.020014459,
+          "min_seconds": 0.019962208,
+          "max_seconds": 0.020583417,
+          "median_bytes": 25332400,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 0.559898,
+          "min_seconds": 0.548242208,
+          "max_seconds": 0.585586125,
+          "median_bytes": 613930928,
+          "median_gc_seconds": 0.0
+        },
+        "complete": {
+          "median_seconds": 0.583624209,
+          "median_bytes": 640073368
+        },
+        "reachable_simulation_bytes": 11297599
+      },
+      "execution_speedup": 0.9538252217368164,
+      "complete_speedup": 0.9514636309406418,
+      "snapshot_sha256": "ea7844a61110f16f70ba667820774e765354ea6f663bd2fba01e698300628b27",
+      "record_count": null,
+      "objects": 311,
+      "executor": {
+        "baseline": null,
+        "candidate": null
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/xpalm/xpalm-1024-none.json",
+          "sha256": "8f550fe5ada5de422998310b48b7d98f4d6d06db6f12c10a6eb21329eae4fdc6"
+        },
+        "candidate": {
+          "checkpoint": "candidate/xpalm/xpalm-1024-none.json",
+          "sha256": "a7a926e1420d53c2d0d6671fd62e9477d52969d8064df05ef47a6bff2dce39df"
+        }
+      }
+    },
+    {
+      "case": "xpalm-4160-none",
+      "kind": "xpalm",
+      "configuration": {
+        "days": 4160,
+        "outputs": "none",
+        "samples": 3,
+        "initiation_age": 0,
+        "architecture": false,
+        "parameters": "unchanged_package_defaults",
+        "forcing": "fixture_synthetic_daily"
+      },
+      "baseline": {
+        "construction": {
+          "median_seconds": 0.002946125,
+          "min_seconds": 0.002936084,
+          "max_seconds": 0.00299125,
+          "median_bytes": 809800,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.026538541,
+          "min_seconds": 0.024708917,
+          "max_seconds": 0.028072542,
+          "median_bytes": 32951888,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 5.190504959,
+          "min_seconds": 5.106065958,
+          "max_seconds": 5.258444333,
+          "median_bytes": 5378771752,
+          "median_gc_seconds": 0.373398833
+        },
+        "complete": {
+          "median_seconds": 5.219989625,
+          "median_bytes": 5412533440
+        },
+        "reachable_simulation_bytes": 45916230
+      },
+      "candidate": {
+        "construction": {
+          "median_seconds": 0.003824333,
+          "min_seconds": 0.003224708,
+          "max_seconds": 0.005525333,
+          "median_bytes": 809800,
+          "median_gc_seconds": 0.0
+        },
+        "preparation": {
+          "median_seconds": 0.029537417,
+          "min_seconds": 0.026826334,
+          "max_seconds": 0.042962084,
+          "median_bytes": 32978608,
+          "median_gc_seconds": 0.0
+        },
+        "execution": {
+          "median_seconds": 5.234999542,
+          "min_seconds": 5.077966958,
+          "max_seconds": 5.343473167,
+          "median_bytes": 5500307592,
+          "median_gc_seconds": 0.357133502
+        },
+        "complete": {
+          "median_seconds": 5.283486958999999,
+          "median_bytes": 5534096240
+        },
+        "reachable_simulation_bytes": 45919390
+      },
+      "execution_speedup": 0.9915005564674795,
+      "complete_speedup": 0.9879819266153697,
+      "snapshot_sha256": "a685fcbddf000838493a537bf87b3bdc44422c8a4f7ddb929aa85e738198fbc4",
+      "record_count": null,
+      "objects": 1190,
+      "executor": {
+        "baseline": null,
+        "candidate": null
+      },
+      "artifacts": {
+        "baseline": {
+          "checkpoint": "baseline/xpalm/xpalm-4160-none.json",
+          "sha256": "38c3a28358410ea6d22ee0cde778d00ac985e4dcb689b94f105735435f91af32"
+        },
+        "candidate": {
+          "checkpoint": "candidate/xpalm/xpalm-4160-none.json",
+          "sha256": "544244ab78f9607ebc754220b34fc6469c6992bbbf493d68f906a2686f7f3e26"
+        }
+      }
+    }
+  ],
+  "pse_image_sha256": {
+    "baseline": "84cb966ff34341b637c2a40b55e482922ec4b329ff83d1d89598de7fdb62e154",
+    "candidate": "9390a5643b103fc8c6eb7fdd8121d45e42f3b988a489804490beaaf71b6f2fcb"
+  },
+  "all_compilation_zero": true,
+  "all_complete_observations_exact": true,
+  "all_case_intervals_inside_quiet_windows": true,
+  "samples_per_arm_case": 3,
+  "quiet_window_receipts": 8,
+  "runtime": {
+    "julia": "1.13.1",
+    "threads": 2,
+    "cpu": "apple-m3"
+  },
+  "timing_boundary": "construction, preparation, complete-timeline execution; observers and pretrial GC excluded"
+}

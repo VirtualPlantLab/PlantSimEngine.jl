@@ -1,0 +1,26 @@
+Ordinary owned-call regression contracts                                       | 3758      2   3760  9m40.2s
+  test-model-concrete-object-identities.jl                                     |  340           340    33.3s
+  test-model-temporal-initial-typing.jl                                        |  112           112    13.1s
+  test-model-hard-calls.jl                                                     |  279           279  1m25.7s
+  test-model-call-evaluations.jl                                               |  190           190    44.7s
+  test-call-evaluation-parent-generation.jl                                    |  114           114    30.2s
+  test-prepared-environment-inputs.jl                                          |   53            53    12.4s
+  test-model-call-context-cache.jl                                             |  344           344    18.6s
+  test-model-lightweight-call-targets.jl                                       |   47            47     9.0s
+  test-model-collected-call-targets.jl                                         |  202           202    20.1s
+  test-model-reusable-call-targets.jl                                          |  301           301    32.9s
+  test-model-materialized-call-dispatch.jl                                     |  320           320    58.9s
+  test-model-single-call-snapshot-cache.jl                                     |  332           332    35.4s
+  test-model-only-call-targets.jl                                              |  196           196    14.5s
+  test-model-individual-call-environments.jl                                   |  437      1    438    19.0s
+    individual backend overrides preserve providers, snapshots and publication |  356           356     9.5s
+    same-target backend reentry keeps the already acquired outer child view    |   60            60     0.1s
+    targeted newborn individual calls receive backend trial states             |   20            20     5.9s
+    readable source executes individual backend overrides through descendants  |    1      1      2     3.2s
+  test-model-individual-source-environment.jl                                  |    2      1      3     3.9s
+    Generated individual backend overrides preserve descendants and snapshots  |    2      1      3     3.8s
+  test-model-newborn-retention.jl                                              |  124           124    16.6s
+  test-model-initializers.jl                                                   |  157           157  1m37.1s
+  test-model-source-call-evaluations.jl                                        |   74            74    12.4s
+  test-model-call-evaluation-temporal-inputs.jl                                |  134           134    22.5s
+Main namespace source-call regressions |  560    560  43.2s

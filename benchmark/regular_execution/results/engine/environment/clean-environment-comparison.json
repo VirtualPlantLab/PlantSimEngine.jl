@@ -1,0 +1,12 @@
+{
+  "state": "passed",
+  "packages": 16,
+  "science_and_dependency_project_images_equal": true,
+  "only_PSE_source_root_differs": true,
+  "test_runner_aqua_documenter_not_loaded": true,
+  "julia": "1.13.1",
+  "compute_threads": 2,
+  "gc_threads": 1,
+  "cpu": "apple-m3",
+  "total_memory": 38654705664
+}

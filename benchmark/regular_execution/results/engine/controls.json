@@ -1,0 +1,15 @@
+{
+  "baseline_PSE": "48492cb1df603864ac88c34f75011b0cf011d907",
+  "candidate_PSE": "16a8ba182",
+  "ordinary_only": true,
+  "JuliaC_used": false,
+  "source_scope": {
+    "xpalm": "Unchanged XPalm at 5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd; architecture=false",
+    "maespa": "Unchanged original full-scenario science; distinct from the current main c45 package-port cohort"
+  },
+  "raw_observations_location": "/private/tmp/pse-regular-port-20261102/final-01",
+  "raw_observations_archived_in_git": false,
+  "timing": "warm execution and warm fresh construction+preparation+execution reported separately; snapshots/formatting/validation/pretrialGC excluded",
+  "controls": "Fresh science-only candidate and science-only frozen baseline; identical 16 package/version/project inventories; Julia 1.13.1, 2 compute and 1 GC thread; arm order alternates by case",
+  "quiet_windows": "Only the owned long test process paused in bounded windows of at most 55 s; every case checked against actual UTC STOP/CONT; resumed gaps of at least 15 s"
+}

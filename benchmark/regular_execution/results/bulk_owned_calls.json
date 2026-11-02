@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "scope": "ordinary PSE compiled bulk hard-call owner function barrier",
+  "base_commit": "69d7c57b53a7711f51ac1fd36f874f93dd119983",
+  "candidate_commit": "16a8ba1827b93d1a34262e696de9897a22b48e72",
+  "runtime_file": "src/composite_model/runtime_outputs.jl",
+  "runtime_source_before_sha256": "48fe37bf10c0b6ae8e203055f4e90010aa7eec42e924eb664776300bf816f8ca",
+  "runtime_source_after_sha256": "0af396d3dafcfd292fd28698faa5558a073dae33e1357abd6a353a6766fd7dbf",
+  "raw_experiment": {
+    "path": "benchmark/regular_execution/results/bulk_owned_calls_raw.json",
+    "sha256": "a277447940fe611d09bb51a76dbc3fea2545beb259901f94ac2e9ce9ddc989de",
+    "bytes": 4931
+  },
+  "archived_experiment_sources": {
+    "path": "benchmark/regular_execution/results/bulk_owned_calls_sources.tar.gz",
+    "sha256": "9981c7092c206514959dad983c7ddfbd8665935c64c93b5e010dba955c056bd0",
+    "bytes": 4159
+  },
+  "source_archive_inventory": {
+    "bulk-owned-call-ab.jl": "3166eab36849f12c9758330342ea0ad5e3adb1d1688aa2cec755ef775bfc8409",
+    "bulk-owned-call-functions.jl": "0a13518e8d0ad209c5e3535822a060329141dd1f22d03a0adfa06163d1436865",
+    "bulk-owned-call-barrier.patch": "efbbc4c178ac7edb98bb48ee878cfa3667f9a29363240dc9d029284d8036e9dd"
+  },
+  "experiment_kind": "isolated old/new function identities inside one ordinary PSE process; production methods were not overwritten during A/B",
+  "boundary": "prepared 64-target bulk calls;1000 iterations;publish=false;no evaluation frame",
+  "timing_qualification": {
+    "accepted": false,
+    "reason": "parallel untimed correctness work was active; raw times are retained as excluded observations and no speed ratio is claimed"
+  },
+  "allocation_qualification": {
+    "accepted": true,
+    "interpretation": "about192bytes per call removed on this controlled fixture; small residual allocation counters include harness/runtime activity; this is not a full simulation speedup"
+  },
+  "cases": [
+    {
+      "T": "Float32",
+      "calls_per_trial": 64000,
+      "repeats_per_arm": 7,
+      "before_median_bytes": 12290624.0,
+      "after_median_bytes": 2336.0,
+      "median_bytes_removed_per_call": 192.0045,
+      "before_min_bytes": 12290336,
+      "after_min_bytes": 80,
+      "ir": {
+        "before": {
+          "statements": 294,
+          "any_ssa": 79,
+          "return_type": "Nothing",
+          "generic_scientific_run_calls": 1,
+          "generic_owned_barrier_calls": 0,
+          "specialized_owned_barrier_invokes": 0
+        },
+        "after": {
+          "statements": 180,
+          "any_ssa": 47,
+          "return_type": "Nothing",
+          "generic_scientific_run_calls": 0,
+          "generic_owned_barrier_calls": 0,
+          "specialized_owned_barrier_invokes": 0
+        }
+      },
+      "exact_scalar_state_parity": true,
+      "status_same_object": true,
+      "timed_compilation_zero": true
+    },
+    {
+      "T": "Float64",
+      "calls_per_trial": 64000,
+      "repeats_per_arm": 7,
+      "before_median_bytes": 12290336.0,
+      "after_median_bytes": 2416.0,
+      "median_bytes_removed_per_call": 191.99875,
+      "before_min_bytes": 12288080,
+      "after_min_bytes": 80,
+      "ir": {
+        "before": {
+          "statements": 294,
+          "any_ssa": 79,
+          "return_type": "Nothing",
+          "generic_scientific_run_calls": 1,
+          "generic_owned_barrier_calls": 0,
+          "specialized_owned_barrier_invokes": 0
+        },
+        "after": {
+          "statements": 180,
+          "any_ssa": 47,
+          "return_type": "Nothing",
+          "generic_scientific_run_calls": 0,
+          "generic_owned_barrier_calls": 0,
+          "specialized_owned_barrier_invokes": 0
+        }
+      },
+      "exact_scalar_state_parity": true,
+      "status_same_object": true,
+      "timed_compilation_zero": true
+    }
+  ],
+  "helper_rename": {
+    "experiment_name": "_run_materialized_call_kernel!",
+    "production_name": "_run_owned_call_kernel!",
+    "body_identical_except_name_and_comment": true,
+    "compatibility_alias_added": false
+  },
+  "portable_regression": {
+    "file": "test/test-model-materialized-call-dispatch.jl",
+    "testset": "opaque sampled rows do not box wide bulk-call payloads",
+    "assertions": 32,
+    "numeric_types": [
+      "Float32",
+      "Float64"
+    ],
+    "publication": [
+      false,
+      true
+    ],
+    "control": "same public run_call!(context,:leaf), opaque backend row vs explicit typed sampled row; complete1024-call loops have64byte total allowance, never per target",
+    "file_sha256": "7deeb6fb0776a049f393e30a8de3942d59e0473669bd1746b83c35e8b1b29742"
+  },
+  "regression_qualification": {
+    "completed_test_files": 19,
+    "deduplicated_pass": 3879,
+    "fail": 0,
+    "error": 0,
+    "initial_gate": {
+      "path": "benchmark/regular_execution/results/owned_call_gate.json",
+      "sha256": "da9248f79c1332db2a0948b5d7e6111d963ed3a476ef7895e908b44e2866f6e3",
+      "bytes": 96
+    },
+    "main_namespace_retry": {
+      "path": "benchmark/regular_execution/results/owned_call_gate_main_rerun.json",
+      "sha256": "515a62f6d8129a4314f9bcb0844fa8ba34dc6c32a09f936876f0587a869dfe9a",
+      "bytes": 50
+    },
+    "summary_excerpt": {
+      "path": "benchmark/regular_execution/results/owned_call_gate_summary.txt",
+      "sha256": "9be480ec73846f87e3735c739a85ae2e5b65a3434e0b48d135b2b984401f7218",
+      "bytes": 2785
+    },
+    "initial_pass": 3758,
+    "initial_harness_errors": 2,
+    "excluded_duplicate_partial_pass": {
+      "test-model-individual-call-environments.jl": 437,
+      "test-model-individual-source-environment.jl": 2
+    },
+    "retry_pass": 560,
+    "derivation": "3758-437-2+560=3879; initial errors were generated-source namespace assumptions, not failed production assertions",
+    "main_namespace_files": [
+      "test-model-source-call-evaluations.jl",
+      "test-model-individual-call-environments.jl",
+      "test-model-individual-source-environment.jl"
+    ],
+    "coverage": [
+      "wide/private statuses and reference aliases",
+      "HoldLast and PreviousTimeStep",
+      "nested evaluation and accepted publication without replay",
+      "mutable global/spatial trial environments and commits",
+      "reentrant failures and lease release",
+      "newborn calls and initializers",
+      "concrete and heterogeneous object identities",
+      "Float32/Float64 and saved initial snapshots"
+    ]
+  },
+  "limitations": [
+    "micro allocation/IR evidence is supplementary to the19-file contract gate",
+    "whole-simulation engine timings are separate and pending",
+    "original experiment source archive is historical host-only evidence; use the permanent public regression for current-source reproduction"
+  ]
+}

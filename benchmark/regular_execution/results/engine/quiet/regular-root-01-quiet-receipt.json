@@ -1,0 +1,176 @@
+{
+  "state": "complete",
+  "configuration": {
+    "label": "regular-root-01",
+    "epoch": "final-01",
+    "cases": [
+      {
+        "arm": "baseline",
+        "kind": "maespa",
+        "size": 24,
+        "mode": "none",
+        "copies": 1
+      },
+      {
+        "arm": "candidate",
+        "kind": "maespa",
+        "size": 24,
+        "mode": "none",
+        "copies": 1
+      },
+      {
+        "arm": "candidate",
+        "kind": "maespa",
+        "size": 24,
+        "mode": "all",
+        "copies": 1
+      },
+      {
+        "arm": "baseline",
+        "kind": "maespa",
+        "size": 24,
+        "mode": "all",
+        "copies": 1
+      }
+    ]
+  },
+  "stop": {
+    "event": "stop",
+    "label": "regular-root-01",
+    "pid": 82546,
+    "at": "2026-11-02T23:19:38.294874+00:00",
+    "maximum_s": 55.0
+  },
+  "continue": {
+    "event": "continue",
+    "label": "regular-root-01",
+    "pid": 82546,
+    "at": "2026-11-02T23:19:52.376530+00:00",
+    "elapsed_s": 14.081676832865924,
+    "released_early": true
+  },
+  "all_cases_contained": true,
+  "cases": [
+    {
+      "state": "complete",
+      "arm": "baseline",
+      "kind": "maespa",
+      "size": 24,
+      "mode": "none",
+      "copies": 1,
+      "started": 1793661578.416997,
+      "ended": 1793661581.409673,
+      "checkpoint_sha256": "856197b45aada54eeb1f50b40b64219a8306ca1122ea27a4a246ff09427c6c60",
+      "result": {
+        "case": "1-24-none",
+        "execution_s": [
+          0.084848833,
+          0.084110625,
+          0.081858791
+        ],
+        "preparation_s": [
+          0.08240675,
+          0.07349925,
+          0.069545708
+        ],
+        "construction_s": [
+          0.005333833,
+          0.004333667,
+          0.0042685
+        ],
+        "record_count": 2153
+      }
+    },
+    {
+      "state": "complete",
+      "arm": "candidate",
+      "kind": "maespa",
+      "size": 24,
+      "mode": "none",
+      "copies": 1,
+      "started": 1793661581.761366,
+      "ended": 1793661585.007979,
+      "checkpoint_sha256": "587eab3d414df6a04eb775dd8c01ce93211f3ce1c959966a4920515bae27c81d",
+      "result": {
+        "case": "1-24-none",
+        "execution_s": [
+          0.080846208,
+          0.08331425,
+          0.082264292
+        ],
+        "preparation_s": [
+          0.079421042,
+          0.070351292,
+          0.069434625
+        ],
+        "construction_s": [
+          0.005164833,
+          0.004354417,
+          0.004236917
+        ],
+        "record_count": 2153
+      }
+    },
+    {
+      "state": "complete",
+      "arm": "candidate",
+      "kind": "maespa",
+      "size": 24,
+      "mode": "all",
+      "copies": 1,
+      "started": 1793661585.219598,
+      "ended": 1793661588.766552,
+      "checkpoint_sha256": "333aa9246ec25c202a5d3078adc2692f6586d13357d5088eb85b77a439fea600",
+      "result": {
+        "case": "1-24-all",
+        "execution_s": [
+          0.081619333,
+          0.082372458,
+          0.081023667
+        ],
+        "preparation_s": [
+          0.081095334,
+          0.082071584,
+          0.079614625
+        ],
+        "construction_s": [
+          0.004140959,
+          0.00413375,
+          0.004349167
+        ],
+        "record_count": 28202
+      }
+    },
+    {
+      "state": "complete",
+      "arm": "baseline",
+      "kind": "maespa",
+      "size": 24,
+      "mode": "all",
+      "copies": 1,
+      "started": 1793661588.955264,
+      "ended": 1793661592.270334,
+      "checkpoint_sha256": "15f77ba7b4735f4b1f5b3d5c9fb65e34bb4738a293270a7804b898b515a4c7c8",
+      "result": {
+        "case": "1-24-all",
+        "execution_s": [
+          0.101810917,
+          0.086015917,
+          0.086443875
+        ],
+        "preparation_s": [
+          0.083465458,
+          0.078777292,
+          0.079283042
+        ],
+        "construction_s": [
+          0.004198084,
+          0.004048166,
+          0.004376583
+        ],
+        "record_count": 28202
+      }
+    }
+  ],
+  "watchdog_stderr": ""
+}
