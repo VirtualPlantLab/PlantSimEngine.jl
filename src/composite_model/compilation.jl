@@ -2789,6 +2789,9 @@ function _stage_temporal_many_extension(
         _private_temporal_value(source_values[index])
         for index in new_indices
     ]
+    # A newly selected schema may require rebuilding the private carrier. Do
+    # not let append! silently convert an initial value into the old schema.
+    all(value -> value isa eltype(initial), new_initial) || return nothing
     new_source_applications = Union{Nothing,Symbol}[
         _temporal_source_application(
             binding,
@@ -6280,6 +6283,18 @@ function _private_temporal_value(value)
     return deepcopy(value)
 end
 
+# Initial values are private snapshots, but their concrete element schema is
+# already known after binding. Preserve it for the first-step/missing-sample
+# branch of the numerical executor without converting heterogeneous values.
+function _typed_temporal_initial_values(values::Vector{Any})
+    isempty(values) && return values
+    value_type = typeof(first(values))
+    all(value -> typeof(value) === value_type, values) || return values
+    typed = Vector{value_type}(undef, length(values))
+    copyto!(typed, values)
+    return typed
+end
+
 function _temporal_input_initial(binding::CompiledModelInputBinding, status::Status)
     initial = _input_value(binding.carrier)
     if isnothing(initial)
@@ -6298,7 +6313,9 @@ function _temporal_input_initial(binding::CompiledModelInputBinding, status::Sta
             "`$(typeof(initial))`.",
         )
         if length(initial) == length(binding.source_ids)
-            return Any[_private_temporal_value(value) for value in initial]
+            return _typed_temporal_initial_values(
+                Any[_private_temporal_value(value) for value in initial],
+            )
         end
         binding.policy isa PreviousTimeStep && error(
             "Temporal `Many` input `$(binding.input)` on application ",
@@ -6311,10 +6328,10 @@ function _temporal_input_initial(binding::CompiledModelInputBinding, status::Sta
             "`$(binding.application_id)` needs an initialized element to preallocate ",
             "$(length(binding.source_ids)) temporal values.",
         )
-        return Any[
+        return _typed_temporal_initial_values(Any[
             _private_temporal_value(first(initial))
             for _ in binding.source_ids
-        ]
+        ])
     end
     return _private_temporal_value(initial)
 end

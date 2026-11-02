@@ -259,11 +259,11 @@ Runtime context passed as the final argument to model kernels. Use
 [`call_targets`](@ref), and [`run_call!`](@ref) instead of inspecting its
 fields.
 """
-mutable struct RunContext{CS,A,CT,BI,OT,TS,OR,C,E}
+mutable struct RunContext{CS,A,CT,BI,OT,TS,OR,C,E,I<:ObjectId}
     compiled::CS
     environment_bindings::CompiledEnvironmentBindings
     application::A
-    object_id::ObjectId
+    object_id::I
     calls::CT
     bound_inputs::BI
     output_targets::OT
@@ -484,7 +484,7 @@ individual target to [`run_call!(::CallTarget)`](@ref). A target is a runtime
 view owned by its compiled simulation; construct hard-call relationships with
 `ModelSpec(...; calls=...)` rather than constructing this type directly.
 """
-struct CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
+struct CallTarget{T,CS,EB,A,CT,TS,OR,C,E,I<:ObjectId}
     # Keep the execution owner by reference; only caller-specific metadata and
     # the descendant-call snapshot belong to a materialized view. Owners are
     # replaced when their model/status/binding identity changes.
@@ -492,7 +492,7 @@ struct CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
     compiled::CS
     environment_bindings::EB
     application::A
-    object_id::ObjectId
+    object_id::I
     calls::CT
     temporal_streams::TS
     output_retention::OR
@@ -504,8 +504,8 @@ end
 
 # Bind the existential variables once, rather than constructing fresh
 # TypeVar/UnionAll objects while checking each singular target view.
-const _SingleCallTargetView{T,CS,EB,A,TS,OR,C} =
-    CallTarget{T,CS,EB,A,CT,TS,OR,C,E} where {CT,E}
+const _SingleCallTargetView{T,CS,EB,A,TS,OR,C,I} =
+    CallTarget{T,CS,EB,A,CT,TS,OR,C,E,I} where {CT,E}
 
 @inline function Base.getproperty(target::CallTarget, name::Symbol)
     name === :model && return getfield(getfield(target, :execution_target), :model)
@@ -999,8 +999,8 @@ struct CachedGlobalModelEnvironment{B}
     binding::B
 end
 
-mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OT,OB,CB,EB,RC}
-    object_id::ObjectId
+mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OT,OB,CB,EB,RC,I<:ObjectId}
+    object_id::I
     model::M
     status::S
     canonical_status::CS
@@ -1061,6 +1061,23 @@ CompiledExecutionBatch(
 struct CompiledApplicationExecutionGroup{A,B}
     application::A
     batches::B
+end
+
+function _compiled_application_execution_group(application, batches)
+    if !isempty(batches)
+        batch_type = typeof(first(batches))
+        eltype(batches) === batch_type &&
+            return CompiledApplicationExecutionGroup(application, batches)
+        if all(batch -> typeof(batch) === batch_type, batches)
+            # Dispatch once at the application boundary, then retain the batch
+            # schema through its loop. Counts and object identities remain
+            # runtime data, including after same-schema lifecycle changes.
+            typed = Vector{batch_type}(undef, length(batches))
+            copyto!(typed, batches)
+            return CompiledApplicationExecutionGroup(application, typed)
+        end
+    end
+    return CompiledApplicationExecutionGroup(application, batches)
 end
 
 mutable struct RuntimeApplicationSchedule
@@ -1290,12 +1307,12 @@ end
     runtime_model(runtime)
 
 Return the live [`CompositeModel`](@ref) owned by a `CompositeModel`, [`RunContext`](@ref),
-or [`Simulation`](@ref). Lifecycle-capable models should call this
+[`CallTarget`](@ref), or [`Simulation`](@ref). Lifecycle-capable models should call this
 accessor instead of reaching through runtime implementation fields.
 """
 runtime_model(model::CompositeModel) = model
 runtime_model(context::RunContext) = context.compiled.model
-runtime_model(target::CallTarget) = target.model
+runtime_model(target::CallTarget) = target.compiled.model
 runtime_model(simulation::Simulation) = simulation.model
 object_id(runtime::Union{RunContext,CallTarget,Simulation}, source) =
     object_id(runtime_model(runtime), source)
@@ -3785,7 +3802,7 @@ function compile_model_execution_plan(
         first_batch > length(batches) && continue
         push!(
             groups,
-            CompiledApplicationExecutionGroup(
+            _compiled_application_execution_group(
                 application,
                 batches[first_batch:end],
             ),
@@ -4645,7 +4662,8 @@ function _refresh_model_execution_group_delta!(
         :execution_groups_updated_in_place,
     )
     batches = copy(previous_group.batches)
-    working_group = CompiledApplicationExecutionGroup(application, batches)
+    working_group = _compiled_application_execution_group(application, batches)
+    batches = working_group.batches
     for action in actions
         location = _model_execution_target_location(
             working_group,
@@ -5070,7 +5088,7 @@ function _refresh_model_execution_plan(
         isempty(application_batches) && continue
         push!(
             groups,
-            CompiledApplicationExecutionGroup(
+            _compiled_application_execution_group(
                 application,
                 application_batches,
             ),
@@ -5764,7 +5782,8 @@ end
 ) where {CS,EB,B,TS,OR,C,A,T<:CompiledExecutionTarget,RC<:RunContext}
     CT = fieldtype(RC, :calls)
     E = fieldtype(RC, :environment)
-    return CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
+    I = fieldtype(T, :object_id)
+    return CallTarget{T,CS,EB,A,CT,TS,OR,C,E,I}
 end
 
 @inline function _single_call_target_snapshot(
@@ -5774,7 +5793,7 @@ end
 ) where {CS,EB,B,TS,OR,C,A,T<:CompiledExecutionTarget}
     # The execution owner determines model/status types. Descendant tuple and
     # environment types may change, including during a leased lifecycle refresh.
-    View = _SingleCallTargetView{T,CS,EB,A,TS,OR,C}
+    View = _SingleCallTargetView{T,CS,EB,A,TS,OR,C,fieldtype(T, :object_id)}
     context = target.context
     if context isa RunContext && !target.call_context_cache.in_use
         _prepare_runtime_call_targets!(
@@ -6726,8 +6745,8 @@ end
 # not change the concrete child-call tuple. Recover the context type without
 # erasing the normal no-override execution path.
 @inline _call_context_type(
-    ::RunContext{CS,A,CT,BI,OT,TS,OR,C}, ::E,
-) where {CS,A,CT,BI,OT,TS,OR,C,E} = RunContext{CS,A,CT,BI,OT,TS,OR,C,E}
+    ::RunContext{CS,A,CT,BI,OT,TS,OR,C,OldE,I}, ::E,
+) where {CS,A,CT,BI,OT,TS,OR,C,OldE,I,E} = RunContext{CS,A,CT,BI,OT,TS,OR,C,E,I}
 @inline _call_context_type(::Nothing, environment) = RunContext
 
 @inline function _call_context_matches(

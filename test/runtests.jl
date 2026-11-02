@@ -41,6 +41,10 @@ else
         include("test-model-object-id.jl")
     end
 
+    @testset "Concrete runtime object identities" begin
+        include("test-model-concrete-object-identities.jl")
+    end
+
     @testset "Organ creation allocations" begin
         include("test-organ-creation-allocation.jl")
     end
@@ -59,6 +63,10 @@ else
 
     @testset "Composite Model/Object API stabilization" begin
         include("test-model-api-stabilization.jl")
+    end
+
+    @testset "Typed temporal initial values" begin
+        include("test-model-temporal-initial-typing.jl")
     end
 
     @testset "Concrete selector construction" begin
