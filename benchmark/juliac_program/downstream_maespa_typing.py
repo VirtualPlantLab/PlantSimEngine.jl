@@ -11,6 +11,7 @@ import sys
 sys.dont_write_bytecode = True
 import downstream_maespa_runtime_typing as runtime_typing
 import downstream_maespa_closed_fields as closed_fields
+import downstream_maespa_leaf_outputs as leaf_outputs
 
 BASE_REPAIRED = (
     "src/config/species_physiology.jl",
@@ -18,7 +19,7 @@ BASE_REPAIRED = (
     "src/config/species_structure.jl",
     "src/processes/canopy_air_trial_evaluation.jl",
 )
-HELPERS = (runtime_typing, closed_fields)
+HELPERS = (runtime_typing, closed_fields, leaf_outputs)
 REPAIRED = tuple(dict.fromkeys(BASE_REPAIRED + tuple(
     relative for helper in HELPERS for relative in helper.REPAIRED)))
 

@@ -12,7 +12,7 @@ inventoried inference-typed source copy supplies the ordinary control and the
 candidate. Its patch changes concrete storage/type propagation, literal field
 access, fixed-name assignments, closure binding and error formatting; it does
 not change equations, validation predicates, solver iterations or scientific
-calls. `downstream_maespa_typing.py`, its two helper modules, patch and full file
+calls. `downstream_maespa_typing.py`, its three helper modules, patch and full file
 manifest reproduce and identify that copy. The original frozen source is kept
 unchanged.
 
@@ -47,7 +47,7 @@ timestamp, committed atmosphere and complete host RNG fingerprints. The daylight
 case executes eight accepted logical leaf units and 24 original temperature
 trials per step. The nine-file variant also passed all eight ordinary matrix cases and a complete
 24-step daylight candidate case against the untouched original. The expanded
-25-file inference variant is now undergoing fresh ordinary/candidate checks.
+26-file inference variant is now undergoing fresh ordinary/candidate checks.
 The preceding 23-file variant also passed the complete 24-step ordinary and
 schedule-aware candidate case against the original records and RNG snapshot. Eight focused temporal-initial checks preserve Float32 values,
 nested aliases and rejection of mismatched fallback schemas. Native safe

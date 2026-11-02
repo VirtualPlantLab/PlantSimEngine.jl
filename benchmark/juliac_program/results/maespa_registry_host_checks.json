@@ -51,6 +51,27 @@
       "manual_only_families_excluded_from_root_context": 24,
       "ordered_entries_exact": true,
       "kaimon_eval": "22bf78bd"
+    },
+    "accepted_leaf_installer": {
+      "assertions": 10,
+      "both_result_prefixes": true,
+      "Float32_schema_and_values": true,
+      "destination_identity_preserved": true,
+      "overlapping_vector_write_order_preserved": true,
+      "kaimon_eval": "8d459b15",
+      "receipt_sha256": "ca5a9ba01b9a62a87dc21e3fb57e061176e5a0e52fce4eebd3117195156af387"
+    },
+    "capillarity_callsite_inference": {
+      "generic_external_calls_before": 3,
+      "generic_external_calls_after": 0,
+      "optimized_statements_before": 2306,
+      "optimized_statements_after": 7481,
+      "new_keyword_helper_confirmed": true,
+      "only_change": "three call-site inline annotations; original expressions and argument order unchanged",
+      "kaimon_evals": [
+        "fe2c9af8",
+        "09135920"
+      ]
     }
   },
   "earlier_scientific_gate": {
@@ -65,22 +86,23 @@
       "committed_atmosphere",
       "host_rng_fingerprints"
     ],
-    "final_variant_matrix": "new 25-file variant pending independent ordinary/JIT controls",
+    "final_variant_matrix": "new 26-file variant pending ordinary/JIT/native controls",
     "nine_file_variant_full_ordinary_matrix_exact_original": true,
     "nine_file_variant_candidate_24_daylight_steps_exact_original": true,
     "candidate_records": 28202,
     "candidate_record_sha256": "5ba1fdaf715bb0387aec768a608f528e68736288fb76d03dba50c73acc08b6a0",
     "twentythree_file_variant_ordinary_24_steps_exact_original": true,
-    "twentythree_file_variant_schedule_candidate_24_steps_exact_original": true
+    "twentythree_file_variant_schedule_candidate_24_steps_exact_original": true,
+    "twentyfive_file_ordinary_24_steps_exact_original": true
   },
   "inference_variant": {
-    "aggregate_sha256": "fab5ba1c17e47b21de00e7871e99c6366cb22c2dcd95cc78b2de2534fed6f266",
-    "typing_manifest_sha256": "8aa78d1ad877519b4d74bb005f3c5a1096f79bd8879971117ec9d781af024319",
+    "aggregate_sha256": "2134bb3606ebd31e97948d24d09dce3619d941a0105ce6bb9d478a3846205163",
+    "typing_manifest_sha256": "4ee036133e8208f22b4d22e30714c96864c0b0aa77fbd3201791c4adafb1b0b5",
     "inventoried_files": 208,
-    "changed_files": 25,
-    "unchanged_files": 183,
+    "changed_files": 26,
+    "unchanged_files": 182,
     "independent_reproduction_checks_passed": 0,
-    "independent_reproduction_status": "pending final 25-file independent reproduction"
+    "independent_reproduction_status": "pending final 26-file independent reproduction"
   },
   "coverage_limits": [
     "fixed registry",
@@ -124,6 +146,16 @@
       "verifier_errors": 82,
       "log_sha256": "370f2f48a245041ef0e3e11a2db4d800ce24ba375e5dd5fc2e51c35f4e4ea32e",
       "root_repairs": "root context closure removed all environment diagnostics; remaining exact literal leaf snapshots/trial writes and forced inline finite optional/error dispatchers prepared for next gate"
+    },
+    {
+      "id": "r6",
+      "status": "safe_verifier_rejected",
+      "safe_qualification": false,
+      "verifier_errors": 10,
+      "unique_verifier_errors": 5,
+      "log_sha256": "dc1dac63b4c74e8644d7f3fe2bf159e899d2e3e34c5827812ccccb6bfc49c0db",
+      "root_repairs": "literal compact leaf-output installer, three capillarity call-site inline annotations, civil-day Bottom error helper inline annotation"
     }
-  ]
+  ],
+  "historical_25_file_independent_reproduction_checks_passed": 7
 }

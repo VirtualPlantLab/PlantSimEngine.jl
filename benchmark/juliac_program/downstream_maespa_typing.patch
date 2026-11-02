@@ -948,7 +948,7 @@
                        parameters.shape[index]
  
 -        lower_potential = _soil_capillary_potential(
-+        lower_potential = _closed_soil_capillary_potential(
++        lower_potential = @inline _closed_soil_capillary_potential(
              lower_water,
              parameters.method,
              lower_pore + regularization,
@@ -957,7 +957,7 @@
              lower_shape,
          )
 -        upper_potential = _soil_capillary_potential(
-+        upper_potential = _closed_soil_capillary_potential(
++        upper_potential = @inline _closed_soil_capillary_potential(
              water[index],
              parameters.method,
              pores[index] + regularization,
@@ -975,7 +975,7 @@
                      upper_shape,
                  )
 -                trial_potential = _soil_capillary_potential(
-+                trial_potential = _closed_soil_capillary_potential(
++                trial_potential = @inline _closed_soil_capillary_potential(
                      trial,
                      parameters.method,
                      pores[index] + regularization,
@@ -2976,6 +2976,15 @@
      end
 --- a/src/processes/civil_day_respiration_accumulator.jl
 +++ b/src/processes/civil_day_respiration_accumulator.jl
+@@ -20,7 +20,7 @@
+     daily_respiration_available::Bool
+ end
+ 
+-@noinline function _throw_civil_day_respiration_numeric(
++@inline Base.@constprop :aggressive function _throw_civil_day_respiration_numeric(
+     name::Symbol,
+     value,
+     reason::Symbol,
 @@ -443,8 +443,11 @@
          status.previous_current_day_respiration_mol,
          status.previous_current_day_coverage_complete,
@@ -3062,5 +3071,40 @@
 +
 +@generated function _reset_coupled_leaf_energy_fields!(status, defaults::NamedTuple{N}) where {N}
 +    assignments = [:(let value = getproperty(defaults, $(QuoteNode(name))); setproperty!(status, $(QuoteNode(name)), oftype(getproperty(status, $(QuoteNode(name))), value)); end) for name in N]
++    return Expr(:block, assignments..., :(return nothing))
++end
+--- a/src/processes/leaf_exchange/compact_calls.jl
++++ b/src/processes/leaf_exchange/compact_calls.jl
+@@ -116,9 +116,8 @@
+ end
+ 
+ function _store_coupled_leaf_solution!(result::NonTuzetCrownLeafExchangeControllerResult, unit, solution)
+-    for (name, value) in pairs(_coupled_crown_values(solution))
+-        getproperty(result, Symbol("non_tuzet_accepted_logical_leaf_", name))[unit] = value
+-    end
++    _store_coupled_leaf_values!(result, unit, _coupled_crown_values(solution),
++        Val(:non_tuzet_accepted_logical_leaf_))
+     result.non_tuzet_logical_leaf_temperature_trial_count[unit] = solution.temperature_trial_count
+     result.non_tuzet_logical_leaf_temperature_converged[unit] = solution.temperature_converged
+     result.non_tuzet_logical_leaf_temperature_iteration_limit_reached[unit] = solution.temperature_iteration_limit_reached
+@@ -128,9 +127,17 @@
+ end
+ 
+ function _store_coupled_leaf_solution!(result::TuzetCrownLeafExchangeControllerResult, unit, solution, root, daylight)
+-    for (name, value) in pairs(_coupled_crown_values(solution))
+-        getproperty(result, Symbol("accepted_logical_leaf_", name))[unit] = value
+-    end
++    _store_coupled_leaf_values!(result, unit, _coupled_crown_values(solution),
++        Val(:accepted_logical_leaf_))
+     _store_tuzet_hydraulic_diagnostics!(result, unit, solution, root, daylight)
+     return nothing
+ end
++
++
++# Preserve the NamedTuple's field/write order and live destination vectors.
++@inline @generated function _store_coupled_leaf_values!(result, unit,
++    values::NamedTuple{names}, ::Val{prefix}) where {names,prefix}
++    assignments = [:(getproperty(result, $(QuoteNode(Symbol(prefix,name))))[unit] =
++        getproperty(values, $(QuoteNode(name)))) for name in names]
 +    return Expr(:block, assignments..., :(return nothing))
 +end

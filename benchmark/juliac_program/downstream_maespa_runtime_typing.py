@@ -217,8 +217,11 @@ end
     if relative == REPAIRED[6]:
         return _hydraulic_keyword_calls(source)
     if relative == REPAIRED[7]:
+        # The six optional scalar tags exceed ordinary Union splitting. The
+        # caller must inline the finite tag dispatcher at these three sites;
+        # its original potential kernel and every argument stay unchanged.
         source = replace_exact(source, " = _soil_capillary_potential(\n",
-            " = _closed_soil_capillary_potential(\n", count=3)
+            " = @inline _closed_soil_capillary_potential(\n", count=3)
         source = replace_exact(source, " = _soil_capillary_conductivity(\n",
             " = _closed_soil_capillary_conductivity(\n")
         names = ("water", "method", "pore", "b", "air_entry", "alpha", "saturated", "residual", "shape")

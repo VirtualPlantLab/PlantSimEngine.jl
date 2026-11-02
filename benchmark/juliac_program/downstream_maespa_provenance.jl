@@ -9,7 +9,7 @@ const REQUIRED_ENTRIES=("maespa_native_main.jl","downstream_maespa_fixture.jl","
     "app/src/registry_program_display.jl",
     "app/src/object_program_maespa_environment.jl","app/src/typed_seed_copy.jl",
     "downstream_maespa_build.jl","downstream_maespa_pse_sources.jl","downstream_maespa_typing.py",
-    "downstream_maespa_runtime_typing.py","downstream_maespa_closed_fields.py",
+    "downstream_maespa_runtime_typing.py","downstream_maespa_closed_fields.py","downstream_maespa_leaf_outputs.py",
     "downstream_maespa_typing.json","downstream_maespa_typing.patch")
 
 _hash(path)=bytes2hex(sha256(read(path)))

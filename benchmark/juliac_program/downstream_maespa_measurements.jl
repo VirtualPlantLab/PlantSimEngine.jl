@@ -106,7 +106,9 @@ function measure_native(bundle;config=Fixture.configuration(),samples=3,variant)
     _,expected=_ordinary_trial(config)
     command=Cmd([provenance.launcher,"perf",string(config.steps),string(config.copies),
         string(config.start_slot),String(config.outputs),string(samples)])
-    process=@timed read(command,String)
+    process=withenv("JULIA_NUM_THREADS"=>"2","JULIA_NUM_GC_THREADS"=>nothing) do
+        @timed read(command,String)
+    end
     lines=split(process.value,'\n';keepempty=false)
     marker=findfirst(==("B"),lines)
     isnothing(marker) && error("native timing did not emit its full observation boundary")
@@ -125,6 +127,7 @@ function measure_native(bundle;config=Fixture.configuration(),samples=3,variant)
     Provenance.verify_unchanged(provenance,Fixture.source_snapshot();variant)
     return (ordinary,native=(warmup=first(all_trials),samples=trials,process_wall_s=process.time,record_count=length(actual),
         record_sha256=bytes2hex(sha256(join(actual,'\n'))),parity=:exact_full_records,
+        requested_runtime_environment=(julia_num_threads="2",julia_num_gc_threads=nothing,gc_thread_setting=:julia_default),
         build=provenance.metadata,timing_boundary=:private_instantiation_then_complete_run_startup_and_output_excluded))
 end
 
