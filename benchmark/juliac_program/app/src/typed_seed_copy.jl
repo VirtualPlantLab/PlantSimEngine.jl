@@ -20,13 +20,13 @@ dictionary keys, identities and numerical values remain runtime data. Cycles
 and opaque storage are rejected before a native image is built. Undefined
 array slots retain their original storage semantics.
 """
-function prepare(seed;extra_types=())
+Base.@nospecializeinfer function prepare(@nospecialize(seed);extra_types=())
     fields=Dict{DataType,Vector{Set{Type}}}()
     containers=Dict{DataType,Vector{Set{Type}}}()
     mutables=Set{DataType}()
     visited=IdDict{Any,Nothing}()
     active=IdDict{Any,Nothing}()
-    function inspect(value)
+    Base.@nospecializeinfer function inspect(@nospecialize(value))
         T=typeof(value)
         _atomic(T) && return
         if ismutabletype(T)
@@ -72,7 +72,7 @@ function prepare(seed;extra_types=())
     # Empty concrete containers and future declared payloads still need their
     # element/field schemas, even when the initial graph has no such values.
     expanding=Set{DataType}()
-    function inspect_type(T)
+    Base.@nospecializeinfer function inspect_type(@nospecialize(T))
         T isa Union && return foreach(inspect_type,Base.uniontypes(T))
         T isa DataType && isconcretetype(T) || throw(ArgumentError("unclosed seed payload family $T"))
         _atomic(T) && return
@@ -123,19 +123,33 @@ function prepare(seed;extra_types=())
 end
 
 @generated function _memo(::CopySchema{M,F}) where {M,F}
-    return Expr(:tuple,[:(IdDict{$T,$T}()) for T in fieldtypes(M)]...)
+    tables=Expr[]
+    for index in 1:fieldcount(M)
+        T=fieldtype(M,index)
+        push!(tables,:(IdDict{$T,$T}()))
+    end
+    return Expr(:tuple,tables...)
 end
 
-function _field_schema(::Type{F},::Type{T}) where {F,T}
-    index=findfirst(entry->fieldtype(entry,1)===T,fieldtypes(F))
-    isnothing(index) && error("payload $T was not admitted by the copy schema")
-    return fieldtype(fieldtype(F,index),2)
+Base.@nospecializeinfer function _field_schema(@nospecialize(F::Type),@nospecialize(T::Type))
+    for index in 1:fieldcount(F)
+        entry=fieldtype(F,index)
+        fieldtype(entry,1)===T && return fieldtype(entry,2)
+    end
+    error("payload family $(nameof(T)) was not admitted by the copy schema")
 end
 
 @generated function _copy(value::T,memo,plan::CopySchema{M,F}) where {T,M,F}
     _atomic(T) && return :(value)
-    slots=fieldtypes(M)
-    index=ismutabletype(T) ? findfirst(==(T),slots) : nothing
+    index=nothing
+    if ismutabletype(T)
+        for slot in 1:fieldcount(M)
+            if fieldtype(M,slot)===T
+                index=slot
+                break
+            end
+        end
+    end
     ismutabletype(T) && isnothing(index) && return :(throw(ArgumentError("unadmitted mutable seed family")))
     fields=_field_schema(F,T)
     if T===BigInt
@@ -185,24 +199,38 @@ end
 
 copy_seed(plan::CopyPlan)=_copy(plan.seed,_memo(plan.schema),plan.schema)
 
-function _subset_schema(::Type{M},::Type{F},types) where {M,F}
+Base.@nospecializeinfer function _subset_schema(@nospecialize(M::Type),@nospecialize(F::Type),@nospecialize(types))
     reached=Set{Type}()
-    function visit(type)
+    Base.@nospecializeinfer function visit(@nospecialize(type))
         type isa Union && return foreach(visit,Base.uniontypes(type))
         _atomic(type) && return
         type in reached && return
         push!(reached,type)
-        foreach(visit,fieldtypes(_field_schema(F,type)))
+        fields=_field_schema(F,type)
+        for index in 1:fieldcount(fields)
+            visit(fieldtype(fields,index))
+        end
     end
     foreach(visit,types)
-    mutable_types=Tuple(type for type in fieldtypes(M) if type in reached)
-    entries=Tuple(entry for entry in fieldtypes(F) if fieldtype(entry,1) in reached)
+    mutable_types=Type[]
+    for index in 1:fieldcount(M)
+        type=fieldtype(M,index)
+        type in reached && push!(mutable_types,type)
+    end
+    entries=Type[]
+    for index in 1:fieldcount(F)
+        entry=fieldtype(F,index)
+        fieldtype(entry,1) in reached && push!(entries,entry)
+    end
     return CopySchema{Tuple{mutable_types...},Tuple{entries...}}
 end
 
 """Authoring projection retaining only the supplied payload families."""
-payload_schema(::CopySchema{M,F},types::Tuple) where {M,F}=_subset_schema(M,F,types)()
-payload_schema(plan::CopyPlan,types::Tuple)=payload_schema(plan.schema,types)
+Base.@nospecializeinfer function payload_schema(@nospecialize(plan::CopySchema),@nospecialize(types::Tuple))
+    M,F=typeof(plan).parameters
+    return _subset_schema(M,F,types)()
+end
+Base.@nospecializeinfer payload_schema(@nospecialize(plan::CopyPlan),@nospecialize(types::Tuple))=payload_schema(plan.schema,types)
 
 @generated function _payload_schema(::Type{T},::CopySchema{M,F}) where {T,M,F}
     S=_subset_schema(M,F,(T,))
