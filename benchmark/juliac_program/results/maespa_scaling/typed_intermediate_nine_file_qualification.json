@@ -1,0 +1,61 @@
+{
+  "format_version": 1,
+  "source_variant": "inference_typed",
+  "scientific_source_sha256": "3dd5dce17771e470981b26353097fbf1f64a97992dc8254700964ed5b8cd5531",
+  "typing_manifest_sha256": "121cb2c5d74cab61e388dd4bfdb5f2ed37d08a5d373db124d2b3b4f4dc4fca03",
+  "timed": false,
+  "warmup_samples_per_case": 1,
+  "exact_original_full_records": true,
+  "exact_original_complete_snapshot_including_rng": true,
+  "cases": [
+    {
+      "name": "typed-1-24-13-all",
+      "snapshot_sha256": "62e127dc9410d0cf1a2bd260a09777bcc080f73e29af893fed40a1d86f929d33",
+      "record_count": 28202,
+      "record_sha256": "5ba1fdaf715bb0387aec768a608f528e68736288fb76d03dba50c73acc08b6a0"
+    },
+    {
+      "name": "typed-1-24-13-none",
+      "snapshot_sha256": "4edf2305494be263cd5f1b5f100b55a28435cb86d58738d58b27922ef238e8cb",
+      "record_count": 2153,
+      "record_sha256": "d369a124b2bd54cf6441789a189da0d13cd88b9989398464258609cc78f80567"
+    },
+    {
+      "name": "typed-1-96-1-all",
+      "snapshot_sha256": "bedc89433bb0d45bddf80c99ecefc1fc515bff68786f6721d54ceed46a5e30a4",
+      "record_count": 90874,
+      "record_sha256": "038cc8b6fc67c55b6085c67b05e1842124c2ce98940fc902f4f964c92b0bac9e"
+    },
+    {
+      "name": "typed-1-96-1-none",
+      "snapshot_sha256": "c40c4e2981b3490218aa2e9b77bf911d28e290bd76b8e2eb14f2cbbbaa93dc59",
+      "record_count": 2157,
+      "record_sha256": "20ec67d799b9eb80a729fcaee3d1880d04a5827132c2debad06c20448ac58ac3"
+    },
+    {
+      "name": "typed-4-24-13-all",
+      "snapshot_sha256": "996c45f988a0bca9083f9c833fa64ee4907b79de133bdfe0768e321a5e86d46d",
+      "record_count": 91244,
+      "record_sha256": "3dff6157e96b912718da9c4ace19d63ab4fded98e772a0498a5390dfbd8e542b"
+    },
+    {
+      "name": "typed-4-24-13-none",
+      "snapshot_sha256": "0ef90ed1cb807655ec8d7f158fb6aa7a40f97c800943a478c448a63836195286",
+      "record_count": 7205,
+      "record_sha256": "cc49c42599a9e42c780cf58452e82350c5f94ae22767011dadd3fd69bab10f61"
+    },
+    {
+      "name": "typed-4-96-1-all",
+      "snapshot_sha256": "3ab0a620ad4fb1186f2f92f782290749389830630a3ecabac9e681764a36d56c",
+      "record_count": 283780,
+      "record_sha256": "f681d959ad51a828c54536dd147b9b432acb30f6a7ecfc0522d958163e8f6c8d"
+    },
+    {
+      "name": "typed-4-96-1-none",
+      "snapshot_sha256": "8deec631e6808914f788c192401b5d9e371463262985fcec3bff80206d64db03",
+      "record_count": 7221,
+      "record_sha256": "7a20ef0ba4c95840d998d86e22f732a5488ebacd9d3e76b52d9def086667f280"
+    }
+  ],
+  "raw_records_storage": "temporary_artifact_outside_repository"
+}

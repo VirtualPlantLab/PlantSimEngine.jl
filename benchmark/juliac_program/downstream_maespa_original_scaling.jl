@@ -50,14 +50,15 @@ function advance_warmup(label::Symbol;steps=1)
         active=work.active,accepted=work.accepted,trials=work.trials,
         nonzero_assimilation=work.nonzero_assimilation,soil_available=work.soil_available)
 end
-function warm_records(label::Symbol;destination=joinpath(@__DIR__,"results","maespa_scaling","warmups"))
+function warm_records(label::Symbol;destination="/private/tmp/pse-juliac-large-20261102/maespa-original-records/warmups-canonical")
     value=STAGES[label]
     PSE.current_step(value.simulation)==value.config.steps || error("complete the requested warmup timeline first")
     records=Measurements._encoded_ordinary(value.simulation)
     mkpath(destination)
     path=joinpath(destination,"original-$(label).records")
     open(io->foreach(record->println(io,record),records),path,"w")
-    count_h=count(line->occursin("String:1:H|",line),records)
+    h_prefix=Adapter.Registry.RegistryEncoding.record_prefix("H")
+    count_h=count(line->startswith(line,h_prefix),records)
     source=verify_original()
     report=(configuration=value.config,source_variant=:original,source_sha256=source.aggregate_sha256,
         records_path=path,record_count=length(records),record_sha256=bytes2hex(sha256(join(records,'\n'))),
@@ -69,7 +70,7 @@ function warm_records(label::Symbol;destination=joinpath(@__DIR__,"results","mae
 end
 function measure_case(;copies=1,steps=24,start_slot=13,outputs=:all,samples=3,
     destination=joinpath(@__DIR__,"results","maespa_scaling"),
-    records_directory="/private/tmp/pse-juliac-large-20261102/maespa-original-records/final")
+    records_directory="/private/tmp/pse-juliac-large-20261102/maespa-original-records/final-canonical")
     verify_original()
     cfg=Fixture.configuration(;copies,steps,start_slot,outputs)
     name="original-$(copies)-$(steps)-$(start_slot)-$(outputs)"
@@ -92,7 +93,7 @@ end
 _median(values)=let x=sort!(collect(values)),n=length(values)
     isodd(n) ? x[(n+1)÷2] : (x[n÷2]+x[n÷2+1])/2
 end
-function measure_matrix(;samples=3,destination=joinpath(@__DIR__,"results","maespa_scaling"))
+function measure_matrix(;samples=3,destination=joinpath(@__DIR__,"results","maespa_scaling","canonical"))
     reports=NamedTuple[]
     for copies in (1,4), (steps,start_slot) in ((24,13),(96,1)), outputs in (:all,:none)
         @info "Original MAESPA measured case" copies steps start_slot outputs
