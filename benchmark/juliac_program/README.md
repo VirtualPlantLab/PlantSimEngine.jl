@@ -30,10 +30,19 @@ runtime and its native binary. Warm execution gains range from 11.3 to 34.1×
 over original PSE; construction and preparation are separate measurements.
 Full native snapshots and positive-RNG same-host relocation match original PSE.
 
-The full selected MAESPA canopy/soil experiment is being qualified separately.
-Its [eight original ordinary controls](downstream_maespa_original_results.md)
-cover two/eight trees, 24/96 half-hour steps and both retention policies.
-Native support and speedups must pass their own gates before being reported.
+The [complete selected MAESPA canopy/soil scenario](downstream_maespa.md) now
+compiles all eight two/eight-tree, 24/96-step, all/none-output configurations with
+safe/generic JuliaC. Every native case matches the untouched ordinary PSE
+records exactly. Warm execution gains range from 4.56 to 6.55× against freshly
+measured original controls; construction, preparation and instantiation are
+reported separately. The largest retained case matches 283,780 records, including
+in a same-host relocated bundle with a fresh HOME and empty external depot/cwd.
+The earlier [ordinary-only baseline cohort](downstream_maespa_original_results.md)
+remains archived; final comparisons use refreshed canonical-format controls.
+Paired source-typed ordinary controls run 2.1–2.8× faster than the untouched
+MAESPA controls in these cases. Native execution is within 9% of registry JIT,
+so source typing and the execution design account for most of the
+observed gain. One-time authoring and compilation remain separate costs.
 
 The new registry runtimes may resolve a private ordinary graph at authoring
 time, then retain only owned typed numerical data and execution recipes.
