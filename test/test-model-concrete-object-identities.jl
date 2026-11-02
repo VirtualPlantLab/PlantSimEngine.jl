@@ -63,9 +63,15 @@ end
         check_identity(owner, data.owner_id)
         selected = only(call_targets(owner, :first))
         check_identity(selected, ObjectId(first(ids)))
-        @test runtime_model(selected) === data.model
+        @test runtime_model(selected) === selected.model
+        @test runtime_model(selected) === call_model(owner, :first)
         @test model_object(selected).id === ObjectId(first(ids))
         @test model_status(selected) === model_status(data.model, first(ids))
+        @test object_id(selected, first(ids)) === ObjectId(first(ids))
+        @test model_object(selected, first(ids)) === model_object(data.model, first(ids))
+        @test model_status(selected, first(ids)) === model_status(data.model, first(ids))
+        @test_throws ArgumentError source_node(selected)
+        @test_throws ArgumentError source_node(selected, first(ids))
         @test fieldtype(typeof(selected.execution_target), :object_id) === typeof(ObjectId(first(ids)))
         targets = collect(call_targets(owner, :leaves))
         @test Set(object_id(target) for target in targets) == Set(ObjectId.(ids))

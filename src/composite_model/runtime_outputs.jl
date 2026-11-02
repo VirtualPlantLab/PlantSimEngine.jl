@@ -1307,21 +1307,25 @@ end
     runtime_model(runtime)
 
 Return the live [`CompositeModel`](@ref) owned by a `CompositeModel`, [`RunContext`](@ref),
-[`CallTarget`](@ref), or [`Simulation`](@ref). Lifecycle-capable models should call this
+or [`Simulation`](@ref). Lifecycle-capable models should call this
 accessor instead of reaching through runtime implementation fields.
 """
 runtime_model(model::CompositeModel) = model
 runtime_model(context::RunContext) = context.compiled.model
-runtime_model(target::CallTarget) = target.compiled.model
+runtime_model(target::CallTarget) = target.model
 runtime_model(simulation::Simulation) = simulation.model
+# A CallTarget exposes its scientific model through runtime_model; registry
+# accessors still resolve identities and canonical state through its owner.
+@inline _runtime_registry_owner(runtime::Union{RunContext,CallTarget}) = runtime.compiled.model
+@inline _runtime_registry_owner(runtime::Simulation) = runtime.model
 object_id(runtime::Union{RunContext,CallTarget,Simulation}, source) =
-    object_id(runtime_model(runtime), source)
+    object_id(_runtime_registry_owner(runtime), source)
 model_object(runtime::Union{RunContext,CallTarget,Simulation}, source) =
-    model_object(runtime_model(runtime), source)
+    model_object(_runtime_registry_owner(runtime), source)
 model_status(runtime::Union{RunContext,CallTarget,Simulation}, source) =
-    model_status(runtime_model(runtime), source)
+    model_status(_runtime_registry_owner(runtime), source)
 source_node(runtime::Union{RunContext,CallTarget,Simulation}, source) =
-    source_node(runtime_model(runtime), source)
+    source_node(_runtime_registry_owner(runtime), source)
 
 """
     object_id(context::Union{RunContext,CallTarget})
@@ -1335,13 +1339,13 @@ kernel. `source_node(context)` is available for MTG-backed models and avoids
 requiring a topology node inside that local status view.
 """
 object_id(runtime::Union{RunContext,CallTarget}) =
-    object_id(runtime_model(runtime), getfield(runtime, :object_id))
+    object_id(_runtime_registry_owner(runtime), getfield(runtime, :object_id))
 model_object(runtime::Union{RunContext,CallTarget}) =
-    model_object(runtime_model(runtime), object_id(runtime))
+    model_object(_runtime_registry_owner(runtime), object_id(runtime))
 model_status(runtime::Union{RunContext,CallTarget}) =
-    model_status(runtime_model(runtime), object_id(runtime))
+    model_status(_runtime_registry_owner(runtime), object_id(runtime))
 source_node(runtime::Union{RunContext,CallTarget}) =
-    source_node(runtime_model(runtime), object_id(runtime))
+    source_node(_runtime_registry_owner(runtime), object_id(runtime))
 current_step(simulation::Simulation) = simulation.current_step
 
 outputs(sim::Simulation) = sim.temporal_streams
