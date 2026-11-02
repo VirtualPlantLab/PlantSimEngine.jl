@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "status": "native_original_complete; typed_and_registry_jit_measurement_matrix_pending",
+  "status": "complete_four_arm_execution_equivalence_and_warm_execution_comparison",
   "scope": {
     "scenario": "complete_public_native_canopy_soil_non_tuzet",
     "mount_leaf_exchange": true,
@@ -44,8 +44,11 @@
     "equality": "exact canonical-format records; no floating tolerance or payload normalization",
     "native_full_emit_gate_separate_from_timing": true,
     "typed_ordinary_record_and_full_rng_snapshot_cases_passed": 8,
-    "typed_ordinary_measurements": "pending",
-    "registry_jit_matrix_parity_and_measurements": "pending"
+    "typed_ordinary_measurements": "complete",
+    "paired_typed_ordinary_original_snapshot_and_record_cases_passed": 8,
+    "registry_jit_matrix_parity_cases_passed": 8,
+    "registry_jit_measurements": "complete",
+    "registry_jit_measured_full_snapshot_parity_including_rng": true
   },
   "source_identity": {
     "original_scientific_sha256": "21b3dd24a9a872cbf2a3254016cab687bc9397a1d97edb97b24f1b9a3eebf50f",
@@ -88,7 +91,7 @@
     "scientific_source_sha256": "2134bb3606ebd31e97948d24d09dce3619d941a0105ce6bb9d478a3846205163"
   },
   "measurement": {
-    "status": "original_native_complete; attribution_controls_pending",
+    "status": "complete_four_arm_execution_comparison",
     "samples_per_case": 3,
     "native_processes_per_case": 1,
     "native_trial_indices": [
@@ -111,7 +114,24 @@
     "native_runtime_thread_count_reported_by_cli": false,
     "other_team_julia_jobs_paused_during_measurements": true,
     "minimum_execution_ratio": 4.5609426439110194,
-    "maximum_execution_ratio": 6.554642805729354
+    "maximum_execution_ratio": 6.554642805729354,
+    "selected_typed_control": "paired ordinary samples within each jit-*.json checkpoint; standalone typed-*.json files are a distinct measurement cohort",
+    "timing_window_relationship": "original/native and paired typed/JIT were measured in separate serialized warm windows; descriptive attribution, not an isolated AOT/cold-start experiment",
+    "registry_jit_observation_validation": "every measured compiled sample matches its paired ordinary and accepted original complete host snapshot including RNG fingerprints",
+    "program_authoring": {
+      "observations_per_case": 1,
+      "position": "before trial0/P0",
+      "minimum_observed_s": 21.082341666,
+      "maximum_observed_s": 42.028383958,
+      "includes_current_compiler_and_session_state": true,
+      "warm_median": false,
+      "controlled_cold_start_comparison": false,
+      "included_in_hot_execution_ratio": false
+    },
+    "registry_jit_private_instantiation_median_s_range": [
+      0.000826833,
+      0.002938625
+    ]
   },
   "cases": [
     {
@@ -143,7 +163,22 @@
       "original_over_native_execution_ratio": 4.5609426439110194,
       "original_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/original-1-24-13-all.json",
       "native_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/native-original-1-24-13-all.json",
-      "native_checkpoint_sha256": "d2e5e643b2ce51c672ab1996764a2ff88a90e03dffd13234d8ec66516eef8ebc"
+      "native_checkpoint_sha256": "d2e5e643b2ce51c672ab1996764a2ff88a90e03dffd13234d8ec66516eef8ebc",
+      "paired_typed_ordinary_execution_median_s": 0.037066667,
+      "registry_jit_execution_median_s": 0.017736875,
+      "registry_jit_private_instantiation_median_s": 0.001114625,
+      "program_authoring_single_pre_warmup_observation_s": 41.30298125,
+      "program_authoring_observation_count": 1,
+      "program_authoring_may_include_current_compiler_and_session_state": true,
+      "paired_typed_original_snapshot_parity": true,
+      "registry_jit_original_snapshot_parity": true,
+      "registry_jit_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/jit-1-24-13-all.json",
+      "registry_jit_checkpoint_sha256": "ec0e96b4b56b43cbdc3b9417e1d596a0a4f4217b56c0f25fe0dafa7844a7a912",
+      "original_over_paired_typed": 2.3378574340120735,
+      "paired_typed_over_native": 1.950907090208592,
+      "paired_typed_over_registry_jit": 2.089808210296346,
+      "native_over_registry_jit_elapsed": 1.071198224038902,
+      "original_over_registry_jit": 4.885673660100779
     },
     {
       "name": "1-24-13-none",
@@ -174,7 +209,22 @@
       "original_over_native_execution_ratio": 4.581219091118605,
       "original_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/original-1-24-13-none.json",
       "native_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/native-original-1-24-13-none.json",
-      "native_checkpoint_sha256": "779e68234f9d4450eff9d2c3318f50c298c3cd61c5f3ec05787a5cba261595b7"
+      "native_checkpoint_sha256": "779e68234f9d4450eff9d2c3318f50c298c3cd61c5f3ec05787a5cba261595b7",
+      "paired_typed_ordinary_execution_median_s": 0.03845725,
+      "registry_jit_execution_median_s": 0.016961125,
+      "registry_jit_private_instantiation_median_s": 0.000867125,
+      "program_authoring_single_pre_warmup_observation_s": 21.082341666,
+      "program_authoring_observation_count": 1,
+      "program_authoring_may_include_current_compiler_and_session_state": true,
+      "paired_typed_original_snapshot_parity": true,
+      "registry_jit_original_snapshot_parity": true,
+      "registry_jit_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/jit-1-24-13-none.json",
+      "registry_jit_checkpoint_sha256": "9cf1317dfe2c715ad6b720cfbd8e2df66e2fccb385238548929e4e3a4f0a38cc",
+      "original_over_paired_typed": 2.09495177112248,
+      "paired_typed_over_native": 2.186789764932859,
+      "paired_typed_over_registry_jit": 2.2673761321846277,
+      "native_over_registry_jit_elapsed": 1.0368514470590835,
+      "original_over_registry_jit": 4.750043643921025
     },
     {
       "name": "1-96-1-all",
@@ -205,7 +255,22 @@
       "original_over_native_execution_ratio": 4.7073635766825594,
       "original_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/original-1-96-1-all.json",
       "native_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/native-original-1-96-1-all.json",
-      "native_checkpoint_sha256": "d287f6547294780db73271d4c1f565773ae1d5e3a714d8be900310f682542197"
+      "native_checkpoint_sha256": "d287f6547294780db73271d4c1f565773ae1d5e3a714d8be900310f682542197",
+      "paired_typed_ordinary_execution_median_s": 0.100876041,
+      "registry_jit_execution_median_s": 0.048597917,
+      "registry_jit_private_instantiation_median_s": 0.001134333,
+      "program_authoring_single_pre_warmup_observation_s": 42.028383958,
+      "program_authoring_observation_count": 1,
+      "program_authoring_may_include_current_compiler_and_session_state": true,
+      "paired_typed_original_snapshot_parity": true,
+      "registry_jit_original_snapshot_parity": true,
+      "registry_jit_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/jit-1-96-1-all.json",
+      "registry_jit_checkpoint_sha256": "7780b9b0476ab32b8f5b0f413f4707a84e3c8d3e2aed6fc0762f2a9d4cd9d906",
+      "original_over_paired_typed": 2.4345626529891278,
+      "paired_typed_over_native": 1.933556144428205,
+      "paired_typed_over_registry_jit": 2.075727669562463,
+      "native_over_registry_jit_elapsed": 1.073528521808867,
+      "original_over_registry_jit": 5.053489062092929
     },
     {
       "name": "1-96-1-none",
@@ -236,7 +301,22 @@
       "original_over_native_execution_ratio": 5.2588468562426405,
       "original_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/original-1-96-1-none.json",
       "native_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/native-original-1-96-1-none.json",
-      "native_checkpoint_sha256": "fa86cd540a070f2015caf0532fa2a368a79b95dd22dfc3d047c61b645f3c7192"
+      "native_checkpoint_sha256": "fa86cd540a070f2015caf0532fa2a368a79b95dd22dfc3d047c61b645f3c7192",
+      "paired_typed_ordinary_execution_median_s": 0.093235333,
+      "registry_jit_execution_median_s": 0.048543917,
+      "registry_jit_private_instantiation_median_s": 0.000826833,
+      "program_authoring_single_pre_warmup_observation_s": 21.17059925,
+      "program_authoring_observation_count": 1,
+      "program_authoring_may_include_current_compiler_and_session_state": true,
+      "paired_typed_original_snapshot_parity": true,
+      "registry_jit_original_snapshot_parity": true,
+      "registry_jit_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/jit-1-96-1-none.json",
+      "registry_jit_checkpoint_sha256": "27d7cde7bc7de4b11a4d02260d961071e71b3b1d732747abd37b27173d8c2586",
+      "original_over_paired_typed": 2.568899582307493,
+      "paired_typed_over_native": 2.047120445058006,
+      "paired_typed_over_registry_jit": 1.9206388516196582,
+      "native_over_registry_jit_elapsed": 0.9382148745845954,
+      "original_over_registry_jit": 4.933928343689282
     },
     {
       "name": "4-24-13-all",
@@ -267,7 +347,22 @@
       "original_over_native_execution_ratio": 5.275278428598959,
       "original_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/original-4-24-13-all.json",
       "native_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/native-original-4-24-13-all.json",
-      "native_checkpoint_sha256": "af1667f5397b69bfc0016c992495d925ff9361afe95600697f84570fe1cceac3"
+      "native_checkpoint_sha256": "af1667f5397b69bfc0016c992495d925ff9361afe95600697f84570fe1cceac3",
+      "paired_typed_ordinary_execution_median_s": 0.167751291,
+      "registry_jit_execution_median_s": 0.06767675,
+      "registry_jit_private_instantiation_median_s": 0.002938625,
+      "program_authoring_single_pre_warmup_observation_s": 40.986014709,
+      "program_authoring_observation_count": 1,
+      "program_authoring_may_include_current_compiler_and_session_state": true,
+      "paired_typed_original_snapshot_parity": true,
+      "registry_jit_original_snapshot_parity": true,
+      "registry_jit_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/jit-4-24-13-all.json",
+      "registry_jit_checkpoint_sha256": "ab15a658ac49c3a262cf9b83f5da8d86742a8beea843b4e4932822e9387d5c71",
+      "original_over_paired_typed": 2.1445309413445885,
+      "paired_typed_over_native": 2.459875176849367,
+      "paired_typed_over_registry_jit": 2.47871375324613,
+      "native_over_registry_jit_elapsed": 1.0076583464779263,
+      "original_over_registry_jit": 5.315678338572701
     },
     {
       "name": "4-24-13-none",
@@ -298,7 +393,22 @@
       "original_over_native_execution_ratio": 5.723529629108526,
       "original_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/original-4-24-13-none.json",
       "native_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/native-original-4-24-13-none.json",
-      "native_checkpoint_sha256": "262c9c0438d2d464d074381b2c5ddd0514a83ae14814b51ea77f069bca713f03"
+      "native_checkpoint_sha256": "262c9c0438d2d464d074381b2c5ddd0514a83ae14814b51ea77f069bca713f03",
+      "paired_typed_ordinary_execution_median_s": 0.130727875,
+      "registry_jit_execution_median_s": 0.06238225,
+      "registry_jit_private_instantiation_median_s": 0.002370875,
+      "program_authoring_single_pre_warmup_observation_s": 21.324151334,
+      "program_authoring_observation_count": 1,
+      "program_authoring_may_include_current_compiler_and_session_state": true,
+      "paired_typed_original_snapshot_parity": true,
+      "registry_jit_original_snapshot_parity": true,
+      "registry_jit_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/jit-4-24-13-none.json",
+      "registry_jit_checkpoint_sha256": "3adfab4f4411215ff34c387811466f147dd17c21bafc6a536953577747dc57b9",
+      "original_over_paired_typed": 2.6839085925629864,
+      "paired_typed_over_native": 2.1325352305097947,
+      "paired_typed_over_registry_jit": 2.095594099283049,
+      "native_over_registry_jit_elapsed": 0.9826773641540664,
+      "original_over_registry_jit": 5.624383009590067
     },
     {
       "name": "4-96-1-all",
@@ -329,7 +439,22 @@
       "original_over_native_execution_ratio": 5.215792538017136,
       "original_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/original-4-96-1-all.json",
       "native_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/native-original-4-96-1-all.json",
-      "native_checkpoint_sha256": "4fa2996c33c0db3c3fb8723df5811d155bdfb6a5f122cce4257f3f71de506fea"
+      "native_checkpoint_sha256": "4fa2996c33c0db3c3fb8723df5811d155bdfb6a5f122cce4257f3f71de506fea",
+      "paired_typed_ordinary_execution_median_s": 0.394063791,
+      "registry_jit_execution_median_s": 0.187106125,
+      "registry_jit_private_instantiation_median_s": 0.002752166,
+      "program_authoring_single_pre_warmup_observation_s": 39.7638815,
+      "program_authoring_observation_count": 1,
+      "program_authoring_may_include_current_compiler_and_session_state": true,
+      "paired_typed_original_snapshot_parity": true,
+      "registry_jit_original_snapshot_parity": true,
+      "registry_jit_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/jit-4-96-1-all.json",
+      "registry_jit_checkpoint_sha256": "84022c4402c2ac4387d7e48d07236e58350da9f854df13627ea6a041da91feb9",
+      "original_over_paired_typed": 2.6318447207954714,
+      "paired_typed_over_native": 1.9818010146285037,
+      "paired_typed_over_registry_jit": 2.1060977613640386,
+      "native_over_registry_jit_elapsed": 1.0627190852250294,
+      "original_over_registry_jit": 5.542922274725106
     },
     {
       "name": "4-96-1-none",
@@ -360,7 +485,22 @@
       "original_over_native_execution_ratio": 6.554642805729354,
       "original_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/original-4-96-1-none.json",
       "native_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/native-original-4-96-1-none.json",
-      "native_checkpoint_sha256": "6efcb41a47cf1b567d8dba38a0ad083ff3bfb65653f268a8975748384849f601"
+      "native_checkpoint_sha256": "6efcb41a47cf1b567d8dba38a0ad083ff3bfb65653f268a8975748384849f601",
+      "paired_typed_ordinary_execution_median_s": 0.355540916,
+      "registry_jit_execution_median_s": 0.164262458,
+      "registry_jit_private_instantiation_median_s": 0.002163541,
+      "program_authoring_single_pre_warmup_observation_s": 21.754090167,
+      "program_authoring_observation_count": 1,
+      "program_authoring_may_include_current_compiler_and_session_state": true,
+      "paired_typed_original_snapshot_parity": true,
+      "registry_jit_original_snapshot_parity": true,
+      "registry_jit_checkpoint": "benchmark/juliac_program/results/maespa_scaling/canonical/jit-4-96-1-none.json",
+      "registry_jit_checkpoint_sha256": "85a9794558cb02ed6177d181b7b3484151d932317ce570939beefc9fa53d7bd2",
+      "original_over_paired_typed": 2.769365861115124,
+      "paired_typed_over_native": 2.3668388845849475,
+      "paired_typed_over_registry_jit": 2.164468499552101,
+      "native_over_registry_jit_elapsed": 0.9144976084553661,
+      "original_over_registry_jit": 5.994205170118665
     }
   ],
   "rng_scope": {
@@ -422,14 +562,45 @@
     "build_toml": {
       "path": "/private/tmp/pse-maespa-matrix-safe-r8-20261102/build.toml",
       "sha256": "555dd912bef9ec0cf45cd302dfd4438aea525d3b9d22399a648f7675c869476a"
+    },
+    "typed_jit_comparison_summary": {
+      "path": "benchmark/juliac_program/results/maespa_scaling/canonical/typed_jit_comparison_summary.json",
+      "sha256": "9de8f2fe185496e59bb4a75edc9ade60b91f7aee652009f476885c49b3250bc0",
+      "selected_typed_values": "paired_typed_execution_median_s; standalone typed_execution_median_s not used for four-arm column"
     }
   },
   "limits": [
-    "typed ordinary and registry JIT timing/attribution matrix pending",
     "fixed registry and original PreviousTimeStep policies only",
     "no arbitrary lifecycle, spatial backend or numeric-type native qualification",
     "same-host relocation only; sources were not hidden and system library portability was not tested",
     "warm execution speedup, not build/setup/startup-inclusive speedup",
-    "scientific calibration is outside this execution-equivalence experiment"
-  ]
+    "scientific calibration is outside this execution-equivalence experiment",
+    "authoring is one pre-P0 observation per case with compiler/session state; no repeated warm-setup median, controlled cold-start or isolated AOT attribution"
+  ],
+  "attribution": {
+    "original_over_paired_typed": {
+      "minimum": 2.09495177112248,
+      "maximum": 2.769365861115124
+    },
+    "paired_typed_over_native": {
+      "minimum": 1.933556144428205,
+      "maximum": 2.459875176849367
+    },
+    "paired_typed_over_registry_jit": {
+      "minimum": 1.9206388516196582,
+      "maximum": 2.47871375324613
+    },
+    "native_over_registry_jit_elapsed": {
+      "minimum": 0.9144976084553661,
+      "maximum": 1.073528521808867
+    },
+    "original_over_registry_jit": {
+      "minimum": 4.750043643921025,
+      "maximum": 5.994205170118665
+    },
+    "interpretation": "both inference-source repair and registry executor contribute; native warm execution is close to registry JIT and the full original/native gain is not attributed to AOT",
+    "native_elapsed_deviation_relative_to_jit_maximum": 0.0855023915446339,
+    "statistical_equivalence_claim": false,
+    "isolated_aot_speedup_claim": false
+  }
 }

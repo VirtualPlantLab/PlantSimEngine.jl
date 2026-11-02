@@ -2,7 +2,7 @@
   "format": 1,
   "recorded_at": "2026-11-02",
   "scope": "fixed-registry full original MAESPA canopy-soil scenario; inference-only source variant",
-  "native_status": "eight-case safe/generic native matrix exact original-record parity, original/native timings and same-host relocation passed; typed/JIT measurements pending",
+  "native_status": "eight-case safe/generic native parity/timing/relocation and full four-arm warm comparison complete",
   "focused_runtime": {
     "temporal_initial_assertions": 8,
     "hard_call_view_assertions": 293,
@@ -86,7 +86,7 @@
       "committed_atmosphere",
       "host_rng_fingerprints"
     ],
-    "final_variant_matrix": "new 26-file variant pending ordinary/JIT/native controls",
+    "final_variant_matrix": "26-file variant: all eight typed ordinary/JIT/native cases match original observations; full four-arm execution measurements complete",
     "nine_file_variant_full_ordinary_matrix_exact_original": true,
     "nine_file_variant_candidate_24_daylight_steps_exact_original": true,
     "candidate_records": 28202,
@@ -190,7 +190,22 @@
       6.554642805729354
     ],
     "typed_ordinary_full_snapshot_and_rng_cases_passed": 8,
-    "typed_jit_measurement_attribution_pending": true,
-    "details": "benchmark/juliac_program/results/maespa_native_qualification.json"
+    "typed_jit_measurement_attribution_pending": false,
+    "details": "benchmark/juliac_program/results/maespa_native_qualification.json",
+    "typed_ordinary_measurements_complete": true,
+    "registry_jit_full_snapshot_and_rng_cases_passed": 8,
+    "registry_jit_measurements_complete": true,
+    "paired_typed_source_gain_range": [
+      2.09495177112248,
+      2.769365861115124
+    ],
+    "paired_typed_native_gain_range": [
+      1.933556144428205,
+      2.459875176849367
+    ],
+    "native_over_jit_elapsed_range": [
+      0.9144976084553661,
+      1.073528521808867
+    ]
   }
 }

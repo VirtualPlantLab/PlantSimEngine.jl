@@ -4,11 +4,12 @@ The complete selected public non-Tuzet canopy/soil scenario compiles with
 **JuliaC safe/generic**. All eight native cases match untouched-source ordinary
 PSE exactly: final canonical status, topology/geometry, committed atmosphere,
 stream keys and every retained sample/timestamp. Warm execution is **4.56–6.55×**
-faster than the original ordinary executor in these cases. Final inference-typed
-ordinary and registry-JIT measurements are still pending, so attribution among
-source typing, the new runtime and AOT compilation remains open.
+faster than the original ordinary executor in these cases. All eight inference-typed
+ordinary and registry-JIT controls are also complete. They show substantial
+contributions from both source typing and the new executor; native execution is
+within 9% of registry JIT, so the full gain is not attributed to AOT compilation.
 
-## Original PSE versus native execution
+## Four execution arms
 
 The primary baseline is a fresh ordinary PSE simulation using the unchanged
 frozen MAESPA source. One tile contains two trees, 27 objects and 100 applications;
@@ -17,18 +18,22 @@ applications. Plot density is preserved. The 24-step cases start at slot 13;
 the 96-step cases start at slot 1 and cover two days, including the night mask
 and second-day forcing/rainfall. Each base step is 1,800 seconds.
 
-Median execution milliseconds, three measured fresh simulations per case:
+Median execution milliseconds, three measured fresh simulations per case. The
+typed column is the ordinary control paired with registry JIT in each `jit-*.json`
+checkpoint; the separately retained standalone typed measurements are a distinct
+cohort. Original/native and paired typed/JIT measurements used separate serial
+windows on the same host.
 
-| Trees | Steps | Retained outputs | Original PSE (ms) | JuliaC safe (ms) | Original/native |
-| ---: | ---: | :--- | ---: | ---: | ---: |
-| 2 | 24 | `all` | 86.657 | 19.000 | 4.56× |
-| 2 | 24 | `none` | 80.566 | 17.586 | 4.58× |
-| 2 | 96 | `all` | 245.589 | 52.171 | 4.71× |
-| 2 | 96 | `none` | 239.512 | 45.545 | 5.26× |
-| 8 | 24 | `all` | 359.748 | 68.195 | 5.28× |
-| 8 | 24 | `none` | 350.862 | 61.302 | 5.72× |
-| 8 | 96 | `all` | 1037.115 | 198.841 | 5.22× |
-| 8 | 96 | `none` | 984.623 | 150.218 | 6.55× |
+| Trees | Steps | Retained outputs | Original PSE (ms) | Paired typed PSE (ms) | Registry JIT (ms) | JuliaC safe (ms) | Original/native |
+| ---: | ---: | :--- | ---: | ---: | ---: | ---: | ---: |
+| 2 | 24 | `all` | 86.657 | 37.067 | 17.737 | 19.000 | 4.56× |
+| 2 | 24 | `none` | 80.566 | 38.457 | 16.961 | 17.586 | 4.58× |
+| 2 | 96 | `all` | 245.589 | 100.876 | 48.598 | 52.171 | 4.71× |
+| 2 | 96 | `none` | 239.512 | 93.235 | 48.544 | 45.545 | 5.26× |
+| 8 | 24 | `all` | 359.748 | 167.751 | 67.677 | 68.195 | 5.28× |
+| 8 | 24 | `none` | 350.862 | 130.728 | 62.382 | 61.302 | 5.72× |
+| 8 | 96 | `all` | 1037.115 | 394.064 | 187.106 | 198.841 | 5.22× |
+| 8 | 96 | `none` | 984.623 | 355.541 | 164.262 | 150.218 | 6.55× |
 
 These ratios time the complete simulation advance after setup. Fresh scientific
 construction, ordinary preparation, reusable-program authoring, private
@@ -48,10 +53,24 @@ untimed full native emit also passes for every case. The eight cases compare
 
 [All scalar samples, setup phases and record hashes](results/maespa_scaling/canonical/native_original_summary.json)
 and [native qualification/provenance](results/maespa_native_qualification.json)
-keep the measured arms and qualification limits explicit. The inference-typed
-ordinary arm already passes all eight record and RNG-inclusive snapshot gates.
-Its final timings and the registry-JIT matrix are being completed separately;
-this table does not attribute the entire ratio to JuliaC.
+keep the measured arms and qualification limits explicit. All eight typed-ordinary
+and registry-JIT cases pass their original record/full-snapshot gates, including
+RNG fingerprints. The source-only original/paired-typed ratios are 2.095–2.769×;
+paired typed/native ratios are another 1.934–2.460×. Paired typed/registry-JIT
+ratios are 1.921–2.479×. Native/JIT elapsed-time ratios range 0.914–1.074, so native
+elapsed time stays within 9% of JIT. These descriptive comparisons do not isolate
+a cold-start or AOT-only effect and do not establish statistical equivalence.
+
+For the largest retained case, the four execution medians are 1.037115 s
+(original), 0.394064 s (paired typed), 0.187106 s (registry JIT) and 0.198841 s
+(native). The existing JIT executor captures most of the additional runtime gain.
+
+Program authoring was observed **once per case, before P0**, at 21.082–42.028 s.
+Those observations include ordinary resolution/lowering/copy-schema preparation
+and may include compiler work for the current session. They are neither repeated
+warm setup medians nor a controlled cold-start comparison. The subsequent hot
+JIT samples reuse that program; their private-instantiation medians are
+0.827–2.939 ms and remain separate from execution.
 
 ## Scientific and execution scope
 
@@ -172,6 +191,5 @@ The admitted duration stays within the original 96-row forcing coverage.
 
 This is execution equivalence for the stated fixed scenario and source variants,
 not scientific calibration, arbitrary MAESPA/Tuzet support, general spatial or
-lifecycle support, or a build/setup-inclusive speedup. The complete attribution
-matrix remains pending until the final typed-ordinary and registry-JIT results
-arrive.
+lifecycle support, or a build/setup-inclusive speedup. The four-arm comparison is complete for the eight stated cases; it does not
+establish a general performance result outside that scope.
