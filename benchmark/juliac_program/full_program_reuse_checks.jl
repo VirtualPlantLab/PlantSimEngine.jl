@@ -319,6 +319,13 @@ PSE.outputs_(::StatusReader) = (seen=0f0,)
 PSE.run!(::StatusReader, status, environment, constants, context) =
     (status.seen = status.value; nothing)
 
+PSE.@process "reuse_implicit_producer" verbose = false
+struct ImplicitProducer <: AbstractReuse_Implicit_ProducerModel end
+PSE.inputs_(::ImplicitProducer) = NamedTuple()
+PSE.outputs_(::ImplicitProducer) = (value=0f0,)
+PSE.run!(::ImplicitProducer, status, environment, constants, context) =
+    (status.value = 5f0; nothing)
+
 function run_checks()
     result = @testset "Full program reuse and invalidation" begin
         @testset "manual applications must use the daily clock" begin
@@ -369,6 +376,24 @@ function run_checks()
             filtered = One(within=Self(), var=:raw, application=:reader)
             specs = (_application(StatusReader(), :reader, :Plant; inputs=(value=filtered,)),)
             @test_throws ArgumentError _prepare(specs, initial, _tree())
+        end
+        @testset "implicit inputs project the same-object writer or read existing status" begin
+            reader = _application(StatusReader(), :reader, :Plant)
+            producer = _application(ImplicitProducer(), :producer, :Plant)
+            initial = (Scene=NamedTuple(), Plant=(value=2f0,))
+            state = _instantiate((reader, producer), initial, _tree())
+            @test state.program.order == (Val(2), Val(1))
+            @test state.program.applications[1].inputs.value isa
+                RP.FullInputRoute{((2,2),),:value,false,:one,Float32}
+            RP.step!(state, NamedTuple())
+            @test _status(state, 2).seen === 5f0
+
+            source_free = _instantiate((reader,), initial, _tree())
+            @test source_free.program.applications[1].inputs.value isa
+                RP.FullInputRoute{((2,0),),:value,false,:one,Float32}
+            _status(source_free, 2).value = 3f0
+            RP.step!(source_free, NamedTuple())
+            @test _status(source_free, 2).seen === 3f0
         end
         @testset "stable memberships, live values and real Ref replacement" begin
             state = _observer_state()

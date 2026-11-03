@@ -247,6 +247,14 @@ function _prepare_full(specs::Tuple, scenario; initial)
         Dict(plan.input=>plan for plan in scenario.input_plans_by_application[name]
             if plan.origin!==:inferred_same_object)
     end
+    inferred_sources=map(names) do name
+        sources=Dict{Symbol,Set{Symbol}}()
+        for plan in scenario.input_plans_by_application[name]
+            plan.origin===:inferred_same_object || continue
+            union!(get!(Set{Symbol},sources,plan.input),plan.potential_source_application_ids)
+        end
+        sources
+    end
     potential_sources=[Dict{Symbol,Tuple}() for _ in specs]
     temporals=[Dict{Symbol,Bool}() for _ in specs]
     input_routes=Vector{Any}(undef,length(specs))
@@ -261,7 +269,6 @@ function _prepare_full(specs::Tuple, scenario; initial)
         next=Tuple{Int,Symbol,Any}[]
         progressed=false
         for (i,var,declaration) in unresolved
-            spec=specs[i]
             plan=get(explicit_plans[i],var,nothing)
             explicit=!isnothing(plan)
             selector=explicit ? plan.selector : One(within=PSE.Self(),var=var)
@@ -279,26 +286,18 @@ function _prepare_full(specs::Tuple, scenario; initial)
             cross_scope=scope isa Union{PSE.SelfPlant,PSE.SceneScope,PSE.Subtree,PSE.Ancestor}
             fallback=explicit && (has_relation || cross_scope) ? nothing : appcat[i]
             sourcecats=_full_selector_categories(selector,categories,fallback)
+            producer_ids=explicit ? plan.potential_source_application_ids :
+                get(inferred_sources[i],var,())
+            # Canonical candidates include applications whose target objects
+            # do not exist yet. The typed route needs the subset that writes
+            # the destination cohort, with manual writers eligible only for
+            # explicit inputs.
             potential=Int[]; sources=Tuple{Int,Int}[]; values_=Any[]
             for cat in sourcecats
-                candidates=if explicit
-                    # Canonical candidates are potential applications even if
-                    # their objects do not exist yet. The typed route needs the
-                    # subset that writes this destination cohort.
-                    [j for j in get(declared_owners,(cat,sourcevar),Int[])
-                        if names[j] in plan.potential_source_application_ids]
-                elseif i in manual
-                    Int[]
-                else
-                    [j for j in get(owners,(cat,sourcevar),Int[]) if j!=i]
-                end
+                writers=explicit ? declared_owners : owners
+                candidates=!explicit && i in manual ? Int[] :
+                    [j for j in get(writers,(cat,sourcevar),Int[]) if names[j] in producer_ids]
                 append!(potential,candidates)
-                if !explicit
-                    for candidate in candidates
-                        _validate_program_variable_contract!((spec=spec,id=names[i]),var,
-                            (spec=specs[candidate],id=names[candidate]),sourcevar)
-                    end
-                end
                 chosen=isempty(candidates) ? 0 : last(candidates)
                 if chosen!=0
                     value=_full_value(PSE.outputs_(specs[chosen])[sourcevar])
