@@ -22,6 +22,17 @@ function _tree(ids=Int[])
     end
     return root
 end
+function _prepare(specs, initial, root)
+    scene = CompositeModel(root; applications=specs, environment=(duration=Day(1),))
+    return RP.prepare(scene; initial)
+end
+
+function _instantiate(specs, initial, root; retain=true)
+    program = _prepare(specs, initial, root)
+    return RP.instantiate(program, map(spec -> spec.model, specs), root;
+        initial, objects=_empty_objects(initial), retain)
+end
+
 _empty_objects(initial) = map(_ -> typeof((object_id=ObjectId(1), values=NamedTuple()))[], initial)
 function _status(state, id)
     slot, row = state.locations[id]
@@ -73,8 +84,9 @@ function _observer_state(; program=nothing, fail_id=-1)
         _application(Observer(), :observer, :Plant; inputs=(xs=_xs(),), calls=(ticks=_tick(),)),
         _application(Tick(), :tick, :Leaf))
     initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
-    program = isnothing(program) ? RP.prepare(specs; initial) : program
-    return RP.instantiate(program, map(spec -> spec.model, specs), _tree([30, 10]);
+    root = _tree([30, 10])
+    program = isnothing(program) ? _prepare(specs, initial, root) : program
+    return RP.instantiate(program, map(spec -> spec.model, specs), root;
         initial, objects=_empty_objects(initial), retain=true)
 end
 
@@ -113,8 +125,7 @@ function _growth_state()
         _application(Observer(), :observer, :Plant; inputs=(xs=_xs(),), calls=(ticks=_tick(),)),
         _application(Tick(), :tick, :Leaf))
     initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
-    return RP.instantiate(RP.prepare(specs; initial), map(spec -> spec.model, specs), _tree();
-        initial, objects=_empty_objects(initial), retain=true)
+    return _instantiate(specs, initial, _tree())
 end
 
 PSE.@process "reuse_optional_observer" verbose = false
@@ -144,8 +155,7 @@ function _optional_state()
         _application(DelayedCreator(), :delayed_creator, :Plant),
         _application(OptionalObserver(), :optional, :Plant; inputs=(value=optional, xs=_xs())))
     initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
-    return RP.instantiate(RP.prepare(specs; initial), map(spec -> spec.model, specs), _tree();
-        initial, objects=_empty_objects(initial), retain=true)
+    return _instantiate(specs, initial, _tree())
 end
 
 PSE.@process "reuse_one_cardinality_creator" verbose = false
@@ -171,8 +181,7 @@ function _one_cardinality_state(; multiplicity=One)
         inputs=(counts=Many(scale=:Leaf, within=SelfPlant(), application=:tick, var=:tick_count),),
         calls=(one_tick=_tick(multiplicity),)), _application(Tick(), :tick, :Leaf))
     initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
-    return RP.instantiate(RP.prepare(specs; initial), map(spec -> spec.model, specs), _tree();
-        initial, objects=_empty_objects(initial), retain=true)
+    return _instantiate(specs, initial, _tree())
 end
 
 PSE.@process "reuse_optional_call_probe" verbose = false
@@ -193,8 +202,7 @@ function _optional_call_state(ids)
         inputs=(counts=Many(scale=:Leaf, within=SelfPlant(), application=:tick, var=:tick_count),),
         calls=(optional=_tick(OptionalOne),)), _application(Tick(), :tick, :Leaf))
     initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
-    return RP.instantiate(RP.prepare(specs; initial), map(spec -> spec.model, specs), _tree(ids);
-        initial, objects=_empty_objects(initial), retain=true)
+    return _instantiate(specs, initial, _tree(ids))
 end
 
 PSE.@process "reuse_array_producer" verbose = false
@@ -232,8 +240,7 @@ function _array_state(retain)
         _application(ArrayMutator(), :mutator, :Plant; inputs=previous),
         _application(ArrayReader(), :reader, :Plant; inputs=previous))
     initial = (Scene=NamedTuple(), Plant=NamedTuple())
-    return RP.instantiate(RP.prepare(specs; initial), map(spec -> spec.model, specs), _tree();
-        initial, objects=_empty_objects(initial), retain)
+    return _instantiate(specs, initial, _tree(); retain)
 end
 
 PSE.@process "reuse_scene_creator" verbose = false
@@ -260,8 +267,7 @@ function _two_plants_state()
         _application(Observer(), :observer, :Plant; inputs=(xs=_xs(),), calls=(ticks=_tick(),)),
         _application(Tick(), :tick, :Leaf))
     initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
-    return RP.instantiate(RP.prepare(specs; initial), map(spec -> spec.model, specs), root;
-        initial, objects=_empty_objects(initial), retain=true)
+    return _instantiate(specs, initial, root)
 end
 
 PSE.@process "reuse_f32_source" verbose = false
@@ -287,12 +293,20 @@ function _float32_state()
         _application(F32Reader(), :f32_reader, :Leaf; inputs=previous),
         _application(F32Observer(), :f32_observer, :Plant; inputs=(xs=many,)))
     initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
-    return RP.instantiate(RP.prepare(specs; initial), map(spec -> spec.model, specs), _tree([30, 10]);
-        initial, objects=_empty_objects(initial), retain=true)
+    return _instantiate(specs, initial, _tree([30, 10]))
 end
 
 function run_checks()
     result = @testset "Full program reuse and invalidation" begin
+        @testset "manual applications must use the daily clock" begin
+            specs = (
+                _application(Source(-1), :source, :Leaf),
+                _application(Observer(), :observer, :Plant; inputs=(xs=_xs(),), calls=(ticks=_tick(),)),
+                ModelSpec(Tick(); name=:tick, on=Many(scale=:Leaf), every=Day(2)),
+            )
+            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
+            @test_throws ArgumentError _prepare(specs, initial, _tree())
+        end
         @testset "stable memberships, live values and real Ref replacement" begin
             state = _observer_state()
             environment = (delta=1.0, order=Int[])
@@ -328,6 +342,8 @@ function run_checks()
         end
         @testset "pending sources versus targeted newborn visibility" begin
             state = _growth_state()
+            @test isempty(state.cohorts[3].ids)
+            @test Val(1) in state.program.order # Preserve the initially empty Source application.
             environment = (delta=1.0, order=Int[])
             RP.step!(state, environment)
             parent = _status(state, 2)

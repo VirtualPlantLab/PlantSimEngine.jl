@@ -118,7 +118,19 @@ function _full_validate_selector(selector)
     return selector
 end
 
-function _prepare_full(specs::Tuple;initial,base_step=Day(1))
+function prepare(model::PSE.CompositeModel; initial)
+    isempty(model.instances) || throw(ArgumentError("full programs require direct applications"))
+    specs = Tuple(model.applications)
+    timeline = PSE._model_timeline(model)
+    timeline.base_step_seconds == 86_400 || throw(ArgumentError("full programs require a daily timeline"))
+    applications = PSE._compile_model_applications(model, specs, timeline)
+    all(application -> application.clock.dt == 1.0, applications) ||
+        throw(ArgumentError("full programs require one execution per daily step for every application"))
+    scenario = PSE._compile_resolved_scenario_plan(model, applications, timeline)
+    return _prepare_full(specs, scenario; initial)
+end
+
+function _prepare_full(specs::Tuple, scenario; initial)
     isempty(specs) && throw(ArgumentError("empty full program"))
     categories=keys(initial)
     isempty(categories) && throw(ArgumentError("full layout needs typed initial data per cohort"))
@@ -139,8 +151,7 @@ function _prepare_full(specs::Tuple;initial,base_step=Day(1))
         PSE._variable_contract_schema(spec)
         c.scale
     end
-    cadence=Dates.value(convert(Millisecond,base_step))
-    cadence>0 || throw(ArgumentError("base step must be positive"))
+    cadence=Dates.value(convert(Millisecond,Day(1)))
     for spec in specs
         isnothing(spec.timestep) || Dates.value(convert(Millisecond,spec.timestep))==cadence ||
             throw(ArgumentError("full entry currently uses a single daily cadence"))
@@ -194,7 +205,7 @@ function _prepare_full(specs::Tuple;initial,base_step=Day(1))
 
     # Calls have static application slots, but their selected object rows remain
     # runtime data. Keep their original selectors for exact topology resolution.
-    manual=Set{Int}(); callowners=Dict{Int,Vector{Int}}(); initializer_owners=Dict{Int,Int}()
+    manual=Set{Int}(); initializer_owners=Dict{Int,Int}()
     call_key=0
     call_routes=map(Tuple(enumerate(specs))) do (i,spec)
         values_=map(values(spec.calls)) do declaration
@@ -218,13 +229,14 @@ function _prepare_full(specs::Tuple;initial,base_step=Day(1))
             else
                 isempty(specs[target].outputs_to) || throw(ArgumentError("manual-only applications cannot declare distributed outputs"))
                 push!(manual,target)
-                push!(get!(callowners,target,Int[]),i)
             end
             call_key+=1
             FullCallRoute{target,initializer ? :initializer : :manual,PSE.multiplicity(selector),typeof(selector)}(selector,call_key)
         end
         NamedTuple{keys(spec.calls)}(values_)
     end
+    Set(names[i] for i in manual) == Set(scenario.manual_application_ids) ||
+        throw(ArgumentError("full call routes do not match the resolved manual applications"))
     any(i->i in manual,keys(initializer_owners)) && throw(ArgumentError("initializer cannot also be manual-only"))
     any(i->i in manual,values(initializer_owners)) && throw(ArgumentError("initializer creator must be root-scheduled"))
     # Manual kernels mutate the caller's canonical statuses, but are not
@@ -250,18 +262,6 @@ function _prepare_full(specs::Tuple;initial,base_step=Day(1))
         length(writers)==1 && only(writers)==target || throw(ArgumentError(
             "initializer $(names[target]) must be the sole canonical writer of $(appcat[target]).$var"))
     end
-    function rootowners(i,path=Int[])
-        i in path && throw(ArgumentError("hard-call cycle"))
-        direct=get(callowners,i,Int[])
-        isempty(direct) && return (i,)
-        result=Int[]
-        for owner in direct
-            append!(result,rootowners(owner,[path;i]))
-        end
-        return Tuple(unique(result))
-    end
-    foreach(rootowners,manual)
-    edges=[Set{Int}() for _ in specs]
     potential_sources=[Dict{Symbol,Tuple}() for _ in specs]
     temporals=[Dict{Symbol,Bool}() for _ in specs]
     input_routes=Vector{Any}(undef,length(specs))
@@ -371,45 +371,12 @@ function _prepare_full(specs::Tuple;initial,base_step=Day(1))
     temporal_outputs=map(eachindex(specs)) do i
         Tuple(var for var in keys(output_routes[i]) if var in temporal_needed[i])
     end
-    # All potential writers create same-step edges, even though live bindings
-    # select a final canonical writer. Manual callee outputs are attributed to
-    # their root owner; input edges into a manual callee do not reorder its owner.
-    for i in eachindex(specs), (var,producers) in potential_sources[i]
-        get(temporals[i],var,false) && continue
-        for producer in producers, owner in rootowners(producer)
-            owner==i || push!(edges[i],owner)
-        end
-        selector=haskey(specs[i].inputs,var) ? specs[i].inputs[var] : nothing
-        if !isnothing(selector)
-            for label in get(PSE.criteria(selector),:after,())
-                source=findfirst(==(label),names)
-                isnothing(source) && throw(ArgumentError("unknown from_status ordering application"))
-                source==i || push!(edges[i],source)
-            end
-        end
-    end
-    for (target,creator) in initializer_owners
-        push!(edges[creator],target)
-        for consumer in eachindex(specs), (var,producers) in potential_sources[consumer]
-            get(temporals[consumer],var,false) && continue
-            target in producers || continue
-            executionowners=haskey(initializer_owners,consumer) ? (initializer_owners[consumer],) : rootowners(consumer)
-            for owner in executionowners
-                owner==creator || push!(edges[owner],creator)
-            end
-        end
-    end
-    # Updates edges are also meaningful for distributed writer overlap.
-    for ((cat,var),writers) in owners, k in 2:length(writers)
-        previous=writers[k-1]; current=writers[k]
-        current in manual || previous in manual || push!(edges[current],previous)
-    end
-    roots=[i for i in eachindex(specs) if !(i in manual)]
-    order=Int[]
-    while length(order)<length(roots)
-        index=findfirst(i->!(i in order) && all(j->j in manual || j in order,edges[i]),roots)
-        isnothing(index) && throw(ArgumentError("full-layout same-step dependency cycle: $(Tuple(names[i] for i in roots if !(i in order)))"))
-        push!(order,roots[index])
+    # Keep entries for applications with no initial targets. Growth can add
+    # their first rows without changing the order of root applications.
+    order=map(Tuple(scenario.application_schedule.entries)) do entry
+        names[entry.application_slot] === entry.application_id ||
+            throw(ArgumentError("resolved application does not match its authored slot"))
+        Val(entry.application_slot)
     end
     cohorts=map(categories) do cat
         fields=Tuple(sort!(collect(keys(seeds[cat]));by=string))
@@ -438,7 +405,7 @@ function _prepare_full(specs::Tuple;initial,base_step=Day(1))
         FullApplicationRecipe{M,C,i,typeof(inputs),typeof(outputs),typeof(calls),typeof(temporal_outputs[i]),D,V,I,O,E,B,S,H}(
             i,names[i],inputs,outputs,calls,temporal_outputs[i],PSE.dep(spec.model),PSE.variable_contracts_(spec),I,O,E,B,S,H)
     end
-    return FullProgram(cohorts,applications,map(Val,Tuple(order)),cadence)
+    return FullProgram(cohorts,applications,order,cadence)
 end
 
 function _make_cohort(recipe::FullCohortRecipe{K,P,X,D,S},models,initial,::Type{N}) where {K,P,X,D,S,N}

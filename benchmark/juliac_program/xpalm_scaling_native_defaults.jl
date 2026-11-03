@@ -22,7 +22,7 @@ function _package_default_full_setup()
         initial=FullXPalmFixture.initial_data(palm,applications))
 end
 const FULL_PACKAGE_DEFAULT_SETUP=_package_default_full_setup()
-const FULL_PACKAGE_DEFAULT_PROGRAM=ReusableProgram.prepare(FULL_PACKAGE_DEFAULT_SETUP.applications;
+const FULL_PACKAGE_DEFAULT_PROGRAM=ReusableProgram.prepare(FullXPalmFixture.preparation_scene(FULL_PACKAGE_DEFAULT_SETUP);
     initial=FULL_PACKAGE_DEFAULT_SETUP.initial.templates)
 
 function simulate_package_defaults(days::Int,retain::Bool)

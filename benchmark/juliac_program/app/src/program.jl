@@ -118,7 +118,7 @@ unknown operations fail explicitly rather than using the ordinary runtime.
 function prepare(specs::Tuple; initial=NamedTuple())
     isempty(specs) && throw(ArgumentError("empty program"))
     any(s -> !isempty(s.outputs_to) || !isempty(s.updates) || any(x->x isa Many,values(s.inputs)),specs) &&
-        return _prepare_full(specs;initial)
+        throw(ArgumentError("full programs require a CompositeModel for canonical scheduling"))
     any(s -> haskey(PSE.criteria(s.applies_to),:scale),specs) && return _prepare_cohorts(specs;initial)
     kinds = map(_admit, specs)
     all(==(first(kinds)), kinds) || throw(ArgumentError("one object category per program is admitted"))

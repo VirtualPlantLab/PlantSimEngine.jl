@@ -218,7 +218,7 @@ function compare_warm(; days=12, rate=0.3, reproductive=true, retain=true, repea
     metadata = _metadata()
     authored = @timed XF.authoring(; settings...)
     setup = authored.value
-    prepared = @timed RP.prepare(setup.applications; initial=setup.initial.templates)
+    prepared = @timed RP.prepare(XF.preparation_scene(setup); initial=setup.initial.templates)
     context = (settings=settings, setup=setup, program=prepared.value,
         forcing=XF.rows(days), constants=PSE.Constants(), days=Int(days), retain=retain)
     caller_rng = XF.rng_fingerprint(setup.models)

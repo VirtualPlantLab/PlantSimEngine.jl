@@ -1754,6 +1754,25 @@ function _model_timeline(model::CompositeModel)
     return _timeline_context(backend)
 end
 
+function _compile_resolved_scenario_plan(model::CompositeModel, applications, timeline)
+    distributed_output_plans =
+        _compile_model_output_destination_plans(model, applications)
+    input_plans = _compile_model_input_plans(
+        model,
+        applications,
+        distributed_output_plans,
+    )
+    call_plans = _compile_model_call_plans(model, applications)
+    return _compiled_scenario_plan(
+        model,
+        applications,
+        input_plans,
+        call_plans,
+        distributed_output_plans,
+        timeline,
+    )
+end
+
 function _compile_scene(
     model::CompositeModel,
     raw_specs;
@@ -1769,22 +1788,7 @@ function _compile_scene(
         started_at,
     )
     started_at = _runtime_performance_start(performance)
-    distributed_output_plans =
-        _compile_model_output_destination_plans(model, applications)
-    input_plans = _compile_model_input_plans(
-        model,
-        applications,
-        distributed_output_plans,
-    )
-    call_plans = _compile_model_call_plans(model, applications)
-    scenario_plan = _compiled_scenario_plan(
-        model,
-        applications,
-        input_plans,
-        call_plans,
-        distributed_output_plans,
-        timeline,
-    )
+    scenario_plan = _compile_resolved_scenario_plan(model, applications, timeline)
     _runtime_performance_finish!(
         performance,
         :scenario_plan_compile,

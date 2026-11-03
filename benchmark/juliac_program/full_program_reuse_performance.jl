@@ -37,9 +37,16 @@ function _source_hashes(root)
     return Dict(file => bytes2hex(sha256(read(joinpath(root, "app", "src", file)))) for file in files)
 end
 
-function _context(performance, settings, forcing, days, retain)
+_prepare_current(performance, setup) =
+    performance.RP.prepare(performance.XF.preparation_scene(setup); initial=setup.initial.templates)
+
+# Historical source snapshots predate the CompositeModel authoring entry.
+_prepare_historical(performance, setup) =
+    performance.RP.prepare(setup.applications; initial=setup.initial.templates)
+
+function _context(prepare, performance, settings, forcing, days, retain)
     setup = performance.XF.authoring(; settings...)
-    program = performance.RP.prepare(setup.applications; initial=setup.initial.templates)
+    program = prepare(performance, setup)
     return (settings=settings, setup=setup, program=program, forcing=forcing,
         constants=performance.PSE.Constants(), days=Int(days), retain=retain)
 end
@@ -61,8 +68,8 @@ function _comparison_loaded(baseline, baseline_root; days, rate, reproductive, r
     before = baseline.FullXPalmPerformance
     settings = (; rate, reproductive)
     forcing = After.XF.rows(days)
-    before_context = _context(before, settings, forcing, days, retain)
-    after_context = _context(After, settings, forcing, days, retain)
+    before_context = _context(_prepare_historical, before, settings, forcing, days, retain)
+    after_context = _context(_prepare_current, After, settings, forcing, days, retain)
     before_rng = before.XF.rng_fingerprint(before_context.setup.models)
     after_rng = After.XF.rng_fingerprint(after_context.setup.models)
     expected = _oracle(after_context)

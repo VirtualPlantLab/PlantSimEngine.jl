@@ -188,6 +188,8 @@ function scene(value::XPalm.Palm, forcing; applications=specs(value))
         status=XPalm._xpalm_initial_status)
 end
 
+preparation_scene(setup) = scene(setup.palm, rows(1); applications=setup.applications)
+
 """Run the full original architecture=false XPalm graph with all outputs retained."""
 function ordinary(forcing=rows(4); constants=Constants(), kwargs...)
     setup = authoring(; kwargs...)

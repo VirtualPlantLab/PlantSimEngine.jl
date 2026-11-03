@@ -174,7 +174,7 @@ function compare_case(; days=3, rate=0.05, reproductive=false, sex_seed=1,
     setup = XF.authoring(; settings...)
     reference_setup = XF.authoring(; settings...)
     forcing = XF.rows(days)
-    program = RP.prepare(setup.applications; initial=setup.initial.templates)
+    program = RP.prepare(XF.preparation_scene(setup); initial=setup.initial.templates)
     kernels = deepcopy(setup.models)
     caller_rng_before = XF.rng_fingerprint(kernels)
     root = native_tree(setup.topology)
@@ -224,7 +224,7 @@ end
 
 function _check_independent_states()
     setup = XF.authoring(; reproductive=true, rate=0.3)
-    program = RP.prepare(setup.applications; initial=setup.initial.templates)
+    program = RP.prepare(XF.preparation_scene(setup); initial=setup.initial.templates)
     caller_models = setup.models
     caller_rng_before = XF.rng_fingerprint(caller_models)
     left = RP.instantiate(program, caller_models, native_tree(setup.topology);

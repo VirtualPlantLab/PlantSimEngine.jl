@@ -2,7 +2,7 @@
 # Only module/build-time authoring loads Palm parameters or constructs ModelSpec.
 const FULL_SETUP = FullXPalmFixture.authoring()
 const FULL_REPRODUCTIVE_SETUP = FullXPalmFixture.authoring(; reproductive=true)
-const FULL_PROGRAM = ReusableProgram.prepare(FULL_SETUP.applications;
+const FULL_PROGRAM = ReusableProgram.prepare(FullXPalmFixture.preparation_scene(FULL_SETUP);
     initial=FULL_SETUP.initial.templates)
 
 _full_runtime_model(model, rate::Float64) = model

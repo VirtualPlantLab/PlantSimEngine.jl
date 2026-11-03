@@ -35,14 +35,21 @@ function _profile_metadata(fixture, settings)
         abortion_seed=p["reproduction"]["abortion"]["random_seed"])
 end
 
-function _context(performance, settings)
+_prepare_current(performance, setup) =
+    performance.RP.prepare(performance.XF.preparation_scene(setup); initial=setup.initial.templates)
+
+# Historical source snapshots predate the CompositeModel authoring entry.
+_prepare_historical(performance, setup) =
+    performance.RP.prepare(setup.applications; initial=setup.initial.templates)
+
+function _context(prepare, performance, settings)
     source = _source(performance, settings)
     xf = performance.XF
     setup = (palm=source.palm, applications=source.applications,
         models=xf.models(source.applications), topology=xf.topology_descriptor(source.palm),
         variables=xf.variables_by_category(source.palm, source.applications),
         initial=xf.initial_data(source.palm, source.applications))
-    program = performance.RP.prepare(setup.applications; initial=setup.initial.templates)
+    program = prepare(performance, setup)
     return (settings=settings, setup=setup, program=program, days=settings.days, retain=settings.retain)
 end
 
@@ -228,8 +235,8 @@ function compare_scaling(previous, current; days=256, profile=:accelerated,
     settings = (; days=Int(days), profile, rate, reproductive, retain)
     profile_metadata = _profile_metadata(current.XF, settings)
     arms = isnothing(previous) ? (:ordinary_pse, :current_prepared) : ARM_LABELS
-    before = isnothing(previous) ? nothing : _context(previous, settings)
-    after = _context(current, settings)
+    before = isnothing(previous) ? nothing : _context(_prepare_historical, previous, settings)
+    after = _context(_prepare_current, current, settings)
     previous_rng = isnothing(previous) ? nothing : previous.XF.rng_fingerprint(before.setup.models)
     current_rng = current.XF.rng_fingerprint(after.setup.models)
     expected = _oracle(current, after, max_reachable_bytes)
