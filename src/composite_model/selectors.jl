@@ -960,68 +960,43 @@ function _scope_contains_object(model::CompositeModel, scope, context, object_id
     end
 end
 
-@inline _relation_contains_object(
-    ::CompositeModel,
-    ::Nothing,
-    context_id::ObjectId,
-    object_id::ObjectId,
-) = true
+# Share relation predicates across topology representations while keeping
+# registry lookups and traversal specific to each representation.
+@inline _relation_parent(model::CompositeModel, id) = _model_object(model, id).parent
+@inline _relation_in_subtree(model::CompositeModel, id, root) =
+    _object_is_in_subtree(model, id, root)
+@inline _relation_same_object(::CompositeModel, left, right) = left == right
 
-@inline _relation_contains_object(
-    ::CompositeModel,
-    ::Val{:self},
-    context_id::ObjectId,
-    object_id::ObjectId,
-) = object_id == context_id
+@inline _relation_contains_object(topology, ::Nothing, origin, object) = true
 
-@inline function _relation_contains_object(
-    model::CompositeModel,
-    ::Val{:parent},
-    context_id::ObjectId,
-    object_id::ObjectId,
-)
-    return _model_object(model, context_id).parent == object_id
+@inline _relation_contains_object(topology, ::Val{:self}, origin, object) =
+    _relation_same_object(topology, origin, object)
+
+@inline function _relation_contains_object(topology, ::Val{:parent}, origin, object)
+    parent = _relation_parent(topology, origin)
+    return !isnothing(parent) && _relation_same_object(topology, parent, object)
 end
 
-@inline function _relation_contains_object(
-    model::CompositeModel,
-    ::Val{:children},
-    context_id::ObjectId,
-    object_id::ObjectId,
-)
-    return _model_object(model, object_id).parent == context_id
+@inline function _relation_contains_object(topology, ::Val{:children}, origin, object)
+    return _relation_contains_object(topology, Val(:parent), object, origin)
 end
 
-@inline function _relation_contains_object(
-    model::CompositeModel,
-    ::Val{:ancestors},
-    context_id::ObjectId,
-    object_id::ObjectId,
-)
-    return object_id != context_id &&
-           object_id in _object_ancestor_ids(model.registry, context_id)
+@inline function _relation_contains_object(topology, ::Val{:ancestors}, origin, object)
+    return !_relation_same_object(topology, origin, object) &&
+           _relation_in_subtree(topology, origin, object)
 end
 
-@inline function _relation_contains_object(
-    model::CompositeModel,
-    ::Val{:descendants},
-    context_id::ObjectId,
-    object_id::ObjectId,
-)
-    return object_id != context_id &&
-           context_id in _object_ancestor_ids(model.registry, object_id)
+@inline function _relation_contains_object(topology, ::Val{:descendants}, origin, object)
+    return _relation_contains_object(topology, Val(:ancestors), object, origin)
 end
 
-@inline function _relation_contains_object(
-    model::CompositeModel,
-    ::Val{:siblings},
-    context_id::ObjectId,
-    object_id::ObjectId,
-)
-    object_id == context_id && return false
-    context_parent = _model_object(model, context_id).parent
-    return !isnothing(context_parent) &&
-           _model_object(model, object_id).parent == context_parent
+@inline function _relation_contains_object(topology, ::Val{:siblings}, origin, object)
+    _relation_same_object(topology, origin, object) && return false
+    origin_parent = _relation_parent(topology, origin)
+    isnothing(origin_parent) && return false
+    object_parent = _relation_parent(topology, object)
+    return !isnothing(object_parent) &&
+           _relation_same_object(topology, origin_parent, object_parent)
 end
 
 function _symbol_edit_distance(left::Symbol, right::Symbol)

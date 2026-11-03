@@ -50,19 +50,11 @@ function _full_scope_matches(scope::PSE.Ancestor,origin,node)
     root=_full_ancestor(origin,scope.scale)
     return !isnothing(root) && _full_in_subtree(node,root)
 end
-function _full_relation_matches(relation,origin,node)
-    isnothing(relation) && return true
-    same=MTG.node_id(origin)==MTG.node_id(node)
-    relation===:self && return same
-    originparent=MTG.parent(origin); nodeparent=MTG.parent(node)
-    relation===:parent && return !isnothing(originparent) && MTG.node_id(originparent)==MTG.node_id(node)
-    relation===:children && return !isnothing(nodeparent) && MTG.node_id(nodeparent)==MTG.node_id(origin)
-    relation===:ancestors && return !same && _full_in_subtree(origin,node)
-    relation===:descendants && return !same && _full_in_subtree(node,origin)
-    relation===:siblings && return !same && !isnothing(originparent) && !isnothing(nodeparent) &&
-        MTG.node_id(originparent)==MTG.node_id(nodeparent)
-    throw(ArgumentError("unsupported full-layout relation"))
-end
+struct FullMTGTopology end
+PSE._relation_parent(::FullMTGTopology,node)=MTG.parent(node)
+PSE._relation_in_subtree(::FullMTGTopology,node,root)=_full_in_subtree(node,root)
+PSE._relation_same_object(::FullMTGTopology,left,right)=MTG.node_id(left)==MTG.node_id(right)
+
 _full_relation(::Nothing)=nothing
 _full_relation(::Val{R}) where {R}=R
 
@@ -76,7 +68,7 @@ function _full_matches(matcher,origin,node)
         return !isnothing(ancestor) && MTG.node_id(node)==MTG.node_id(ancestor)
     end
     _full_scope_matches(scope,origin,node) || return false
-    return _full_relation_matches(relation,origin,node)
+    return PSE._relation_contains_object(FullMTGTopology(),matcher.relation,origin,node)
 end
 
 # A point selector's membership cannot change when unrelated objects are added.

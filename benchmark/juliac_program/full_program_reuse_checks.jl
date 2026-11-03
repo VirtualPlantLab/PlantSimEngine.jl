@@ -416,6 +416,24 @@ function run_checks()
                 end
             end
         end
+        @testset "pointwise relations match ordinary indexed selection" begin
+            root = _tree()
+            plant = only(MTG.children(root))
+            leaf = _node(10, :Leaf, 2, plant)
+            sibling = _node(30, :Leaf, 2, plant)
+            tip = _node(40, :Tip, 3, leaf)
+            scene = CompositeModel(root)
+            nodes = (root, plant, leaf, sibling, tip)
+            relations = (:self, :parent, :children, :ancestors, :descendants, :siblings)
+            for origin in nodes, relation in relations
+                selector = Many(Relation(relation))
+                matcher = PSE._compile_selector_matcher(scene, selector)
+                selected = PSE.resolve_object_ids(scene, selector; context=ObjectId(MTG.node_id(origin)))
+                projected = ObjectId[ObjectId(MTG.node_id(node)) for node in nodes
+                    if RP._full_matches(matcher, origin, node)]
+                @test Set(projected) == Set(selected)
+            end
+        end
         @testset "stable memberships, live values and real Ref replacement" begin
             state = _observer_state()
             environment = (delta=1.0, order=Int[])
