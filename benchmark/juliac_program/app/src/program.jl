@@ -4,6 +4,17 @@ using PlantSimEngine
 using Dates
 const PSE = PlantSimEngine
 
+function _validate_program_variable_contract!(consumer, input, producer, output)
+    return PSE._validate_model_variable_contract!(
+        consumer,
+        input,
+        producer,
+        output,
+        PSE._variable_contract_schema(consumer.spec),
+        PSE._variable_contract_schema(producer.spec),
+    )
+end
+
 # Schema tuples can exceed Base.tail's inference threshold. Their lengths are
 # application metadata, so generate direct field access without value dispatch.
 @generated function _schema_tail(values::T) where {T<:Tuple}
@@ -156,7 +167,7 @@ function prepare(specs::Tuple; initial=NamedTuple())
                     throw(ArgumentError("unresolved required input"))
             end
         else
-            PSE._validate_model_variable_contract!((spec=spec,id=spec.name),var,
+            _validate_program_variable_contract!((spec=spec,id=spec.name),var,
                 (spec=specs[producer],id=specs[producer].name),var)
             value = PSE.outputs_(specs[producer])[var]
             value isa PSE._input_expected_type(declaration) || throw(ArgumentError("incompatible producer/input types"))

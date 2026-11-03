@@ -303,7 +303,7 @@ function _prepare_full(specs::Tuple;initial,base_step=Day(1))
                     (!haskey(criteria,:process) || PSE.process(specs[j])===criteria.process)]
                 append!(potential,candidates)
                 for candidate in candidates
-                    PSE._validate_model_variable_contract!((spec=spec,id=names[i]),var,
+                    _validate_program_variable_contract!((spec=spec,id=names[i]),var,
                         (spec=specs[candidate],id=names[candidate]),sourcevar)
                 end
                 chosen=isempty(candidates) ? 0 : last(candidates)

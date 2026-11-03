@@ -167,7 +167,7 @@ function _prepare_cohorts(specs;initial)
             sourcecat=get(c,:scale,cats[i]); sourcevar=get(c,:var,var)
             if haskey(c,:application) || haskey(c,:process)
                 producer=_source_application(specs,selector,sourcecat)
-                PSE._validate_model_variable_contract!((spec=s,id=s.name),var,(spec=specs[producer],id=specs[producer].name),sourcevar)
+                _validate_program_variable_contract!((spec=s,id=s.name),var,(spec=specs[producer],id=specs[producer].name),sourcevar)
             else
                 producer=get(writers,(sourcecat,sourcevar),0)
             end
@@ -191,7 +191,7 @@ function _prepare_cohorts(specs;initial)
         value=_seed(seeds[cats[i]][var],map(s->s.model,specs),initial)
         value isa PSE._input_expected_type(decl) || throw(ArgumentError("incompatible input type"))
         if producer!=0
-            PSE._validate_model_variable_contract!((spec=s,id=s.name),var,(spec=specs[producer],id=specs[producer].name),sourcevar)
+            _validate_program_variable_contract!((spec=s,id=s.name),var,(spec=specs[producer],id=specs[producer].name),sourcevar)
         end
         if !(i in manual) && producer!=0 && producer!=i
             producer in manual || push!(edges[i],producer)

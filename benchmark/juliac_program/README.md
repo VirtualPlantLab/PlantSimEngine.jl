@@ -1,5 +1,8 @@
 # Reusable composite program and JuliaC experiment
 
+See the [user guide](USER_GUIDE.md) to build the examples, adapt a scenario
+and diagnose common compilation failures.
+
 The complete pinned XPalm `architecture=false` graph now compiles with JuliaC
 **safe trimming**. All 61 original applications run, including carbon allocation,
 reserves, vegetative growth and seeded male/female emission. Four native cases
