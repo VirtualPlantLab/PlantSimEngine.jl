@@ -416,7 +416,7 @@ function run_checks()
                 end
             end
         end
-        @testset "pointwise relations match ordinary indexed selection" begin
+        @testset "pointwise scopes and relations match ordinary indexed selection" begin
             root = _tree()
             plant = only(MTG.children(root))
             leaf = _node(10, :Leaf, 2, plant)
@@ -425,8 +425,12 @@ function run_checks()
             scene = CompositeModel(root)
             nodes = (root, plant, leaf, sibling, tip)
             relations = (:self, :parent, :children, :ancestors, :descendants, :siblings)
-            for origin in nodes, relation in relations
-                selector = Many(Relation(relation))
+            selectors = (
+                map(relation -> Many(Relation(relation)), relations)...,
+                Many(), Many(SceneScope()), Many(Self()), Many(Subtree()),
+                Many(Subtree(), Relation(:parent)), Many(Subtree(), Relation(:descendants)),
+            )
+            for origin in nodes, selector in selectors
                 matcher = PSE._compile_selector_matcher(scene, selector)
                 selected = PSE.resolve_object_ids(scene, selector; context=ObjectId(MTG.node_id(origin)))
                 projected = ObjectId[ObjectId(MTG.node_id(node)) for node in nodes

@@ -38,10 +38,8 @@ function _full_ancestor(origin,scale;include_self=false)
     end
     return nothing
 end
-_full_scope_matches(::Nothing,origin,node)=true
-_full_scope_matches(::PSE.SceneScope,origin,node)=true
-_full_scope_matches(::PSE.Self,origin,node)=MTG.node_id(origin)==MTG.node_id(node)
-_full_scope_matches(::PSE.Subtree,origin,node)=_full_in_subtree(node,origin)
+_full_scope_matches(scope::Union{Nothing,PSE.SceneScope,PSE.Self,PSE.Subtree},origin,node)=
+    PSE._point_scope_contains(FullMTGTopology(),scope,origin,node)
 function _full_scope_matches(::PSE.SelfPlant,origin,node)
     root=_full_ancestor(origin,:Plant;include_self=true)
     return !isnothing(root) && _full_in_subtree(node,root)

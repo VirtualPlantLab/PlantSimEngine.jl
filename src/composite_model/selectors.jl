@@ -914,16 +914,25 @@ function _object_is_in_subtree(model::CompositeModel, object_id::ObjectId, root_
     return root_id in _object_ancestor_ids(model.registry, object_id)
 end
 
+@inline _point_scope_contains(topology, ::Union{Nothing,SceneScope}, origin, object) = true
+
+@inline _point_scope_contains(topology, ::Self, origin, object) =
+    _relation_same_object(topology, origin, object)
+
+@inline _point_scope_contains(topology, ::Subtree, origin, object) =
+    _relation_in_subtree(topology, object, origin)
+
 function _scope_contains_object(model::CompositeModel, scope, context, object_id::ObjectId)
-    (isnothing(scope) || scope isa SceneScope) && return true
+    scope isa Union{Nothing,SceneScope} &&
+        return _point_scope_contains(model, scope, context, object_id)
     return if scope isa Self
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error("`Self()` selectors require a current object context.")
-        object_id == current_id
+        _point_scope_contains(model, scope, current_id, object_id)
     elseif scope isa Subtree
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error("`Subtree()` selectors require a current object context.")
-        _object_is_in_subtree(model, object_id, current_id)
+        _point_scope_contains(model, scope, current_id, object_id)
     elseif scope isa SelfPlant
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error("`SelfPlant()` selectors require a current object context.")
