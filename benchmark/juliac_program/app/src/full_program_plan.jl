@@ -78,8 +78,6 @@ _cohort_route_slot(::FullCallRoute{SLOT}) where {SLOT}=SLOT
 _full_value(declaration::PSE.Distributed)=_full_value(declaration.declaration)
 _full_value(declaration::PSE.Default)=declaration.value
 _full_value(declaration)=declaration
-_full_previous(selector)=get(PSE.criteria(selector),:policy,nothing) isa PSE.PreviousTimeStep
-_full_from_status(selector)=get(PSE.criteria(selector),:from_status,false)
 function _full_temporal_outputs!(needed,::FullInputRoute{SOURCES,VAR,TEMP}) where {SOURCES,VAR,TEMP}
     TEMP || return nothing
     for (_,slot) in SOURCES
@@ -245,6 +243,10 @@ function _prepare_full(specs::Tuple, scenario; initial)
                 throw(ArgumentError("duplicate writer $(names[i]) for $cat.$var needs Updates after $(names[previous])"))
         end
     end
+    explicit_plans=map(names) do name
+        Dict(plan.input=>plan for plan in scenario.input_plans_by_application[name]
+            if plan.origin!==:inferred_same_object)
+    end
     potential_sources=[Dict{Symbol,Tuple}() for _ in specs]
     temporals=[Dict{Symbol,Bool}() for _ in specs]
     input_routes=Vector{Any}(undef,length(specs))
@@ -260,14 +262,14 @@ function _prepare_full(specs::Tuple, scenario; initial)
         progressed=false
         for (i,var,declaration) in unresolved
             spec=specs[i]
-            explicit=haskey(spec.inputs,var)
-            selector=explicit ? spec.inputs[var] : One(within=PSE.Self(),var=var)
+            plan=get(explicit_plans[i],var,nothing)
+            explicit=!isnothing(plan)
+            selector=explicit ? plan.selector : One(within=PSE.Self(),var=var)
             _full_validate_selector(selector)
             criteria=PSE.criteria(selector)
-            sourcevar=get(criteria,:var,var)
-            from_status=_full_from_status(selector)
-            temporal=_full_previous(selector)
-            temporal && criteria.policy.variable!=var && throw(ArgumentError("PreviousTimeStep must name its input $var"))
+            sourcevar=explicit ? plan.source_var : var
+            temporal=explicit && plan.breaks_same_step_cycle
+            filtered=explicit && (!isnothing(plan.application) || !isnothing(plan.process))
             # Relation selectors such as parent/children restrict topology at
             # runtime, while category candidates derive from the explicit scale
             # or all cohorts (for an unlabelled parent/children selector).
@@ -279,21 +281,29 @@ function _prepare_full(specs::Tuple, scenario; initial)
             sourcecats=_full_selector_categories(selector,categories,fallback)
             potential=Int[]; sources=Tuple{Int,Int}[]; values_=Any[]
             for cat in sourcecats
-                candidates=from_status || (!explicit && i in manual) ? Int[] :
-                    get(explicit ? declared_owners : owners,(cat,sourcevar),Int[])
-                candidates=[j for j in candidates if (explicit || j!=i) &&
-                    (!haskey(criteria,:application) || names[j]===criteria.application) &&
-                    (!haskey(criteria,:process) || PSE.process(specs[j])===criteria.process)]
+                candidates=if explicit
+                    # Canonical candidates are potential applications even if
+                    # their objects do not exist yet. The typed route needs the
+                    # subset that writes this destination cohort.
+                    [j for j in get(declared_owners,(cat,sourcevar),Int[])
+                        if names[j] in plan.potential_source_application_ids]
+                elseif i in manual
+                    Int[]
+                else
+                    [j for j in get(owners,(cat,sourcevar),Int[]) if j!=i]
+                end
                 append!(potential,candidates)
-                for candidate in candidates
-                    _validate_program_variable_contract!((spec=spec,id=names[i]),var,
-                        (spec=specs[candidate],id=names[candidate]),sourcevar)
+                if !explicit
+                    for candidate in candidates
+                        _validate_program_variable_contract!((spec=spec,id=names[i]),var,
+                            (spec=specs[candidate],id=names[candidate]),sourcevar)
+                    end
                 end
                 chosen=isempty(candidates) ? 0 : last(candidates)
                 if chosen!=0
                     value=_full_value(PSE.outputs_(specs[chosen])[sourcevar])
                     push!(sources,(catindex[cat],chosen));push!(values_,value)
-                elseif haskey(seeds[cat],sourcevar)
+                elseif !filtered && haskey(seeds[cat],sourcevar)
                     seed=seeds[cat][sourcevar]
                     push!(sources,(catindex[cat],0));push!(values_,_seed(seed,models,initial))
                 end
@@ -307,7 +317,7 @@ function _prepare_full(specs::Tuple, scenario; initial)
             end
             T=typeof(first(values_))
             all(v->typeof(v)===T,values_) || throw(ArgumentError("heterogeneous scalar payload types in $var are not yet supported"))
-            multiplicity=PSE.multiplicity(selector)
+            multiplicity=explicit ? plan.multiplicity : :one
             if multiplicity===:many
                 PSE._input_expected_type(declaration)<:AbstractVector || throw(ArgumentError("Many input $var must declare an AbstractVector"))
                 # A Many port is always a reference carrier, even when the same

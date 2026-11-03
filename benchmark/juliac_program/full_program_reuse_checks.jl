@@ -312,6 +312,13 @@ function PSE.run!(::Distributor, status, environment, constants, context)
     return nothing
 end
 
+PSE.@process "reuse_status_reader" verbose = false
+struct StatusReader <: AbstractReuse_Status_ReaderModel end
+PSE.inputs_(::StatusReader) = (value=Required(AbstractFloat),)
+PSE.outputs_(::StatusReader) = (seen=0f0,)
+PSE.run!(::StatusReader, status, environment, constants, context) =
+    (status.seen = status.value; nothing)
+
 function run_checks()
     result = @testset "Full program reuse and invalidation" begin
         @testset "manual applications must use the daily clock" begin
@@ -349,6 +356,19 @@ function run_checks()
             @test _status(state, 2).local_count == 2
             @test _status(state, 1).scene_flux == 3.0
             @test _status(state, 10).leaf_flux == _status(state, 30).leaf_flux == 2.0
+        end
+        @testset "explicit status inputs use the live reference without a producer" begin
+            selector = One(within=Self(), var=:raw, from_status=true)
+            specs = (_application(StatusReader(), :reader, :Plant; inputs=(value=selector,)),)
+            initial = (Scene=NamedTuple(), Plant=(raw=1f0,))
+            state = _instantiate(specs, initial, _tree())
+            _status(state, 2).raw = 3f0
+            RP.step!(state, NamedTuple())
+            @test _status(state, 2).seen === 3f0
+
+            filtered = One(within=Self(), var=:raw, process=:missing_writer)
+            specs = (_application(StatusReader(), :reader, :Plant; inputs=(value=filtered,)),)
+            @test_throws ArgumentError _prepare(specs, initial, _tree())
         end
         @testset "stable memberships, live values and real Ref replacement" begin
             state = _observer_state()
