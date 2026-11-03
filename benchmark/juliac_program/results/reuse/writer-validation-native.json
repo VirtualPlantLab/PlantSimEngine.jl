@@ -1,0 +1,41 @@
+{
+  "build": {
+    "source_revision": "33157851f306c88ad70db2ad383862d17dbfd9e5",
+    "julia": "1.13.1",
+    "juliac": "0.3.12",
+    "xpalm": "0.7.0",
+    "trim": "safe",
+    "cpu": "generic",
+    "compilation_s": 56.770722083,
+    "link_s": 0.07879575,
+    "bundle_s": 1.034080666,
+    "app_sha256": "9d171a0afc81b410841bd31465934cbe50e23bce57d2f6771f8be2316f915bd3",
+    "binary_sha256": "8e08c9f899903df4f77f90ca429576b46371b5797f3accc49f665d5ed1562c71",
+    "phyllochron_initial": 0.0111,
+    "phyllochron_mature": 0.0074
+  },
+  "parity_reference": "ordinary PSE on the same checkout and dependency environment",
+  "comparison": "native full protocol, canonical field values and coverage, retained sample values and coverage, topology (category/parent/link/index), and two scalar RNG probes (4 UInt64 each)",
+  "cases": [
+    {
+      "days": 60,
+      "profile": "accelerated_reproductive",
+      "retain": true,
+      "canonical_fields": 4904,
+      "retained_samples": 122554,
+      "rng_streams": 2,
+      "objects": 246,
+      "reference_sha256": "1bc9008beffa65f01b14b033f48eb70c49656e9380a14fd4febb41a23c5997fc"
+    },
+    {
+      "days": 4160,
+      "profile": "package_defaults",
+      "retain": false,
+      "canonical_fields": 27828,
+      "retained_samples": 0,
+      "rng_streams": 2,
+      "objects": 1190,
+      "reference_sha256": "57c182e54c505e95702fcfe47431ce07027165615408a19d3d6df583648b09e1"
+    }
+  ]
+}
