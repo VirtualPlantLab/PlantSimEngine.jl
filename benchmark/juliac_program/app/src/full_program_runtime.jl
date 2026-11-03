@@ -319,6 +319,7 @@ function _full_call_membership(c,route::FullCallRoute{SLOT}) where {SLOT}
         FullCallMembership()
     end
     if membership.live_count!=length(cohort.ids)
+        _full_validate_scope(route.matcher,origin)
         fixed,node=_full_point_node(route.matcher,origin)
         changed=false
         if fixed

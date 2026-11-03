@@ -38,20 +38,31 @@ function _full_ancestor(origin,scale;include_self=false)
     end
     return nothing
 end
-_full_scope_matches(scope::Union{Nothing,PSE.SceneScope,PSE.Self,PSE.Subtree},origin,node)=
-    PSE._point_scope_contains(FullMTGTopology(),scope,origin,node)
-function _full_scope_matches(::PSE.SelfPlant,origin,node)
-    root=_full_ancestor(origin,:Plant;include_self=true)
-    return !isnothing(root) && _full_in_subtree(node,root)
-end
-function _full_scope_matches(scope::PSE.Ancestor,origin,node)
-    root=_full_ancestor(origin,scope.scale)
-    return !isnothing(root) && _full_in_subtree(node,root)
-end
 struct FullMTGTopology end
 PSE._relation_parent(::FullMTGTopology,node)=MTG.parent(node)
 PSE._relation_in_subtree(::FullMTGTopology,node,root)=_full_in_subtree(node,root)
 PSE._relation_same_object(::FullMTGTopology,left,right)=MTG.node_id(left)==MTG.node_id(right)
+
+PSE._scope_ancestor(::FullMTGTopology,origin,scale,include_self)=
+    _full_ancestor(origin,scale;include_self)
+PSE._missing_point_scope_anchor(::FullMTGTopology,::PSE.SelfPlant,origin)=
+    throw(ArgumentError("SelfPlant scope has no Plant ancestor"))
+PSE._missing_point_scope_anchor(::FullMTGTopology,::PSE.Ancestor,origin)=
+    throw(ArgumentError("Ancestor scope has no matching ancestor"))
+
+function _full_nearest_ancestor(matcher)
+    scope=matcher.scope
+    return scope isa PSE.Ancestor && !isnothing(matcher.scale) &&
+        matcher.scale===scope.scale && isnothing(matcher.relation)
+end
+
+function _full_validate_scope(matcher,origin)
+    if isnothing(matcher.relation) && !_full_nearest_ancestor(matcher) &&
+        matcher.scope isa Union{PSE.SelfPlant,PSE.Ancestor}
+        PSE._required_scope_anchor(FullMTGTopology(),matcher.scope,origin)
+    end
+    return nothing
+end
 
 _full_relation(::Nothing)=nothing
 _full_relation(::Val{R}) where {R}=R
@@ -59,28 +70,26 @@ _full_relation(::Val{R}) where {R}=R
 function _full_matches(matcher,origin,node)
     scale=matcher.scale
     (isnothing(scale) || (scale isa Tuple ? MTG.symbol(node) in scale : MTG.symbol(node)===scale)) || return false
-    scope=matcher.scope
-    relation=_full_relation(matcher.relation)
-    if scope isa PSE.Ancestor && !isnothing(scale) && scale===scope.scale && isnothing(relation)
-        ancestor=_full_ancestor(origin,scope.scale)
-        return !isnothing(ancestor) && MTG.node_id(node)==MTG.node_id(ancestor)
+    topology=FullMTGTopology()
+    if _full_nearest_ancestor(matcher)
+        return PSE._nearest_ancestor_matches(topology,matcher.scope,origin,node)
     end
-    _full_scope_matches(scope,origin,node) || return false
-    return PSE._relation_contains_object(FullMTGTopology(),matcher.relation,origin,node)
+    PSE._relation_contains_object(topology,matcher.relation,origin,node) || return false
+    return PSE._point_scope_contains(topology,matcher.scope,origin,node)
 end
 
 # A point selector's membership cannot change when unrelated objects are added.
 function _full_is_point_selector(matcher)
     scope=matcher.scope
     relation=_full_relation(matcher.relation)
-    return (scope isa PSE.Ancestor && !isnothing(matcher.scale) && matcher.scale===scope.scale && isnothing(relation)) ||
+    return _full_nearest_ancestor(matcher) ||
         scope isa PSE.Self || relation===:self || relation===:parent
 end
 function _full_point_node(matcher,origin)
     scope=matcher.scope
     relation=_full_relation(matcher.relation)
-    if scope isa PSE.Ancestor && !isnothing(matcher.scale) && matcher.scale===scope.scale && isnothing(relation)
-        return true,_full_ancestor(origin,scope.scale)
+    if _full_nearest_ancestor(matcher)
+        return true,PSE._scope_anchor(FullMTGTopology(),scope,origin)
     elseif scope isa PSE.Self || relation===:self
         return true,origin
     elseif relation===:parent
@@ -119,6 +128,7 @@ function _full_append_binding_sources!(entries,state,origin,route,sources::Tuple
     return nothing
 end
 function _full_binding_entries(route::FullInputRoute{S,V,TEMP,MULT,T},state,origin) where {S,V,TEMP,MULT,T}
+    _full_validate_scope(route.matcher,origin)
     entries=NTuple{4,Int}[]
     _full_append_binding_sources!(entries,state,origin,route,map(Val,S))
     sort!(entries;by=first)
@@ -344,6 +354,7 @@ function _full_append_output_cohorts!(entries,state,origin,route,cohorts::Tuple,
     return nothing
 end
 function _full_output_column(route::FullOutputRoute{CS,V,D},state,origin;committed=true) where {CS,V,D}
+    _full_validate_scope(route.matcher,origin)
     T=typeof(state.cohorts[first(CS)].defaults[V])
     entries=Tuple{Int,Base.RefValue{T}}[]
     _full_append_output_cohorts!(entries,state,origin,route,map(Val,CS),T,committed)

@@ -626,53 +626,6 @@ function _ancestor_ids(model::CompositeModel, current_id::ObjectId)
     return ids
 end
 
-@inline function _object_is_in_nearest_ancestor_scope(
-    model::CompositeModel,
-    object_id::ObjectId,
-    current_id::ObjectId,
-    scale::Union{Nothing,Symbol},
-    include_self::Bool,
-)
-    current_ancestors = _object_ancestor_ids(model.registry, current_id)
-    final_index = lastindex(current_ancestors) - (include_self ? 0 : 1)
-    final_index < firstindex(current_ancestors) && error(
-        "No matching ancestor found for object `$(current_id.value)` and scale `$(scale)`.",
-    )
-    object_ancestors = _object_ancestor_ids(model.registry, object_id)
-    if isnothing(scale)
-        ancestor_id = @inbounds current_ancestors[final_index]
-        return ancestor_id in object_ancestors
-    end
-    for index in final_index:-1:firstindex(current_ancestors)
-        ancestor_id = @inbounds current_ancestors[index]
-        _model_object(model, ancestor_id).scale == scale || continue
-        return ancestor_id in object_ancestors
-    end
-    scale === :Plant && include_self && error(
-        "No `scale=:Plant` ancestor found for object `$(current_id.value)`.",
-    )
-    error(
-        "No matching ancestor found for object `$(current_id.value)` and scale `$(scale)`.",
-    )
-end
-
-@inline function _object_is_nearest_ancestor(
-    model::CompositeModel,
-    object_id::ObjectId,
-    current_id::ObjectId,
-    scale::Symbol,
-)
-    current_ancestors = _object_ancestor_ids(model.registry, current_id)
-    final_index = lastindex(current_ancestors) - 1
-    final_index < firstindex(current_ancestors) && return false
-    for index in final_index:-1:firstindex(current_ancestors)
-        ancestor_id = @inbounds current_ancestors[index]
-        _model_object(model, ancestor_id).scale == scale || continue
-        return object_id == ancestor_id
-    end
-    return false
-end
-
 function _relation_object_ids(model::CompositeModel, relation::Symbol, context)
     current_id = _object_id_from_context(context)
     isnothing(current_id) && error(
@@ -894,9 +847,7 @@ function _selector_subtree_root(model::CompositeModel, scope, context)
         isnothing(current_id) && error("`$(scope)` selectors require a current object context.")
         _model_object(model, current_id)
         scope isa Subtree && return current_id
-        root = scope isa SelfPlant ?
-               _ancestor_id(model, current_id; scale=:Plant) :
-               _ancestor_id(model, current_id; scale=scope.scale, include_self=false)
+        root = _scope_anchor(model, scope, current_id)
         if isnothing(root)
             scope isa SelfPlant && error("No `scale=:Plant` ancestor found for object `$(current_id.value)`.")
             error("No matching ancestor found for object `$(current_id.value)` and selector `$(scope)`.")
@@ -922,6 +873,33 @@ end
 @inline _point_scope_contains(topology, ::Subtree, origin, object) =
     _relation_in_subtree(topology, object, origin)
 
+@inline _scope_ancestor(model::CompositeModel, origin, scale, include_self) =
+    _ancestor_id(model, origin, scale, nothing, include_self)
+
+@inline _scope_anchor(topology, ::SelfPlant, origin) =
+    _scope_ancestor(topology, origin, :Plant, true)
+@inline _scope_anchor(topology, scope::Ancestor, origin) =
+    _scope_ancestor(topology, origin, scope.scale, false)
+
+@inline function _required_scope_anchor(topology, scope, origin)
+    root = _scope_anchor(topology, scope, origin)
+    isnothing(root) && _missing_point_scope_anchor(topology, scope, origin)
+    return root
+end
+
+_missing_point_scope_anchor(::CompositeModel, ::SelfPlant, id) =
+    error("No `scale=:Plant` ancestor found for object `$(id.value)`.")
+_missing_point_scope_anchor(::CompositeModel, scope::Ancestor, id) =
+    error("No matching ancestor found for object `$(id.value)` and scale `$(scope.scale)`.")
+
+@inline _point_scope_contains(topology, scope::Union{SelfPlant,Ancestor}, origin, object) =
+    _relation_in_subtree(topology, object, _required_scope_anchor(topology, scope, origin))
+
+@inline function _nearest_ancestor_matches(topology, scope::Ancestor, origin, object)
+    ancestor = _scope_anchor(topology, scope, origin)
+    return !isnothing(ancestor) && _relation_same_object(topology, ancestor, object)
+end
+
 function _scope_contains_object(model::CompositeModel, scope, context, object_id::ObjectId)
     scope isa Union{Nothing,SceneScope} &&
         return _point_scope_contains(model, scope, context, object_id)
@@ -936,23 +914,11 @@ function _scope_contains_object(model::CompositeModel, scope, context, object_id
     elseif scope isa SelfPlant
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error("`SelfPlant()` selectors require a current object context.")
-        _object_is_in_nearest_ancestor_scope(
-            model,
-            object_id,
-            current_id,
-            :Plant,
-            true,
-        )
+        _point_scope_contains(model, scope, current_id, object_id)
     elseif scope isa Ancestor
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error("`Ancestor(...)` selectors require a current object context.")
-        _object_is_in_nearest_ancestor_scope(
-            model,
-            object_id,
-            current_id,
-            scope.scale,
-            false,
-        )
+        _point_scope_contains(model, scope, current_id, object_id)
     elseif scope isa Scope
         _object_is_in_subtree(
             model,
@@ -1127,12 +1093,7 @@ function _selector_matches_object_id(
             isnothing(current_id) && error(
                 "`Ancestor(...)` selectors require a current object context.",
             )
-            return _object_is_nearest_ancestor(
-                model,
-                object_id,
-                current_id,
-                scope.scale,
-            )
+            return _nearest_ancestor_matches(model, scope, current_id, object_id)
         end
         return _scope_contains_object(model, scope, context, object_id)
     end
