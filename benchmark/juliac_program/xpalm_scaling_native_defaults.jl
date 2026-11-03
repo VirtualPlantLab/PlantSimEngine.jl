@@ -17,7 +17,7 @@ function _package_default_full_setup()
     parameters=FullXPalmFixture.XPalm.default_parameters()
     palm=FullXPalmFixture.XPalm.Palm(;initiation_age=0,parameters,architecture=false)
     applications=FullXPalmFixture.specs(palm)
-    return (applications=applications,models=FullXPalmFixture.models(applications),
+    return (palm=palm,applications=applications,models=FullXPalmFixture.models(applications),
         topology=FullXPalmFixture.topology_descriptor(palm),
         initial=FullXPalmFixture.initial_data(palm,applications))
 end

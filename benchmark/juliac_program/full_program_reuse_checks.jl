@@ -326,6 +326,54 @@ PSE.outputs_(::ImplicitProducer) = (value=0f0,)
 PSE.run!(::ImplicitProducer, status, environment, constants, context) =
     (status.value = 5f0; nothing)
 
+PSE.@process "reuse_writer_distribution" verbose = false
+struct WriterDistribution <: AbstractReuse_Writer_DistributionModel
+    value::Float32
+    seed::Float32
+end
+WriterDistribution(value) = WriterDistribution(value, 0f0)
+PSE.inputs_(::WriterDistribution) = NamedTuple()
+PSE.outputs_(model::WriterDistribution) = (value=Distributed(Default(model.seed)),)
+function PSE.run!(model::WriterDistribution, status, environment, constants, context)
+    PSE.output_targets(context, (:value,)).columns.value .= model.value
+    return nothing
+end
+
+PSE.@process "reuse_writer_birth" verbose = false
+struct WriterBirth <: AbstractReuse_Writer_BirthModel end
+PSE.inputs_(::WriterBirth) = NamedTuple()
+PSE.outputs_(::WriterBirth) = NamedTuple()
+function PSE.run!(::WriterBirth, status, environment, constants, context)
+    PSE.add_organ!(PSE.source_node(context), context, :+, :Leaf, 2; id=20, index=1)
+    return nothing
+end
+
+function _writer_distribution(name, category, value; seed=0f0)
+    destinations = (OutputTo(Many(Relation(:children); scale=:Leaf)),)
+    return _application(WriterDistribution(value, seed), name, category; outputs_to=destinations)
+end
+
+function _disjoint_writer_tree()
+    root = _tree([10])
+    plant = only(MTG.children(root))
+    phytomer = _node(3, :Phytomer, 2, plant)
+    _node(11, :Leaf, 2, phytomer)
+    return root
+end
+
+function _ordinary_growth_tree(ids=Int[])
+    root = MTG.Node(1, MTG.NodeMTG(:/, :Scene, 1, 0), NamedTuple())
+    plant = MTG.Node(2, root, MTG.NodeMTG(:+, :Plant, 1, 1), NamedTuple())
+    for id in ids
+        MTG.Node(id, plant, MTG.NodeMTG(:+, :Leaf, 1, 2), NamedTuple())
+    end
+    return root
+end
+
+function _ordinary_writer_scene(specs, root)
+    return CompositeModel(root; applications=specs, environment=(duration=Day(1),))
+end
+
 function run_checks()
     result = @testset "Full program reuse and invalidation" begin
         @testset "manual applications must use the daily clock" begin
@@ -486,7 +534,65 @@ function run_checks()
             @test _status(state, 2).value === 5f0
 
             skipped = (first_writer, middle_writer, final_writer(:first))
-            @test_throws "needs Updates after middle" _prepare(skipped, initial, _tree())
+            @test_throws "Updates" _instantiate(skipped, initial, _tree())
+        end
+        @testset "writers are validated on matching objects" begin
+            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Phytomer=NamedTuple(),
+                Leaf=NamedTuple())
+            specs = (_writer_distribution(:plant_writer, :Plant, 2f0),
+                _writer_distribution(:phytomer_writer, :Phytomer, 3f0))
+            ordinary = _ordinary_writer_scene(specs, _disjoint_writer_tree())
+            PSE.run!(ordinary; steps=1)
+            state = _instantiate(specs, initial, _disjoint_writer_tree())
+            RP.step!(state, NamedTuple())
+            for (id, expected) in ((10, 2f0), (11, 3f0))
+                @test _status(state, id).value === PSE.model_status(ordinary, ObjectId(id)).value === expected
+            end
+
+            first_writer = _application(ImplicitProducer(), :first, :Plant;
+                updates=Updates(:value; after=:unrelated))
+            last_writer = _application(ImplicitProducer(), :last, :Plant;
+                updates=Updates(:value; after=:first))
+            unrelated = _application(Initialize(), :unrelated, :Plant)
+            invalid = (unrelated, first_writer, last_writer)
+            @test_throws "no previous writer" PSE.run!(_ordinary_writer_scene(invalid, _tree()); steps=0)
+            @test_throws "previous writer" _instantiate(invalid, initial, _tree())
+
+            # With no leaves, neither writer initially owns an object.
+            # The newborn is a destination of the Plant writer and the local Leaf writer.
+            birth_specs = (_writer_distribution(:plant_writer, :Plant, 2f0),
+                _application(ImplicitProducer(), :leaf_writer, :Leaf),
+                _application(WriterBirth(), :birth, :Plant))
+            ordinary_birth = _ordinary_writer_scene(birth_specs, _ordinary_growth_tree())
+            @test_throws "Ambiguous canonical writers" PSE.run!(ordinary_birth; steps=1)
+            birth_state = _instantiate(birth_specs, initial, _tree())
+            @test_throws "writer" RP.step!(birth_state, NamedTuple())
+            @test birth_state.step == 0
+            @test all(cohort -> RP._cohort_key(cohort) !== :Leaf || cohort.committed == 0,
+                birth_state.cohorts)
+        end
+        @testset "disjoint writers with distinct defaults require per-object seeds" begin
+            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Phytomer=NamedTuple(),
+                Leaf=NamedTuple())
+            specs = (_writer_distribution(:plant_writer, :Plant, 2f0; seed=7f0),
+                _writer_distribution(:phytomer_writer, :Phytomer, 3f0; seed=9f0))
+            ordinary = _ordinary_writer_scene(specs, _disjoint_writer_tree())
+            PSE.run!(ordinary; steps=0)
+            @test PSE.model_status(ordinary, ObjectId(10)).value === 7f0
+            @test PSE.model_status(ordinary, ObjectId(11)).value === 9f0
+            @test_throws "disjoint writers require identical output defaults" _instantiate(specs, initial, _disjoint_writer_tree())
+        end
+        @testset "a newborn origin can duplicate a writer on a committed destination" begin
+            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
+            distribution = OutputTo(Many(Relation(:parent); scale=:Plant))
+            specs = (_application(WriterDistribution(2f0), :leaf_writer, :Leaf;
+                    outputs_to=(distribution,)),
+                _application(WriterBirth(), :birth, :Plant))
+            ordinary = _ordinary_writer_scene(specs, _ordinary_growth_tree([10]))
+            @test_throws "more than one canonical writer" PSE.run!(ordinary; steps=1)
+            state = _instantiate(specs, initial, _tree([10]))
+            @test_throws "more than one canonical writer" RP.step!(state, NamedTuple())
+            @test state.step == 0
         end
         @testset "stable memberships, live values and real Ref replacement" begin
             state = _observer_state()

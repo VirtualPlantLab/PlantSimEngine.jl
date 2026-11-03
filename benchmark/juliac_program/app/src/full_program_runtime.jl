@@ -44,10 +44,90 @@ mutable struct FullState{P,C,A,N,I}
     reference_epochs::Vector{UInt}
     ordered_rows::Vector{FullRowOrder}
     call_memberships::Dict{Tuple{Int,Int},FullCallMembership}
+    writer_validated_count::Int
 end
 
 include("full_program_bindings.jl")
 include("full_program_history.jl")
+# Validate actual canonical destinations. The only writer metadata needed here
+# is the admitted typed routes and the ordering relations decided by PSE.
+_full_writer_origin_grew(state, ::FullWriterRoute{C,Nothing}) where {C} = false
+function _full_writer_origin_grew(state, ::FullWriterRoute{C}) where {C}
+    cohort=state.cohorts[C]
+    return length(cohort.ids)>cohort.committed
+end
+
+_full_writer_matches(state, ::FullWriterRoute{C,Nothing}, node) where {C} = true
+function _full_writer_matches(state, route::FullWriterRoute{C}, node) where {C}
+    found=false
+    for origin in state.cohorts[C].nodes
+        _full_matches(route.matcher,origin,node) || continue
+        found && throw(ArgumentError("more than one canonical writer from one application"))
+        found=true
+    end
+    return found
+end
+
+_full_writer_defaults_equal(state,::Nothing)=true
+@generated function _full_writer_defaults_equal(state,::FullWriterDefault{VAR,SLOTS}) where {VAR,SLOTS}
+    values=[:(_full_value(getfield(PSE.outputs_(state.applications[$slot].model),$(QuoteNode(VAR))))) for slot in SLOTS]
+    comparisons=[:(typeof(default)===typeof(value) && isequal(default,value)) for _ in values[2:end]]
+    body=Expr(:block, [:(let value=$value
+        $(comparison) || return false
+    end) for (value,comparison) in zip(values[2:end],comparisons)]...)
+    return quote
+        default=$(first(values))
+        $body
+        true
+    end
+end
+
+_validate_full_object_writers!(state,group,node,::Tuple{},index,first_writer,previous)=nothing
+function _validate_full_object_writers!(state,group,node,routes::Tuple,index,first_writer,previous)
+    if _full_writer_matches(state,first(routes),node)
+        if previous==0
+            first_writer=index
+        else
+            previous==first_writer && group.first_requires_previous[previous] &&
+                throw(ArgumentError("first canonical writer declares Updates without a previous writer"))
+            group.accepts_previous[index][previous] ||
+                throw(ArgumentError("duplicate writer needs Updates after "*String(group.names[previous])))
+        end
+        previous=index
+    else
+        group.requires_uniform &&
+            throw(ArgumentError("filtered or temporal inputs require uniform writer coverage within a cohort"))
+        _full_writer_defaults_equal(state,group.default_check) ||
+            throw(ArgumentError("disjoint writers require identical output defaults or an external cohort seed"))
+    end
+    return _validate_full_object_writers!(state,group,node,_schema_tail(routes),index+1,first_writer,previous)
+end
+
+Base.@noinline function _validate_full_writer_group!(state, group::FullWriterGroup{C}) where {C}
+    cohort=state.cohorts[C]
+    # A new origin can add a writer to existing destinations. Otherwise only
+    # newly added destination rows can have changed ownership.
+    origin_grew=any(route->_full_writer_origin_grew(state,route),group.routes)
+    start=origin_grew ? 1 : cohort.committed+1
+    for row in start:length(cohort.ids)
+        _validate_full_object_writers!(state,group,cohort.nodes[row],group.routes,1,0,0)
+    end
+    return nothing
+end
+
+_validate_full_writer_groups!(state,::Tuple{})=nothing
+function _validate_full_writer_groups!(state,groups::Tuple)
+    _validate_full_writer_group!(state,first(groups))
+    return _validate_full_writer_groups!(state,_schema_tail(groups))
+end
+
+function _validate_full_writers!(state)
+    count=length(state.locations)
+    count==state.writer_validated_count && return nothing
+    _validate_full_writer_groups!(state,state.program.writer_groups)
+    state.writer_validated_count=count
+    return nothing
+end
 
 _application_status(app::FullApplication,row)=app.views[row]
 _cohort_context_type(app::FullApplication{R,M,C,S},state,cohort::Cohort,environment,constants) where {R,M,C,S} =
@@ -98,8 +178,9 @@ Base.@noinline function instantiate(program::FullProgram,models::Tuple,root::N;i
     state=FullState(program,cohorts,apps,Dict{Int,N}(),Dict{Int,Tuple{Int,Int}}(),
         IdDict{Base.RefValue{Nothing},Int}(),Set{Int}(),Set{Tuple{Int,Int}}(),0,0,Bool(retain),objects,false,
         zeros(UInt,length(cohorts)),[FullRowOrder() for _ in cohorts],
-        Dict{Tuple{Int,Int},FullCallMembership}())
+        Dict{Tuple{Int,Int},FullCallMembership}(),-1)
     _register_tree!(state,root)
+    _validate_full_writers!(state)
     _commit_cohorts!(state.cohorts)
     _fill_full_views!(state,state.applications)
     state.ready=true
@@ -269,6 +350,7 @@ Base.@noinline function _step_cohort_application!(state::FullState,app,environme
         c=CohortContext(app,state,app.views[row],row,environment,constants,state.step+1,false)
         _invoke_cohort!(c;publish=true)
     end
+    isempty(state.pending) || _validate_full_writers!(state)
     _commit_cohorts!(state.cohorts)
     empty!(state.pending); empty!(state.initialized); state.active_slot=0
     return nothing
@@ -392,6 +474,7 @@ function _initialize_cohort!(c,route::FullCallRoute{SLOT,:initializer},id) where
     state.active_slot==c.application.recipe.slot && id in state.pending || throw(ArgumentError("initializer requires current newborn"))
     key=(SLOT,id); key in state.initialized && throw(ArgumentError("newborn already initialized"))
     target=only(_cohort_targets(c,route,ObjectId(id)))
+    _validate_full_writers!(state)
     push!(state.initialized,key)
     PSE.run_call!(target;publish=false)
     return _full_status(state,id)

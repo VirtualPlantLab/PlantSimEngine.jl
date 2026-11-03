@@ -61,11 +61,27 @@ struct FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H}
     status_type::Type{S}
     history_type::Type{H}
 end
-struct FullProgram{C,A,O}
+struct FullWriterRoute{C,M}
+    matcher::M
+end
+
+struct FullWriterDefault{VAR,SLOTS} end
+
+struct FullWriterGroup{C,R,F,A,N,D}
+    routes::R
+    first_requires_previous::F
+    accepts_previous::A
+    names::N
+    requires_uniform::Bool
+    default_check::D
+end
+
+struct FullProgram{C,A,O,W}
     cohorts::C
     applications::A
     order::O
     cadence_ms::Int64
+    writer_groups::W
 end
 Base.show(io::IO,program::FullProgram)=print(io,"FullProgram(",length(program.applications),
     " applications, ",length(program.cohorts)," cohorts)")
@@ -258,11 +274,6 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
             value=_full_value(PSE.outputs_(specs[writer])[var])
             seeds[cat][var]=FullModelSeed{typeof(specs[writer].model),:output,var,typeof(value)}(writer)
         end
-        for k in 2:length(writers)
-            i=writers[k]; previous=writers[k-1]
-            PSE._updates_after_previous_writer(specs[i],var,(compiled_applications[previous],)) ||
-                throw(ArgumentError("duplicate writer $(names[i]) for $cat.$var needs Updates after $(names[previous])"))
-        end
     end
     explicit_plans=map(names) do name
         Dict(plan.input=>plan for plan in scenario.input_plans_by_application[name]
@@ -276,6 +287,7 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
         end
         sources
     end
+    uniform_writer_groups=Set{Tuple{Symbol,Symbol}}()
     potential_sources=[Dict{Symbol,Tuple}() for _ in specs]
     temporals=[Dict{Symbol,Bool}() for _ in specs]
     input_routes=Vector{Any}(undef,length(specs))
@@ -314,6 +326,9 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
                 append!(potential,candidates)
                 chosen=isempty(candidates) ? 0 : last(candidates)
                 if chosen!=0
+                    # These routes name a producer slot. Live unfiltered
+                    # routes use the same canonical Ref regardless of writer.
+                    (filtered || temporal) && push!(uniform_writer_groups,(cat,sourcevar))
                     value=_full_value(PSE.outputs_(specs[chosen])[sourcevar])
                     push!(sources,(catindex[cat],chosen));push!(values_,value)
                 elseif !filtered && haskey(seeds[cat],sourcevar)
@@ -411,7 +426,49 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
         FullApplicationRecipe{M,C,i,typeof(inputs),typeof(outputs),typeof(calls),typeof(temporal_outputs[i]),D,V,I,O,E,B,S,H}(
             i,names[i],inputs,outputs,calls,temporal_outputs[i],PSE.dep(spec.model),PSE.variable_contracts_(spec),I,O,E,B,S,H)
     end
-    return FullProgram(cohorts,applications,order,cadence)
+    writer_groups=_full_writer_groups(
+        owners,output_routes,specs,names,appcat,catindex,compiled_applications,uniform_writer_groups,initial)
+    return FullProgram(cohorts,applications,order,cadence,writer_groups)
+end
+
+_full_writer_matcher(route::FullOutputRoute{C,V,false}) where {C,V}=nothing
+_full_writer_matcher(route::FullOutputRoute{C,V,true}) where {C,V}=route.matcher
+
+function _full_writer_groups(owners, outputs, specs, names, appcat, catindex, applications, uniform, initial)
+    groups=Any[]
+    seen=Set{Any}()
+    for (category,variable) in sort!(collect(keys(owners)))
+        slots=owners[(category,variable)]
+        isempty(slots) && continue
+        routes=map(Tuple(slots)) do slot
+            matcher=_full_writer_matcher(outputs[slot][variable])
+            FullWriterRoute{catindex[appcat[slot]],typeof(matcher)}(matcher)
+        end
+        length(slots)==1 && isnothing(only(routes).matcher) && continue
+        first_requires_previous=map(Tuple(slots)) do slot
+            PSE._declares_update_without_previous_writer(specs[slot],variable,())
+        end
+        accepts_previous=map(Tuple(slots)) do slot
+            map(Tuple(slots)) do previous
+                PSE._updates_after_previous_writer(specs[slot],variable,(applications[previous],))
+            end
+        end
+        group_names=map(slot->names[slot],Tuple(slots))
+        cohort=catindex[category]
+        requires_uniform=length(slots)>1 && (category,variable) in uniform
+        default_check=if length(slots)>1 && !requires_uniform && !haskey(initial[category],variable) &&
+                any(route->!isnothing(route.matcher),routes)
+            FullWriterDefault{variable,Tuple(slots)}()
+        else
+            nothing
+        end
+        key=(cohort,routes,first_requires_previous,accepts_previous,group_names,requires_uniform,default_check)
+        key in seen && continue
+        push!(seen,key)
+        push!(groups,FullWriterGroup{cohort,typeof(routes),typeof(first_requires_previous),typeof(accepts_previous),typeof(group_names),typeof(default_check)}(
+            routes,first_requires_previous,accepts_previous,group_names,requires_uniform,default_check))
+    end
+    return Tuple(groups)
 end
 
 function _make_cohort(recipe::FullCohortRecipe{K,P,X,D,S},models,initial,::Type{N}) where {K,P,X,D,S,N}
