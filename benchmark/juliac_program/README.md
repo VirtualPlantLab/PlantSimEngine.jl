@@ -79,8 +79,9 @@ whose first targets appear during growth. Call routes take their target
 application, mode and multiplicity from that plan. Distributed output routes
 use its variable partitions and destination selectors. Input routes use its
 potential producers for both explicit and inferred couplings, including
-applications that start without objects. The typed executor resolves object
-membership as the topology changes and prepares its binding and storage recipes.
+applications that start without objects. The typed executor uses the canonical
+selector matchers to resolve object membership as the topology changes and
+prepares its binding and storage recipes.
 Its qualification is reported separately
 in the full-graph evidence above. Evaluate/accept, general temporal policies and
 custom spatial environments remain outside the current cases.

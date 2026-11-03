@@ -22,20 +22,6 @@ function _prototype_full_binding(route::FullInputRoute{S,V,TEMP,MULT,T},initial_
         NTuple{4,Int}[],Base.RefValue{T}[],MULT===:many ? nothing : reference)
 end
 
-function _full_selector_scope(criteria)
-    haskey(criteria,:within) && return criteria.within
-    for atom in criteria.selectors
-        atom isa PSE.Relation || return atom
-    end
-    return nothing
-end
-function _full_selector_relation(criteria)
-    haskey(criteria,:relation) && return criteria.relation
-    for atom in criteria.selectors
-        atom isa PSE.Relation && return atom.relation
-    end
-    return nothing
-end
 function _full_in_subtree(node,root)
     current=node
     while !isnothing(current)
@@ -77,50 +63,38 @@ function _full_relation_matches(relation,origin,node)
         MTG.node_id(originparent)==MTG.node_id(nodeparent)
     throw(ArgumentError("unsupported full-layout relation"))
 end
-function _full_matches(selector,state,origin,node)
-    criteria=PSE.criteria(selector)
-    scale=get(criteria,:scale,nothing)
+_full_relation(::Nothing)=nothing
+_full_relation(::Val{R}) where {R}=R
+
+function _full_matches(matcher,origin,node)
+    scale=matcher.scale
     (isnothing(scale) || (scale isa Tuple ? MTG.symbol(node) in scale : MTG.symbol(node)===scale)) || return false
-    scope=_full_selector_scope(criteria)
-    relation=_full_selector_relation(criteria)
-    if scope isa PSE.Ancestor && scale===scope.scale && isnothing(relation)
+    scope=matcher.scope
+    relation=_full_relation(matcher.relation)
+    if scope isa PSE.Ancestor && !isnothing(scale) && scale===scope.scale && isnothing(relation)
         ancestor=_full_ancestor(origin,scope.scale)
         return !isnothing(ancestor) && MTG.node_id(node)==MTG.node_id(ancestor)
-    end
-    if isnothing(scope) && isnothing(relation) && isnothing(scale)
-        return MTG.node_id(origin)==MTG.node_id(node)
     end
     _full_scope_matches(scope,origin,node) || return false
     return _full_relation_matches(relation,origin,node)
 end
 
-# These selectors identify at most one fixed node under the admitted append-
-# only topology. A missing parent/ancestor or a mismatched category stays empty;
-# unrelated cohort growth cannot change it. General scopes/relations still scan.
-function _full_is_point_selector(selector)
-    criteria=PSE.criteria(selector)
-    scope=_full_selector_scope(criteria)
-    relation=_full_selector_relation(criteria)
-    scale=get(criteria,:scale,nothing)
-    return (scope isa PSE.Ancestor && scale===scope.scale && isnothing(relation)) ||
-        scope isa PSE.Self || relation===:self || relation===:parent ||
-        (isnothing(scope) && isnothing(relation) && isnothing(scale))
+# A point selector's membership cannot change when unrelated objects are added.
+function _full_is_point_selector(matcher)
+    scope=matcher.scope
+    relation=_full_relation(matcher.relation)
+    return (scope isa PSE.Ancestor && !isnothing(matcher.scale) && matcher.scale===scope.scale && isnothing(relation)) ||
+        scope isa PSE.Self || relation===:self || relation===:parent
 end
-function _full_point_node(selector,origin)
-    criteria=PSE.criteria(selector)
-    scope=_full_selector_scope(criteria)
-    relation=_full_selector_relation(criteria)
-    scale=get(criteria,:scale,nothing)
-    if scope isa PSE.Ancestor && scale===scope.scale && isnothing(relation)
+function _full_point_node(matcher,origin)
+    scope=matcher.scope
+    relation=_full_relation(matcher.relation)
+    if scope isa PSE.Ancestor && !isnothing(matcher.scale) && matcher.scale===scope.scale && isnothing(relation)
         return true,_full_ancestor(origin,scope.scale)
-    elseif scope isa PSE.Self
-        return true,origin
-    elseif relation===:self
+    elseif scope isa PSE.Self || relation===:self
         return true,origin
     elseif relation===:parent
         return true,MTG.parent(origin)
-    elseif isnothing(scope) && isnothing(relation) && isnothing(scale)
-        return true,origin
     end
     return false,nothing
 end
@@ -130,19 +104,19 @@ function _full_append_binding_source!(entries,state,origin,route::FullInputRoute
     C,SLOT=SOURCE
     cohort=state.cohorts[C]
     limit=MULT===:many ? cohort.committed : length(cohort.ids)
-    fixed,node=_full_point_node(route.selector,origin)
+    fixed,node=_full_point_node(route.matcher,origin)
     if fixed
         isnothing(node) && return nothing
         location=get(state.locations,MTG.node_id(node),nothing)
         isnothing(location) && return nothing
         location[1]==C && location[2]<=limit || return nothing
-        _full_matches(route.selector,state,origin,node) || return nothing
+        _full_matches(route.matcher,origin,node) || return nothing
         push!(entries,(MTG.node_id(node),C,location[2],SLOT))
         return nothing
     end
     for row in 1:limit
         node=cohort.nodes[row]
-        _full_matches(route.selector,state,origin,node) || continue
+        _full_matches(route.matcher,origin,node) || continue
         id=cohort.ids[row]
         push!(entries,(id,C,row,SLOT))
     end
@@ -174,7 +148,7 @@ function _full_append_added_binding_source(added,state,origin,route::FullInputRo
     limit=MULT===:many ? cohort.committed : length(cohort.ids)
     old_count<=limit || throw(ArgumentError("binding reuse requires append-only source membership"))
     for row in (old_count+1):limit
-        _full_matches(route.selector,state,origin,cohort.nodes[row]) || continue
+        _full_matches(route.matcher,origin,cohort.nodes[row]) || continue
         isnothing(added) && (added=NTuple{4,Int}[])
         push!(added,(cohort.ids[row],C,row,SLOT))
     end
@@ -254,7 +228,7 @@ function _refresh_full_binding!(binding::FullBinding{R,TEMP,MULT,T},state,origin
     unchanged=reuse && stamp==binding.stamp
     # A fixed One/OptionalOne can keep its validated membership across unrelated
     # source growth/rebinding. Many must still observe committed membership.
-    fixed=binding.valid && !unchanged && MULT!==:many && _full_is_point_selector(binding.route.selector)
+    fixed=binding.valid && !unchanged && MULT!==:many && _full_is_point_selector(binding.route.matcher)
     if unchanged || fixed
         unchanged && !TEMP && return nothing
         binding.valid=false
@@ -367,7 +341,7 @@ function _full_append_output_cohort!(entries,state,origin,route::FullOutputRoute
     cohort=state.cohorts[C]
     limit=D && committed ? cohort.committed : length(cohort.ids)
     for row in 1:limit
-        _full_matches(route.selector,state,origin,cohort.nodes[row]) || continue
+        _full_matches(route.matcher,origin,cohort.nodes[row]) || continue
         reference=PSE.refvalue(cohort.rows[row],V)::Base.RefValue{T}
         push!(entries,(cohort.ids[row],reference))
     end

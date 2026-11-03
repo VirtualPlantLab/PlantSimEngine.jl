@@ -319,19 +319,19 @@ function _full_call_membership(c,route::FullCallRoute{SLOT}) where {SLOT}
         FullCallMembership()
     end
     if membership.live_count!=length(cohort.ids)
-        fixed,node=_full_point_node(route.selector,origin)
+        fixed,node=_full_point_node(route.matcher,origin)
         changed=false
         if fixed
             if membership.live_count<0 && !isnothing(node)
                 location=get(c.state.locations,MTG.node_id(node),nothing)
                 if !isnothing(location) && location[1]==_app_cohort(c.state.applications[SLOT].recipe) &&
-                    _full_matches(route.selector,c.state,origin,node)
+                    _full_matches(route.matcher,origin,node)
                     push!(membership.live,location[2])
                 end
             end
         else
             for row in (max(membership.live_count,0)+1):length(cohort.ids)
-                if _full_matches(route.selector,c.state,origin,cohort.nodes[row])
+                if _full_matches(route.matcher,origin,cohort.nodes[row])
                     push!(membership.live,row)
                     changed=true
                 end
@@ -368,7 +368,7 @@ function _cohort_targets(c,route::FullCallRoute{SLOT,MODE,MULT},objects=nothing)
         location=get(c.state.locations,id,nothing)
         isnothing(location) && throw(ArgumentError("object outside call scope"))
         slot,row=location
-        slot==_app_cohort(app.recipe) && _full_matches(route.selector,c.state,origin,cohort.nodes[row]) ||
+        slot==_app_cohort(app.recipe) && _full_matches(route.matcher,origin,cohort.nodes[row]) ||
             throw(ArgumentError("object outside call scope"))
         child=CohortContext(app,c.state,app.views[row],row,c.environment,c.constants,c.step,c.suppress)
         push!(targets,CohortTarget(child))

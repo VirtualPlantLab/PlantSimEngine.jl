@@ -35,14 +35,14 @@ Application zero means explicit live canonical state, not an output stream.
 TEMP=true reads the previous completed timestep of the specified application.
 T is the scalar element type for Many, or the complete value type for One.
 """
-struct FullInputRoute{SOURCES,VAR,TEMP,MULT,T,SEL}
-    selector::SEL
+struct FullInputRoute{SOURCES,VAR,TEMP,MULT,T,M}
+    matcher::M
 end
-struct FullOutputRoute{COHORTS,VAR,DISTRIBUTED,SEL}
-    selector::SEL
+struct FullOutputRoute{COHORTS,VAR,DISTRIBUTED,M}
+    matcher::M
 end
-struct FullCallRoute{SLOT,MODE,MULT,SEL}
-    selector::SEL
+struct FullCallRoute{SLOT,MODE,MULT,M}
+    matcher::M
     cache_key::Int
 end
 struct FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H}
@@ -87,9 +87,8 @@ function _full_temporal_outputs!(needed,::FullInputRoute{SOURCES,VAR,TEMP}) wher
     return nothing
 end
 
-function _full_selector_categories(selector,categories,fallback)
-    criteria=PSE.criteria(selector)
-    requested=get(criteria,:scale,fallback)
+function _full_selector_categories(matcher,categories,fallback)
+    requested=isnothing(matcher.scale) ? fallback : matcher.scale
     requested=isnothing(requested) ? categories : requested isa Tuple ? requested : (requested,)
     all(cat->cat in categories,requested) || throw(ArgumentError("selector names an undeclared cohort"))
     return Tuple(requested)
@@ -116,6 +115,22 @@ function _full_validate_selector(selector)
     return selector
 end
 
+const FULL_SELF_MATCHER = PSE.CompiledSelectorMatcher(
+    PSE.Self(), nothing, nothing, nothing, nothing, nothing, false)
+
+function _full_matcher(matcher, origin_category)
+    # Dependency resolution defaults to Self except at Scene. A relation
+    # without an explicit scope does not acquire that implicit scope.
+    scope=matcher.scope
+    if matcher.defaults_to_context
+        scope=PSE.Self()
+    elseif isnothing(scope) && isnothing(matcher.relation)
+        scope=origin_category===:Scene ? PSE.SceneScope() : PSE.Self()
+    end
+    return PSE.CompiledSelectorMatcher(
+        scope,matcher.relation,matcher.scale,matcher.kind,matcher.species,matcher.id,false)
+end
+
 function prepare(model::PSE.CompositeModel; initial)
     isempty(model.instances) || throw(ArgumentError("full programs require direct applications"))
     specs = Tuple(model.applications)
@@ -124,6 +139,11 @@ function prepare(model::PSE.CompositeModel; initial)
     applications = PSE._compile_model_applications(model, specs, timeline)
     all(application -> application.clock.dt == 1.0, applications) ||
         throw(ArgumentError("full programs require one execution per daily step for every application"))
+    for application in applications, id in application.target_ids
+        object=PSE._model_object(model,id)
+        object.kind===:scene && object.scale!==:Scene &&
+            throw(ArgumentError("full dependency scopes require scene objects to have scale=:Scene"))
+    end
     scenario = PSE._compile_resolved_scenario_plan(model, applications, timeline)
     return _prepare_full(specs, scenario; initial)
 end
@@ -179,9 +199,10 @@ function _prepare_full(specs::Tuple, scenario; initial)
                 destination=only(filter(plan->haskey(plan.declarations,var),destinations))
                 selector=destination.selector
                 _full_validate_selector(selector)
-                cats=_full_selector_categories(selector,categories,nothing)
+                matcher=_full_matcher(destination.matcher,appcat[i])
+                cats=_full_selector_categories(matcher,categories,nothing)
             else
-                selector=One(within=PSE.Self())
+                matcher=FULL_SELF_MATCHER
                 cats=(appcat[i],)
             end
             value=_full_value(declaration)
@@ -194,7 +215,7 @@ function _prepare_full(specs::Tuple, scenario; initial)
                     push!(first_output,key)
                 end
             end
-            route=FullOutputRoute{Tuple(catindex[cat] for cat in cats),var,distributed,typeof(selector)}(selector)
+            route=FullOutputRoute{Tuple(catindex[cat] for cat in cats),var,distributed,typeof(matcher)}(matcher)
             push!(routes,var=>route)
         end
         output_routes[i]=(;routes...)
@@ -216,12 +237,13 @@ function _prepare_full(specs::Tuple, scenario; initial)
         routes=map(plans) do plan
             selector=plan.selector
             _full_validate_selector(selector)
+            matcher=_full_matcher(plan.matcher,appcat[plan.application_slot])
             ids=plan.potential_callee_application_ids
             length(ids)==1 || throw(ArgumentError("full calls must identify one application"))
             target=scenario.applications_by_id[only(ids)].slot
             mode=PSE._compiled_call_mode(plan)
             mode===:initializer && push!(initializer_targets,target)
-            FullCallRoute{target,mode,plan.multiplicity,typeof(selector)}(selector,plan.slot)
+            FullCallRoute{target,mode,plan.multiplicity,typeof(matcher)}(matcher,plan.slot)
         end
         NamedTuple{map(PSE._compiled_call_name,plans)}(routes)
     end
@@ -271,21 +293,14 @@ function _prepare_full(specs::Tuple, scenario; initial)
         for (i,var,declaration) in unresolved
             plan=get(explicit_plans[i],var,nothing)
             explicit=!isnothing(plan)
-            selector=explicit ? plan.selector : One(within=PSE.Self(),var=var)
-            _full_validate_selector(selector)
-            criteria=PSE.criteria(selector)
+            explicit && _full_validate_selector(plan.selector)
+            matcher=explicit ? _full_matcher(plan.matcher,appcat[i]) : FULL_SELF_MATCHER
             sourcevar=explicit ? plan.source_var : var
             temporal=explicit && plan.breaks_same_step_cycle
             filtered=explicit && (!isnothing(plan.application) || !isnothing(plan.process))
-            # Relation selectors such as parent/children restrict topology at
-            # runtime, while category candidates derive from the explicit scale
-            # or all cohorts (for an unlabelled parent/children selector).
-            relation=get(criteria,:relation,nothing)
-            has_relation=!isnothing(relation) || any(a->a isa PSE.Relation,criteria.selectors)
-            scope=get(criteria,:within,isempty(criteria.selectors) ? nothing : first(criteria.selectors))
-            cross_scope=scope isa Union{PSE.SelfPlant,PSE.SceneScope,PSE.Subtree,PSE.Ancestor}
-            fallback=explicit && (has_relation || cross_scope) ? nothing : appcat[i]
-            sourcecats=_full_selector_categories(selector,categories,fallback)
+            cross_scope=matcher.scope isa Union{PSE.SelfPlant,PSE.SceneScope,PSE.Subtree,PSE.Ancestor}
+            fallback=explicit && (!isnothing(matcher.relation) || cross_scope) ? nothing : appcat[i]
+            sourcecats=_full_selector_categories(matcher,categories,fallback)
             producer_ids=explicit ? plan.potential_source_application_ids :
                 get(inferred_sources[i],var,())
             # Canonical candidates include applications whose target objects
@@ -334,7 +349,7 @@ function _prepare_full(specs::Tuple, scenario; initial)
                         FullModelSeed{typeof(specs[chosen].model),:output,sourcevar,T}(chosen)
                 end
             end
-            route=FullInputRoute{Tuple(sources),sourcevar,temporal,multiplicity,T,typeof(selector)}(selector)
+            route=FullInputRoute{Tuple(sources),sourcevar,temporal,multiplicity,T,typeof(matcher)}(matcher)
             push!(route_pairs[i],var=>route)
             potential_sources[i][var]=Tuple(unique(potential))
             temporals[i][var]=temporal

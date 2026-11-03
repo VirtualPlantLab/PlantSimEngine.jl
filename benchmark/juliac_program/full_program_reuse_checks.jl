@@ -350,7 +350,7 @@ function run_checks()
         end
         @testset "partitioned distributed outputs use their resolved destinations" begin
             destinations = (
-                OutputTo(Many(scale=:Scene); vars=(:scene_flux,)),
+                OutputTo(Many(scale=:Scene, within=SceneScope()); vars=(:scene_flux,)),
                 OutputTo(Many(scale=:Leaf, within=SelfPlant()); vars=(:leaf_flux,)),
             )
             specs = (
@@ -394,6 +394,27 @@ function run_checks()
             _status(source_free, 2).value = 3f0
             RP.step!(source_free, NamedTuple())
             @test _status(source_free, 2).seen === 3f0
+        end
+        @testset "dependency scopes match ordinary PSE across plants" begin
+            for (selector, total) in (
+                (Many(scale=:Plant, application=:producer, var=:value), 5f0),
+                (Many(scale=:Plant, within=SceneScope(), application=:producer, var=:value), 10f0),
+            )
+                root = _tree()
+                _node(3, :Plant, 1, root)
+                specs = (
+                    _application(ImplicitProducer(), :producer, :Plant),
+                    _application(F32Observer(), :observer, :Plant; inputs=(xs=selector,)),
+                )
+                initial = (Scene=NamedTuple(), Plant=NamedTuple())
+                state = _instantiate(specs, initial, root)
+                RP.step!(state, NamedTuple())
+                scene = CompositeModel(root; applications=specs, environment=(duration=Day(1),))
+                ordinary = PSE.run!(scene; steps=1, outputs=:none)
+                for id in (2, 3)
+                    @test _status(state, id).total === PSE.final_state(ordinary, ObjectId(id)).total === total
+                end
+            end
         end
         @testset "stable memberships, live values and real Ref replacement" begin
             state = _observer_state()
