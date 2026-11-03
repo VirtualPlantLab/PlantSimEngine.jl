@@ -83,7 +83,8 @@ applications that start without objects. The typed executor uses the canonical
 selector matchers to resolve object membership as the topology changes. PSE
 and XPalm share the relation and scope rules through their own topology
 accessors. This includes the difference between an absent nearest ancestor
-and a missing root for an ancestor or plant subtree.
+and a missing root for an ancestor or plant subtree. The full layout uses
+PSE's `Updates` rule to check each pair of consecutive cohort writers.
 The typed executor prepares its binding and storage recipes.
 Its qualification is reported separately
 in the full-graph evidence above. Evaluate/accept, general temporal policies and

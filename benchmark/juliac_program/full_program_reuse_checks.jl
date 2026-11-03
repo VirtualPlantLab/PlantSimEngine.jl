@@ -472,6 +472,22 @@ function run_checks()
                 @test_throws ArgumentError RP._full_validate_scope(matcher, root)
             end
         end
+        @testset "Updates must name the immediately preceding writer" begin
+            first_writer = _application(ImplicitProducer(), :first, :Plant)
+            middle_writer = _application(ImplicitProducer(), :middle, :Plant;
+                updates=Updates(:value; after=:first))
+            final_writer(after) = _application(ImplicitProducer(), :last, :Plant;
+                updates=Updates(:value; after))
+            initial = (Scene=NamedTuple(), Plant=NamedTuple())
+            specs = (first_writer, middle_writer, final_writer(:middle))
+            state = _instantiate(specs, initial, _tree())
+            @test state.program.order == (Val(1), Val(2), Val(3))
+            RP.step!(state, NamedTuple())
+            @test _status(state, 2).value === 5f0
+
+            skipped = (first_writer, middle_writer, final_writer(:first))
+            @test_throws "needs Updates after middle" _prepare(skipped, initial, _tree())
+        end
         @testset "stable memberships, live values and real Ref replacement" begin
             state = _observer_state()
             environment = (delta=1.0, order=Int[])

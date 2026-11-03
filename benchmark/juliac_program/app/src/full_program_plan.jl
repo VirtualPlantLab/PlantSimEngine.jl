@@ -145,10 +145,10 @@ function prepare(model::PSE.CompositeModel; initial)
             throw(ArgumentError("full dependency scopes require scene objects to have scale=:Scene"))
     end
     scenario = PSE._compile_resolved_scenario_plan(model, applications, timeline)
-    return _prepare_full(specs, scenario; initial)
+    return _prepare_full(specs, scenario, applications; initial)
 end
 
-function _prepare_full(specs::Tuple, scenario; initial)
+function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
     isempty(specs) && throw(ArgumentError("empty full program"))
     categories=keys(initial)
     isempty(categories) && throw(ArgumentError("full layout needs typed initial data per cohort"))
@@ -251,7 +251,6 @@ function _prepare_full(specs::Tuple, scenario; initial)
     # canonical writers or inferred soft producers. Their defaults remain
     # available for fields which have no normally scheduled writer.
     declared_owners=Dict(key=>copy(writers) for (key,writers) in owners)
-    label_matches(label,index)=label===names[index]
     for ((cat,var),writers) in owners
         filter!(i->!(i in manual),writers)
         if !isempty(writers) && !haskey(initial[cat],var)
@@ -261,7 +260,7 @@ function _prepare_full(specs::Tuple, scenario; initial)
         end
         for k in 2:length(writers)
             i=writers[k]; previous=writers[k-1]
-            any(update->var in update.variables && any(label->label_matches(label,previous),update.after),specs[i].updates) ||
+            PSE._updates_after_previous_writer(specs[i],var,(compiled_applications[previous],)) ||
                 throw(ArgumentError("duplicate writer $(names[i]) for $cat.$var needs Updates after $(names[previous])"))
         end
     end
