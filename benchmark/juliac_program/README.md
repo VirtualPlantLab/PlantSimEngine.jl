@@ -22,27 +22,19 @@ parameters are distinct from the accelerated stress profile. At 4,160 days,
 the native run takes 3.879 s versus ordinary PSE's 4.744 s: the short-case
 speedups do not extrapolate to long trajectories.
 
-The [complete selected AMAPSim scenario](downstream_amapsim.md) now runs native
-architecture, geometry, registry growth/removal and original internode consumers
-with safe trimming. Seven cases compare original ordinary PSE, inference-typed
-ordinary PSE, a common-precompiled-input ordinary control, the registry JIT
-runtime and its native binary. Warm execution gains range from 11.3 to 34.1×
-over original PSE; construction and preparation are separate measurements.
-Full native snapshots and positive-RNG same-host relocation match original PSE.
+The downstream repositories own their scenario drivers, baseline comparisons,
+parity checks and reproduction instructions.
 
-The [complete selected MAESPA canopy/soil scenario](downstream_maespa.md) now
-compiles all eight two/eight-tree, 24/96-step, all/none-output configurations with
-safe/generic JuliaC. Every native case matches the untouched ordinary PSE
-records exactly. Warm execution gains range from 4.56 to 6.55× against freshly
-measured original controls; construction, preparation and instantiation are
-reported separately. The largest retained case matches 283,780 records, including
-in a same-host relocated bundle with a fresh HOME and empty external depot/cwd.
-The earlier [ordinary-only baseline cohort](downstream_maespa_original_results.md)
-remains archived; final comparisons use refreshed canonical-format controls.
-Paired source-typed ordinary controls run 2.1–2.8× faster than the untouched
-MAESPA controls in these cases. Native execution is within 9% of registry JIT,
-so source typing and the execution design account for most of the
-observed gain. One-time authoring and compilation remain separate costs.
+- [AMAPSim JuliaC qualification](https://github.com/VEZY/AMAPSim.jl/pull/14) covers native architecture,
+  analytic geometry, stochastic growth and removals in seven cases.
+- [MAESPA JuliaC qualification](https://github.com/VEZY/MAESPA.jl/pull/15) covers eight non-Tuzet canopy/soil
+  profiles, with two or eight trees, 24 or 96 steps, and all or no retained
+  outputs.
+
+The [original qualification archive](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/ff8b6e5c2d5ad1388f062627aa07a159e48df4c7/benchmark/juliac_program)
+preserves the PSE-side reports and raw results at the handoff revision.
+The registry executors and launcher stay in PSE. The ordinary MAESPA comparison
+continues to use the shared fixture and record codec.
 
 The new registry runtimes may resolve a private ordinary graph at authoring
 time, then retain only owned typed numerical data and execution recipes.
