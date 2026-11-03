@@ -5808,8 +5808,9 @@ end
     # once so this specialization knows the actual environment type while
     # checking and constructing cached immutable views.
     CT = fieldtype(RC, :calls)
-    Slot = _TransientSingleCallSlot{_SingleCallTargetView{T,CS,EB,A,TS,OR,C}}
-    View = CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
+    I = fieldtype(T, :object_id)
+    Slot = _TransientSingleCallSlot{_SingleCallTargetView{T,CS,EB,A,TS,OR,C,I}}
+    View = CallTarget{T,CS,EB,A,CT,TS,OR,C,E,I}
     previous = targets.last_single_snapshot
     if previous isa Slot
         snapshot = previous.snapshot
