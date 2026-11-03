@@ -366,7 +366,7 @@ function run_checks()
             RP.step!(state, NamedTuple())
             @test _status(state, 2).seen === 3f0
 
-            filtered = One(within=Self(), var=:raw, process=:missing_writer)
+            filtered = One(within=Self(), var=:raw, application=:reader)
             specs = (_application(StatusReader(), :reader, :Plant; inputs=(value=filtered,)),)
             @test_throws ArgumentError _prepare(specs, initial, _tree())
         end
