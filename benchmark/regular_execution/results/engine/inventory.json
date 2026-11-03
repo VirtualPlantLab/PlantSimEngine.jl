@@ -52,6 +52,7 @@
   "environment/clean-warmup.json": "e2dc24de6138ef157fbb705425bdabf9bd164ab001b566b4d7398ef77d068e33",
   "environment/loaded-environment-baseline.json": "2c9015f1f72cb8ca7d4f258557e6c9ff797b21c8d7a3f390587bc82725a8c8f0",
   "environment/loaded-environment-candidate.json": "489b4b3409ce234558dc40daeb55516a4bda2836b44f7c5ce57e115ee9898ea4",
+  "independent_audit.json": "70c4a15b263d0a984db8625a21fc035bf1bd093bb648a238a5d0d2c680346a79",
   "quiet/regular-root-01-quiet-receipt.json": "96799e3731cb9991e9a0c17da59346636c147b799bf5cc7cb54f5b39446c22fb",
   "quiet/regular-root-02-quiet-receipt.json": "98ba0e8dddc41c3126e20ccb341eff01d5c1728ec691c69e48faafa3d14f92dc",
   "quiet/regular-root-03-quiet-receipt.json": "73474c90f76adf2389e0330202cdb65f25ef05f4e3910f04864d6d8ea604317e",

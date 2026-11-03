@@ -157,9 +157,14 @@ These are separate matched controls at PSE 48492cb1 and 16a8ba182, with unchange
 
 Ratios are baseline/candidate; values below 1 mean a slower candidate. Complete time is the median of each fresh trial's construction + preparation + execution sum, with observation/formatting and pretrial GC excluded. The MAESPA science here is the older full-scenario cohort, not the current-main c45 control used by the package port.
 
-The core changes do not establish a general warm-PSE speedup. MAESPA execution improves by 0.6–15.3% in these engine comparisons. XPalm is mixed: the 256-day case without requested outputs improves, while retained 256-day and 1024/4160-day cases regress. These negative results remain part of the qualification; the downstream typing ports are reviewed and measured separately.
+The core changes do not establish a general warm-PSE speedup. MAESPA execution
+ratios are 1.006–1.153× in these engine comparisons. XPalm is mixed: the 256-day
+case without requested outputs improves, while retained 256-day and
+1024/4160-day cases regress. The longest XPalm case also allocates about 2.3%
+more during execution. These negative results remain part of the qualification;
+the downstream typing ports are reviewed and measured separately.
 
-[Raw timing checkpoints and source inventories](results/engine/), [runtime/dependency comparison](results/engine/environment/clean-environment-comparison.json), and [summary](results/engine/summary.json) preserve the controls. Full raw observations remain at the recorded local paths, with hashes/counts in every checkpoint; large record dumps are not added to Git.
+[Raw timing checkpoints and source inventories](results/engine/), [runtime/dependency comparison](results/engine/environment/clean-environment-comparison.json), and [summary](results/engine/summary.json) preserve the controls. Full raw observations remain at the recorded local paths, with hashes/counts in every checkpoint; large record dumps are not added to Git. The [independent audit](results/engine/independent_audit.json) verifies the archived checkpoints against original observations, source revisions and actual quiet windows.
 
 ```sh
 python3 benchmark/regular_execution/summarize.py \
@@ -167,3 +172,69 @@ python3 benchmark/regular_execution/summarize.py \
   benchmark/regular_execution/results/engine/quiet \
   /tmp/regular-engine-summary.json
 ```
+
+## Regular MAESPA and PSE together
+
+This separate comparison uses current main MAESPA `c45e4b5` plus PSE
+`48492cb1` as the baseline, and MAESPA scientific source `905e2a4` plus PSE
+`16a8ba182` as the candidate. Both fresh processes use the same dependencies;
+all eight full canopy/soil cases match complete observations. These are warm
+execution medians, with three measured fresh simulations per arm/case.
+
+| Scenario | Baseline | Combined | Baseline / combined |
+| --- | ---: | ---: | ---: |
+| Two trees, 24 half-hour steps, none requested | 16.65 ms | 11.91 ms | 1.399× |
+| Eight trees, 96 half-hour steps, none requested | 137.33 ms | 92.23 ms | 1.489× |
+| Eight trees, 96 half-hour steps, all outputs | 214.44 ms | 168.75 ms | 1.271× |
+
+All eight execution ratios are 1.159–1.489×; execution allocations fall by
+6.8–22.8%. Reachable simulation memory is close to the baseline. Construction
+and preparation remain separate, so these execution ratios are not complete
+simulation ratios. The package-only source cohort and the older-science PSE
+comparison above remain separate controls.
+
+The [complete report, raw phase samples and independent audit](https://github.com/VEZY/MAESPA.jl/blob/codex/maespa-regular-typing/benchmark/combined_typing_2026-11-02.md)
+record all eight cases, all 48 measured trials, 512,836 exact observation records
+and every quiet-window interval. Neither ratio multiplication nor a universal
+ordinary-runtime speedup is claimed.
+
+## Regular AMAPSim and PSE together
+
+This uses the actual default MTG engine and public `build_initial_topology` /
+`build_model` / `run!` path. The baseline is AMAPSim `86a3215` plus PSE
+`48492cb1`; the candidate uses the shared-core AMAPSim source `a05ee61` plus
+PSE `16a8ba182`. Both application environments and 21 actual package-source
+inventories match except for those two intentional revisions. This is distinct
+from the experimental arena/projection controls.
+
+| Scenario | Baseline execution | Combined execution | Baseline / combined | Complete ratio |
+| --- | ---: | ---: | ---: | ---: |
+| Branch46 / 1 / all | 4.122 ms | 4.085 ms | 1.009× | 1.017× |
+| Branch46 / 1 / none | 3.872 ms | 3.983 ms | 0.972× | 0.986× |
+| Branch46 / 4 / all | 13.863 ms | 14.255 ms | 0.973× | 0.963× |
+| Branch46 / 4 / none | 13.652 ms | 13.889 ms | 0.983× | 0.989× |
+| Merisier / 1 / all | 16.444 ms | 16.746 ms | 0.982× | 0.958× |
+| Merisier / 1 / none | 16.179 ms | 16.463 ms | 0.983× | 0.983× |
+| Merisier / 4 / all | 53.456 ms | 55.477 ms | 0.964× | 0.961× |
+| Merisier / 4 / none | 53.381 ms | 54.935 ms | 0.972× | 0.969× |
+
+There is **no demonstrated warm performance gain for default AMAPSim** in this
+combined cohort. Seven execution medians are slower and one is slightly faster;
+the largest retained-output case changes from 53.456 to 55.477 ms. The source
+and PSE effects are not separated by this two-arm comparison. These results
+remain visible rather than being replaced by the much larger standalone
+executor ratios from a different graph/cohort.
+
+Five fresh simulations per arm/case give 80 accepted measurements, with zero
+phase compilation or recompilation. Every trial matches the final logical
+state/status/geometry/history/work/RNG fingerprint. Separate qualification
+gates compare 32 intermediate boundaries per arm, including byte-identical
+public MTG exports and read-back data. Those exports are not repeated in every
+timed trial. Four-plant Merisier arms occupy separate bounded quiet windows
+because full untimed validation dominates the wall-clock duration.
+
+The [complete report and original five-sample checkpoints](https://github.com/VEZY/AMAPSim.jl/tree/codex/amapsim-ordinary-typing/dev/evidence/shared-planner-2026-11-03/combined-primary)
+preserve all phase samples and negative measurements, plus independent Float32,
+mortality, sympody, cached-funding and C++ fixture checks. Typing/inference
+witnesses establish the finite payload and numeric/alias contracts; they are
+not an end-to-end speed claim.

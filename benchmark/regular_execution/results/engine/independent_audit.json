@@ -1,0 +1,124 @@
+{
+  "status": "passed",
+  "checks": 1185,
+  "checkpoints": 24,
+  "measured_samples": 72,
+  "quiet_windows": 8,
+  "raw_MAESPA_record_files": 16,
+  "frozen_XPalm_snapshot_files": 8,
+  "source_git_images": [
+    "baseline",
+    "candidate"
+  ],
+  "rows": [
+    {
+      "case": "maespa-1-24-none",
+      "execution_ratio": 1.0224439177085483,
+      "complete_ratio": 1.0248296672447559,
+      "elapsed_reduction": 0.02195124575521812,
+      "allocation_ratio": 0.983128985039949
+    },
+    {
+      "case": "maespa-1-24-all",
+      "execution_ratio": 1.059110284569466,
+      "complete_ratio": 1.0194651752407795,
+      "elapsed_reduction": 0.055811264823563245,
+      "allocation_ratio": 0.9834820660247644
+    },
+    {
+      "case": "maespa-1-96-none",
+      "execution_ratio": 1.025038170071538,
+      "complete_ratio": 1.020165976990097,
+      "elapsed_reduction": 0.024426573373156013,
+      "allocation_ratio": 0.9760276945044412
+    },
+    {
+      "case": "maespa-1-96-all",
+      "execution_ratio": 1.0062885188122586,
+      "complete_ratio": 0.9955754454324902,
+      "elapsed_reduction": 0.006249220471759909,
+      "allocation_ratio": 0.976751329938498
+    },
+    {
+      "case": "maespa-4-24-none",
+      "execution_ratio": 1.0183754554966264,
+      "complete_ratio": 0.9944869733897029,
+      "elapsed_reduction": 0.018043890784529393,
+      "allocation_ratio": 0.9854122898577878
+    },
+    {
+      "case": "maespa-4-24-all",
+      "execution_ratio": 1.1526829191207895,
+      "complete_ratio": 1.114345095584498,
+      "elapsed_reduction": 0.13245873308962408,
+      "allocation_ratio": 0.9857174658109606
+    },
+    {
+      "case": "maespa-4-96-none",
+      "execution_ratio": 1.0281263405656835,
+      "complete_ratio": 1.0241804818510234,
+      "elapsed_reduction": 0.027356891323500276,
+      "allocation_ratio": 0.9790103188047081
+    },
+    {
+      "case": "maespa-4-96-all",
+      "execution_ratio": 1.0057857510145758,
+      "complete_ratio": 0.9831239184672983,
+      "elapsed_reduction": 0.005752468663171584,
+      "allocation_ratio": 0.9796313955267437
+    },
+    {
+      "case": "xpalm-256-none",
+      "execution_ratio": 1.0672955715699834,
+      "complete_ratio": 1.0044648505660538,
+      "elapsed_reduction": 0.06305242274264489,
+      "allocation_ratio": 0.9806331793274204
+    },
+    {
+      "case": "xpalm-256-all",
+      "execution_ratio": 0.9640736051427615,
+      "complete_ratio": 0.9788575610181445,
+      "elapsed_reduction": -0.03726519911508053,
+      "allocation_ratio": 0.9853959450955626
+    },
+    {
+      "case": "xpalm-1024-none",
+      "execution_ratio": 0.9538252217368164,
+      "complete_ratio": 0.9514636309406418,
+      "elapsed_reduction": -0.048410104085006456,
+      "allocation_ratio": 0.9955806037366275
+    },
+    {
+      "case": "xpalm-4160-none",
+      "execution_ratio": 0.9915005564674795,
+      "complete_ratio": 0.9879819266153697,
+      "elapsed_reduction": -0.008572303340708576,
+      "allocation_ratio": 1.0225954633517975
+    }
+  ],
+  "issues": [],
+  "scope": "independent archive/original hashes, records, binary snapshot identities, source/environment, phase medians/ranges/compile0, actual containment; no Julia or canonical JLS deserialization",
+  "readme_table_rows_exact": 12,
+  "final_XPalm_raw_snapshot_pairs": [
+    {
+      "case": "xpalm-1024-none",
+      "before_after_bytewise_equal": true,
+      "sha256": "7fa4d7e7ebbb7f71c33c4ec51339137b3d8eb7a02dac03c4bd802566fbba5f3a"
+    },
+    {
+      "case": "xpalm-256-all",
+      "before_after_bytewise_equal": true,
+      "sha256": "2c82d05be577a2f0bba7d7793a9ae9884661cbf6baf18b6eaf39d0f50590b786"
+    },
+    {
+      "case": "xpalm-256-none",
+      "before_after_bytewise_equal": true,
+      "sha256": "21a79bf8975c67f3d10c60402e77fcb16a842fe7b0528cd4b527c256d2a06c32"
+    },
+    {
+      "case": "xpalm-4160-none",
+      "before_after_bytewise_equal": true,
+      "sha256": "4a04cb2c36bdddea671b752a4ca2ee81208dca3b58620d32fc3c7082a6d0e4e9"
+    }
+  ]
+}
