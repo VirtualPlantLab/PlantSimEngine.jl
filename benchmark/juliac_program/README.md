@@ -75,8 +75,10 @@ covers the bounded phytomer subtree described above. The full layout extends
 the same grammar to the pinned daily whole-palm graph, PreviousTimeStep inputs,
 distributed columns and ordered writers. It takes the root application schedule
 from the same resolved CompositeModel plan as ordinary PSE, including entries
-whose first targets appear during growth. The typed executor still projects
-its own binding and storage recipes. Its qualification is reported separately
+whose first targets appear during growth. Call routes take their target
+application, mode and multiplicity from that plan. The typed executor selects
+live call targets as the topology changes and prepares its binding and storage
+recipes. Its qualification is reported separately
 in the full-graph evidence above. Evaluate/accept, general temporal policies and
 custom spatial environments remain outside the current cases.
 Unknown declarations/context operations are rejected or fail explicitly; no

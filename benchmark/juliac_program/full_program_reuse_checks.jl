@@ -80,8 +80,9 @@ function PSE.run!(::Observer, status, environment, constants, context)
     return nothing
 end
 function _observer_state(; program=nothing, fail_id=-1)
+    ticks = Many(scale=:Leaf, within=SelfPlant(), process=:reuse_tick)
     specs = (_application(Source(fail_id), :source, :Leaf),
-        _application(Observer(), :observer, :Plant; inputs=(xs=_xs(),), calls=(ticks=_tick(),)),
+        _application(Observer(), :observer, :Plant; inputs=(xs=_xs(),), calls=(; ticks)),
         _application(Tick(), :tick, :Leaf))
     initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
     root = _tree([30, 10])
@@ -306,6 +307,17 @@ function run_checks()
             )
             initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
             @test_throws ArgumentError _prepare(specs, initial, _tree())
+        end
+        @testset "full call routes require a single resolved application" begin
+            ticks = Many(scale=:Leaf, within=SelfPlant(), process=:reuse_tick)
+            specs = (
+                _application(Source(-1), :source, :Leaf),
+                _application(Observer(), :observer, :Plant; inputs=(xs=_xs(),), calls=(; ticks)),
+                _application(Tick(), :first_tick, :Leaf),
+                _application(Tick(), :second_tick, :Leaf),
+            )
+            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
+            @test_throws ArgumentError _prepare(specs, initial, _tree([30, 10]))
         end
         @testset "stable memberships, live values and real Ref replacement" begin
             state = _observer_state()

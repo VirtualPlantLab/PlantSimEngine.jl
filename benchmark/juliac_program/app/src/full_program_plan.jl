@@ -203,42 +203,28 @@ function _prepare_full(specs::Tuple, scenario; initial)
         seeds[cat][var]=ExternalSeed{cat,var}()
     end
 
-    # Calls have static application slots, but their selected object rows remain
-    # runtime data. Keep their original selectors for exact topology resolution.
-    manual=Set{Int}(); initializer_owners=Dict{Int,Int}()
-    call_key=0
-    call_routes=map(Tuple(enumerate(specs))) do (i,spec)
-        values_=map(values(spec.calls)) do declaration
-            initializer=declaration isa PSE.Initializer
-            selector=initializer ? declaration.selector : declaration
-            _full_validate_selector(selector)
-            initializer && !(selector isa One) && throw(ArgumentError("initializer requires One"))
-            criteria=PSE.criteria(selector)
-            initializer && !(get(criteria,:application,nothing) isa Symbol) &&
-                throw(ArgumentError("initializer must name its target with application=..."))
-            cats=_full_selector_categories(selector,categories,nothing)
-            matches=[j for j in eachindex(specs) if appcat[j] in cats &&
-                (!haskey(criteria,:application) || names[j]===criteria.application) &&
-                (!haskey(criteria,:process) || PSE.process(specs[j])===criteria.process)]
-            length(matches)==1 || throw(ArgumentError("call must identify one application"))
-            target=only(matches)
-            if initializer
-                haskey(initializer_owners,target) && throw(ArgumentError("initializer target requires exactly one owner binding"))
-                initializer_owners[target]=i
-                isempty(specs[target].calls) && isempty(specs[target].outputs_to) || throw(ArgumentError("initializer cannot have calls or distributed outputs"))
-            else
-                isempty(specs[target].outputs_to) || throw(ArgumentError("manual-only applications cannot declare distributed outputs"))
-                push!(manual,target)
-            end
-            call_key+=1
-            FullCallRoute{target,initializer ? :initializer : :manual,PSE.multiplicity(selector),typeof(selector)}(selector,call_key)
-        end
-        NamedTuple{keys(spec.calls)}(values_)
+    # The canonical plan identifies the application and mode. The typed
+    # runtime still resolves object rows from the selector as topology grows.
+    manual=Set(scenario.applications_by_id[id].slot for id in scenario.manual_application_ids)
+    for target in manual
+        isempty(specs[target].outputs_to) ||
+            throw(ArgumentError("manual-only applications cannot declare distributed outputs"))
     end
-    Set(names[i] for i in manual) == Set(scenario.manual_application_ids) ||
-        throw(ArgumentError("full call routes do not match the resolved manual applications"))
-    any(i->i in manual,keys(initializer_owners)) && throw(ArgumentError("initializer cannot also be manual-only"))
-    any(i->i in manual,values(initializer_owners)) && throw(ArgumentError("initializer creator must be root-scheduled"))
+    initializer_targets=Int[]
+    call_routes=map(names) do name
+        plans=scenario.call_plans_by_application[name]
+        routes=map(plans) do plan
+            selector=plan.selector
+            _full_validate_selector(selector)
+            ids=plan.potential_callee_application_ids
+            length(ids)==1 || throw(ArgumentError("full calls must identify one application"))
+            target=scenario.applications_by_id[only(ids)].slot
+            mode=PSE._compiled_call_mode(plan)
+            mode===:initializer && push!(initializer_targets,target)
+            FullCallRoute{target,mode,plan.multiplicity,typeof(selector)}(selector,plan.slot)
+        end
+        NamedTuple{map(PSE._compiled_call_name,plans)}(routes)
+    end
     # Manual kernels mutate the caller's canonical statuses, but are not
     # canonical writers or inferred soft producers. Their defaults remain
     # available for fields which have no normally scheduled writer.
@@ -256,11 +242,6 @@ function _prepare_full(specs::Tuple, scenario; initial)
             any(update->var in update.variables && any(label->label_matches(label,previous),update.after),specs[i].updates) ||
                 throw(ArgumentError("duplicate writer $(names[i]) for $cat.$var needs Updates after $(names[previous])"))
         end
-    end
-    for target in keys(initializer_owners), var in keys(PSE.outputs_(specs[target]))
-        writers=get(declared_owners,(appcat[target],var),Int[])
-        length(writers)==1 && only(writers)==target || throw(ArgumentError(
-            "initializer $(names[target]) must be the sole canonical writer of $(appcat[target]).$var"))
     end
     potential_sources=[Dict{Symbol,Tuple}() for _ in specs]
     temporals=[Dict{Symbol,Bool}() for _ in specs]
@@ -352,7 +333,7 @@ function _prepare_full(specs::Tuple, scenario; initial)
         progressed || throw(ArgumentError("unresolved full-layout inputs: $(Tuple((names[i],var) for (i,var,_) in next))"))
         unresolved=next
     end
-    for target in keys(initializer_owners), consumer in eachindex(specs)
+    for target in initializer_targets, consumer in eachindex(specs)
         consumer==target && continue
         for (var,producers) in potential_sources[consumer]
             get(temporals[consumer],var,false) && target in producers && throw(ArgumentError(
