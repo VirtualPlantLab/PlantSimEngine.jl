@@ -297,6 +297,21 @@ function _float32_state()
     return _instantiate(specs, initial, _tree([30, 10]))
 end
 
+PSE.@process "reuse_distributor" verbose = false
+struct Distributor <: AbstractReuse_DistributorModel end
+PSE.inputs_(::Distributor) = NamedTuple()
+PSE.outputs_(::Distributor) = (
+    local_count=0, leaf_flux=Distributed(Default(0.0)), scene_flux=Distributed(Default(0.0)),
+)
+function PSE.run!(::Distributor, status, environment, constants, context)
+    leaves = PSE.output_targets(context, (:leaf_flux,))
+    scene = PSE.output_targets(context, (:scene_flux,))
+    leaves.columns.leaf_flux .= 2.0
+    scene.columns.scene_flux .= 3.0
+    status.local_count = length(PSE.object_ids(leaves))
+    return nothing
+end
+
 function run_checks()
     result = @testset "Full program reuse and invalidation" begin
         @testset "manual applications must use the daily clock" begin
@@ -318,6 +333,22 @@ function run_checks()
             )
             initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
             @test_throws ArgumentError _prepare(specs, initial, _tree([30, 10]))
+        end
+        @testset "partitioned distributed outputs use their resolved destinations" begin
+            destinations = (
+                OutputTo(Many(scale=:Scene); vars=(:scene_flux,)),
+                OutputTo(Many(scale=:Leaf, within=SelfPlant()); vars=(:leaf_flux,)),
+            )
+            specs = (
+                _application(Source(-1), :source, :Leaf),
+                _application(Distributor(), :distributor, :Plant; outputs_to=destinations),
+            )
+            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
+            state = _instantiate(specs, initial, _tree([30, 10]))
+            RP.step!(state, (delta=0.0, order=Int[]))
+            @test _status(state, 2).local_count == 2
+            @test _status(state, 1).scene_flux == 3.0
+            @test _status(state, 10).leaf_flux == _status(state, 30).leaf_flux == 2.0
         end
         @testset "stable memberships, live values and real Ref replacement" begin
             state = _observer_state()

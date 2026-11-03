@@ -1,5 +1,5 @@
-# Authoring-only full-model planner. No CompositeModel, Simulation or ordinary
-# compiled plan is constructed here. Runtime consumes these typed recipes.
+# Authoring-only projection from the canonical PSE scenario plan. The typed
+# runtime consumes only the resulting recipes.
 # Copy only the admitted scientific payload, keeping scalar/vector element types
 # visible to the native compiler. Unknown payload families preserve the original
 # deep-copy semantics; current XPalm Float/Int/Bool/Symbol/ObjectId/vector paths
@@ -163,6 +163,7 @@ function _prepare_full(specs::Tuple, scenario; initial)
     output_routes=Vector{Any}(undef,length(specs))
     seeds=Dict(cat=>Dict{Symbol,Any}() for cat in categories)
     first_output=Set{Tuple{Symbol,Symbol}}()
+    destination_plans=scenario.distributed_output_plans
     for (i,spec) in enumerate(specs)
         for (var,declaration) in pairs(PSE.inputs_(spec))
             declaration isa Union{PSE.Required,PSE.Default} || throw(ArgumentError("invalid input schema"))
@@ -172,11 +173,12 @@ function _prepare_full(specs::Tuple, scenario; initial)
             end
         end
         routes=Pair{Symbol,Any}[]
-        resolved=PSE._resolved_output_destinations(spec)
+        destinations=destination_plans isa PSE.NoCompiledDistributedOutputPlans ?
+            () : destination_plans.by_application[names[i]]
         for (var,declaration) in pairs(PSE.outputs_(spec))
             distributed=declaration isa PSE.Distributed
             if distributed
-                destination=only(filter(entry->var in keys(entry.vars),resolved))
+                destination=only(filter(plan->haskey(plan.declarations,var),destinations))
                 selector=destination.selector
                 _full_validate_selector(selector)
                 cats=_full_selector_categories(selector,categories,nothing)
