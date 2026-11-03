@@ -18,17 +18,20 @@ struct Source{T} <: AbstractInput_Plan_Metadata_SourceModel
     payload::Symbol
     width::Int
     queries::Base.RefValue{Int}
+    contract_queries::Base.RefValue{Int}
     unit::Symbol
 end
 Source(value; port=:signal, payload=:source_payload, width=8,
-    queries=Ref(0), unit=:metadata_signal) =
-    Source(value, port, payload, width, queries, unit)
+    queries=Ref(0), contract_queries=Ref(0), unit=:metadata_signal) =
+    Source(value, port, payload, width, queries, contract_queries, unit)
 function PSE.outputs_(model::Source{T}) where {T}
     model.queries[] += 1
     return NamedTuple{(model.port, model.payload)}((zero(T), zeros(T, model.width)))
 end
-PSE.variable_contracts_(model::Source) =
-    NamedTuple{(model.port,)}((VariableContract(unit=model.unit),))
+function PSE.variable_contracts_(model::Source)
+    model.contract_queries[] += 1
+    return NamedTuple{(model.port,)}((VariableContract(unit=model.unit),))
+end
 function PSE.run!(model::Source, status, environment, constants, context)
     setproperty!(status, model.port, model.value * oftype(model.value, context.time))
     fill!(getproperty(status, model.payload), model.value)
@@ -40,17 +43,21 @@ struct Reader{T} <: AbstractInput_Plan_Metadata_ReaderModel
     port::Symbol
     observed::Symbol
     queries::Base.RefValue{Int}
+    contract_queries::Base.RefValue{Int}
     unit::Symbol
 end
 Reader(::Type{T}; port=:signal, observed=:observed, queries=Ref(0),
-    unit=:metadata_signal) where {T} = Reader(zero(T), port, observed, queries, unit)
+    contract_queries=Ref(0), unit=:metadata_signal) where {T} =
+    Reader(zero(T), port, observed, queries, contract_queries, unit)
 PSE.inputs_(model::Reader{T}) where {T} = NamedTuple{(model.port,)}((Required(T),))
 function PSE.outputs_(model::Reader{T}) where {T}
     model.queries[] += 1
     return NamedTuple{(model.observed, Symbol(model.observed, :_payload))}((zero(T), zeros(T, 3)))
 end
-PSE.variable_contracts_(model::Reader) =
-    NamedTuple{(model.port,)}((VariableContract(unit=model.unit),))
+function PSE.variable_contracts_(model::Reader)
+    model.contract_queries[] += 1
+    return NamedTuple{(model.port,)}((VariableContract(unit=model.unit),))
+end
 function PSE.run!(model::Reader, status, environment, constants, context)
     value = getproperty(status, model.port)
     setproperty!(status, model.observed, value)
@@ -76,9 +83,13 @@ end
 
 function planner_pass(data, applications, destinations)
     data.source.queries[] = 0
+    data.source.contract_queries[] = 0
     foreach(reader -> reader.queries[] = 0, data.readers)
+    foreach(reader -> reader.contract_queries[] = 0, data.readers)
     plans = PSE._compile_model_input_plans(data.model, applications, destinations)
-    queries = (source=data.source.queries[], readers=[reader.queries[] for reader in data.readers])
+    queries = (source=data.source.queries[], readers=[reader.queries[] for reader in data.readers],
+        source_contracts=data.source.contract_queries[],
+        reader_contracts=[reader.contract_queries[] for reader in data.readers])
     return plans, queries
 end
 
@@ -95,15 +106,18 @@ plan_signature(plans) = [(plan.application_id, plan.input, plan.origin,
         @test length(plans) == count
         @test all(plan -> plan.potential_source_application_ids == (:source,), plans)
         @test all(plan -> plan.origin == (explicit ? :model_spec : :inferred_same_object), plans)
-        # Contract validation still reads declarations for each real binding.
-        # The producer scan itself must not add consumer × application queries.
-        @test 1 <= queries.source <= count + 2
-        @test all(query -> 1 <= query <= 3, queries.readers)
-        @test queries.source + sum(queries.readers) <= 4 * count + 2
+        # One name snapshot and one contract validation per application; every
+        # real binding still compares the validated endpoint contracts.
+        @test queries.source == 2
+        @test all(==(2), queries.readers)
+        @test queries.source_contracts == 1
+        @test all(==(1), queries.reader_contracts)
         repeated, fresh_queries = planner_pass(data, applications, destinations)
         @test plan_signature(repeated) == plan_signature(plans)
-        @test 1 <= fresh_queries.source <= count + 2
-        @test all(query -> 1 <= query <= 3, fresh_queries.readers)
+        @test fresh_queries.source == 2
+        @test all(==(2), fresh_queries.readers)
+        @test fresh_queries.source_contracts == 1
+        @test all(==(1), fresh_queries.reader_contracts)
 
         simulation = run!(data.model; steps=1, outputs=:all)
         for index in 1:count
@@ -127,6 +141,9 @@ end
     @test queries.source <= 3
     @test queries.readers[end] <= 3
     @test all(iszero, queries.readers[1:end-1])
+    @test queries.source_contracts == 1
+    @test queries.reader_contracts[end] == 1
+    @test all(iszero, queries.reader_contracts[1:end-1])
 end
 
 @testset "per-application metadata and fresh recompiles preserve parameter-dependent schemas" begin
@@ -303,7 +320,176 @@ end
         @test model_status(model, :b).source_payload == fill(T(7), 8)
         @test model_status(model, :a).source_payload !== model_status(model, :b).source_payload
         @test base.queries[] > 0 && alternate.queries[] > 0
+        before_contracts = base.contract_queries[]
+        Advanced.refresh_bindings!(model; force=true)
+        @test base.contract_queries[] > before_contracts
+        repeated = run!(model; steps=1, outputs=:all)
+        @test final_state(repeated, :a).observed === T(2)
+        @test final_state(repeated, :b).observed === T(7)
+        @test model_status(model, :a).source_payload == fill(T(2), 8)
+        @test model_status(model, :b).source_payload == fill(T(7), 8)
+        @test model_status(model, :a).source_payload !== model_status(model, :b).source_payload
     end
+end
+
+# An explicit declaration holder lets a forced compile observe changed contract
+# metadata without replacing the application or changing the concrete model type.
+struct ContractSnapshotModel{M} <: PSE.AbstractModel
+    base::M
+    contracts::Base.RefValue{Any}
+    queries::Base.RefValue{Int}
+end
+ContractSnapshotModel(base, contracts) =
+    ContractSnapshotModel(base, Ref{Any}(contracts), Ref(0))
+PSE.process(model::ContractSnapshotModel) = PSE.process(model.base)
+PSE.inputs_(model::ContractSnapshotModel) = PSE.inputs_(model.base)
+PSE.outputs_(model::ContractSnapshotModel) = PSE.outputs_(model.base)
+function PSE.variable_contracts_(model::ContractSnapshotModel)
+    model.queries[] += 1
+    return model.contracts[]
+end
+PSE.run!(model::ContractSnapshotModel, status, environment, constants, context) =
+    PSE.run!(model.base, status, environment, constants, context)
+
+function contract_snapshot_scene(::Type{T};
+    source_contracts=(signal=VariableContract(unit=:metadata_signal),),
+    reader_contracts=(signal=VariableContract(unit=:metadata_signal),),
+    empty=false,
+) where {T}
+    source = ContractSnapshotModel(Source(T(4)), source_contracts)
+    reader = ContractSnapshotModel(Reader(T), reader_contracts)
+    objects = empty ? (Object(:scene; scale=:Scene),) : (Object(:cell; scale=:Cell),)
+    model = CompositeModel(objects...; applications=(
+        ModelSpec(source; name=:source, on=Many(scale=:Cell)),
+        ModelSpec(reader; name=:reader, on=Many(scale=:Cell),
+            inputs=(signal=One(within=Self(), application=:source),)),
+    ), environment=(duration=Hour(1),))
+    return (; model, source, reader)
+end
+
+@testset "contract snapshots preserve invalid declaration and endpoint errors" begin
+    for T in (Float32, Float64), empty in (false, true)
+        invalid_reader_declarations = (
+            (NamedTuple(), "consumer declares no contract"),
+            ((signal=VariableContract(unit=:incompatible_signal),), "Incompatible variable contracts"),
+            ((unknown=VariableContract(unit=:metadata_signal),), "declares unknown variable"),
+            ((signal=:invalid_contract,), "must contain only `VariableContract` values"),
+            (VariableContract(unit=:metadata_signal), "must return a NamedTuple"),
+        )
+        for (reader_contracts, message) in invalid_reader_declarations
+            data = contract_snapshot_scene(T; reader_contracts, empty)
+            @test_throws message Advanced.refresh_bindings!(data.model)
+        end
+        missing_producer = contract_snapshot_scene(T; source_contracts=NamedTuple(), empty)
+        @test_throws "declares none" Advanced.refresh_bindings!(missing_producer.model)
+    end
+end
+
+@testset "forced compilation resamples exact application contracts" begin
+    for T in (Float32, Float64)
+        data = contract_snapshot_scene(T)
+        first = run!(data.model; steps=1, outputs=:all)
+        @test final_state(first).observed === T(4)
+        @test data.source.queries[] == data.reader.queries[] == 1
+
+        # A compile-local snapshot must not survive a forced compile of the
+        # same model/application instances, including a failed compile.
+        data.source.contracts[] = (signal=VariableContract(unit=:changed_signal),)
+        @test_throws "Incompatible variable contracts" Advanced.refresh_bindings!(data.model; force=true)
+        @test data.source.queries[] == data.reader.queries[] == 2
+        data.reader.contracts[] = (signal=VariableContract(unit=:changed_signal),)
+        Advanced.refresh_bindings!(data.model; force=true)
+        @test data.source.queries[] == data.reader.queries[] == 3
+        repeated = run!(data.model; steps=1, outputs=:all)
+        @test final_state(repeated).observed === T(4)
+        @test data.source.queries[] == data.reader.queries[] == 3
+    end
+end
+
+@testset "contract snapshots retain declaration and endpoint error ordering" begin
+    for T in (Float32, Float64)
+        data = contract_snapshot_scene(T;
+            reader_contracts=(signal=VariableContract(unit=:incompatible_signal),))
+        later = ContractSnapshotModel(Reader(T),
+            (unknown=VariableContract(unit=:metadata_signal),))
+        model = CompositeModel(Object(:cell; scale=:Cell); applications=(
+            data.model.applications...,
+            ModelSpec(later; name=:later_invalid, on=Many(scale=:Other)),
+        ), environment=(duration=Hour(1),))
+        @test_throws "Incompatible variable contracts" Advanced.refresh_bindings!(model)
+        @test later.queries[] == 0
+    end
+end
+
+@testset "writer candidates restrict variable scans and preserve mixed producer selection" begin
+    first_source = Source(3.0; port=:sent, payload=:first_payload)
+    last_source = Source(7.0; port=:sent, payload=:last_payload)
+    noise = [Source(1.0; port=Symbol(:unrelated_, index),
+        payload=Symbol(:unrelated_payload_, index)) for index in 1:32]
+    model = CompositeModel(Object(:scene; scale=:Scene); applications=(
+        ModelSpec(first_source; name=:local_first, on=Many(scale=:LocalFirst)),
+        (ModelSpec(source; name=Symbol(:noise_, index), on=Many(scale=:Noise))
+            for (index, source) in pairs(noise))...,
+        ModelSpec(DistributedWriter(10.0); name=:distributed, on=One(id=:scene),
+            outputs_to=(OutputTo(Many(scale=:Destination, within=SceneScope())),)),
+        ModelSpec(last_source; name=:local_last, on=Many(scale=:LocalLast)),
+        ModelSpec(Reader(Float64; port=:sent); name=:reader,
+            on=Many(scale=(:LocalFirst, :Destination, :LocalLast))),
+    ), environment=(duration=Hour(1),))
+    applications = PSE._compile_model_applications(model, model.applications,
+        PSE._model_timeline(model))
+    destinations = PSE._compile_model_output_destination_plans(model, applications)
+    local_names = Dict(application.id => PSE._model_output_names(application)
+        for application in applications)
+    queries_before = [source.queries[] for source in (first_source, last_source, noise...)]
+    writers = PSE._input_plan_writer_applications(applications, local_names, destinations)
+    @test [source.queries[] for source in (first_source, last_source, noise...)] == queries_before
+    @test getproperty.(writers[:sent], :id) == [:local_first, :distributed, :local_last]
+    # Each explicit or inferred scan for :sent now visits three declarations,
+    # regardless of the 32 unrelated-variable applications.
+    @test length(writers[:sent]) == 3 < length(applications)
+    @test !haskey(writers, :missing)
+    @test all(isempty(application.target_ids) for application in writers[:sent]
+        if application.id != :distributed)
+    consumer = last(applications)
+    potential(selector; process_filter=nothing, application_filter=nothing,
+        origin=:model_spec) = PSE._potential_input_source_application_ids(
+        writers, consumer, selector, :sent, process_filter, application_filter,
+        origin, destinations, local_names)
+    broad = Many(scale=(:LocalFirst, :Destination, :LocalLast))
+    @test potential(broad) == (:local_first, :distributed, :local_last)
+    @test potential(broad; process_filter=:input_plan_metadata_source) ==
+        (:local_first, :local_last)
+    @test potential(broad; application_filter=:distributed) == (:distributed,)
+    @test potential(broad; process_filter=:input_plan_metadata_source,
+        application_filter=:distributed) == ()
+    @test potential(Many(scale=:Destination)) == (:distributed,)
+    @test potential(Many(scale=:Noise)) == ()
+    @test potential(Many(scale=:Noise); origin=:inferred_same_object) ==
+        (:local_first, :distributed, :local_last)
+    @test potential(Many(scale=:Destination, from_status=true)) == ()
+
+    # The pass also supports application subsets whose slots belong to the
+    # original full graph, including distributed declaration lookup by ID.
+    selected = applications[[1, length(applications) - 2, length(applications)]]
+    subset = PSE._input_plan_writer_applications(selected, local_names, destinations)
+    @test getproperty.(subset[:sent], :id) == [:local_first, :distributed]
+    @test getproperty.(selected, :slot) == [1, 34, 36]
+
+    simulation = run!(model; steps=1, outputs=:none)
+    signature = plan_signature(simulation.compiled.scenario_plan.input_plans)
+    @test signature == [(:reader, :sent, :inferred_same_object, (id,))
+        for id in (:local_first, :distributed, :local_last)]
+    register_object!(model, Object(:first; scale=:LocalFirst, parent=:scene))
+    register_object!(model, Object(:destination; scale=:Destination, parent=:scene))
+    register_object!(model, Object(:last; scale=:LocalLast, parent=:scene))
+    step!(simulation)
+    @test model_status(model, :first).observed === 6.0
+    @test model_status(model, :destination).observed === 11.0
+    @test model_status(model, :last).observed === 14.0
+    refreshed = Advanced.refresh_bindings!(model; force=true)
+    @test plan_signature(refreshed.scenario_plan.input_plans) == signature
+    @test PSE._input_plan_writer_applications(applications, local_names, destinations) !== writers
 end
 
 end # module

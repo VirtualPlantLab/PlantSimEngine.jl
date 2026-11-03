@@ -159,13 +159,15 @@ Base.@nospecializeinfer function _validate_model_variable_contract!(
     input::Symbol,
     producer_application,
     source_variable::Symbol,
+    consumer_contracts::NamedTuple,
+    producer_contracts::NamedTuple,
 )
     # Contract checking needs values, not one compiled method per model pair.
-    @nospecialize consumer_application producer_application
+    @nospecialize consumer_application producer_application consumer_contracts producer_contracts
     consumer_model = consumer_application.spec
     producer_model = producer_application.spec
-    consumer_contract = _variable_contract(consumer_model, input)
-    producer_contract = _variable_contract(producer_model, source_variable)
+    consumer_contract = get(consumer_contracts, input, nothing)
+    producer_contract = get(producer_contracts, source_variable, nothing)
     isnothing(consumer_contract) && isnothing(producer_contract) && return nothing
 
     if isnothing(consumer_contract)

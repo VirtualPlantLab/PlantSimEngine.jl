@@ -142,6 +142,10 @@ else
         include("test-model-only-call-targets.jl")
     end
 
+    @testset "Transient singular manual-call views" begin
+        include("test-model-transient-single-call-views.jl")
+    end
+
     @testset "Individual manual-call environments" begin
         include("test-model-individual-call-environments.jl")
     end
