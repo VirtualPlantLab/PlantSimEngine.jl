@@ -132,11 +132,15 @@ _application_status(app::FullApplication,row)=app.views[row]
 _cohort_context_type(app::FullApplication{R,M,C,S},state,cohort::Cohort,environment,constants) where {R,M,C,S} =
     CohortContext{typeof(app),typeof(state),S,typeof(environment),typeof(constants)}
 
-Base.@noinline function _bind_full_app(recipe::FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H},models,cohorts,::Type{OC}) where {M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H,OC}
+Base.@noinline function _bind_full_app(recipe::FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,HL,D,V,I,O,E,B,S,H},models,cohorts,::Type{OC}) where {M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,HL,D,V,I,O,E,B,S,H,OC}
     model=models[SLOT]::M
     PSE.dep(model) isa D && isequal(PSE.dep(model)::D,recipe.dependencies) || throw(ArgumentError("changed dependency schema"))
     isequal(PSE.variable_contracts_(model),recipe.contracts) || throw(ArgumentError("changed variable contracts"))
     typeof(PSE.inputs_(model))===I && typeof(PSE.outputs_(model))===O && typeof(PSE.environment_inputs_(model))===E || throw(ArgumentError("changed model ports"))
+    for variable in HL
+        PSE._policy_for_output(model,variable) isa PSE.HoldLast || throw(ArgumentError(
+            "replacement model for $(recipe.name) changed the inherited HoldLast policy of $variable"))
+    end
     cohort=cohorts[C]
     streams=_make_full_streams(recipe,model)::H
     return FullApplication{typeof(recipe),M,typeof(cohort),S,B,H,OC}(

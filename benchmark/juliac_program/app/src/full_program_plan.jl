@@ -45,7 +45,7 @@ struct FullCallRoute{SLOT,MODE,MULT,M}
     matcher::M
     cache_key::Int
 end
-struct FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H}
+struct FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,HL,D,V,I,O,E,B,S,H}
     slot::Int
     name::Symbol
     inputs::INPUTS
@@ -281,6 +281,7 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
         end
         sources
     end
+    inherited_hold_last=[Symbol[] for _ in specs]
     input_routes=Vector{Any}(undef,length(specs))
     # Route construction uses the schema's complete canonical source types. A
     # second pass resolves inputs whose only seed is another input/default.
@@ -320,10 +321,12 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
                         # An absent producer can gain coverage during growth.
                         # Check every possible source before lowering to a live Ref.
                         for slot in candidates
+                            sourcevar in inherited_hold_last[slot] && continue
                             policy=PSE._policy_for_output(specs[slot].model,sourcevar)
                             policy isa PSE.HoldLast || throw(ArgumentError(
                                 "full-layout input $(names[i]).$var inherits unsupported policy $(typeof(policy)) " *
                                 "from $(names[slot]).$sourcevar; only HoldLast and PreviousTimeStep are supported"))
+                            push!(inherited_hold_last[slot],sourcevar)
                         end
                     end
                     selected=if filtered || temporal
@@ -421,7 +424,8 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
             ColumnHistory(typeof(_full_history_snapshot(value)),var in temporal_needed[i])
         end)
         B=typeof(bindings); S=typeof(view); H=typeof(histories)
-        FullApplicationRecipe{M,C,i,typeof(inputs),typeof(outputs),typeof(calls),typeof(temporal_outputs[i]),D,V,I,O,E,B,S,H}(
+        hold_last=Tuple(var for var in keys(outputs) if var in inherited_hold_last[i])
+        FullApplicationRecipe{M,C,i,typeof(inputs),typeof(outputs),typeof(calls),typeof(temporal_outputs[i]),hold_last,D,V,I,O,E,B,S,H}(
             i,names[i],inputs,outputs,calls,temporal_outputs[i],PSE.dep(spec.model),PSE.variable_contracts_(spec),I,O,E,B,S,H)
     end
     writer_groups=_full_writer_groups(
