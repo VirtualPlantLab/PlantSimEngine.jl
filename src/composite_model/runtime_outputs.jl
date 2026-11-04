@@ -1847,6 +1847,17 @@ end
     return samples
 end
 
+@inline function _model_prune_dependency_samples!(stream, sample_time::Float64, horizon::Float64)
+    stream isa TemporalDependencyBuffer || return nothing
+    cutoff = horizon <= 0.0 ? sample_time : sample_time - horizon + 1.0
+    # Keep a preceding sample for PreviousTimeStep and linear extrapolation
+    # when fractional clocks or manual calls leave a gap in the cadence.
+    while length(stream) > 2 && first(stream)[1] < cutoff - 1.0e-8
+        _temporal_dependency_popfirst!(stream)
+    end
+    return nothing
+end
+
 @inline function _model_publish_runtime_output_value!(
     output,
     stream,
@@ -1860,24 +1871,14 @@ end
         "`$(expected_type)` to `$(typeof(value))`. CompositeModel temporal ",
         "streams require a stable output type.",
     )
+    sample_time = float(time)
     _model_publish_sample!(
         stream,
-        float(time),
+        sample_time,
         value,
         ; copy_value=copy_value,
     )
-    if stream isa TemporalDependencyBuffer
-        cutoff = output.dependency_horizon <= 0.0 ?
-                 float(time) :
-                 float(time) - output.dependency_horizon + 1.0
-        # The preceding publication is needed by PreviousTimeStep and linear
-        # extrapolation even when fractional clocks or manual calls leave a
-        # larger gap than the nominal cadence. Capacity still bounds storage.
-        while length(stream) > 2 &&
-              first(stream)[1] < cutoff - 1.0e-8
-            _temporal_dependency_popfirst!(stream)
-        end
-    end
+    _model_prune_dependency_samples!(stream, sample_time, output.dependency_horizon)
     return nothing
 end
 

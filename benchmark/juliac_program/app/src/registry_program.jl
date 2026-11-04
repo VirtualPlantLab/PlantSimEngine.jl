@@ -380,21 +380,12 @@ function _materialize!(input::RegistryTemporal{true},time,schema)
     end
     return nothing
 end
-function _publish_value!(stream,value,time,horizon,schema)
+function _publish_value!(stream,value,time::Float64,horizon,schema)
     expected=fieldtype(eltype(stream),2)
     value isa expected || throw(ArgumentError("published output changed its admitted value schema"))
-    if !isempty(stream) && isapprox(last(stream)[1],time;atol=1.0e-8,rtol=0.0)
-        pop!(stream)
-    elseif !isempty(stream) && last(stream)[1]>time
-        PSE._model_remove_sample_time!(stream,time)
-    end
-    push!(stream,(time,TypedSeedCopies.copy_payload(value,schema)))
-    if stream isa PSE.TemporalDependencyBuffer
-        cutoff=horizon<=0.0 ? time : time-horizon+1.0
-        while length(stream)>2 && first(stream)[1]<cutoff-1.0e-8
-            PSE._temporal_dependency_popfirst!(stream)
-        end
-    end
+    owned=TypedSeedCopies.copy_payload(value,schema)
+    PSE._model_publish_sample!(stream,time,owned;copy_value=false)
+    PSE._model_prune_dependency_samples!(stream,time,horizon)
     return nothing
 end
 _publish!(output::RegistryOutput{false},time,schema)=_publish_value!(output.streams,output.references[],time,output.horizon,schema)
