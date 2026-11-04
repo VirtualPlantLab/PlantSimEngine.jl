@@ -358,12 +358,18 @@ end
     return Expr(:block,writes...,:(nothing))
 end
 
-Base.@noinline function _invoke_cohort!(c::CohortContext{<:FullApplication};publish=false)
-    _validate_full_environment(c.application.model,c.environment)
-    status=_refresh_full_view!(c.state,c.application,c.row,c.step)
-    current=CohortContext(c.application,c.state,status,c.row,c.environment,c.constants,c.step,c.suppress)
-    PSE.run!(current.application.model,current.status,current.environment,current.constants,current)
-    publish && !current.suppress && _full_publish!(current)
+@inline function _invoke_cohort!(c::CohortContext{<:FullApplication};publish=false)
+    return _invoke_cohort!(c.application,c.state,c.row,c.environment,c.constants,c.step,c.suppress;publish)
+end
+
+Base.@noinline function _invoke_cohort!(
+    app::FullApplication,state,row,environment,constants,step,suppress;publish=false,
+)
+    _validate_full_environment(app.model,environment)
+    status=_refresh_full_view!(state,app,row,step)
+    current=CohortContext(app,state,status,row,environment,constants,step,suppress)
+    PSE.run!(app.model,status,environment,constants,current)
+    publish && !suppress && _full_publish!(current)
     return nothing
 end
 @inline _validate_full_environment(model, environment) =
@@ -406,8 +412,7 @@ Base.@noinline function _step_cohort_application!(state::FullState,app,environme
     # RNG-consuming models follow the ordinary object ID order, independently
     # of insertion and category storage order.
     for row in _full_ordered_rows(state,_app_cohort(app.recipe),app.cohort)
-        c=CohortContext(app,state,app.views[row],row,environment,constants,state.step+1,false)
-        _invoke_cohort!(c;publish=true)
+        _invoke_cohort!(app,state,row,environment,constants,state.step+1,false;publish=true)
     end
     isempty(state.pending) || _validate_full_writers!(state)
     _commit_cohorts!(state.cohorts)
