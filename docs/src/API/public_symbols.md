@@ -6,7 +6,7 @@ and cached information are listed separately under
 
 `using PlantSimEngine` makes the usual modeling and simulation functions
 available, along with the `Authoring`, `Diagnostics`, `GraphEditor`,
-`EnvironmentAPI`, and `Evaluation` module names. Functions in those modules
+`EnvironmentAPI`, `Evaluation`, and `Compilation` module names. Functions in those modules
 keep their prefix, such as `Diagnostics.explain_bindings`, unless you import
 the module's functions explicitly.
 
@@ -56,6 +56,16 @@ explains the functions and their requirements in detail.
   `CallEvaluation`, `evaluate_call!`, `accept_call!`; inspect evaluated targets
   with `call_targets(evaluation)`.
 - Setting initial values when an object is created: `Initializer`, `run_initializer!`.
+
+## Compilation namespace
+
+- Preparing a fixed scenario for native compilation: `Compilation.prepare`.
+- Building a safe JuliaC executable: `Compilation.compile`.
+- Running and inspecting a prepared program: `continue!`, `step!`,
+  `current_step`, and `final_state`.
+
+See the [compilation guide](../guides/compile_scenario.md) for the supported
+scenario features and a working application.
 
 ## Diagnostics namespace
 
