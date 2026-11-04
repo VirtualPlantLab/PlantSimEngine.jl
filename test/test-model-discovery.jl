@@ -42,6 +42,11 @@ function discovery_recursive_reference(module_, root)
     return found
 end
 
+function discovery_load_late_type(fixture)
+    Core.eval(fixture, :(struct LateDiscoveryModel <: AbstractDiscoveryProcess{Float32} end))
+    return available_models(:model_discovery_fixture)
+end
+
 @testset "Model discovery scans nominal definitions once per query" begin
     fixture = ModelDiscoveryFixture
     root = fixture.AbstractDiscoveryRoot
@@ -82,7 +87,8 @@ end
     ))
     @test fixture.constructions[] == 0
 
-    Core.eval(fixture, :(struct LateDiscoveryModel <: AbstractDiscoveryProcess{Float32} end))
+    visible_from_loading_task = discovery_load_late_type(fixture)
+    @test Base.invokelatest(getfield, fixture, :LateDiscoveryModel) in visible_from_loading_task
     @test fixture.LateDiscoveryModel in discover(root)
     @test Set(discover(root)) == Set(discovery_recursive_reference(fixture, root))
     @test fixture.LateDiscoveryModel in available_models(:model_discovery_fixture)

@@ -125,6 +125,11 @@ _abstract_model_subtypes(root::Type=AbstractModel) =
     _abstract_model_subtypes_in_modules(Base.loaded_modules_array(), root)
 
 function _abstract_model_subtypes_in_modules(roots, root::Type=AbstractModel)
+    # Catalog queries include model types loaded after the caller started.
+    return Base.invokelatest(_scan_abstract_model_subtypes, roots, root)
+end
+
+function _scan_abstract_model_subtypes(roots, root::Type)
     found = Type[]
     isabstracttype(root) || return found
     pending = Module[roots...]
