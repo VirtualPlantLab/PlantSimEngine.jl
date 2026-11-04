@@ -834,7 +834,8 @@ function _selector_subtree_root(model::CompositeModel, scope, context)
     return nothing
 end
 
-function _object_is_in_subtree(model::CompositeModel, object_id::ObjectId, root_id::ObjectId)
+# On Julia 1.10, keep the target ID unboxed when the ancestor's ID type is unknown.
+@inline function _object_is_in_subtree(model::CompositeModel, object_id::ObjectId, root_id::ObjectId)
     return root_id in _object_ancestor_ids(model.registry, object_id)
 end
 
