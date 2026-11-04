@@ -12,7 +12,7 @@ export prepare, compile
 
 struct PreparedSimulation{S,E,ST}
     simulation::S
-    entries::E
+    scheduled_targets::E
     status::ST
 end
 
@@ -20,7 +20,13 @@ function _unsupported(application::Symbol, reason)
     throw(ArgumentError("Cannot compile application $(repr(application)): $(reason)."))
 end
 
-function _check_scenario(plan)
+function _is_constant_environment(backend)
+    backend isa PSE.GlobalConstant || return false
+    source = PSE.environment_source(backend)
+    return isnothing(source) || (isbits(source) && PSE.DataFormat(source) isa PSE.SingletonAlike)
+end
+
+function _check_scenario(model, plan)
     isempty(plan.call_plans) ||
         _unsupported(first(plan.call_plans).application_id, "calls or initializers are unsupported")
     distributed = plan.distributed_output_plans
@@ -31,8 +37,11 @@ function _check_scenario(plan)
     end
     for application in plan.applications
         spec = application.spec
-        isempty(PSE.environment_inputs_(spec)) && isempty(PSE.environment_outputs_(spec)) ||
-            _unsupported(application.id, "environment inputs or outputs are unsupported")
+        isempty(PSE.environment_outputs_(spec)) ||
+            _unsupported(application.id, "environment outputs are unsupported")
+        backend = PSE._environment_backend_from_config(model, PSE.environment_config(spec))
+        _is_constant_environment(backend) ||
+            _unsupported(application.id, "environment must be a single immutable bits-valued row")
         :stream_only in values(PSE.output_routing(spec)) &&
             _unsupported(application.id, "stream-only outputs are unsupported")
     end
@@ -46,7 +55,7 @@ function _has_scalar_status(status)
     end
 end
 
-function _check_target(application, target)
+function _prepare_scheduled_target(application, target)
     isbits(target.model) ||
         _unsupported(application.id, "model parameters must have an isbits type")
     isempty(target.input_bindings) ||
@@ -55,7 +64,14 @@ function _check_target(application, target)
         _unsupported(application.id, "collection-valued inputs are unsupported")
     _has_scalar_status(target.status) ||
         _unsupported(application.id, "status values must have concrete scalar numeric types")
-    return nothing
+    # The ordinary sampler handles raw rows and field remapping. A singleton
+    # row is independent of the step, so the native loop can reuse its value.
+    binding = target.environment_binding
+    environment = isnothing(binding) ? nothing :
+                  PSE._sample_compiled_global_environment(binding, application, 1)
+    isbits(environment) ||
+        _unsupported(application.id, "sampled environment must be an immutable bits-valued row")
+    return (; application, target, environment)
 end
 
 """
@@ -64,10 +80,12 @@ end
 Prepare private execution state for a standalone application. Call this from
 source at build time, with a fresh one-object model. The supported applications
 run every step and use scalar numeric statuses and immutable `isbits` model
-parameters and constants. Same-object live references use PSE's ordinary
-bindings. Calls, initializers, temporal inputs, distributed or stream-only
-outputs, environments, topology edits, and output histories are outside this
-initial scope.
+parameters and constants. Same-object live references and fixed environment
+rows use PSE's ordinary bindings. A scenario or an application can provide
+a single immutable bits-valued environment row, with optional field remapping.
+Calls, initializers, temporal inputs, distributed or stream-only outputs,
+environment commits, topology edits, and output histories are outside this
+scope.
 
 Advance the result with `continue!` or `step!`, and read it with `current_step`
 and `final_state`. Each call to `prepare` starts with a private copy of the
@@ -78,57 +96,55 @@ function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
         throw(ArgumentError("Compilation requires one object with fixed topology."))
     isempty(model.instances) && isnothing(model.source_adapter) ||
         throw(ArgumentError("Compilation requires one ordinary object without instances or a topology adapter."))
-    isnothing(model.environment) ||
-        throw(ArgumentError("Compilation does not support a scenario environment."))
+    _is_constant_environment(PSE.environment_backend(model.environment)) ||
+        throw(ArgumentError("The scenario environment must be a single immutable bits-valued row."))
     isnothing(model.binding_cache) ||
         throw(ArgumentError("Compilation requires a fresh CompositeModel. Construct it again before preparing it."))
     isbits(constants) || throw(ArgumentError("Compilation requires isbits constants."))
 
     owned = deepcopy(model)
     prepared = PSE._prepare_scenario_plan(owned)
-    _check_scenario(prepared.plan)
+    _check_scenario(owned, prepared.plan)
     simulation = PSE._prepare_simulation!(owned; steps=0, outputs=:none, constants)
-    entries = Tuple((group.application, target)
+    scheduled_targets = Tuple(_prepare_scheduled_target(group.application, target)
         for group in simulation.execution_plan.groups
         for batch in group.batches for target in batch.targets)
-    isempty(entries) && throw(ArgumentError("Compilation requires at least one scheduled application."))
-    for (application, target) in entries
-        _check_target(application, target)
-    end
+    isempty(scheduled_targets) &&
+        throw(ArgumentError("Compilation requires at least one scheduled application."))
     status = only(PSE.model_objects(owned)).status
     _has_scalar_status(status) ||
         throw(ArgumentError("Compilation requires concrete scalar numeric object status values."))
-    return PreparedSimulation(simulation, entries, status)
+    return PreparedSimulation(simulation, scheduled_targets, status)
 end
 
-@inline function _check_topology(simulation)
-    simulation.runtime_revision == simulation.model.runtime_revision ||
+@inline function _check_static_runtime(simulation)
+    PSE._simulation_runtime_dirty(simulation, nothing) &&
         throw(ArgumentError("Compiled simulation topology and bindings must stay fixed."))
     return nothing
 end
 
-@inline function _run_entries!(simulation, entries::Tuple, time::Float64)
-    application, target = first(entries)
+@inline function _run_scheduled_targets!(simulation, scheduled_targets::Tuple, time::Float64)
+    (; application, target, environment) = first(scheduled_targets)
     PSE._run_model_execution_target_without_calls!(
         simulation.compiled, simulation.environment_bindings, application, target,
         time, simulation.constants, simulation.temporal_streams,
-        simulation.output_retention, nothing, false,
+        simulation.output_retention, environment, false,
     )
-    _check_topology(simulation)
-    return _run_entries!(simulation, Base.tail(entries), time)
+    _check_static_runtime(simulation)
+    return _run_scheduled_targets!(simulation, Base.tail(scheduled_targets), time)
 end
 
-@inline _run_entries!(simulation, ::Tuple{}, time::Float64) = nothing
+@inline _run_scheduled_targets!(simulation, ::Tuple{}, time::Float64) = nothing
 
 function PSE.continue!(program::PreparedSimulation; steps::Integer=1)
     steps >= 0 || throw(ArgumentError("`steps` must be non-negative."))
     simulation = program.simulation
-    _check_topology(simulation)
+    _check_static_runtime(simulation)
     iszero(steps) && return program
     final_step = Base.Checked.checked_add(simulation.current_step, Int(steps))
     for step in (simulation.current_step + 1):final_step
         simulation.compiled.execution_generation += UInt64(1)
-        _run_entries!(simulation, program.entries, Float64(step))
+        _run_scheduled_targets!(simulation, program.scheduled_targets, Float64(step))
         simulation.current_step = step
     end
     return program

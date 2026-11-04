@@ -13,6 +13,8 @@ struct NativeCompilationReader <: AbstractNative_Compilation_ReaderModel end
 struct NativeCompilationArray <: AbstractNative_Compilation_UnsupportedModel end
 struct NativeCompilationDistributed <: AbstractNative_Compilation_UnsupportedModel end
 struct NativeCompilationGrowth <: AbstractNative_Compilation_UnsupportedModel end
+struct NativeCompilationWeather{Variable} <: AbstractNative_Compilation_UnsupportedModel end
+struct NativeCompilationRemappedWeather <: AbstractNative_Compilation_UnsupportedModel end
 
 PlantSimEngine.outputs_(::NativeCompilationSource) = (total=0.0f0,)
 PlantSimEngine.inputs_(::NativeCompilationReader) = (incoming=Required(Float32),)
@@ -20,6 +22,9 @@ PlantSimEngine.outputs_(::NativeCompilationReader) = (observed=0.0f0,)
 PlantSimEngine.outputs_(::NativeCompilationArray) = (samples=Float32[],)
 PlantSimEngine.outputs_(::NativeCompilationDistributed) = (total=Distributed(Default(0.0f0)),)
 PlantSimEngine.outputs_(::NativeCompilationGrowth) = (total=0.0f0,)
+PlantSimEngine.outputs_(::NativeCompilationWeather{V}) where {V} = NamedTuple{(V,)}((0.0f0,))
+PlantSimEngine.outputs_(::NativeCompilationRemappedWeather) = (remapped=0.0f0,)
+PlantSimEngine.environment_inputs_(::NativeCompilationRemappedWeather) = (signal=0.0f0,)
 
 function PlantSimEngine.run!(model::NativeCompilationSource, status, environment, constants, ::RunContext)
     status.total += model.increment
@@ -33,6 +38,16 @@ end
 
 function PlantSimEngine.run!(::NativeCompilationGrowth, status, environment, constants, context::RunContext)
     register_object!(runtime_model(context), Object(:new_organ; parent=:sample))
+    return nothing
+end
+
+function PlantSimEngine.run!(::NativeCompilationWeather{V}, status, environment, constants, ::RunContext) where {V}
+    status[V] += isnothing(environment) ? -1.0f0 : environment.signal
+    return nothing
+end
+
+function PlantSimEngine.run!(::NativeCompilationRemappedWeather, status, environment, constants, ::RunContext)
+    status.remapped += environment.signal
     return nothing
 end
 
@@ -94,6 +109,30 @@ end
     @test NamedTuple(model_status(authored, :sample)) == before
 end
 
+@testset "Fixed environment rows use ordinary PSE bindings" begin
+    function weather_scene(global_environment)
+        on = One(id=:sample)
+        return CompositeModel(Object(:sample); environment=global_environment, applications=(
+            ModelSpec(NativeCompilationWeather{:local_read}(); name=:local_read, on,
+                environment=Environment(backend=(signal=5.0f0,))),
+            ModelSpec(NativeCompilationWeather{:default_read}(); name=:default_read, on),
+            ModelSpec(NativeCompilationRemappedWeather(); name=:mapped, on,
+                environment=Environment(backend=(air=2.0f0,), sources=(signal=:air,))),
+        ))
+    end
+
+    for (environment, default_value) in ((nothing, -3.0f0), ((signal=7.0f0,), 21.0f0))
+        compiled = Compilation.prepare(weather_scene(environment))
+        step!(compiled)
+        continue!(compiled; steps=2)
+        ordinary = run!(weather_scene(environment); steps=3)
+        @test final_state(compiled) == final_state(ordinary)
+        @test final_state(compiled).local_read === 15.0f0
+        @test final_state(compiled).remapped === 6.0f0
+        @test final_state(compiled).default_read === default_value
+    end
+end
+
 @testset "Preparation reports unsupported features" begin
     error = native_compilation_rejection() do
         Compilation.prepare(native_compilation_scene(; extra_objects=(Object(:other),)))
@@ -129,9 +168,16 @@ end
     @test occursin("calls or initializers", error) && occursin(":caller", error)
 
     error = native_compilation_rejection() do
-        Compilation.prepare(native_compilation_scene(; environment=(duration=1.0,)))
+        Compilation.prepare(native_compilation_scene(; environment=[(duration=1.0,)]))
     end
     @test occursin("environment", error)
+
+    changing_provider = CompositeModel(Object(:sample); applications=(
+        ModelSpec(NativeCompilationWeather{:local_read}(); name=:local_read, on=One(id=:sample),
+            environment=Environment(backend=[(signal=5.0f0,)])),
+    ))
+    error = native_compilation_rejection(() -> Compilation.prepare(changing_provider))
+    @test occursin("environment", error) && occursin(":local_read", error)
 
     array_scene = CompositeModel(
         Object(:sample);
