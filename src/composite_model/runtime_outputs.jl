@@ -8190,6 +8190,19 @@ function _prepare_simulation!(
     initial_composite_started_at =
         _runtime_performance_start(performance_counters)
     started_at = initial_composite_started_at
+    # A fresh run can change base cadence. Continuations keep the schedule
+    # and time coordinates of their existing histories.
+    if model.environment_bindings_dirty && model.lifecycle_delta.full_environment
+        prepared = model.scenario_plan_cache
+        compiled = model.binding_cache
+        if !isnothing(prepared) || !isnothing(compiled)
+            previous = isnothing(prepared) ? compiled.scenario_plan : prepared.plan
+            timeline = _model_timeline(model)
+            if previous.timeline.base_step_seconds != timeline.base_step_seconds
+                _prepare_scenario_plan(model, timeline; force=true, performance=performance_counters)
+            end
+        end
+    end
     compiled = refresh_bindings!(
         model;
         performance=performance_counters,

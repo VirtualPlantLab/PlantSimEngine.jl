@@ -211,7 +211,8 @@ function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
     declared isa PSE.Distributed && declared.declaration isa PSE.Default || throw(ArgumentError("length must be a distributed default"))
     organ_initial = merge((length=declared.declaration.value,), PSE.outputs_(length_spec.model),PSE.outputs_(count_spec.model))
     # Canonical roots include applications with no internodes at preparation.
-    scenario, applications = PSE._prepare_scenario_plan(model)
+    prepared = PSE._prepare_scenario_plan(model)
+    scenario, applications = prepared.plan, PSE._scenario_applications(prepared)
     order = Instruction[]
     for entry in scenario.application_schedule.entries
         slot = entry.application_slot

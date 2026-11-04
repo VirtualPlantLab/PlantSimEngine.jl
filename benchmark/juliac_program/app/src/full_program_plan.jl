@@ -161,7 +161,8 @@ end
 function prepare(model::PSE.CompositeModel; initial)
     isempty(model.instances) || throw(ArgumentError("full programs require direct applications"))
     specs = Tuple(model.applications)
-    scenario, applications = PSE._prepare_scenario_plan(model)
+    prepared = PSE._prepare_scenario_plan(model)
+    scenario, applications = prepared.plan, PSE._scenario_applications(prepared)
     for application in applications, id in application.target_ids
         object=PSE._model_object(model,id)
         object.kind===:scene && object.scale!==:Scene &&

@@ -69,6 +69,10 @@ else
         include("test-model-api-stabilization.jl")
     end
 
+    @testset "Reusable scenario plans" begin
+        include("test-model-prepared-scenario.jl")
+    end
+
     @testset "Typed temporal initial values" begin
         include("test-model-temporal-initial-typing.jl")
     end

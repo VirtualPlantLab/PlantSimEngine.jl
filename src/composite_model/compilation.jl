@@ -592,6 +592,21 @@ struct CompiledScenarioPlan{AP,AI,ATI,IP,IPI,CP,CPI,DOP,CO,MA,AC,AO,OAP,AS,TL}
     timeline::TL
 end
 
+# The snapshot owns its target lists. Runtime application membership can
+# change during growth, so each binding compilation takes a private copy.
+struct PreparedScenario{P}
+    plan::P
+    target_ids::Vector{Vector{ObjectId}}
+end
+
+Base.@nospecializeinfer function _scenario_applications(prepared::PreparedScenario)
+    @nospecialize prepared
+    return CompiledModelApplication[
+        CompiledModelApplication(plan, sizehint!(copy(ids), length(ids) + 1))
+        for (plan, ids) in zip(prepared.plan.applications, prepared.target_ids)
+    ]
+end
+
 function _plans_by_application(applications, plans)
     application_ids = Tuple(application.id for application in applications)
     grouped = Tuple(
@@ -1773,13 +1788,13 @@ function _compile_resolved_scenario_plan(model::CompositeModel, applications, ti
     )
 end
 
-function _prepare_scenario_plan(
+function _build_scenario_plan(
     model::CompositeModel,
-    raw_specs=model.applications;
+    raw_specs,
+    timeline;
     performance=nothing,
 )
     started_at = _runtime_performance_start(performance)
-    timeline = _model_timeline(model)
     applications = _compile_model_applications(model, raw_specs, timeline)
     _runtime_performance_finish!(
         performance,
@@ -1801,13 +1816,57 @@ function _prepare_scenario_plan(
     return scenario_plan, applications
 end
 
+function _prepare_scenario_plan(model::CompositeModel; force::Bool=false, performance=nothing)
+    return _prepare_scenario_plan(model, _model_timeline(model); force, performance)
+end
+
+function _prepare_scenario_plan(
+    model::CompositeModel, timeline;
+    force::Bool=false, performance=nothing,
+)
+    if !force
+        prepared = model.scenario_plan_cache
+        if !isnothing(prepared) && prepared.plan.timeline.base_step_seconds == timeline.base_step_seconds
+            return prepared
+        end
+        compiled = compiled_bindings(model)
+        if !isnothing(compiled) && compiled.scenario_plan.timeline.base_step_seconds == timeline.base_step_seconds
+            prepared = PreparedScenario(compiled.scenario_plan,
+                Vector{ObjectId}[copy(app.target_ids) for app in compiled.applications])
+            return model.scenario_plan_cache = prepared
+        end
+    end
+    plan, applications = _build_scenario_plan(model, model.applications, timeline; performance)
+    prepared = PreparedScenario(plan, Vector{ObjectId}[app.target_ids for app in applications])
+    # A running simulation still needs its pending topology refresh. Give
+    # an adapter the requested snapshot without replacing that live plan.
+    if !force && model.bindings_dirty && !isnothing(model.binding_cache)
+        return prepared
+    end
+    return model.scenario_plan_cache = prepared
+end
+
 function _compile_scene(
     model::CompositeModel,
     raw_specs;
     validate_required_inputs::Bool=true,
     performance=nothing,
 )
-    scenario_plan, applications = _prepare_scenario_plan(model, raw_specs; performance)
+    scenario_plan, applications = _build_scenario_plan(model, raw_specs, _model_timeline(model); performance)
+    return _compile_scene(model, scenario_plan, applications; validate_required_inputs, performance)
+end
+
+function _compile_scene(model::CompositeModel, prepared::PreparedScenario; kwargs...)
+    return _compile_scene(model, prepared.plan, _scenario_applications(prepared); kwargs...)
+end
+
+function _compile_scene(
+    model::CompositeModel,
+    scenario_plan,
+    applications;
+    validate_required_inputs::Bool=true,
+    performance=nothing,
+)
     timeline = scenario_plan.timeline
     started_at = _runtime_performance_start(performance)
     call_bindings = _compile_model_call_bindings(
@@ -4203,7 +4262,7 @@ function explain_initialization(model::CompositeModel)
     )
     compiled = _compile_scene(
         model,
-        Tuple(model.applications);
+        _prepare_scenario_plan(model);
         validate_required_inputs=false,
     )
     bindings = Dict(
