@@ -5,8 +5,8 @@ mutable struct FullBinding{R,TEMP,MULT,T,REF,STAMP}
     reference::REF
     ids::Vector{ObjectId{Int}}
     initial::Dict{Int,T}
-    # Membership/Refs are reusable until a source cohort grows or replaces a
-    # canonical Ref. Epoch invalidation is deliberately cohort-wide for now.
+    # Reuse membership and Refs until a source cohort grows or a canonical
+    # Ref changes for the bound port in that cohort.
     stamp::STAMP
     valid::Bool
     locations::Vector{NTuple{4,Int}} # object ID, cohort, row, producer slot
@@ -170,7 +170,7 @@ end
     values_=map(S) do source
         C=source[1]
         count=MULT===:many ? :(getfield(state.cohorts,$C).committed) : :(length(getfield(state.cohorts,$C).ids))
-        :(($count,state.reference_epochs[$C]))
+        :(($count,_full_reference_epoch(state,Val($C),Val($(QuoteNode(V))))))
     end
     return Expr(:tuple,values_...)
 end
@@ -182,11 +182,11 @@ end
     end
     return branch
 end
-@generated function _full_cached_previous(route::FullInputRoute{S,V,true,MULT,T},state,location,step,fallback) where {S,V,MULT,T}
+@generated function _full_cached_previous(route::FullInputRoute{S,V,true,MULT,T},state,location,step,initial) where {S,V,MULT,T}
     branch=:(throw(ArgumentError("invalid cached temporal producer")))
     for (C,SLOT) in reverse(S)
         value=SLOT==0 ? :(throw(ArgumentError("temporal inputs require an output producer"))) :
-            :(_full_previous(state,Val($SLOT),Val($(QuoteNode(V))),location[1],step,fallback)::$T)
+            :(_full_previous(state,Val($SLOT),Val($(QuoteNode(V))),location[1],step,initial)::$T)
         branch=Expr(:if,:(location[2]==$C && location[4]==$SLOT),value,branch)
     end
     return branch
@@ -199,12 +199,12 @@ function _full_cached_references!(binding::FullBinding{R,TEMP,MULT,T},state,loca
         id=location[1]
         if TEMP
             source=_full_cached_source_ref(binding.route,state,location)
-            fallback=get!(binding.initial,id) do
+            get!(binding.initial,id) do
                 _payload_copy(source[])
             end
             # _full_previous already returns an owned payload. The private
             # scratch Ref must refresh every invocation, even on a cache hit.
-            value=_full_cached_previous(binding.route,state,location,step,fallback)
+            value=_full_cached_previous(binding.route,state,location,step,binding.initial)
             while old<=length(binding.locations) && binding.locations[old][1]<id
                 old+=1
             end
@@ -235,7 +235,7 @@ function _refresh_full_binding!(binding::FullBinding{R,TEMP,MULT,T},state,origin
         if TEMP
             for index in eachindex(binding.locations)
                 location=binding.locations[index]
-                binding.references[index][]=_full_cached_previous(binding.route,state,location,step,binding.initial[location[1]])
+                binding.references[index][]=_full_cached_previous(binding.route,state,location,step,binding.initial)
             end
         elseif isempty(binding.locations)
             binding.reference=binding.fallback::Base.RefValue{T}
@@ -262,7 +262,7 @@ function _refresh_full_binding!(binding::FullBinding{R,TEMP,MULT,T},state,origin
             for index in eachindex(binding.locations)
                 location=binding.locations[index]
                 if TEMP
-                    binding.references[index][]=_full_cached_previous(binding.route,state,location,step,binding.initial[location[1]])
+                    binding.references[index][]=_full_cached_previous(binding.route,state,location,step,binding.initial)
                 else
                     reference=_full_cached_source_ref(binding.route,state,location)
                     if binding.references[index]!==reference
@@ -389,8 +389,9 @@ _new_full_output_cache(::Type{FullOutputColumnCache{T,S}}) where {T,S} =
     return :(NT($(Expr(:tuple, fields...))))
 end
 
-@generated function _full_output_stamp(::FullOutputRoute{CS}, state) where {CS}
-    return Expr(:tuple, [:((getfield(state.cohorts, $c).committed, state.reference_epochs[$c]))
+@generated function _full_output_stamp(::FullOutputRoute{CS,V}, state) where {CS,V}
+    return Expr(:tuple, [:((getfield(state.cohorts, $c).committed,
+        _full_reference_epoch(state,Val($c),Val($(QuoteNode(V))))))
         for c in CS]...)
 end
 function _full_cached_output_column!(cache::FullOutputColumnCache{T,S}, route, state, origin) where {T,S}

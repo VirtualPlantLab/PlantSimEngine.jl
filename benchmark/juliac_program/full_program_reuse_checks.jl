@@ -595,7 +595,7 @@ function run_checks()
             @test state.step == 0
         end
         @testset "distributed column cache refreshes committed membership and refs" begin
-            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
+            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=(unrelated=0,))
             specs = (_writer_distribution(:plant_writer, :Plant, 2f0),
                 _application(WriterBirth(), :birth, :Plant))
             state = _instantiate(specs, initial, _tree([10]))
@@ -622,7 +622,12 @@ function run_checks()
             slot, row = state.locations[10]
             cohort = state.cohorts[slot]
             previous = _status(state, 10)
-            replacement = Status(merge(NamedTuple(previous), (value=8f0,)))
+            unrelated_replacement = Status(merge(PSE._status_vars(previous), (unrelated=Ref(1),)))
+            RP._replace_full_status!(state, cohort, row, unrelated_replacement)
+            @test _status(state, 10).unrelated === 1
+            @test targets().columns.value === grown_column
+
+            replacement = Status(merge(PSE._status_vars(unrelated_replacement), (value=Ref(8f0),)))
             RP._replace_full_status!(state, cohort, row, replacement)
             rebound_targets = targets()
             rebound_column = rebound_targets.columns.value
@@ -773,11 +778,33 @@ function run_checks()
             @test [sample.value for sample in source.retained if sample.object_id == 10] == [2f0, 3f0]
             @test [sample.value for sample in reader.retained if sample.object_id == 10] == [1f0, 2f0]
             @test [sample.value for sample in observer.retained] == [4f0, 6f0]
-            temporal = (source.initial[10], source.prior[10].value, source.last[10].value)
+            _, row = state.locations[10]
+            initial_value = state.applications[2].bindings[row].previous_x.initial[10]
+            temporal = (initial_value, source.prior[10].value, source.last[10].value)
             @test temporal == (1f0, 2f0, 3f0)
             @test all(value -> value isa Float32, temporal)
             @test all(application -> all(stream -> all(sample -> sample.value isa Float32,
                 stream.retained), values(application.streams)), state.applications)
+        end
+        @testset "temporal lookup uses owned consumer fallback only before the first sample" begin
+            history = RP.ColumnHistory(Vector{Int}, true)
+            early = Dict(10 => [1])
+            late = Dict(10 => [2])
+            absent = Dict{Int,Vector{Int}}()
+            RP._full_record!(history, :source, 10, 1, [3], false)
+            first_read = RP._full_previous(history, 10, 1, early)
+            @test first_read == [1]
+            first_read[1] = 99
+            @test early[10] == [1]
+            @test RP._full_previous(history, 10, 1, late) == [2]
+            RP._full_record!(history, :source, 10, 1, [4], false)
+            @test RP._full_previous(history, 10, 2, absent) == [4]
+            RP._full_record!(history, :source, 10, 2, [5], false)
+            previous = RP._full_previous(history, 10, 2, absent)
+            @test previous == [4]
+            previous[1] = 99
+            @test RP._full_previous(history, 10, 2, absent) == [4]
+            @test_throws ArgumentError RP._full_previous(history, 10, 1, early)
         end
         @testset "temporal arrays, consumer isolation and producer snapshots" begin
             for retain in (true, false)
@@ -802,7 +829,7 @@ function run_checks()
                     @test all(application -> all(stream -> isempty(stream.retained), values(application.streams)), state.applications)
                     for application in state.applications, stream in values(application.streams)
                         stream.temporal && continue
-                        @test isempty(stream.initial) && isempty(stream.last) && isempty(stream.prior)
+                        @test isempty(stream.last) && isempty(stream.prior)
                     end
                 end
             end

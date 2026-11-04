@@ -42,7 +42,7 @@ mutable struct FullState{P,C,A,N,I}
     retain::Bool
     initial_objects::I
     ready::Bool
-    reference_epochs::Vector{UInt}
+    reference_epochs::Vector{Vector{UInt}}
     ordered_rows::Vector{FullRowOrder}
     call_memberships::Dict{Tuple{Int,Int},FullCallMembership}
     writer_validated_count::Int
@@ -172,6 +172,14 @@ end
     calls=[:(_bind_full_app(getfield(recipes,$i),models,cohorts,$(cache_types[i]))) for i in eachindex(types)]
     return :($(Expr(:tuple,calls...))::$(Tuple{types...}))
 end
+# Cohort schemas are static. Emit their port counts directly so allocation
+# never iterates over an abstract cohort type in the native executable.
+@generated function _new_full_reference_epochs(::C) where {C<:Tuple}
+    allocations = [:(zeros(UInt, $(fieldcount(fieldtype(cohort, :defaults)))))
+        for cohort in fieldtypes(C)]
+    return :(Vector{UInt}[$(allocations...)])
+end
+
 Base.@noinline function instantiate(program::FullProgram,models::Tuple,root::N;initial,objects,retain=false) where {N<:MTG.Node}
     length(models)==length(program.applications) || throw(ArgumentError("wrong model count"))
     # One private model/RNG per application and simulation, shared by that
@@ -181,7 +189,8 @@ Base.@noinline function instantiate(program::FullProgram,models::Tuple,root::N;i
     apps=_bind_full_apps(program.applications,owned,cohorts)
     state=FullState(program,cohorts,apps,Dict{Int,N}(),Dict{Int,Tuple{Int,Int}}(),
         IdDict{Base.RefValue{Nothing},Int}(),Set{Int}(),Set{Tuple{Int,Int}}(),0,0,Bool(retain),objects,false,
-        zeros(UInt,length(cohorts)),[FullRowOrder() for _ in cohorts],
+        _new_full_reference_epochs(cohorts),
+        [FullRowOrder() for _ in cohorts],
         Dict{Tuple{Int,Int},FullCallMembership}(),-1)
     _register_tree!(state,root)
     _validate_full_writers!(state)
@@ -292,11 +301,30 @@ function _alias_full_canonical!(state,cohort::Cohort{K,P,D,S},row,bindings) wher
     return _replace_full_status!(state,cohort,row,Status(refs)::S)
 end
 
+@generated function _full_reference_epoch(state::FullState{P,C}, ::Val{SLOT}, ::Val{PORT}) where {P,C,SLOT,PORT}
+    defaults=fieldtype(fieldtype(C,SLOT),:defaults)
+    index=findfirst(==(PORT),fieldnames(defaults))
+    isnothing(index) && return :(throw(ArgumentError("unknown reference epoch port")))
+    return :(@inbounds state.reference_epochs[$SLOT][$index])
+end
+
+@generated function _update_full_reference_epochs!(epochs, previous::NT, current::NT) where {NT<:NamedTuple}
+    updates=[
+        :(if getfield(previous,$index) !== getfield(current,$index)
+            @inbounds epochs[$index]+=UInt(1)
+        end)
+        for index in 1:fieldcount(NT)
+    ]
+    return Expr(:block,updates...,:(nothing))
+end
+
 function _replace_full_status!(state,cohort::Cohort{K,P,D,S},row,status::S) where {K,P,D,S}
     previous=cohort.rows[row]
-    if PSE._status_vars(previous)!==PSE._status_vars(status)
+    previous_refs=PSE._status_vars(previous)
+    current_refs=PSE._status_vars(status)
+    if previous_refs!==current_refs
         slot=state.locations[cohort.ids[row]][1]
-        state.reference_epochs[slot]+=UInt(1)
+        _update_full_reference_epochs!(state.reference_epochs[slot],previous_refs,current_refs)
     end
     cohort.rows[row]=status
     state.identities[PSE._status_identity(status)]=cohort.ids[row]

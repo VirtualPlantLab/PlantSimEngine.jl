@@ -8,7 +8,6 @@ struct FullSample{T}
 end
 
 struct ColumnHistory{T}
-    initial::Dict{Int,T}
     last::Dict{Int,FullSample{T}}
     prior::Dict{Int,FullSample{T}}
     retained::Vector{FullSample{T}}
@@ -16,7 +15,7 @@ struct ColumnHistory{T}
     temporal::Bool
 end
 ColumnHistory(::Type{T},temporal::Bool) where {T} = ColumnHistory{T}(
-    Dict{Int,T}(), Dict{Int,FullSample{T}}(), Dict{Int,FullSample{T}}(),
+    Dict{Int,FullSample{T}}(), Dict{Int,FullSample{T}}(),
     FullSample{T}[], Dict{Tuple{Int,Int},Int}(), temporal,
 )
 
@@ -40,41 +39,27 @@ function _make_full_streams(recipe, model)
     end
 end
 
-"""Capture an object's actual birth value before any producer kernel mutates it.
-Call at registration/binding, including each distributed destination. The first
-value wins; repeated binding refreshes cannot replace birth history.
-"""
-function _full_history_initial!(history::ColumnHistory{T}, object_id, fallback) where {T}
-    history.temporal || return nothing
-    id = _full_history_id(object_id)
-    if !haskey(history.initial, id)
-        history.initial[id] = _full_history_snapshot(T, fallback)
-    end
-    return nothing
-end
+"""Return an owned value from before this base step.
 
-"""Return an owned value from strictly before this base step.
-The caller passes the canonical birth value as fallback and should seed it at
-registration via _full_history_initial!, before the first scientific write.
+The binding captures its fallback when a source first joins it. Look up that
+fallback only if the producer has no preceding sample for this object.
 """
 function _full_previous(
-    state, ::Val{SLOT}, ::Val{VAR}, object_id, step::Int, fallback,
+    state, ::Val{SLOT}, ::Val{VAR}, object_id::Int, step::Int, initial,
 ) where {SLOT,VAR}
     history = getproperty(state.applications[SLOT].streams, VAR)
-    return _full_previous(history, object_id, step, fallback)
+    return _full_previous(history, object_id, step, initial)
 end
 
-function _full_previous(history::ColumnHistory{T}, object_id, step::Int, fallback) where {T}
+function _full_previous(history::ColumnHistory{T}, id::Int, step::Int, initial) where {T}
     history.temporal || throw(ArgumentError("output column has no planned temporal consumer"))
-    id = _full_history_id(object_id)
-    _full_history_initial!(history, id, fallback)
-    if haskey(history.last, id)
-        sample = history.last[id]
+    sample = get(history.last, id, nothing)
+    if !isnothing(sample)
         if sample.step < step
             return _full_history_snapshot(T, sample.value)
         elseif sample.step == step
-            if haskey(history.prior, id)
-                previous = history.prior[id]
+            previous = get(history.prior, id, nothing)
+            if !isnothing(previous)
                 previous.step < step || throw(ArgumentError("invalid previous output sample order"))
                 return _full_history_snapshot(T, previous.value)
             end
@@ -82,10 +67,9 @@ function _full_previous(history::ColumnHistory{T}, object_id, step::Int, fallbac
             throw(ArgumentError("cannot read previous output through an obsolete step context"))
         end
     end
-    # PSE's fallback belongs to the consumer binding. A consumer created after
-    # a same-step producer has run may have a different initial value from the
-    # source's birth value, while still having no preceding output sample.
-    return _full_history_snapshot(T, fallback)
+    # A consumer created after a same-step producer ran can observe a
+    # different fallback from the one another consumer captured earlier.
+    return _full_history_snapshot(T, initial[id])
 end
 
 function _full_record!(history::ColumnHistory{T}, application::Symbol,
@@ -94,8 +78,8 @@ function _full_record!(history::ColumnHistory{T}, application::Symbol,
     id = _full_history_id(object_id)
     sample = FullSample{T}(application, id, step, _full_history_snapshot(T, value))
     if history.temporal
-        if haskey(history.last, id)
-            last = history.last[id]
+        last = get(history.last, id, nothing)
+        if !isnothing(last)
             step >= last.step || throw(ArgumentError("cannot publish an obsolete output step"))
             if step > last.step
                 history.prior[id] = last
