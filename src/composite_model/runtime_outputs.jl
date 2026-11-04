@@ -8174,6 +8174,17 @@ function run!(
     outputs=:none,
     performance::Bool=false,
 )
+    simulation = _prepare_simulation!(model; steps, constants, outputs, performance)
+    return _continue_scene!(simulation, steps)
+end
+
+function _prepare_simulation!(
+    model::CompositeModel;
+    steps::Integer,
+    constants,
+    outputs,
+    performance::Bool=false,
+)
     performance_counters = performance ? RuntimePerformanceCounters() : nothing
     initial_composite_started_at =
         _runtime_performance_start(performance_counters)
@@ -8304,7 +8315,7 @@ function run!(
         :initial_composite_compile,
         initial_composite_started_at,
     )
-    simulation = Simulation(
+    return Simulation(
         model,
         compiled,
         env_bindings,
@@ -8321,7 +8332,6 @@ function run!(
         constants,
         performance_counters,
     )
-    return _continue_scene!(simulation, steps)
 end
 
 """

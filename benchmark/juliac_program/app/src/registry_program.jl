@@ -352,7 +352,7 @@ target, compiled binding, RunContext, schedule or executable fallback.
 function prepare(model::PSE.CompositeModel;outputs=:all,constants=PSE.Constants())
     isnothing(model.binding_cache) || throw(ArgumentError("prepare requires an uncompiled authored model"))
     private_model=deepcopy(model)
-    simulation=PSE.run!(private_model;steps=0,outputs,constants)
+    simulation=PSE._prepare_simulation!(private_model;steps=0,outputs,constants)
     @info "Registry authoring: ordinary resolution complete" applications=length(simulation.compiled.applications)
     raws=_authoring_targets(simulation)
     seed,atmosphere_type=_lower_registry_seed(simulation,raws)

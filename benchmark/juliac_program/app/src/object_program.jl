@@ -113,9 +113,8 @@ end
 _target_all_scale(spec,category)=_target_scale(spec,category) && !haskey(_criteria(spec.applies_to),:id)
 
 """Prepare the admitted original AMAP architecture/geometry/IN projection graph.
-The temporary ordinary zero-step compilation verifies ordering only. It is
-released here; no ordinary plan, execution target, simulation or runtime is
-retained or used by instantiate/step!.
+The canonical scenario plan supplies root order and selection. The program
+retains only the typed AMAP instructions and initial data needed at runtime.
 """
 function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
     isnothing(model.environment) && isempty(model.instances) && isnothing(model.source_adapter) ||
@@ -169,6 +168,8 @@ function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
     lookup = Dict(id=>row for (row,id) in enumerate(plant_ids))
     for object in plants
         initial=NamedTuple(object.status)
+        haskey(initial,:development_increment) ||
+            throw(ArgumentError("native plants require an initial development increment"))
         all(name->name in (:_native_pse_state,:development_increment,:native_revision),keys(initial)) ||
             throw(ArgumentError("extra initial plant variables are outside this registry schema"))
         if hasproperty(initial,:native_revision)
@@ -209,17 +210,19 @@ function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
     declared = PSE.outputs_(first(publisher_models)).length
     declared isa PSE.Distributed && declared.declaration isa PSE.Default || throw(ArgumentError("length must be a distributed default"))
     organ_initial = merge((length=declared.declaration.value,), PSE.outputs_(length_spec.model),PSE.outputs_(count_spec.model))
-    # Authoring-only reference schedule, including all initially targetless apps.
-    checked = PSE.run!(deepcopy(model);steps=0,outputs=:none,constants)
+    # Canonical roots include applications with no internodes at preparation.
+    scenario, applications = PSE._prepare_scenario_plan(model)
     order = Instruction[]
-    for name in checked.compiled.application_order
-        slot = only(findall(spec->spec.name===name,specs))
+    for entry in scenario.application_schedule.entries
+        slot = entry.application_slot
         role = roles[slot]
         index = role===:publisher ? only(findall(==(slot),publisher_slots)) : 0
         push!(order,Instruction(role,index))
     end
-    compiled_architecture = only(filter(app->app.id===architecture.name,checked.compiled.applications))
-    plant_order = Int[lookup[id::PlantId] for id in compiled_architecture.target_ids]
+    target_ids = applications[architecture_slot].target_ids
+    length(target_ids) == length(plant_ids) ||
+        throw(ArgumentError("architecture must supply the revision for every publisher plant"))
+    plant_order = Int[lookup[id::PlantId] for id in target_ids]
     inverse = zeros(Int,length(plants))
     for (publisher,plant) in enumerate(publisher_plants); inverse[plant]=publisher; end
     return RegistryProgram(architecture.model,MP[publisher_models...],length_spec.model,count_spec.model,

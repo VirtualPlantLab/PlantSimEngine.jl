@@ -1773,10 +1773,9 @@ function _compile_resolved_scenario_plan(model::CompositeModel, applications, ti
     )
 end
 
-function _compile_scene(
+function _prepare_scenario_plan(
     model::CompositeModel,
-    raw_specs;
-    validate_required_inputs::Bool=true,
+    raw_specs=model.applications;
     performance=nothing,
 )
     started_at = _runtime_performance_start(performance)
@@ -1794,6 +1793,17 @@ function _compile_scene(
         :scenario_plan_compile,
         started_at,
     )
+    return scenario_plan, applications
+end
+
+function _compile_scene(
+    model::CompositeModel,
+    raw_specs;
+    validate_required_inputs::Bool=true,
+    performance=nothing,
+)
+    scenario_plan, applications = _prepare_scenario_plan(model, raw_specs; performance)
+    timeline = scenario_plan.timeline
     started_at = _runtime_performance_start(performance)
     call_bindings = _compile_model_call_bindings(
         model,
