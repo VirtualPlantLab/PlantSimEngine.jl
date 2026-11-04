@@ -151,6 +151,18 @@ end
     fresh_sim = run!(prepared_scenario_fixture(; duration=Hour(2)); steps=4, outputs=:all)
     test_prepared_scenario_parity(cached_sim, fresh_sim)
 
+    continued_model = prepared_scenario_fixture()
+    ongoing = run!(continued_model; steps=0, outputs=:all)
+    continued_model.environment = (duration=Hour(2),)
+    mark_environment_binding_dirty!(continued_model)
+    step!(ongoing)
+    @test !Advanced.environment_bindings_dirty(continued_model)
+    @test ongoing.compiled.scenario_plan.timeline.base_step_seconds == 3600.0
+    restarted = run!(continued_model; steps=0)
+    @test restarted.compiled.scenario_plan.timeline.base_step_seconds == 7200.0
+    @test restarted.compiled.scenario_plan.applications_by_id.producer.clock.dt == 1.0
+    @test ongoing.compiled.scenario_plan.timeline.base_step_seconds == 3600.0
+
     authored = prepared_scenario_fixture()
     original = PlantSimEngine._prepare_scenario_plan(authored)
     edited = apply_model_graph_edit(authored, UpdateModelApplication(

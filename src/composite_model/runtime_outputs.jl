@@ -8190,17 +8190,20 @@ function _prepare_simulation!(
     initial_composite_started_at =
         _runtime_performance_start(performance_counters)
     started_at = initial_composite_started_at
-    # A fresh run can change base cadence. Continuations keep the schedule
-    # and time coordinates of their existing histories.
-    if model.environment_bindings_dirty && model.lifecycle_delta.full_environment
-        prepared = model.scenario_plan_cache
-        compiled = model.binding_cache
-        if !isnothing(prepared) || !isnothing(compiled)
-            previous = isnothing(prepared) ? compiled.scenario_plan : prepared.plan
-            timeline = _model_timeline(model)
-            if previous.timeline.base_step_seconds != timeline.base_step_seconds
-                _prepare_scenario_plan(model, timeline; force=true, performance=performance_counters)
-            end
+    # An existing simulation may have refreshed its environment while retaining
+    # its schedule. Compare the current base step even after that refresh.
+    prepared = model.scenario_plan_cache
+    compiled = model.binding_cache
+    if !isnothing(prepared) || !isnothing(compiled)
+        previous = isnothing(prepared) ? compiled.scenario_plan : prepared.plan
+        backend = environment_backend(model.environment)
+        timeline = _timeline_context(backend)
+        cadence_changed = previous.timeline.base_step_seconds != timeline.base_step_seconds
+        if cadence_changed || (model.environment_bindings_dirty && model.lifecycle_delta.full_environment)
+            _validate_environment_duration(backend)
+        end
+        if cadence_changed
+            _prepare_scenario_plan(model, timeline; force=true, performance=performance_counters)
         end
     end
     compiled = refresh_bindings!(
