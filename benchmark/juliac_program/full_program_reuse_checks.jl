@@ -640,6 +640,21 @@ function run_checks()
             @test _status(state, 10).value === 11f0
             @test grown_column[1] === 2f0
         end
+        @testset "literal environment validation preserves declaration order" begin
+            source = Source(-1)
+            @test RP._validate_full_environment(source, (order=Int[], delta=1.0)) === nothing
+            @test_throws "missing global environment input" RP._validate_full_environment(
+                source, (order=Int[],))
+            @test_throws "incompatible global environment input" RP._validate_full_environment(
+                source, (delta=1,))  # Wrong first field precedes missing second field.
+            @test_throws "missing global environment input" RP._validate_full_environment(
+                source, (order=1,))  # Missing first field precedes wrong second field.
+            @test RP._validate_full_environment_fields(
+                (delta=Required(AbstractFloat), order=Default(Int[])),
+                (order=Int[], delta=1f0)) === nothing
+            @test RP._validate_full_environment_fields(
+                Dict(:delta => Default(1.0)), (delta=1.0,)) === nothing
+        end
         @testset "stable memberships, live values and real Ref replacement" begin
             state = _observer_state()
             environment = (delta=1.0, order=Int[])

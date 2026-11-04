@@ -366,13 +366,39 @@ Base.@noinline function _invoke_cohort!(c::CohortContext{<:FullApplication};publ
     publish && !current.suppress && _full_publish!(current)
     return nothing
 end
-function _validate_full_environment(model,environment)
-    for (var,declaration) in pairs(PSE.environment_inputs_(model))
-        haskey(environment,var) || throw(ArgumentError("missing global environment input"))
-        expected=declaration isa Union{PSE.Required,PSE.Default} ? PSE._input_expected_type(declaration) : typeof(declaration)
-        getproperty(environment,var) isa expected || throw(ArgumentError("incompatible global environment input"))
+@inline _validate_full_environment(model, environment) =
+    _validate_full_environment_fields(PSE.environment_inputs_(model), environment)
+
+@inline _full_environment_expected_type(declaration) = typeof(declaration)
+@inline _full_environment_expected_type(declaration::Union{PSE.Required,PSE.Default}) =
+    PSE._input_expected_type(declaration)
+
+function _validate_full_environment_fields(declarations, environment)
+    for (var, declaration) in pairs(declarations)
+        haskey(environment, var) || throw(ArgumentError("missing global environment input"))
+        getproperty(environment, var) isa _full_environment_expected_type(declaration) ||
+            throw(ArgumentError("incompatible global environment input"))
     end
+    return nothing
 end
+
+@generated function _validate_full_environment_fields(
+    declarations::NamedTuple{D}, environment::NamedTuple{E},
+) where {D,E}
+    checks = Expr[]
+    for (index, name) in enumerate(D)
+        position = findfirst(==(name), E)
+        if isnothing(position)
+            push!(checks, :(throw(ArgumentError("missing global environment input"))))
+            break
+        end
+        push!(checks, :(getfield(environment, $position) isa
+            _full_environment_expected_type(getfield(declarations, $index)) ||
+            throw(ArgumentError("incompatible global environment input"))))
+    end
+    return Expr(:block, checks..., :(nothing))
+end
+
 Base.@noinline function _step_cohort_application!(state::FullState,app,environment,constants)
     state.active_slot==0 || throw(ArgumentError("unfinished lifecycle event"))
     state.active_slot=app.recipe.slot
