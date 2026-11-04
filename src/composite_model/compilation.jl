@@ -3164,7 +3164,14 @@ function _sorted_object_ids_intersect_set(sorted_ids, ids::AbstractSet)
         end
     else
         for object_id in ids
-            first(_sorted_object_id_position(sorted_ids, object_id)) && return true
+            # Different identities can compare equal in the sort order.
+            # Find the first one, then check exact membership within the tie.
+            start = searchsortedfirst(sorted_ids, object_id; lt=_object_id_isless)
+            for index in start:lastindex(sorted_ids)
+                candidate = @inbounds sorted_ids[index]
+                isequal(candidate, object_id) && return true
+                _object_id_isless(object_id, candidate) && break
+            end
         end
     end
     return false
@@ -3398,7 +3405,7 @@ function _extend_compiled_scene(
         end
     end
     manual_application_ids = compiled.scenario_plan.manual_application_ids
-    distributed_outputs, changed_distributed_output_target_ids, new_writers_by_variable =
+    distributed_outputs, changed_distributed_output_target_ids, changed_writers_by_variable =
         _refresh_model_distributed_outputs(
             model,
             compiled.distributed_outputs,
@@ -3667,13 +3674,19 @@ function _extend_compiled_scene(
     previous_shared_many_sources = IdDict{Any,Vector{ObjectId}}()
     rebuild_dynamic_input_index = !pure_addition
     candidate_binding_indices = Set{Int}()
-    if !isnothing(new_writers_by_variable)
+    writer_rebind_keys = nothing
+    if !isnothing(changed_writers_by_variable)
+        rebinds = pure_addition ? forced_input_binding_keys : Set{Tuple{Symbol,ObjectId,Symbol}}()
         _force_distributed_producer_rebinds!(
-            forced_input_binding_keys,
+            rebinds,
             model,
             input_bindings,
-            new_writers_by_variable,
+            changed_writers_by_variable,
         )
+        if !pure_addition
+            union!(forced_input_binding_keys, rebinds)
+            writer_rebind_keys = rebinds
+        end
     end
     if !isempty(forced_input_binding_keys)
         for (binding_index, binding) in pairs(input_bindings)
@@ -3702,13 +3715,9 @@ function _extend_compiled_scene(
         index = pending_binding_indices[pending_binding_position]
         pending_binding_position += 1
         binding = input_bindings[index]
-        force_rebuild =
-            !isempty(forced_input_binding_keys) &&
-            (
-                binding.application_id,
-                binding.consumer_id,
-                binding.input,
-            ) in forced_input_binding_keys
+        binding_key = (binding.application_id, binding.consumer_id, binding.input)
+        force_rebuild = !isempty(forced_input_binding_keys) &&
+                        binding_key in forced_input_binding_keys
         if !force_rebuild &&
            binding.multiplicity == :many &&
            haskey(processed_many_sources, binding.source_ids)
@@ -3729,7 +3738,8 @@ function _extend_compiled_scene(
             binding.carrier_hint == :temporal_stream &&
             (previous_shared_many_sources[binding.source_ids] = copy(binding.source_ids))
         default_scope = _default_dependency_scope(model, binding.consumer_id)
-        if !pure_addition
+        if !pure_addition &&
+           (isnothing(writer_rebind_keys) || !(binding_key in writer_rebind_keys))
             structural_update = _update_structural_many_sources!(
                 model,
                 binding,
@@ -6052,16 +6062,14 @@ function _refresh_model_distributed_outputs(
         manual_application_ids,
         plans,
     )
-    # With pure addition, a new origin can write to a destination that was
-    # already in the registry. These producer additions are independent of
-    # the changed execution targets used to refresh output columns.
-    new_writers_by_variable = if pure_addition
+    changed_targets = _changed_distributed_output_target_ids(previous, current)
+    changed_writers_by_variable = if pure_addition
+        # A new origin may write to a destination already in the registry.
         _new_writers_on_existing_destinations(current, new_targets, added_ids)
     else
-        nothing
+        _changed_writers_on_surviving_destinations(model, previous, current, changed_targets)
     end
-    return current, _changed_distributed_output_target_ids(previous, current),
-           new_writers_by_variable
+    return current, changed_targets, changed_writers_by_variable
 end
 
 function _new_writers_on_existing_destinations(outputs, new_targets, added_ids)
@@ -6079,6 +6087,31 @@ function _new_writers_on_existing_destinations(outputs, new_targets, added_ids)
                     get!(Vector{Tuple{ObjectId,Symbol}}, by_variable, variable),
                     (destination, application_id),
                 )
+            end
+        end
+    end
+    return by_variable
+end
+
+function _changed_writers_on_surviving_destinations(model, previous, current, changed_targets)
+    by_variable = nothing
+    for key in changed_targets
+        before = get(previous.by_execution_target, key, NamedTuple())
+        after = get(current.by_execution_target, key, NamedTuple())
+        for (groups, other) in ((before, after), (after, before))
+            for (name, group) in pairs(groups)
+                other_ids = haskey(other, name) ? other[name].destination_ids : ()
+                for destination in group.destination_ids
+                    haskey(model.registry.objects, destination) || continue
+                    first(_sorted_object_id_position(other_ids, destination)) && continue
+                    if isnothing(by_variable)
+                        by_variable = Dict{Symbol,Vector{Tuple{ObjectId,Symbol}}}()
+                    end
+                    for variable in keys(group.declarations)
+                        push!(get!(Vector{Tuple{ObjectId,Symbol}}, by_variable, variable),
+                            (destination, group.application_id))
+                    end
+                end
             end
         end
     end

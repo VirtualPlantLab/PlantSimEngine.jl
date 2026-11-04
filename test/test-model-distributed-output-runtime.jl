@@ -8,6 +8,7 @@ PlantSimEngine.@process "distributed_runtime_leaf_updater" verbose = false
 PlantSimEngine.@process "distributed_runtime_stateful_writer" verbose = false
 PlantSimEngine.@process "distributed_runtime_plant_integrator" verbose = false
 PlantSimEngine.@process "distributed_runtime_aggregating_updater" verbose = false
+PlantSimEngine.@process "distributed_runtime_parent_reader" verbose = false
 
 const DistributedRuntimeEvent = Tuple{Int,Symbol,Symbol,Float64}
 
@@ -34,6 +35,9 @@ struct DistributedRuntimePlantIntegratorModel <:
 
 struct DistributedRuntimeAggregatingUpdaterModel <:
        AbstractDistributed_Runtime_Aggregating_UpdaterModel end
+
+struct DistributedRuntimeParentReaderModel <:
+       AbstractDistributed_Runtime_Parent_ReaderModel end
 
 PlantSimEngine.inputs_(::DistributedRuntimeSceneWriterModel) = NamedTuple()
 PlantSimEngine.outputs_(::DistributedRuntimeSceneWriterModel) =
@@ -64,6 +68,21 @@ PlantSimEngine.outputs_(::DistributedRuntimeAggregatingUpdaterModel) =
 PlantSimEngine.output_policy(
     ::Type{<:DistributedRuntimeAggregatingUpdaterModel},
 ) = (incident_par=Aggregate(),)
+
+PlantSimEngine.inputs_(::DistributedRuntimeParentReaderModel) =
+    (lagged=Required(Vector{Float64}), selected=Default(Float64[]))
+PlantSimEngine.outputs_(::DistributedRuntimeParentReaderModel) =
+    (lagged_values=Float64[], selected_ids=Symbol[], selected_values=Float64[])
+
+function PlantSimEngine.run!(
+    ::DistributedRuntimeParentReaderModel, status, environment, constants, context,
+)
+    status.lagged_values = collect(status.lagged)
+    selected = bound_input(context, :selected)
+    status.selected_ids = Symbol[id.value for id in object_ids(selected)]
+    status.selected_values = collect(selected)
+    return nothing
+end
 
 function _distributed_runtime_value(object_id::ObjectId, time::Real)
     coefficient = if object_id == ObjectId(:leaf_a)
@@ -966,6 +985,79 @@ end
     )
     @test outputs(simulation)[stream_key] === retained_stream
     @test retained_stream == [(1.0, 1.0), (2.0, 2.0)]
+end
+
+@testset "Reparenting a writer refreshes readers on surviving destinations" begin
+    function parent_writer_scene(; leaf_parent=:plant_a)
+        objects = (
+            Object(:scene; scale=:Scene, status=Status(lagged=zeros(2))),
+            Object(:plant_a; scale=:Plant, parent=:scene),
+            Object(:plant_b; scale=:Plant, parent=:scene),
+        )
+        if !isnothing(leaf_parent)
+            objects = (objects..., Object(:moving_leaf; scale=:Leaf, parent=leaf_parent))
+        end
+        return CompositeModel(
+            objects...;
+            applications=(
+                ModelSpec(
+                    DistributedRuntimeSceneWriterModel(DistributedRuntimeEvent[]);
+                    name=:background,
+                    on=One(scale=:Scene),
+                    outputs_to=(OutputTo(Many(scale=:Plant, within=SceneScope())),),
+                ),
+                ModelSpec(
+                    DistributedRuntimeStatefulWriterModel();
+                    name=:leaf_writer,
+                    on=Many(scale=:Leaf),
+                    outputs_to=(OutputTo(Many(Relation(:parent); scale=:Plant)),),
+                    updates=Updates(:incident_par; after=:background),
+                ),
+                ModelSpec(
+                    DistributedRuntimeParentReaderModel();
+                    name=:reader,
+                    on=One(scale=:Scene),
+                    inputs=(
+                        PreviousTimeStep(:lagged) => Many(
+                            scale=:Plant, within=SceneScope(), var=:incident_par,
+                        ),
+                        :selected => Many(
+                            scale=:Plant, within=SceneScope(), var=:incident_par,
+                            application=:leaf_writer,
+                        ),
+                    ),
+                ),
+            ),
+            environment=(duration=Hour(1),),
+        )
+    end
+
+    for retention in (:none, :all)
+        model = parent_writer_scene()
+        simulation = run!(model; steps=2, outputs=retention)
+        initial = final_state(simulation, :scene)
+        @test initial.lagged_values == [101.0, 1.0]
+        @test initial.selected_ids == [:plant_a]
+        @test initial.selected_values == [102.0]
+
+        reparent_object!(model, :moving_leaf, :plant_b)
+        continue!(simulation; steps=2)
+        reparented = final_state(simulation, :scene)
+        fresh = run!(parent_writer_scene(; leaf_parent=:plant_b); steps=4, outputs=retention)
+        @test reparented == final_state(fresh, :scene)
+        @test reparented.lagged_values == [3.0, 103.0]
+        @test reparented.selected_ids == [:plant_b]
+        @test reparented.selected_values == [104.0]
+
+        remove_object!(model, :moving_leaf)
+        continue!(simulation; steps=2)
+        removed = final_state(simulation, :scene)
+        fresh = run!(parent_writer_scene(; leaf_parent=nothing); steps=6, outputs=retention)
+        @test removed == final_state(fresh, :scene)
+        @test removed.lagged_values == [5.0, 5.0]
+        @test isempty(removed.selected_ids)
+        @test isempty(removed.selected_values)
+    end
 end
 
 @testset "Many application filter restricts distributed source membership" begin

@@ -7,6 +7,12 @@ const PSE = PlantSimEngine
 sorted_ids(values) = PSE._sort_object_ids!(ObjectId[ObjectId(value) for value in values])
 intersects(sources, dirty) = PSE._sorted_object_ids_intersect_set(sources, dirty)
 
+struct TiedOrderId
+    group::Int
+    member::Int
+end
+Base.isless(left::TiedOrderId, right::TiedOrderId) = isless(left.group, right.group)
+
 @testset "structural binding intersections preserve set membership" begin
     empty_sources = ObjectId[]
     empty_dirty = Set{ObjectId}()
@@ -36,6 +42,12 @@ intersects(sources, dirty) = PSE._sorted_object_ids_intersect_set(sources, dirty
     mixed_sources = sorted_ids((1, :other, (:plant, :Leaf, 1)))
     @test !intersects(mixed_sources, Set((symbolic_id,)))
     @test intersects(mixed_sources, Set((integer_id,)))
+
+    # The sort order may tie while the registry treats the identities as distinct.
+    tied_sources = sorted_ids((TiedOrderId(0, 1), TiedOrderId(1, 1),
+        TiedOrderId(1, 2), TiedOrderId(2, 1)))
+    @test intersects(tied_sources, Set((ObjectId(TiedOrderId(1, 2)),)))
+    @test !intersects(tied_sources, Set((ObjectId(TiedOrderId(1, 3)),)))
 
     rng = Xoshiro(0x6ae4b871)
     pool = ObjectId[ObjectId(index) for index in 1:32]
