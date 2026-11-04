@@ -1788,6 +1788,11 @@ function _prepare_scenario_plan(
     )
     started_at = _runtime_performance_start(performance)
     scenario_plan = _compile_resolved_scenario_plan(model, applications, timeline)
+    _validate_model_call_plan_cadences!(applications, scenario_plan.call_plans, timeline)
+    _validate_manual_model_output_destination_plans!(
+        scenario_plan.distributed_output_plans,
+        scenario_plan.manual_application_ids,
+    )
     _runtime_performance_finish!(
         performance,
         :scenario_plan_compile,
@@ -1809,11 +1814,6 @@ function _compile_scene(
         model,
         applications;
         plans_by_application=scenario_plan.call_plans_by_application,
-    )
-    _validate_model_call_plan_cadences!(
-        applications,
-        scenario_plan.call_plans,
-        timeline,
     )
     _runtime_performance_finish!(
         performance,
@@ -4071,23 +4071,6 @@ function _validate_model_call_plan_cadences!(applications, call_plans, timeline)
     return nothing
 end
 
-function _validate_model_call_cadences!(applications, call_bindings, timeline)
-    applications_by_id = _applications_by_id(applications)
-    for binding in call_bindings
-        caller = applications_by_id[binding.application_id]
-        for callee_id in binding.callee_application_ids
-            _validate_model_call_cadence!(
-                caller,
-                applications_by_id[callee_id],
-                binding.call,
-                timeline,
-                _compiled_call_mode(binding),
-            )
-        end
-    end
-    return nothing
-end
-
 function _initialization_effective_value(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -4833,6 +4816,8 @@ function _compile_model_writer_ownership(
     return _validate_compiled_writer_ownership!(ownership, applications)
 end
 
+_validate_manual_model_output_destination_plans!(::NoCompiledDistributedOutputPlans, _) = nothing
+
 function _validate_manual_model_output_destination_plans!(
     plans::CompiledDistributedOutputPlans,
     manual_application_ids,
@@ -4845,7 +4830,7 @@ function _validate_manual_model_output_destination_plans!(
             "supported yet; declare the application as root-scheduled instead.",
         )
     end
-    return plans
+    return nothing
 end
 
 function _validate_model_writers!(applications, call_bindings=())
@@ -5742,10 +5727,6 @@ function _compile_model_distributed_outputs(
     manual_application_ids,
     plans::CompiledDistributedOutputPlans,
 )
-    _validate_manual_model_output_destination_plans!(
-        plans,
-        manual_application_ids,
-    )
     resolved = _resolve_model_output_destinations(
         model,
         applications,

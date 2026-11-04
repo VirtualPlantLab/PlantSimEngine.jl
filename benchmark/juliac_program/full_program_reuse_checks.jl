@@ -326,6 +326,13 @@ PSE.outputs_(::ImplicitProducer) = (value=0f0,)
 PSE.run!(::ImplicitProducer, status, environment, constants, context) =
     (status.value = 5f0; nothing)
 
+struct InterpolatedProducer <: AbstractReuse_Implicit_ProducerModel end
+PSE.inputs_(::InterpolatedProducer) = NamedTuple()
+PSE.outputs_(::InterpolatedProducer) = (value=0f0,)
+PSE.output_policy(::InterpolatedProducer) = (value=PSE.Interpolate(),)
+PSE.run!(::InterpolatedProducer, status, environment, constants, context) =
+    (status.value = 5f0; nothing)
+
 PSE.@process "reuse_writer_distribution" verbose = false
 struct WriterDistribution <: AbstractReuse_Writer_DistributionModel
     value::Float32
@@ -487,6 +494,28 @@ function run_checks()
             )
             initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
             @test_throws ArgumentError _prepare(specs, initial, _tree([30, 10]))
+        end
+        @testset "producer policies cannot silently become live references" begin
+            producer = ModelSpec(InterpolatedProducer(); name=:producer,
+                on=Many(scale=:Plant), every=Day(2))
+            reader(; kwargs...) = _application(StatusReader(), :reader, :Plant; kwargs...)
+            source(; kwargs...) = One(within=Self(), application=:producer, var=:value; kwargs...)
+            initial = (Scene=NamedTuple(), Plant=NamedTuple())
+            for consumer in (reader(), reader(inputs=(value=source(),)))
+                specs = (producer, consumer)
+                ordinary = PSE.run!(_ordinary_writer_scene(specs, _tree()); steps=0)
+                @test only(ordinary.compiled.input_bindings).policy isa PSE.Interpolate
+                @test_throws "inherits unsupported policy" _prepare(specs, initial, _tree())
+            end
+
+            specs = (producer, reader(inputs=(value=source(policy=PSE.HoldLast()),)))
+            ordinary = PSE.run!(_ordinary_writer_scene(specs, _tree()); steps=0)
+            prepared = _instantiate(specs, initial, _tree())
+            for _ in 1:3
+                PSE.step!(ordinary)
+                RP.step!(prepared, NamedTuple())
+                @test _status(prepared, 2).seen === PSE.final_state(ordinary, ObjectId(2)).seen
+            end
         end
         @testset "partitioned distributed outputs use their resolved destinations" begin
             destinations = (

@@ -201,11 +201,6 @@ function _model_graph_compiled(
         applications_by_id[application_id]
         for application_id in scenario_plan.application_order
     )
-    _validate_model_call_plan_cadences!(
-        applications,
-        scenario_plan.call_plans,
-        timeline,
-    )
     status_views = _compile_model_status_views(
         model,
         applications,
@@ -456,6 +451,10 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         :writers,
         NoCompiledDistributedOutputs(),
     ) do
+        _validate_manual_model_output_destination_plans!(
+            distributed_output_plans,
+            manual_application_ids,
+        )
         _compile_model_distributed_outputs(
             model,
             applications,

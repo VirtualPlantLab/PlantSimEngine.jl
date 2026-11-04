@@ -133,8 +133,11 @@ function _full_validate_selector(selector)
     scope=get(c,:within,nothing)
     isnothing(scope) || scope isa Union{PSE.Self,PSE.SelfPlant,PSE.SceneScope,PSE.Subtree,PSE.Ancestor} ||
         throw(ArgumentError("unsupported full-layout scope"))
-    policy=get(c,:policy,nothing)
-    isnothing(policy) || policy isa PSE.PreviousTimeStep || throw(ArgumentError("full layout currently supports only same-step and PreviousTimeStep inputs"))
+    if haskey(c,:policy)
+        policy=c.policy
+        (policy isa Union{PSE.HoldLast,PSE.PreviousTimeStep} || policy === PSE.HoldLast) ||
+            throw(ArgumentError("full layout currently supports only HoldLast and PreviousTimeStep inputs"))
+    end
     isnothing(get(c,:window,nothing)) || throw(ArgumentError("temporal windows are not admitted"))
     return selector
 end
@@ -159,7 +162,6 @@ function prepare(model::PSE.CompositeModel; initial)
     isempty(model.instances) || throw(ArgumentError("full programs require direct applications"))
     specs = Tuple(model.applications)
     scenario, applications = PSE._prepare_scenario_plan(model)
-    PSE._validate_model_call_plan_cadences!(applications, scenario.call_plans, scenario.timeline)
     for application in applications, id in application.target_ids
         object=PSE._model_object(model,id)
         object.kind===:scene && object.scale!==:Scene &&
@@ -241,11 +243,6 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
     # The canonical plan identifies the application and mode. The typed
     # runtime still resolves object rows from the selector as topology grows.
     manual=Set(scenario.applications_by_id[id].slot for id in scenario.manual_application_ids)
-    for target in manual
-        isempty(specs[target].outputs_to) ||
-            throw(ArgumentError("manual-only applications cannot declare distributed outputs"))
-    end
-    initializer_targets=Int[]
     call_routes=map(names) do name
         plans=scenario.call_plans_by_application[name]
         routes=map(plans) do plan
@@ -256,7 +253,6 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
             length(ids)==1 || throw(ArgumentError("full calls must identify one application"))
             target=scenario.applications_by_id[only(ids)].slot
             mode=PSE._compiled_call_mode(plan)
-            mode===:initializer && push!(initializer_targets,target)
             FullCallRoute{target,mode,plan.multiplicity,typeof(matcher)}(matcher,plan.slot)
         end
         NamedTuple{map(PSE._compiled_call_name,plans)}(routes)
@@ -285,8 +281,6 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
         end
         sources
     end
-    potential_sources=[Dict{Symbol,Tuple}() for _ in specs]
-    temporals=[Dict{Symbol,Bool}() for _ in specs]
     input_routes=Vector{Any}(undef,length(specs))
     # Route construction uses the schema's complete canonical source types. A
     # second pass resolves inputs whose only seed is another input/default.
@@ -305,6 +299,7 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
             matcher=explicit ? _full_matcher(plan.matcher,appcat[i]) : FULL_SELF_MATCHER
             sourcevar=explicit ? plan.source_var : var
             temporal=explicit && plan.breaks_same_step_cycle
+            inherits_policy=!explicit || !PSE._selector_has_policy(plan.selector)
             filtered=explicit && (!isnothing(plan.application) || !isnothing(plan.process))
             cross_scope=matcher.scope isa Union{PSE.SelfPlant,PSE.SceneScope,PSE.Subtree,PSE.Ancestor}
             fallback=explicit && (!isnothing(matcher.relation) || cross_scope) ? nothing : appcat[i]
@@ -315,13 +310,22 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
             # do not exist yet. The typed route needs the subset that writes
             # the destination cohort, with manual writers eligible only for
             # explicit inputs.
-            potential=Int[]; sources=Tuple{Int,Int}[]; values_=Any[]
+            sources=Tuple{Int,Int}[]; values_=Any[]
             for cat in sourcecats
                 writers=explicit ? declared_owners : owners
                 candidates=!explicit && i in manual ? Int[] :
                     [j for j in get(writers,(cat,sourcevar),Int[]) if names[j] in producer_ids]
-                append!(potential,candidates)
                 if !isempty(candidates)
+                    if inherits_policy
+                        # An absent producer can gain coverage during growth.
+                        # Check every possible source before lowering to a live Ref.
+                        for slot in candidates
+                            policy=PSE._policy_for_output(specs[slot].model,sourcevar)
+                            policy isa PSE.HoldLast || throw(ArgumentError(
+                                "full-layout input $(names[i]).$var inherits unsupported policy $(typeof(policy)) " *
+                                "from $(names[slot]).$sourcevar; only HoldLast and PreviousTimeStep are supported"))
+                        end
+                    end
                     selected=if filtered || temporal
                         # Canonical owners have priority over manual local
                         # writers. Within each class use authored writer order.
@@ -368,20 +372,11 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
             end
             route=FullInputRoute{Tuple(sources),sourcevar,temporal,multiplicity,T,typeof(matcher),filtered}(matcher)
             push!(route_pairs[i],var=>route)
-            potential_sources[i][var]=Tuple(unique(potential))
-            temporals[i][var]=temporal
             progressed=true
         end
         isempty(next) && break
         progressed || throw(ArgumentError("unresolved full-layout inputs: $(Tuple((names[i],var) for (i,var,_) in next))"))
         unresolved=next
-    end
-    for target in initializer_targets, consumer in eachindex(specs)
-        consumer==target && continue
-        for (var,producers) in potential_sources[consumer]
-            get(temporals[consumer],var,false) && target in producers && throw(ArgumentError(
-                "temporal input $(names[consumer]).$var cannot consume initialized output from $(names[target])"))
-        end
     end
     # Restore declaration order even if a route waited for a forward seed.
     for (i,spec) in enumerate(specs)
