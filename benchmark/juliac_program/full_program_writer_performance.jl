@@ -84,7 +84,7 @@ function _step_timing!(result, forcing, advance!, object_count)
         initial_objects=initial, final_objects=previous,
         growth_step_seconds=ns_growing/1e9, other_step_seconds=ns_other/1e9)
 end
-function _step_diagnostic(p, ctx, expected, typed)
+function _diagnostic_execution(p, ctx, typed)
     if typed
         result = p._typed_prepared(ctx)
         advance = let step! = p.RP.step!, constants = ctx.constants
@@ -100,10 +100,88 @@ function _step_diagnostic(p, ctx, expected, typed)
             state -> length(model(state).registry.objects)
         end
     end
+    return result, advance, count_objects
+end
+function _step_diagnostic(p, ctx, expected, typed)
+    result, advance, count_objects = _diagnostic_execution(p, ctx, typed)
     measured = @timed _step_timing!(result, ctx.forcing, advance, count_objects)
     Scaling._validate(p, result, ctx, expected, typed)
     return merge(measured.value, (reachable_bytes=Base.summarysize(result),
         compile_s=measured.compile_time, recompile_s=measured.recompile_time))
+end
+
+function _object_count_trace(p, ctx, expected, typed)
+    result, advance, count_objects = _diagnostic_execution(p, ctx, typed)
+    counts = Vector{Int}(undef, ctx.days + 1)
+    _record_object_counts!(counts, result, ctx.forcing, advance, count_objects)
+    Scaling._validate(p, result, ctx, expected, typed)
+    return counts
+end
+function _record_object_counts!(counts, result, forcing, advance, count_objects)
+    counts[1] = count_objects(result)
+    for i in eachindex(forcing)
+        advance(result, forcing[i])
+        counts[i + 1] = count_objects(result)
+    end
+    return nothing
+end
+
+# The same loop and concrete step closure serve both measurements. The
+# Nothing specialization omits the clocks and writes entirely.
+@noinline function _paired_steps!(result, forcing, advance, daily_ns)
+    @inbounds for i in eachindex(forcing)
+        if daily_ns === nothing
+            advance(result, forcing[i])
+        else
+            start = time_ns()
+            advance(result, forcing[i])
+            daily_ns[i] = time_ns() - start
+        end
+    end
+    return nothing
+end
+function _paired_step_trial(p, ctx, expected, arm, trial, mask, clocked)
+    typed = arm !== :ordinary
+    daily_ns = clocked ? Vector{UInt64}(undef, ctx.days) : nothing
+    GC.gc()
+    result, advance, _ = _diagnostic_execution(p, ctx, typed)
+    measured = @timed _paired_steps!(result, ctx.forcing, advance, daily_ns)
+    Scaling._validate(p, result, ctx, expected, typed)
+    phases = isnothing(daily_ns) ? nothing : (
+        growth_step_seconds=sum(daily_ns[mask]) / 1e9,
+        other_step_seconds=sum(daily_ns[.!mask]) / 1e9,
+    )
+    return (; arm, trial, clocked, execution=_timed(measured), phases, daily_ns)
+end
+function _paired_phase_diagnostics(arms, select, expected, progress)
+    traces = map(arms) do arm
+        p, ctx = select(arm)
+        _object_count_trace(p, ctx, expected, arm !== :ordinary)
+    end
+    counts = first(traces)
+    all(==(counts), traces) || error("per-day object counts differ")
+    mask = diff(counts) .> 0
+    trials = NamedTuple[]
+    for arm in arms, clocked in (false, true)
+        p, ctx = select(arm)
+        _paired_step_trial(p, ctx, expected, arm, 0, mask, clocked)
+    end
+    for trial in 1:4
+        order = circshift(collect(arms), (trial-1) ÷ 2)
+        iseven(trial) && reverse!(order)
+        for (slot, arm) in enumerate(order), clocked in (iseven(trial + slot), isodd(trial + slot))
+            p, ctx = select(arm)
+            row = _paired_step_trial(p, ctx, expected, arm, trial, mask, clocked)
+            phase = row.execution
+            iszero(phase.compile_s) && iszero(phase.recompile_s) ||
+                error("phase diagnostic compiled at trial $trial for $arm")
+            push!(trials, row)
+            println(progress, "phase diagnostic ", trial, " ", arm, " clocked=", clocked,
+                " ", phase.seconds)
+            flush(progress)
+        end
+    end
+    return (; trials, object_counts=counts, growth_days=count(mask), other_days=count(!, mask))
 end
 function _phase_summary(rows, arm)
     trials = filter(r -> r.arm === arm, rows)
@@ -127,7 +205,7 @@ function _paths_image(baseline)
         pse=_source_image(pkgdir(CURRENT.PSE)), xpalm=_source_image(pkgdir(CURRENT.XPalm)),
         manifest=_filehash(joinpath(pwd(),"Manifest.toml")), driver=_filehash(@__FILE__))
 end
-function _compare(before_module, baseline, baseline_revision, destination, settings, progress)
+function _compare(before_module, baseline, baseline_revision, destination, settings, progress, paired_phases)
     before = _paths_image(baseline)
     before.fixture.baseline == before.fixture.candidate || error("scientific fixture differs")
     before.pse == _source_image(realpath(joinpath(baseline,"../.."))) || error("ordinary PSE source differs across snapshots")
@@ -163,27 +241,30 @@ function _compare(before_module, baseline, baseline_revision, destination, setti
         end
     end
     diagnostics = NamedTuple[]
-    for arm in arms
-        perf, context = select(arm)
-        GC.gc()
-        _step_diagnostic(perf, context, expected, arm !== :ordinary)
-    end
-    for trial in 1:4
-        order = isodd(trial) ? (:before, :after) : (:after, :before)
-        for arm in (trial == 1 ? (order..., :ordinary) : order)
+    if !paired_phases
+        for arm in arms
             perf, context = select(arm)
             GC.gc()
-            row = _step_diagnostic(perf, context, expected, arm !== :ordinary)
-            iszero(row.compile_s) && iszero(row.recompile_s) || error("diagnostic compiled: $row")
-            push!(diagnostics, merge((; arm, trial), row))
+            _step_diagnostic(perf, context, expected, arm !== :ordinary)
+        end
+        for trial in 1:4
+            order = isodd(trial) ? (:before, :after) : (:after, :before)
+            for arm in (trial == 1 ? (order..., :ordinary) : order)
+                perf, context = select(arm)
+                GC.gc()
+                row = _step_diagnostic(perf, context, expected, arm !== :ordinary)
+                iszero(row.compile_s) && iszero(row.recompile_s) || error("diagnostic compiled: $row")
+                push!(diagnostics, merge((; arm, trial), row))
+            end
         end
     end
+    phase_diagnostics = paired_phases ? _paired_phase_diagnostics(arms, select, expected, progress) : nothing
     isequal(_paths_image(baseline), before) || error("source or manifest image changed")
     summaries = NamedTuple{arms}(map(arm -> _phase_summary(rows,arm), arms))
     report = (; settings, baseline_root=baseline, baseline_revision, metadata=before,
         candidate_revision=CURRENT._metadata().source_revision, julia=string(VERSION),
         cpu=Sys.CPU_NAME, threads=Threads.nthreads(), repeats=6, summaries, rows,
-        diagnostics, oracle_sha256=_filehash(oracle_path),
+        diagnostics, phase_diagnostics, oracle_sha256=_filehash(oracle_path),
         parity=(canonical_state=true, topology=true, rng=true, retained_samples=settings.retain,
             objects=length(expected.objects), samples=length(expected.samples)))
     path = joinpath(destination,"comparison-$(settings.days).json")
@@ -194,7 +275,8 @@ function _compare(before_module, baseline, baseline_revision, destination, setti
 end
 
 """
-    compare_writers(baseline, destination; days, baseline_revision, progress=stdout)
+    compare_writers(baseline, destination; days, baseline_revision,
+                    paired_phases=false, progress=stdout)
 
 Compare a frozen pre-writer-validation runtime with the current prepared XPalm
 runtime and ordinary PSE. Pass the snapshot's `benchmark/juliac_program` directory
@@ -210,8 +292,14 @@ runtime preparation and daily execution. All parity checks run after timers.
 Four additional typed trials split whole daily steps by whether objects were
 added. These diagnostic step groups include all work on each day. The ordinary
 reference snapshot and raw JSON are written to the scratch directory.
+
+With `paired_phases=true`, replace those diagnostics with four paired trials
+per arm using the same step loop with and without a per-day clock. An untimed
+run verifies equal per-day object counts across all arms. The report uses that
+trace to classify timed days after execution and records outer wall time, GC,
+and allocations for both variants.
 """
-function compare_writers(baseline, destination; days, baseline_revision, progress=stdout)
+function compare_writers(baseline, destination; days, baseline_revision, paired_phases::Bool=false, progress=stdout)
     settings = only(filter(case -> case.days == days, CASES))
     baseline = abspath(baseline)
     destination = mkpath(abspath(destination))
@@ -220,7 +308,8 @@ function compare_writers(baseline, destination; days, baseline_revision, progres
         error("use a fresh result directory")
     previous = Reuse._load_baseline(baseline)
     return Base.invokelatest(
-        () -> _compare(previous.FullXPalmPerformance, baseline, baseline_revision, destination, settings, progress),
+        () -> _compare(previous.FullXPalmPerformance, baseline, baseline_revision,
+            destination, settings, progress, paired_phases),
     )
 end
 
