@@ -3339,7 +3339,7 @@ function _extend_compiled_scene(
         end
     end
     manual_application_ids = compiled.scenario_plan.manual_application_ids
-    distributed_outputs, changed_distributed_output_target_ids =
+    distributed_outputs, changed_distributed_output_target_ids, new_writers_by_variable =
         _refresh_model_distributed_outputs(
             model,
             compiled.distributed_outputs,
@@ -3608,6 +3608,14 @@ function _extend_compiled_scene(
     previous_shared_many_sources = IdDict{Any,Vector{ObjectId}}()
     rebuild_dynamic_input_index = !pure_addition
     candidate_binding_indices = Set{Int}()
+    if !isnothing(new_writers_by_variable)
+        _force_distributed_producer_rebinds!(
+            forced_input_binding_keys,
+            model,
+            input_bindings,
+            new_writers_by_variable,
+        )
+    end
     if !isempty(forced_input_binding_keys)
         for (binding_index, binding) in pairs(input_bindings)
             key = (binding.application_id, binding.consumer_id, binding.input)
@@ -5800,7 +5808,7 @@ function _refresh_model_distributed_outputs(
     new_targets,
     pure_addition,
 )
-    return previous, Set{Tuple{Symbol,ObjectId}}()
+    return previous, Set{Tuple{Symbol,ObjectId}}(), nothing
 end
 
 function _stage_distributed_writer_owner!(
@@ -5971,7 +5979,7 @@ function _incremental_distributed_output_addition!(
         )
         for resolved in resolved_additions
     )
-    return previous, changed_targets
+    return previous, changed_targets, nothing
 end
 
 function _refresh_model_distributed_outputs(
@@ -6004,7 +6012,63 @@ function _refresh_model_distributed_outputs(
         manual_application_ids,
         plans,
     )
-    return current, _changed_distributed_output_target_ids(previous, current)
+    # With pure addition, a new origin can write to a destination that was
+    # already in the registry. These producer additions are independent of
+    # the changed execution targets used to refresh output columns.
+    new_writers_by_variable = if pure_addition
+        _new_writers_on_existing_destinations(current, new_targets, added_ids)
+    else
+        nothing
+    end
+    return current, _changed_distributed_output_target_ids(previous, current),
+           new_writers_by_variable
+end
+
+function _new_writers_on_existing_destinations(outputs, new_targets, added_ids)
+    added = Set(added_ids)
+    by_variable = nothing
+    for (application_id, origins) in new_targets, origin in origins
+        groups = get(outputs.by_execution_target, (application_id, origin), ())
+        for group in groups, destination in group.destination_ids
+            destination in added && continue
+            if isnothing(by_variable)
+                by_variable = Dict{Symbol,Vector{Tuple{ObjectId,Symbol}}}()
+            end
+            for variable in keys(group.declarations)
+                push!(
+                    get!(Vector{Tuple{ObjectId,Symbol}}, by_variable, variable),
+                    (destination, application_id),
+                )
+            end
+        end
+    end
+    return by_variable
+end
+
+function _force_distributed_producer_rebinds!(forced, model, bindings, by_variable)
+    for binding in bindings
+        binding.origin === :inferred_same_object && continue
+        (binding.carrier_hint === :temporal_stream ||
+         !isnothing(binding.process) || !isnothing(binding.application)) ||
+            continue
+        candidates = get(by_variable, binding.source_var, ())
+        isempty(candidates) && continue
+        default_scope = _default_dependency_scope(model, binding.consumer_id)
+        for (destination, producer) in candidates
+            producer in binding.plan.potential_source_application_ids || continue
+            _selector_matches_object_id(
+                model,
+                binding.matcher,
+                destination;
+                context=binding.consumer_id,
+                default_to_context=true,
+                default_scope,
+            ) || continue
+            push!(forced, (binding.application_id, binding.consumer_id, binding.input))
+            break
+        end
+    end
+    return nothing
 end
 
 _model_input_status_reference(binding) =

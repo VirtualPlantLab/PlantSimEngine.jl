@@ -67,15 +67,12 @@ end
 
 struct FullWriterDefault{VAR,SLOTS} end
 
-struct FullWriterConsumer{TEMP,SLOTS} end
-
-struct FullWriterGroup{C,R,F,A,N,D,I}
+struct FullWriterGroup{C,R,F,A,N,D}
     routes::R
     first_requires_previous::F
     accepts_previous::A
     names::N
     default_check::D
-    consumers::I
 end
 
 struct FullProgram{C,A,O,W}
@@ -288,7 +285,6 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
         end
         sources
     end
-    producer_consumers=Dict{Tuple{Symbol,Symbol},Set{Tuple}}()
     potential_sources=[Dict{Symbol,Tuple}() for _ in specs]
     temporals=[Dict{Symbol,Bool}() for _ in specs]
     input_routes=Vector{Any}(undef,length(specs))
@@ -332,9 +328,6 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
                         sort!(candidates; by=slot->(!(slot in manual),slot))
                     else
                         (last(candidates),)
-                    end
-                    if temporal || (filtered && all(slot->!(slot in manual),selected))
-                        push!(get!(Set{Tuple},producer_consumers,(cat,sourcevar)),(temporal,Tuple(selected)))
                     end
                     for slot in selected
                         value=_full_value(PSE.outputs_(specs[slot])[sourcevar])
@@ -437,14 +430,14 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
             i,names[i],inputs,outputs,calls,temporal_outputs[i],PSE.dep(spec.model),PSE.variable_contracts_(spec),I,O,E,B,S,H)
     end
     writer_groups=_full_writer_groups(
-        owners,output_routes,specs,names,appcat,catindex,compiled_applications,initial,producer_consumers)
+        owners,output_routes,specs,names,appcat,catindex,compiled_applications,initial)
     return FullProgram(cohorts,applications,order,scenario.timeline.base_step_seconds,writer_groups)
 end
 
 _full_writer_matcher(route::FullOutputRoute{C,V,false}) where {C,V}=nothing
 _full_writer_matcher(route::FullOutputRoute{C,V,true}) where {C,V}=route.matcher
 
-function _full_writer_groups(owners, outputs, specs, names, appcat, catindex, applications, initial, producer_consumers)
+function _full_writer_groups(owners, outputs, specs, names, appcat, catindex, applications, initial)
     groups=Any[]
     seen=Set{Any}()
     for (category,variable) in sort!(collect(keys(owners)))
@@ -471,15 +464,11 @@ function _full_writer_groups(owners, outputs, specs, names, appcat, catindex, ap
         else
             nothing
         end
-        consumers=map(Tuple(sort!(collect(get(producer_consumers,(category,variable),()))))) do (temporal,candidates)
-            indices=Tuple(findfirst(==(slot),slots) for slot in candidates if slot in slots)
-            FullWriterConsumer{temporal,indices}()
-        end
-        key=(cohort,routes,first_requires_previous,accepts_previous,group_names,default_check,consumers)
+        key=(cohort,routes,first_requires_previous,accepts_previous,group_names,default_check)
         key in seen && continue
         push!(seen,key)
-        push!(groups,FullWriterGroup{cohort,typeof(routes),typeof(first_requires_previous),typeof(accepts_previous),typeof(group_names),typeof(default_check),typeof(consumers)}(
-            routes,first_requires_previous,accepts_previous,group_names,default_check,consumers))
+        push!(groups,FullWriterGroup{cohort,typeof(routes),typeof(first_requires_previous),typeof(accepts_previous),typeof(group_names),typeof(default_check)}(
+            routes,first_requires_previous,accepts_previous,group_names,default_check))
     end
     return Tuple(groups)
 end

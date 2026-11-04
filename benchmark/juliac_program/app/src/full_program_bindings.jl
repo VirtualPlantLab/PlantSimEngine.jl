@@ -104,23 +104,22 @@ _full_source_cohorts(sources)=Tuple(unique(first.(sources)))
 end
 _full_writer_slot(::Val{SLOT}) where {SLOT}=SLOT
 
-_full_writer_covers(app,::FullOutputRoute{CS,V,false},node,committed) where {CS,V}=true
-function _full_writer_covers(app,route::FullOutputRoute{CS,V,true},node,committed) where {CS,V}
-    limit=committed ? app.cohort.committed : length(app.cohort.ids)
-    for row in 1:limit
+_full_writer_covers(app,::FullOutputRoute{CS,V,false},node) where {CS,V}=true
+function _full_writer_covers(app,route::FullOutputRoute{CS,V,true},node) where {CS,V}
+    for row in 1:app.cohort.committed
         _full_matches(route.matcher,app.cohort.nodes[row],node) && return true
     end
     return false
 end
 
-@inline function _full_candidate_covers(slot,state,node,::Val{V},committed) where {V}
+@inline function _full_candidate_covers(slot,state,node,::Val{V}) where {V}
     app=getfield(state.applications,_full_writer_slot(slot))
-    return _full_writer_covers(app,getfield(app.recipe.outputs,V),node,committed)
+    return _full_writer_covers(app,getfield(app.recipe.outputs,V),node)
 end
 
-@inline function _full_select_producer(candidates,state,node,variable,committed)
+@inline function _full_select_producer(candidates,state,node,variable)
     writer=PSE._last_matching_writer(candidates) do slot
-        _full_candidate_covers(slot,state,node,variable,committed)
+        _full_candidate_covers(slot,state,node,variable)
     end
     return isnothing(writer) ? 0 : _full_writer_slot(writer)
 end
@@ -132,7 +131,7 @@ end
     !(TEMP || FILTERED) && return only(slots)
     candidates=map(Val,filter(!iszero,slots))
     isempty(candidates) && return 0
-    return :(_full_select_producer($(QuoteNode(candidates)),state,node,Val($(QuoteNode(V))),$(MULT===:many)))
+    return :(_full_select_producer($(QuoteNode(candidates)),state,node,Val($(QuoteNode(V)))))
 end
 
 function _full_append_binding_row!(entries,state,origin,route::FullInputRoute{S,V,TEMP,MULT,T,M,FILTERED},
@@ -206,13 +205,12 @@ end
     end
 end
 
-_full_writer_origin_count(app,::FullOutputRoute{CS,V,false},committed) where {CS,V}=0
-_full_writer_origin_count(app,::FullOutputRoute{CS,V,true},committed) where {CS,V}=
-    committed ? app.cohort.committed : length(app.cohort.ids)
+_full_writer_origin_count(app,::FullOutputRoute{CS,V,false}) where {CS,V}=0
+_full_writer_origin_count(app,::FullOutputRoute{CS,V,true}) where {CS,V}=app.cohort.committed
 
-@inline function _full_writer_origin_count(state,::Val{SLOT},::Val{V},committed) where {SLOT,V}
+@inline function _full_writer_origin_count(state,::Val{SLOT},::Val{V}) where {SLOT,V}
     app=getfield(state.applications,SLOT)
-    return _full_writer_origin_count(app,getfield(app.recipe.outputs,V),committed)
+    return _full_writer_origin_count(app,getfield(app.recipe.outputs,V))
 end
 
 # Direct finite cohort/producer projections preserve concrete source and stream
@@ -226,7 +224,7 @@ end
         if TEMP || FILTERED
             for (cohort,slot) in S
                 cohort==C && slot>0 || continue
-                origins=:($origins+_full_writer_origin_count(state,Val($slot),Val($(QuoteNode(V))),$(MULT===:many)))
+                origins=:($origins+_full_writer_origin_count(state,Val($slot),Val($(QuoteNode(V)))))
             end
         end
         :(($count,_full_reference_epoch(state,Val($C),Val($(QuoteNode(V)))),$origins))
@@ -270,8 +268,17 @@ function _capture_full_temporal_initial!(binding,state,location)
     return nothing
 end
 
-function _capture_full_temporal_additions!(binding,state,origin)
-    additions=_full_added_binding_entries(binding,binding.route,state,origin)
+function _capture_full_temporal_additions!(binding,state,origin,stamp,point)
+    route=binding.route
+    additions=if _full_writer_origins_changed(binding.stamp,stamp)
+        # A new origin can make an already registered destination eligible.
+        # Preserve existing per-ID snapshots and seed new memberships here.
+        _full_binding_entries(route,state,origin)
+    elseif point
+        nothing
+    else
+        _full_added_binding_entries(binding,route,state,origin)
+    end
     isnothing(additions) && return nothing
     for location in additions
         _capture_full_temporal_initial!(binding,state,location)

@@ -102,36 +102,6 @@ function _validate_full_object_writers!(state,group,node,routes::Tuple,index,fir
     return _validate_full_object_writers!(state,group,node,_schema_tail(routes),index+1,first_writer,previous)
 end
 
-_full_writer_coverage(state,::FullWriterRoute{C,Nothing},node,committed) where {C}=true
-function _full_writer_coverage(state,route::FullWriterRoute{C},node,committed) where {C}
-    origin=state.cohorts[C]
-    limit=committed ? origin.committed : length(origin.ids)
-    for row in 1:limit
-        _full_matches(route.matcher,origin.nodes[row],node) && return true
-    end
-    return false
-end
-
-@generated function _full_writer_selection(
-    state,group,::FullWriterConsumer{TEMP,SLOTS},node,committed,
-) where {TEMP,SLOTS}
-    branch=:(0)
-    for index in SLOTS
-        matches=:(_full_writer_coverage(state,getfield(group.routes,$index),node,committed))
-        branch=Expr(:if,matches,TEMP ? index : 1,branch)
-    end
-    return branch
-end
-
-_validate_full_writer_selection!(state,group,node,::Tuple{})=nothing
-function _validate_full_writer_selection!(state,group,node,consumers::Tuple)
-    consumer=first(consumers)
-    _full_writer_selection(state,group,consumer,node,true)==
-        _full_writer_selection(state,group,consumer,node,false) ||
-        throw(ArgumentError("new distributed writer origins cannot change committed input producers"))
-    return _validate_full_writer_selection!(state,group,node,_schema_tail(consumers))
-end
-
 Base.@noinline function _validate_full_writer_group!(state, group::FullWriterGroup{C}) where {C}
     cohort=state.cohorts[C]
     # A new origin can add a writer to existing destinations. Otherwise only
@@ -140,14 +110,6 @@ Base.@noinline function _validate_full_writer_group!(state, group::FullWriterGro
     start=origin_grew ? 1 : cohort.committed+1
     for row in start:length(cohort.ids)
         _validate_full_object_writers!(state,group,cohort.nodes[row],group.routes,1,0,0)
-    end
-    # Ordinary addition refresh updates existing input membership for newly
-    # added destinations. Rebinding an old destination when an origin appears
-    # is a separate lifecycle case, outside this typed route's admission.
-    if origin_grew && !isempty(group.consumers)
-        for row in 1:cohort.committed
-            _validate_full_writer_selection!(state,group,cohort.nodes[row],group.consumers)
-        end
     end
     return nothing
 end
@@ -454,6 +416,8 @@ end
     return Expr(:block, checks..., :(nothing))
 end
 
+_full_has_writer_origins(stamp) = any(entry -> !iszero(entry[3]), stamp)
+
 @generated function _capture_full_temporal_births!(
     state,app::FullApplication{R,M,C,S,B},
 ) where {R,M,C,S,B}
@@ -463,10 +427,12 @@ end
         binding<:FullBinding && binding.parameters[2]===true || continue
         push!(captures,quote
             route=getfield(app.recipe.inputs,$index)
-            if !_full_is_point_selector(route.matcher)
+            point=_full_is_point_selector(route.matcher)
+            stamp=_full_binding_stamp(route,state)
+            if !point || _full_has_writer_origins(stamp)
                 for row in eachindex(app.cohort.ids)
                     _capture_full_temporal_additions!(
-                        getfield(app.bindings[row],$index),state,app.cohort.nodes[row])
+                        getfield(app.bindings[row],$index),state,app.cohort.nodes[row],stamp,point)
                 end
             end
         end)

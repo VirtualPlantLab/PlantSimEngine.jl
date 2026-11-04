@@ -372,14 +372,42 @@ function PSE.run!(::ScalarProducerProbe, status, environment, constants, context
 end
 
 PSE.@process "reuse_writer_origin_birth" verbose = false
-struct WriterOriginBirth <: AbstractReuse_Writer_Origin_BirthModel end
+struct WriterOriginBirth <: AbstractReuse_Writer_Origin_BirthModel
+    birth_step::Int
+end
+WriterOriginBirth() = WriterOriginBirth(1)
 PSE.inputs_(::WriterOriginBirth) = NamedTuple()
-PSE.outputs_(::WriterOriginBirth) = (origin_born=false,)
-function PSE.run!(::WriterOriginBirth, status, environment, constants, context)
-    (status.origin_born || PSE.object_id(context).value != 2) && return nothing
-    PSE.add_organ!(PSE.source_node(context), context, :+, :Leaf, 2; id=20, index=1)
-    status.origin_born = true
+PSE.outputs_(::WriterOriginBirth) = (origin_step=0,)
+function PSE.run!(model::WriterOriginBirth, status, environment, constants, context)
+    PSE.object_id(context).value == 2 || return nothing
+    status.origin_step += 1
+    if status.origin_step == model.birth_step
+        PSE.add_organ!(PSE.source_node(context), context, :+, :Leaf, 2; id=20, index=1)
+    end
     return nothing
+end
+
+const REBIND_INITIAL = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
+const REBIND_PREVIOUS = (Float32[0, 0], Float32[0, 5], Float32[9, 5])
+
+function _origin_rebind_specs()
+    destinations = (OutputTo(Many(Relation(:parent); scale=:Plant)),)
+    return (
+        _application(ImplicitProducer(), :background, :Plant),
+        _application(WriterOriginBirth(2), :birth, :Plant),
+        _application(WriterDistribution(9f0), :new_writer, :Leaf;
+            outputs_to=destinations, updates=Updates(:value; after=:background)),
+        _application(ProducerProbe(), :probe, :Scene; inputs=(
+            :filtered => Many(scale=:Plant, application=:new_writer, var=:value),
+            PreviousTimeStep(:previous) => Many(scale=:Plant, var=:value),
+        )),
+    )
+end
+
+function _origin_rebind_tree()
+    root = _tree()
+    _node(3, :Plant, 1, root)
+    return root
 end
 
 function _writer_distribution(name, category, value; seed=0f0)
@@ -406,6 +434,36 @@ end
 
 function _ordinary_writer_scene(specs, root)
     return CompositeModel(root; applications=specs, environment=(duration=Day(1),))
+end
+
+function run_writer_origin_rebind_checks()
+    @testset "a newborn writer rebinds inputs on an existing destination" begin
+        for retain in (false, true)
+            specs = _origin_rebind_specs()
+            root = _ordinary_growth_tree()
+            MTG.Node(3, root, MTG.NodeMTG(:+, :Plant, 1, 1), NamedTuple())
+            simulation = PSE.run!(_ordinary_writer_scene(specs, root);
+                steps=0, outputs=retain ? :all : :none)
+            state = _instantiate(specs, REBIND_INITIAL, _origin_rebind_tree(); retain)
+            unrelated_key = (:background, ObjectId(3), :value)
+            unrelated_stream = PSE.outputs(simulation)[unrelated_key]
+            for (step, lagged) in enumerate(REBIND_PREVIOUS)
+                RP.step!(state, NamedTuple())
+                PSE.step!(simulation)
+                actual = _status(state, 1)
+                ordinary = PSE.final_state(simulation, ObjectId(1))
+                @test actual.live_ids == ordinary.live_ids == (step == 1 ? Int[] : [2])
+                @test actual.live_values == ordinary.live_values == (step == 1 ? Float32[] : Float32[9])
+                @test actual.previous_values == ordinary.previous_values == lagged
+                @test _status(state, 2).value === PSE.final_state(simulation, ObjectId(2)).value === (step == 1 ? 5f0 : 9f0)
+                @test PSE.outputs(simulation)[unrelated_key] === unrelated_stream
+            end
+            if retain
+                @test last(PSE.outputs(simulation)[(:background, ObjectId(2), :value)])[2] === 5f0
+                @test last(PSE.outputs(simulation)[(:new_writer, ObjectId(2), :value)])[2] === 9f0
+            end
+        end
+    end
 end
 
 function run_checks()
@@ -649,25 +707,7 @@ function run_checks()
                 @test actual.previous_values == ordinary.previous_values == lagged
             end
         end
-        @testset "new distributed writer origins cannot change old destinations" begin
-            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
-            destinations = (OutputTo(Many(Relation(:parent); scale=:Plant)),)
-            writers = (
-                _application(ImplicitProducer(), :background, :Plant),
-                _application(WriterOriginBirth(), :birth, :Plant),
-                _application(WriterDistribution(9f0), :new_writer, :Leaf;
-                    outputs_to=destinations, updates=Updates(:value; after=:background)),
-            )
-            output_only = _instantiate(writers, initial, _tree())
-            RP.step!(output_only, NamedTuple())
-            @test _status(output_only, 2).value === 9f0
-
-            source = Many(scale=:Plant, application=:new_writer, var=:value)
-            observer = _application(F32Observer(), :observer, :Scene; inputs=(xs=source,))
-            state = _instantiate((writers...,observer), initial, _tree())
-            @test_throws "new distributed writer origins cannot change committed input producers" RP.step!(state, NamedTuple())
-            @test state.step == 0
-        end
+        run_writer_origin_rebind_checks()
         @testset "filtered scalar inputs preserve selector cardinality and optional defaults" begin
             initial = (Scene=NamedTuple(), Plant=NamedTuple(), Phytomer=NamedTuple(),
                 Leaf=NamedTuple())
