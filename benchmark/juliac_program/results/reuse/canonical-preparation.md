@@ -11,11 +11,9 @@ and selects among them by object. A temporal input takes its first value
 at the growth barrier, before the next producer runs. The tests cover disjoint distributed
 writers, filtered `Many` reads, `PreviousTimeStep`, and a new destination
 that joins an existing writer during growth. `OptionalOne` retains the
-canonical default reference while its producer is absent. A new distributed
-writer origin that would change a filtered or temporal producer on an
-already committed destination fails explicitly. This case needs the ordinary
-PSE lifecycle refresh to rebind the existing destination before it can be
-admitted.
+canonical default reference while its producer is absent. The subsequent
+[newborn writer correction](writer-rebind.md) also refreshes a filtered or
+temporal binding when growth changes the producer of an existing destination.
 
 The mixed-cadence fixture has hourly and daily applications, a manual call,
 and a previous-step read. The independent ordinary run compares canonical
@@ -56,3 +54,47 @@ runtime commit `b2305803b`.
 | Per-object producer fixture | `e5639c40154b0b82db4446462ffdf5167087afc348480e378c5b7ec3fdc7b773` |
 | AMAPSim | `5cc27190490616e3562c07265efddaeedd76232e1732384a9dd814cf80829739` |
 | MAESPA daylight | `c2ad6daebafa9f5e7d8ca5bd0e24516d3b1d1a91d79aadd90062e676c70a10a0` |
+
+## Shared admission and publication follow-up
+
+Ordinary PSE and the native adapters use the same scenario preparation to
+validate hard-call cadences and reject distributed outputs on manual targets.
+XPalm now uses the existing PSE initializer checks in place of a second scan
+of its typed input routes. Graph diagnostics still report the errors in their
+call-cadence and writer phases.
+
+The typed XPalm adapter checks the producer's default policy for any input
+it lowers to a live reference. It supports `HoldLast` and explicit
+`PreviousTimeStep`. It reports an inherited policy such as `Interpolate`
+during preparation. An explicit `HoldLast` input overrides the producer's
+default in both runtimes. When the same typed plan is reused, a replacement
+model must still supply `HoldLast` on outputs whose defaults the plan used.
+
+Ordinary PSE and the MAESPA adapter share sample replacement at a repeated
+time and pruning for dependency streams. The MAESPA adapter still copies
+mutable values using its typed schema before handing them to the shared
+publication code.
+
+The Julia checks passed 280 reuse assertions and 360 graph-view assertions.
+The ordinary hard-call, initializer, output-destination, multirate and
+previous-step suites also passed.
+
+The `39ffaf5cc` XPalm runtime was rebuilt with Julia 1.13.1 and JuliaC
+0.3.12 in `safe` mode for generic CPU. At 60 days it matched the archived
+ordinary PSE oracle for 246 objects and 122,554 retained values. At 4,160
+days it matched 1,190 objects and 27,828 canonical fields. Both cases compared
+topology and two RNG probes. The 50-hour cadence output matched the prior
+qualified binary byte for byte. The newborn writer fixture passed with and
+without retention.
+
+For MAESPA, the typed Julia executor matched PSE at initialization and after
+each of four steps. The daylight `safe` binary matched 28,202 records from a
+fresh ordinary PSE run over 24 steps and passed all 390 assertions. The
+focused publication test separately verifies replacement at the same time,
+retention of the preceding dependency sample and independent mutable copies.
+
+| Follow-up bundle | Binary SHA-256 |
+| --- | --- |
+| XPalm and mixed cadence | `e8b6d9bbec490f2ea096261622713102ab37da5bceade731e7f73958438c22f8` |
+| Newborn writer fixture | `9dc9d9b96782173e1c74d2e0c0162bd8d784a52758bb47aa1eced72356de8090` |
+| MAESPA daylight | `8c0b4de507f5914234ec6cc5594f039a9efbedf61bd4fee4554b1260b2ea1765` |
