@@ -98,3 +98,53 @@ retention of the preceding dependency sample and independent mutable copies.
 | XPalm and mixed cadence | `e8b6d9bbec490f2ea096261622713102ab37da5bceade731e7f73958438c22f8` |
 | Newborn writer fixture | `9dc9d9b96782173e1c74d2e0c0162bd8d784a52758bb47aa1eced72356de8090` |
 | MAESPA daylight | `8c0b4de507f5914234ec6cc5594f039a9efbedf61bd4fee4554b1260b2ea1765` |
+
+## Reusing the prepared scenario
+
+`CompositeModel` prepares the scenario lazily. If an adapter prepares it
+first, ordinary PSE builds its bindings from that plan. If ordinary PSE
+prepares first, the adapter can reuse the plan from its binding cache.
+Target lists are copied when a consumer creates runtime applications.
+MAESPA copies the authored model and prepared snapshot together before
+creating its private bindings. Explicit compilation through
+`Advanced.compile_composite_model` still builds a fresh plan.
+
+Structural edits invalidate the snapshot. An adapter that prepares while
+topology changes are pending gets a snapshot of the current topology. The
+active simulation can then apply its pending incremental refresh with its
+existing schedule and history. A fresh run checks the base step after a
+global environment change. Ordinary `run!` continues to advance the supplied
+model and its RNG. The isolation checks use separate owned model instances.
+
+The prepared-scenario tests passed 54 assertions on Julia 1.10.12 with CI
+flags and on Julia 1.13.1. They compare fresh and reused plans across
+continuation, random draws, retained streams, object addition, reparenting,
+removal, and edits to cadence, model and bindings. The Julia 1.10 API
+stabilization suite passed all 760 assertions. On Julia 1.13.1, the
+API stabilization, lifecycle, multirate, previous-timestep and graph
+suites passed 1,291 assertions, and XPalm host reuse passed 280.
+
+Fresh JuliaC 0.3.12 `safe` builds on Julia 1.13.1 used the `generic` CPU
+target. XPalm matched the ordinary PSE references for 60 days with all
+outputs (246 objects, 4,904 state fields, 122,554 retained samples) and
+4,160 days with no retained outputs (1,190 objects, 27,828 state fields).
+Both comparisons checked topology and RNG state. The 90-assertion
+mixed-cadence suite also compared a native 24 + 26 hour continuation
+with a continuous 50-hour run and ordinary PSE, including retained history.
+
+AMAPSim passed 274 host assertions and 45 admission assertions. With
+all outputs retained, the safe executable matched ordinary PSE byte for
+byte for Branch46 (four plants, 16 steps, 189 objects) and stochastic
+Merisier (one plant, eight steps, 735 objects).
+
+The MAESPA daylight executable matched all 28,202 ordinary PSE records
+over 24 half-hour steps with all outputs retained. The case covers the
+two-tree canopy and soil model without Tuzet stomatal conductance.
+
+The native builds used PSE revision `db34842e5`.
+
+| Executable | SHA-256 |
+| --- | --- |
+| XPalm and mixed cadence | `d2a2bc0c7cc30974536eb45fd412602b2763f75250e2b3566715a35bc5633029` |
+| AMAPSim | `fa83b676087aceb6ea0a70fd5a6d0770ca9150bf4a51d7a4de3ce096715f6d5b` |
+| MAESPA daylight | `bcf7a047be6f0e66531401fe919f7a801d6efcd9f00baf9ae185cf3f8fe62329` |
