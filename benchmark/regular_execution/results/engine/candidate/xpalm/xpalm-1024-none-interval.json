@@ -1,1 +1,0 @@
-{"state":"complete","arm":"candidate","kind":"xpalm","size":1024,"mode":"none","copies":1,"started":1.793661902643107e9,"ended":1.793661909369379e9,"checkpoint_sha256":"a7a926e1420d53c2d0d6671fd62e9477d52969d8064df05ef47a6bff2dce39df","result":{"case":"1024-none","execution_s":[0.559898,0.548242208,0.585586125],"preparation_s":[0.020583417,0.020014459,0.019962208],"objects":311}}

@@ -1,1 +1,0 @@
-Historical indexed-row version at commit `67cb7292`. Native values and relocation passed. Native process timing overlapped a small parent-side allocation check and is not used as a clean timing estimate. The screen/allocations were taken separately. Current results in the parent directory supersede this screen.

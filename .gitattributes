@@ -1,5 +1,2 @@
 # Generated bundles may preserve whitespace inside dependency template literals.
 frontend/dist/assets/*.js -whitespace
-
-# Unified diffs contain single-space context lines for empty source lines.
-benchmark/juliac_program/downstream_maespa_typing.patch -whitespace

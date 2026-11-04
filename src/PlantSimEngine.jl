@@ -11,7 +11,6 @@ import CSV
 import Term
 import Markdown
 import JSON
-import InteractiveUtils
 import Random
 import Base: position
 

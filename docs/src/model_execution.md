@@ -84,8 +84,12 @@ preparation is called **compilation**. It:
 8. groups objects with matching model, status, and environment types so Julia
    can run them efficiently.
 
-The time loop reuses this work instead of searching for every connection
-again at each step.
+The scenario plan records the selected objects, connections, and execution
+order. PlantSimEngine can reuse it while those declarations and the topology
+still match. Live status references and time histories belong to the
+simulation. When a model creates or removes an object during a run,
+PlantSimEngine refreshes the affected connections before later applications
+use them. Use `continue!` or `step!` to advance with the same history.
 
 Useful inspection helpers:
 
@@ -127,7 +131,7 @@ Authoring.write_compiled_model_source("compiled_model.jl", model)
 The generated code shows which models run on which objects, where their
 inputs come from, and which equations and manual calls are used. It runs
 through the normal PlantSimEngine machinery. Use this view to inspect
-execution; use `scenario_source` when you want to edit the simulation setup.
+execution. Use `scenario_source` to edit the simulation setup.
 
 ## Soft Dependencies With Inputs
 

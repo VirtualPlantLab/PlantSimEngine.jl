@@ -1,1 +1,0 @@
-{"state":"complete","arm":"baseline","kind":"xpalm","size":256,"mode":"none","copies":1,"started":1.793661880340356e9,"ended":1.793661883510507e9,"checkpoint_sha256":"77dfcf74dcb20ee3d65f91b9a4dbc691036686e06184bf7ae0ee181f0857a721","result":{"case":"256-none","execution_s":[0.108617041,0.100965583,0.10622775],"preparation_s":[0.021949916,0.017740584,0.017314458],"objects":86}}
