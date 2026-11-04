@@ -5,6 +5,9 @@ include("xpalm_fixture.jl")
 include("phytomer_fixture.jl")
 include("full_xpalm_fixture.jl")
 include("full_xpalm_entry.jl")
+include("mixed_cadence_fixture.jl")
+
+const MIXED_CADENCE_PROGRAM = MixedCadenceFixture.prepare()
 
 const XPALM_PROGRAM = ReusableProgram.prepare(XPalmFixture.specs();initial=XPalmFixture.initial())
 
@@ -100,6 +103,13 @@ end
 function (@main)(args::Vector{String})
     isempty(args) && throw(ArgumentError("expected mode"))
     mode = args[1]
+    if mode=="cadence"
+        length(args)==2 || throw(ArgumentError("cadence hours"))
+        state=MixedCadenceFixture.instantiate(MIXED_CADENCE_PROGRAM)
+        MixedCadenceFixture.advance!(state,parse(Int,args[2]))
+        _print_full_xpalm(state)
+        return 0
+    end
     if mode=="full"
         length(args)==4 || throw(ArgumentError("full days rate reproductive"))
         state=simulate_full_xpalm(parse(Int,args[2]),parse(Float64,args[3]),parse(Bool,args[4]))

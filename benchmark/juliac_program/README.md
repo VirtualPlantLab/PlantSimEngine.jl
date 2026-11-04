@@ -75,7 +75,9 @@ covers the bounded phytomer subtree described above. The full layout extends
 the same grammar to the pinned daily whole-palm graph, PreviousTimeStep inputs,
 distributed columns and ordered writers. It takes the root application schedule
 from the same resolved CompositeModel plan as ordinary PSE, including entries
-whose first targets appear during growth. Call routes take their target
+whose first targets appear during growth. The full executor advances one base
+step per supplied global row and checks each application's cadence in base-step
+units. The pinned XPalm case keeps its daily forcing. Call routes take their target
 application, mode and multiplicity from that plan. Distributed output routes
 use its variable partitions and destination selectors. Input routes use its
 potential producers for both explicit and inferred couplings, including
@@ -139,7 +141,7 @@ unsafe bypass. Each build creates a new bundle and writes its path to
 `build/latest.txt`. Distribute that entire bundle. Its `bin/run-pse-program`
 configures lookup of bundled artifacts before executing native `bin/pse_program`.
 
-The CLI now has an explicit mode followed by eight numeric inputs:
+The two single-cohort CLI modes take eight numeric inputs.
 
 ```text
 fixture population steps birth_at newborns id_offset efficiency conversion temperature
@@ -171,5 +173,22 @@ No process-cold speedup, universal zero-JIT or cross-platform portability claim
 is made. A native library ABI remains future work. The `phytomer` mode covers
 the qualified structural subtree, while `full` runs the complete pinned daily
 `architecture=false` XPalm graph described at the top of this page.
+
+The synthetic `cadence` fixture runs an hourly producer and a daily consumer on
+hourly forcing. The daily application reads both the current value and the
+previous hour's value and publishes its manual call on the same daily steps.
+
+```text
+/path/to/bundle/bin/run-pse-program cadence 50
+```
+
+In a Kaimon session for `app/`, compare canonical state and all retained samples
+with an independent ordinary PSE run. The host gate also tests phased integer
+and fractional clocks.
+
+```julia
+include("../mixed_cadence_checks.jl")
+MixedCadenceChecks.run_checks(; executable="/path/to/bundle/bin/run-pse-program")
+```
 
 Official compiler: [JuliaC](https://github.com/JuliaLang/JuliaC.jl).

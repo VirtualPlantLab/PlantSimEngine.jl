@@ -35,7 +35,7 @@ Application zero means explicit live canonical state, not an output stream.
 TEMP=true reads the previous completed timestep of the specified application.
 T is the scalar element type for Many, or the complete value type for One.
 """
-struct FullInputRoute{SOURCES,VAR,TEMP,MULT,T,M}
+struct FullInputRoute{SOURCES,VAR,TEMP,MULT,T,M,FILTERED}
     matcher::M
 end
 struct FullOutputRoute{COHORTS,VAR,DISTRIBUTED,M}
@@ -67,21 +67,33 @@ end
 
 struct FullWriterDefault{VAR,SLOTS} end
 
-struct FullWriterGroup{C,R,F,A,N,D}
+struct FullWriterConsumer{TEMP,SLOTS} end
+
+struct FullWriterGroup{C,R,F,A,N,D,I}
     routes::R
     first_requires_previous::F
     accepts_previous::A
     names::N
-    requires_uniform::Bool
     default_check::D
+    consumers::I
 end
 
 struct FullProgram{C,A,O,W}
     cohorts::C
     applications::A
     order::O
-    cadence_ms::Int64
+    base_step_seconds::Float64
     writer_groups::W
+end
+
+struct FullScheduledSlot{I,K}
+    entry::PSE.CompiledApplicationScheduleEntry
+end
+
+function _full_schedule_slot(entry)
+    slot=entry.application_slot
+    entry.kind===:always && return Val(slot)
+    return FullScheduledSlot{slot,entry.kind}(entry)
 end
 Base.show(io::IO,program::FullProgram)=print(io,"FullProgram(",length(program.applications),
     " applications, ",length(program.cohorts)," cohorts)")
@@ -97,8 +109,7 @@ _full_value(declaration)=declaration
 function _full_temporal_outputs!(needed,::FullInputRoute{SOURCES,VAR,TEMP}) where {SOURCES,VAR,TEMP}
     TEMP || return nothing
     for (_,slot) in SOURCES
-        slot>0 || throw(ArgumentError("temporal inputs require an output producer"))
-        push!(needed[slot],VAR)
+        slot>0 && push!(needed[slot],VAR)
     end
     return nothing
 end
@@ -150,17 +161,13 @@ end
 function prepare(model::PSE.CompositeModel; initial)
     isempty(model.instances) || throw(ArgumentError("full programs require direct applications"))
     specs = Tuple(model.applications)
-    timeline = PSE._model_timeline(model)
-    timeline.base_step_seconds == 86_400 || throw(ArgumentError("full programs require a daily timeline"))
-    applications = PSE._compile_model_applications(model, specs, timeline)
-    all(application -> application.clock.dt == 1.0, applications) ||
-        throw(ArgumentError("full programs require one execution per daily step for every application"))
+    scenario, applications = PSE._prepare_scenario_plan(model)
+    PSE._validate_model_call_plan_cadences!(applications, scenario.call_plans, scenario.timeline)
     for application in applications, id in application.target_ids
         object=PSE._model_object(model,id)
         object.kind===:scene && object.scale!==:Scene &&
             throw(ArgumentError("full dependency scopes require scene objects to have scale=:Scene"))
     end
-    scenario = PSE._compile_resolved_scenario_plan(model, applications, timeline)
     return _prepare_full(specs, scenario, applications; initial)
 end
 
@@ -180,15 +187,9 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
         isnothing(spec.environment) && isempty(spec.environment_bindings) && isnothing(spec.environment_window) ||
             throw(ArgumentError("full entry currently uses one global environment row"))
         isempty(PSE.environment_outputs_(spec)) && isempty(PSE.dep(spec)) || throw(ArgumentError("unsupported environment/legacy dependency protocol"))
-        PSE._is_default_clock(PSE.timespec(spec.model)) || throw(ArgumentError("nondefault model clock unsupported"))
         isempty(spec.output_routing) || all(==(:canonical),values(spec.output_routing)) || throw(ArgumentError("stream-only outputs unsupported in full layout"))
         PSE._variable_contract_schema(spec)
         c.scale
-    end
-    cadence=Dates.value(convert(Millisecond,Day(1)))
-    for spec in specs
-        isnothing(spec.timestep) || Dates.value(convert(Millisecond,spec.timestep))==cadence ||
-            throw(ArgumentError("full entry currently uses a single daily cadence"))
     end
     catindex=Dict(cat=>i for (i,cat) in enumerate(categories))
     # Writer order is authored application order; Updates must explicitly justify
@@ -287,7 +288,7 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
         end
         sources
     end
-    uniform_writer_groups=Set{Tuple{Symbol,Symbol}}()
+    producer_consumers=Dict{Tuple{Symbol,Symbol},Set{Tuple}}()
     potential_sources=[Dict{Symbol,Tuple}() for _ in specs]
     temporals=[Dict{Symbol,Bool}() for _ in specs]
     input_routes=Vector{Any}(undef,length(specs))
@@ -324,13 +325,22 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
                 candidates=!explicit && i in manual ? Int[] :
                     [j for j in get(writers,(cat,sourcevar),Int[]) if names[j] in producer_ids]
                 append!(potential,candidates)
-                chosen=isempty(candidates) ? 0 : last(candidates)
-                if chosen!=0
-                    # These routes name a producer slot. Live unfiltered
-                    # routes use the same canonical Ref regardless of writer.
-                    (filtered || temporal) && push!(uniform_writer_groups,(cat,sourcevar))
-                    value=_full_value(PSE.outputs_(specs[chosen])[sourcevar])
-                    push!(sources,(catindex[cat],chosen));push!(values_,value)
+                if !isempty(candidates)
+                    selected=if filtered || temporal
+                        # Canonical owners have priority over manual local
+                        # writers. Within each class use authored writer order.
+                        sort!(candidates; by=slot->(!(slot in manual),slot))
+                    else
+                        (last(candidates),)
+                    end
+                    if temporal || (filtered && all(slot->!(slot in manual),selected))
+                        push!(get!(Set{Tuple},producer_consumers,(cat,sourcevar)),(temporal,Tuple(selected)))
+                    end
+                    for slot in selected
+                        value=_full_value(PSE.outputs_(specs[slot])[sourcevar])
+                        push!(sources,(catindex[cat],slot))
+                        push!(values_,value)
+                    end
                 elseif !filtered && haskey(seeds[cat],sourcevar)
                     seed=seeds[cat][sourcevar]
                     push!(sources,(catindex[cat],0));push!(values_,_seed(seed,models,initial))
@@ -363,7 +373,7 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
                         FullModelSeed{typeof(specs[chosen].model),:output,sourcevar,T}(chosen)
                 end
             end
-            route=FullInputRoute{Tuple(sources),sourcevar,temporal,multiplicity,T,typeof(matcher)}(matcher)
+            route=FullInputRoute{Tuple(sources),sourcevar,temporal,multiplicity,T,typeof(matcher),filtered}(matcher)
             push!(route_pairs[i],var=>route)
             potential_sources[i][var]=Tuple(unique(potential))
             temporals[i][var]=temporal
@@ -397,7 +407,7 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
     order=map(Tuple(scenario.application_schedule.entries)) do entry
         names[entry.application_slot] === entry.application_id ||
             throw(ArgumentError("resolved application does not match its authored slot"))
-        Val(entry.application_slot)
+        _full_schedule_slot(entry)
     end
     cohorts=map(categories) do cat
         fields=Tuple(sort!(collect(keys(seeds[cat]));by=string))
@@ -427,14 +437,14 @@ function _prepare_full(specs::Tuple, scenario, compiled_applications; initial)
             i,names[i],inputs,outputs,calls,temporal_outputs[i],PSE.dep(spec.model),PSE.variable_contracts_(spec),I,O,E,B,S,H)
     end
     writer_groups=_full_writer_groups(
-        owners,output_routes,specs,names,appcat,catindex,compiled_applications,uniform_writer_groups,initial)
-    return FullProgram(cohorts,applications,order,cadence,writer_groups)
+        owners,output_routes,specs,names,appcat,catindex,compiled_applications,initial,producer_consumers)
+    return FullProgram(cohorts,applications,order,scenario.timeline.base_step_seconds,writer_groups)
 end
 
 _full_writer_matcher(route::FullOutputRoute{C,V,false}) where {C,V}=nothing
 _full_writer_matcher(route::FullOutputRoute{C,V,true}) where {C,V}=route.matcher
 
-function _full_writer_groups(owners, outputs, specs, names, appcat, catindex, applications, uniform, initial)
+function _full_writer_groups(owners, outputs, specs, names, appcat, catindex, applications, initial, producer_consumers)
     groups=Any[]
     seen=Set{Any}()
     for (category,variable) in sort!(collect(keys(owners)))
@@ -455,18 +465,21 @@ function _full_writer_groups(owners, outputs, specs, names, appcat, catindex, ap
         end
         group_names=map(slot->names[slot],Tuple(slots))
         cohort=catindex[category]
-        requires_uniform=length(slots)>1 && (category,variable) in uniform
-        default_check=if length(slots)>1 && !requires_uniform && !haskey(initial[category],variable) &&
+        default_check=if length(slots)>1 && !haskey(initial[category],variable) &&
                 any(route->!isnothing(route.matcher),routes)
             FullWriterDefault{variable,Tuple(slots)}()
         else
             nothing
         end
-        key=(cohort,routes,first_requires_previous,accepts_previous,group_names,requires_uniform,default_check)
+        consumers=map(Tuple(sort!(collect(get(producer_consumers,(category,variable),()))))) do (temporal,candidates)
+            indices=Tuple(findfirst(==(slot),slots) for slot in candidates if slot in slots)
+            FullWriterConsumer{temporal,indices}()
+        end
+        key=(cohort,routes,first_requires_previous,accepts_previous,group_names,default_check,consumers)
         key in seen && continue
         push!(seen,key)
-        push!(groups,FullWriterGroup{cohort,typeof(routes),typeof(first_requires_previous),typeof(accepts_previous),typeof(group_names),typeof(default_check)}(
-            routes,first_requires_previous,accepts_previous,group_names,requires_uniform,default_check))
+        push!(groups,FullWriterGroup{cohort,typeof(routes),typeof(first_requires_previous),typeof(accepts_previous),typeof(group_names),typeof(default_check),typeof(consumers)}(
+            routes,first_requires_previous,accepts_previous,group_names,default_check,consumers))
     end
     return Tuple(groups)
 end

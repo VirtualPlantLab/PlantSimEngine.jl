@@ -6425,6 +6425,19 @@ _distributed_temporal_source_application(
     matches,
 ) = nothing
 
+@inline function _last_matching_writer(matches, owners)
+    for owner in Iterators.reverse(owners)
+        matches(owner) && return owner
+    end
+    return nothing
+end
+
+@inline _last_matching_writer(matches, ::Tuple{}) = nothing
+@inline function _last_matching_writer(matches, owners::Tuple)
+    owner = last(owners)
+    return matches(owner) ? owner : _last_matching_writer(matches, Base.front(owners))
+end
+
 function _distributed_temporal_source_application(
     distributed_outputs::CompiledDistributedOutputs,
     source_id::ObjectId,
@@ -6438,10 +6451,8 @@ function _distributed_temporal_source_application(
         (source_id, source_var),
         (),
     )
-    for owner in Iterators.reverse(owners)
-        owner.application_id in matching_ids && return owner.application_id
-    end
-    return nothing
+    owner = _last_matching_writer(owner -> owner.application_id in matching_ids, owners)
+    return isnothing(owner) ? nothing : owner.application_id
 end
 
 function _validate_temporal_input_output_overlap!(
@@ -7495,13 +7506,8 @@ function _final_many_source_applications(
             (source_id, source_var),
             (),
         )
-        final_owner = nothing
-        for owner in Iterators.reverse(owners)
-            if owner.application_id in matching_ids
-                final_owner = owner.application_id
-                break
-            end
-        end
+        writer = _last_matching_writer(owner -> owner.application_id in matching_ids, owners)
+        final_owner = isnothing(writer) ? nothing : writer.application_id
         if isnothing(final_owner)
             for application_id in source_application_ids
                 application = applications_by_id[application_id]

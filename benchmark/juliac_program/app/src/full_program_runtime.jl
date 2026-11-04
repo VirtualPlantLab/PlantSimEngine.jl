@@ -96,12 +96,40 @@ function _validate_full_object_writers!(state,group,node,routes::Tuple,index,fir
         end
         previous=index
     else
-        group.requires_uniform &&
-            throw(ArgumentError("filtered or temporal inputs require uniform writer coverage within a cohort"))
         _full_writer_defaults_equal(state,group.default_check) ||
             throw(ArgumentError("disjoint writers require identical output defaults or an external cohort seed"))
     end
     return _validate_full_object_writers!(state,group,node,_schema_tail(routes),index+1,first_writer,previous)
+end
+
+_full_writer_coverage(state,::FullWriterRoute{C,Nothing},node,committed) where {C}=true
+function _full_writer_coverage(state,route::FullWriterRoute{C},node,committed) where {C}
+    origin=state.cohorts[C]
+    limit=committed ? origin.committed : length(origin.ids)
+    for row in 1:limit
+        _full_matches(route.matcher,origin.nodes[row],node) && return true
+    end
+    return false
+end
+
+@generated function _full_writer_selection(
+    state,group,::FullWriterConsumer{TEMP,SLOTS},node,committed,
+) where {TEMP,SLOTS}
+    branch=:(0)
+    for index in SLOTS
+        matches=:(_full_writer_coverage(state,getfield(group.routes,$index),node,committed))
+        branch=Expr(:if,matches,TEMP ? index : 1,branch)
+    end
+    return branch
+end
+
+_validate_full_writer_selection!(state,group,node,::Tuple{})=nothing
+function _validate_full_writer_selection!(state,group,node,consumers::Tuple)
+    consumer=first(consumers)
+    _full_writer_selection(state,group,consumer,node,true)==
+        _full_writer_selection(state,group,consumer,node,false) ||
+        throw(ArgumentError("new distributed writer origins cannot change committed input producers"))
+    return _validate_full_writer_selection!(state,group,node,_schema_tail(consumers))
 end
 
 Base.@noinline function _validate_full_writer_group!(state, group::FullWriterGroup{C}) where {C}
@@ -112,6 +140,14 @@ Base.@noinline function _validate_full_writer_group!(state, group::FullWriterGro
     start=origin_grew ? 1 : cohort.committed+1
     for row in start:length(cohort.ids)
         _validate_full_object_writers!(state,group,cohort.nodes[row],group.routes,1,0,0)
+    end
+    # Ordinary addition refresh updates existing input membership for newly
+    # added destinations. Rebinding an old destination when an origin appears
+    # is a separate lifecycle case, outside this typed route's admission.
+    if origin_grew && !isempty(group.consumers)
+        for row in 1:cohort.committed
+            _validate_full_writer_selection!(state,group,cohort.nodes[row],group.consumers)
+        end
     end
     return nothing
 end
@@ -249,7 +285,7 @@ function _append_full_views!(state,apps::Tuple,cohort::Cohort{K},row) where {K}
 end
 @generated function _make_full_bindings(routes::NamedTuple{K,T},stored::S,state,node) where {K,T,S<:Status}
     bindings=[:(_make_full_binding(getfield(routes,$index),state,node,
-        getfield(getfield(stored,:vars),$(QuoteNode(K[index])))[])) for index in eachindex(K)]
+        getfield(getfield(stored,:vars),$(QuoteNode(K[index]))))) for index in eachindex(K)]
     return Expr(:call,NamedTuple{K},Expr(:tuple,bindings...))
 end
 Base.@noinline function _append_full_view!(state,app::FullApplication{R,M,C,S,B,H},row) where {R,M,C,S,B,H}
@@ -265,8 +301,21 @@ Base.@noinline function _append_full_view!(state,app::FullApplication{R,M,C,S,B,
     state.identities[PSE._status_identity(view)]=app.cohort.ids[row]
     return nothing
 end
+@generated function _refresh_full_optional_defaults!(bindings::NamedTuple{K,B},canonical) where {K,B}
+    calls=Expr[]
+    for (index,name) in enumerate(K)
+        binding=fieldtype(B,index)
+        if binding<:FullBinding && binding.parameters[2]===true && binding.parameters[3]===:optional_one
+            push!(calls,:(_refresh_optional_temporal_default!(
+                getfield(bindings,$index),PSE.refvalue(canonical,$(QuoteNode(name))))))
+        end
+    end
+    return Expr(:block,calls...,:(nothing))
+end
+
 Base.@noinline function _refresh_full_view!(state,app::FullApplication{R,M,C,S,B,H},row,step) where {R,M,C,S,B,H}
     node=app.cohort.nodes[row]; bindings=app.bindings[row]::B; canonical=app.cohort.rows[row]
+    _refresh_full_optional_defaults!(bindings,canonical)
     _schema_map(bindings) do binding
         _refresh_full_binding!(binding,state,node,step)
     end
@@ -405,6 +454,32 @@ end
     return Expr(:block, checks..., :(nothing))
 end
 
+@generated function _capture_full_temporal_births!(
+    state,app::FullApplication{R,M,C,S,B},
+) where {R,M,C,S,B}
+    captures=Expr[]
+    for index in 1:fieldcount(B)
+        binding=fieldtype(B,index)
+        binding<:FullBinding && binding.parameters[2]===true || continue
+        push!(captures,quote
+            route=getfield(app.recipe.inputs,$index)
+            if !_full_is_point_selector(route.matcher)
+                for row in eachindex(app.cohort.ids)
+                    _capture_full_temporal_additions!(
+                        getfield(app.bindings[row],$index),state,app.cohort.nodes[row])
+                end
+            end
+        end)
+    end
+    return Expr(:block,captures...,:(nothing))
+end
+
+_capture_full_temporal_births!(state,::Tuple{})=nothing
+function _capture_full_temporal_births!(state,apps::Tuple)
+    _capture_full_temporal_births!(state,first(apps))
+    return _capture_full_temporal_births!(state,_schema_tail(apps))
+end
+
 Base.@noinline function _step_cohort_application!(state::FullState,app,environment,constants)
     state.active_slot==0 || throw(ArgumentError("unfinished lifecycle event"))
     state.active_slot=app.recipe.slot
@@ -414,8 +489,12 @@ Base.@noinline function _step_cohort_application!(state::FullState,app,environme
     for row in _full_ordered_rows(state,_app_cohort(app.recipe),app.cohort)
         _invoke_cohort!(app,state,row,environment,constants,state.step+1,false;publish=true)
     end
-    isempty(state.pending) || _validate_full_writers!(state)
+    grew=!isempty(state.pending)
+    grew && _validate_full_writers!(state)
     _commit_cohorts!(state.cohorts)
+    # Preserve the consumer's first value when a source joins at the barrier,
+    # before a later application can publish to that destination this step.
+    grew && _capture_full_temporal_births!(state,state.applications)
     empty!(state.pending); empty!(state.initialized); state.active_slot=0
     return nothing
 end
@@ -424,6 +503,16 @@ function step!(state::FullState,environment;constants=nothing)
     _step_order!(state,state.program.order,environment,constants)
     state.step+=1
     return state
+end
+
+@inline _full_step_due(rule::FullScheduledSlot{I,:periodic_integer},step) where {I} =
+    PSE._periodic_schedule_due_on_or_after(rule.entry,step)==step
+@inline _full_step_due(rule::FullScheduledSlot{I,:generic},step) where {I} =
+    PSE._generic_schedule_entry_is_due(rule.entry,step)
+
+@inline function _step_cohort_slot!(state::FullState,rule::FullScheduledSlot{I},environment,constants) where {I}
+    _full_step_due(rule,state.step+1) || return nothing
+    return _step_cohort_application!(state,state.applications[I],environment,constants)
 end
 
 PSE.source_node(c::CohortContext{<:FullApplication})=c.application.cohort.nodes[c.row]

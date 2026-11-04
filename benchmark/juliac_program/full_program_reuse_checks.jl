@@ -348,6 +348,40 @@ function PSE.run!(::WriterBirth, status, environment, constants, context)
     return nothing
 end
 
+PSE.@process "reuse_producer_probe" verbose = false
+struct ProducerProbe <: AbstractReuse_Producer_ProbeModel end
+PSE.inputs_(::ProducerProbe) = (filtered=Required(AbstractVector), previous=Default(Float32[]))
+PSE.outputs_(::ProducerProbe) = (live_values=Float32[], previous_values=Float32[], live_ids=Int[])
+function PSE.run!(::ProducerProbe, status, environment, constants, context)
+    filtered = PSE.bound_input(context, :filtered)
+    previous = PSE.bound_input(context, :previous)
+    status.live_values = collect(filtered)
+    status.previous_values = collect(previous)
+    status.live_ids = [id.value for id in PSE.object_ids(filtered)]
+    return nothing
+end
+
+PSE.@process "reuse_scalar_producer_probe" verbose = false
+struct ScalarProducerProbe <: AbstractReuse_Scalar_Producer_ProbeModel end
+PSE.inputs_(::ScalarProducerProbe) = (previous=Default(7f0),)
+PSE.outputs_(::ScalarProducerProbe) = (seen=0f0,)
+function PSE.run!(::ScalarProducerProbe, status, environment, constants, context)
+    status.previous += 1f0
+    status.seen = status.previous
+    return nothing
+end
+
+PSE.@process "reuse_writer_origin_birth" verbose = false
+struct WriterOriginBirth <: AbstractReuse_Writer_Origin_BirthModel end
+PSE.inputs_(::WriterOriginBirth) = NamedTuple()
+PSE.outputs_(::WriterOriginBirth) = (origin_born=false,)
+function PSE.run!(::WriterOriginBirth, status, environment, constants, context)
+    (status.origin_born || PSE.object_id(context).value != 2) && return nothing
+    PSE.add_organ!(PSE.source_node(context), context, :+, :Leaf, 2; id=20, index=1)
+    status.origin_born = true
+    return nothing
+end
+
 function _writer_distribution(name, category, value; seed=0f0)
     destinations = (OutputTo(Many(Relation(:children); scale=:Leaf)),)
     return _application(WriterDistribution(value, seed), name, category; outputs_to=destinations)
@@ -376,14 +410,14 @@ end
 
 function run_checks()
     result = @testset "Full program reuse and invalidation" begin
-        @testset "manual applications must use the daily clock" begin
+        @testset "an explicit manual clock must match its caller" begin
             specs = (
                 _application(Source(-1), :source, :Leaf),
                 _application(Observer(), :observer, :Plant; inputs=(xs=_xs(),), calls=(ticks=_tick(),)),
                 ModelSpec(Tick(); name=:tick, on=Many(scale=:Leaf), every=Day(2)),
             )
             initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
-            @test_throws ArgumentError _prepare(specs, initial, _tree())
+            @test_throws "has incompatible cadence" _prepare(specs, initial, _tree([10]))
         end
         @testset "full call routes require a single resolved application" begin
             ticks = Many(scale=:Leaf, within=SelfPlant(), process=:reuse_tick)
@@ -570,6 +604,93 @@ function run_checks()
             @test birth_state.step == 0
             @test all(cohort -> RP._cohort_key(cohort) !== :Leaf || cohort.committed == 0,
                 birth_state.cohorts)
+        end
+        @testset "input producers follow actual distributed destinations" begin
+            inputs(scale, writer) = (
+                :filtered => Many(scale=scale, application=writer, var=:value),
+                PreviousTimeStep(:previous) => Many(scale=scale, var=:value),
+            )
+            probe(scale, writer) = _application(ProducerProbe(), :probe, :Scene;
+                inputs=inputs(scale, writer))
+            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Phytomer=NamedTuple(),
+                Leaf=NamedTuple())
+            specs = (_writer_distribution(:plant_writer, :Plant, 2f0),
+                _writer_distribution(:phytomer_writer, :Phytomer, 3f0),
+                probe(:Leaf, :phytomer_writer))
+            state = _instantiate(specs, initial, _disjoint_writer_tree())
+            simulation = PSE.run!(_ordinary_writer_scene(specs, _disjoint_writer_tree()); steps=0)
+            for lagged in (Float32[0,0], Float32[2,3])
+                RP.step!(state, NamedTuple())
+                PSE.step!(simulation)
+                actual = _status(state, 1)
+                ordinary = PSE.final_state(simulation, ObjectId(1))
+                @test actual.live_ids == ordinary.live_ids == [11]
+                @test actual.live_values == ordinary.live_values == Float32[3]
+                @test actual.previous_values == ordinary.previous_values == lagged
+            end
+
+            growth_specs = (_application(WriterOriginBirth(), :birth, :Plant),
+                _writer_distribution(:plant_writer, :Plant, 2f0),
+                _writer_distribution(:phytomer_writer, :Phytomer, 3f0),
+                probe(:Leaf, :plant_writer))
+            growth_state = _instantiate(growth_specs, initial, _disjoint_writer_tree())
+            ordinary_root = _ordinary_growth_tree([10])
+            ordinary_plant = only(MTG.children(ordinary_root))
+            ordinary_phytomer = MTG.Node(3, ordinary_plant, MTG.NodeMTG(:+, :Phytomer, 1, 2), NamedTuple())
+            MTG.Node(11, ordinary_phytomer, MTG.NodeMTG(:+, :Leaf, 1, 2), NamedTuple())
+            growth_sim = PSE.run!(_ordinary_writer_scene(growth_specs, ordinary_root); steps=0)
+            for lagged in (Float32[0,0,0], Float32[2,3,2])
+                RP.step!(growth_state, NamedTuple())
+                PSE.step!(growth_sim)
+                actual = _status(growth_state, 1)
+                ordinary = PSE.final_state(growth_sim, ObjectId(1))
+                @test actual.live_ids == ordinary.live_ids == [10, 20]
+                @test actual.live_values == ordinary.live_values == Float32[2,2]
+                @test actual.previous_values == ordinary.previous_values == lagged
+            end
+        end
+        @testset "new distributed writer origins cannot change old destinations" begin
+            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
+            destinations = (OutputTo(Many(Relation(:parent); scale=:Plant)),)
+            writers = (
+                _application(ImplicitProducer(), :background, :Plant),
+                _application(WriterOriginBirth(), :birth, :Plant),
+                _application(WriterDistribution(9f0), :new_writer, :Leaf;
+                    outputs_to=destinations, updates=Updates(:value; after=:background)),
+            )
+            output_only = _instantiate(writers, initial, _tree())
+            RP.step!(output_only, NamedTuple())
+            @test _status(output_only, 2).value === 9f0
+
+            source = Many(scale=:Plant, application=:new_writer, var=:value)
+            observer = _application(F32Observer(), :observer, :Scene; inputs=(xs=source,))
+            state = _instantiate((writers...,observer), initial, _tree())
+            @test_throws "new distributed writer origins cannot change committed input producers" RP.step!(state, NamedTuple())
+            @test state.step == 0
+        end
+        @testset "filtered scalar inputs preserve selector cardinality and optional defaults" begin
+            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Phytomer=NamedTuple(),
+                Leaf=NamedTuple())
+            probe(selector) = _application(ScalarProducerProbe(), :scalar_probe, :Scene;
+                inputs=(PreviousTimeStep(:previous) => selector,))
+            writer = _writer_distribution(:phytomer_writer, :Phytomer, 3f0)
+            optional = OptionalOne(scale=:Leaf, application=:phytomer_writer, var=:value)
+            specs = (writer, probe(optional))
+            @test_throws Exception PSE.run!(_ordinary_writer_scene(specs, _disjoint_writer_tree()); steps=0)
+            @test_throws "at most one source object" _instantiate(specs, initial, _disjoint_writer_tree())
+
+            # The object exists, but it is outside the named writer's
+            # destination membership. OptionalOne keeps the consumer default.
+            state = _instantiate(specs, initial, _tree([10]))
+            simulation = PSE.run!(_ordinary_writer_scene(specs, _tree([10])); steps=0)
+            for expected in (8f0, 9f0)
+                RP.step!(state, NamedTuple())
+                PSE.step!(simulation)
+                ordinary = PSE.final_state(simulation, ObjectId(1))
+                @test _status(state, 1).seen === ordinary.seen === expected
+                @test _status(state, 1).previous === ordinary.previous === expected
+            end
+
         end
         @testset "disjoint writers with distinct defaults require per-object seeds" begin
             initial = (Scene=NamedTuple(), Plant=NamedTuple(), Phytomer=NamedTuple(),
