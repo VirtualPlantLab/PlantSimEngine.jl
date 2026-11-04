@@ -1,13 +1,14 @@
 # Full heterogeneous application views retain producer-specific temporal streams.
 # Models and contracts are the original ModelSpec payloads; only the execution
 # storage and dispatch plan differ from the ordinary CompositeModel runtime.
-mutable struct FullApplication{R,M,C,S,B,H}
+mutable struct FullApplication{R,M,C,S,B,H,OC}
     const recipe::R
     const model::M
     const cohort::C
     const views::Vector{S}
     const bindings::Vector{B}
     const streams::H
+    const output_columns::Vector{OC}
 end
 
 # Only row membership is cached. Invocation contexts still sample the current
@@ -133,15 +134,15 @@ _application_status(app::FullApplication,row)=app.views[row]
 _cohort_context_type(app::FullApplication{R,M,C,S},state,cohort::Cohort,environment,constants) where {R,M,C,S} =
     CohortContext{typeof(app),typeof(state),S,typeof(environment),typeof(constants)}
 
-Base.@noinline function _bind_full_app(recipe::FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H},models,cohorts) where {M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H}
+Base.@noinline function _bind_full_app(recipe::FullApplicationRecipe{M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H},models,cohorts,::Type{OC}) where {M,C,SLOT,INPUTS,OUTPUTS,CALLS,TO,D,V,I,O,E,B,S,H,OC}
     model=models[SLOT]::M
     PSE.dep(model) isa D && isequal(PSE.dep(model)::D,recipe.dependencies) || throw(ArgumentError("changed dependency schema"))
     isequal(PSE.variable_contracts_(model),recipe.contracts) || throw(ArgumentError("changed variable contracts"))
     typeof(PSE.inputs_(model))===I && typeof(PSE.outputs_(model))===O && typeof(PSE.environment_inputs_(model))===E || throw(ArgumentError("changed model ports"))
     cohort=cohorts[C]
     streams=_make_full_streams(recipe,model)::H
-    return FullApplication{typeof(recipe),M,typeof(cohort),S,B,H}(
-        recipe,model,cohort,S[],B[],streams)
+    return FullApplication{typeof(recipe),M,typeof(cohort),S,B,H,OC}(
+        recipe,model,cohort,S[],B[],streams,OC[])
 end
 
 _private_parameter(value)=ismutabletype(typeof(value)) ? copy(value) : value
@@ -160,12 +161,15 @@ end
 # large model graph does not widen through generic tuple-map inference. Organ
 # counts, identities, parameter values and duration remain runtime data.
 @generated function _bind_full_apps(recipes::R,models,cohorts::C) where {R<:Tuple,C<:Tuple}
-    types=map(fieldtypes(R)) do recipe
+    # Materialize each cache type here so safe trimming sees a literal type
+    # even for applications whose output tuples exceed inference's size limit.
+    cache_types=map(recipe->_full_output_caches_type(recipe.parameters[5],C),fieldtypes(R))
+    types=map(fieldtypes(R),cache_types) do recipe,OC
         M,slot=recipe.parameters[1:2]
         B,S,H=recipe.parameters[end-2:end]
-        FullApplication{recipe,M,fieldtype(C,slot),S,B,H}
+        FullApplication{recipe,M,fieldtype(C,slot),S,B,H,OC}
     end
-    calls=[:(_bind_full_app(getfield(recipes,$i),models,cohorts)) for i in eachindex(types)]
+    calls=[:(_bind_full_app(getfield(recipes,$i),models,cohorts,$(cache_types[i]))) for i in eachindex(types)]
     return :($(Expr(:tuple,calls...))::$(Tuple{types...}))
 end
 Base.@noinline function instantiate(program::FullProgram,models::Tuple,root::N;initial,objects,retain=false) where {N<:MTG.Node}
@@ -245,6 +249,7 @@ Base.@noinline function _append_full_view!(state,app::FullApplication{R,M,C,S,B,
     canonical=_alias_full_canonical!(state,app.cohort,row,bindings)
     _expose_full_many!(canonical,bindings)
     push!(app.bindings,bindings)
+    push!(app.output_columns,_new_full_output_caches(eltype(app.output_columns)))
     refs=merge(PSE._status_vars(canonical),_schema_map(binding->binding.reference,bindings))::fieldtype(S,1)
     view=Status(refs)::S
     push!(app.views,view)

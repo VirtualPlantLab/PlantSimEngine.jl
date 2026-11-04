@@ -135,7 +135,8 @@ function _full_publish_column!(route::FullOutputRoute{COHORTS,VAR,true}, history
     (history.temporal || context.state.retain) || return nothing
     application = context.application
     origin = application.cohort.nodes[context.row]
-    ids, column = _full_output_column(route, context.state, origin)
+    cache = getfield(application.output_columns[context.row], VAR)
+    ids, column = _full_cached_output_column!(cache, route, context.state, origin)
     length(ids) == length(column) || throw(ArgumentError("unaligned distributed output history column"))
     for (id, value) in zip(ids, column)
         _full_record!(history, application.recipe.name, id, context.step,

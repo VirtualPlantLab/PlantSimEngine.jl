@@ -363,6 +363,49 @@ function _full_output_column(route::FullOutputRoute{CS,V,D},state,origin;committ
     references=Base.RefValue{T}[reference for (_,reference) in entries]
     return ids,PSE.RefVector(references)
 end
+# One mutable cache per distributed variable and application origin. Replace
+# its carrier on invalidation so an escaped old view keeps its membership.
+mutable struct FullOutputColumnCache{T,S}
+    stamp::Union{Nothing,S}
+    ids::Vector{ObjectId{Int}}
+    column::PSE.RefVector{T}
+end
+
+_full_output_cache_type(::Type{<:FullOutputRoute{CS,V,false}}, ::Type) where {CS,V} = Nothing
+function _full_output_cache_type(::Type{<:FullOutputRoute{CS,V,true}}, ::Type{C}) where {CS,V,C}
+    defaults = fieldtype(fieldtype(C, first(CS)), :defaults)
+    T = fieldtype(defaults, V)
+    S = NTuple{length(CS),Tuple{Int,UInt}}
+    return FullOutputColumnCache{T,S}
+end
+function _full_output_caches_type(::Type{NamedTuple{K,R}}, ::Type{C}) where {K,R,C}
+    return NamedTuple{K,Tuple{map(route -> _full_output_cache_type(route, C), fieldtypes(R))...}}
+end
+_new_full_output_cache(::Type{Nothing}) = nothing
+_new_full_output_cache(::Type{FullOutputColumnCache{T,S}}) where {T,S} =
+    FullOutputColumnCache{T,S}(nothing, ObjectId{Int}[], PSE.RefVector(Base.RefValue{T}[]))
+@generated function _new_full_output_caches(::Type{NT}) where {NT<:NamedTuple}
+    fields = [:( _new_full_output_cache($T)) for T in fieldtypes(NT)]
+    return :(NT($(Expr(:tuple, fields...))))
+end
+
+@generated function _full_output_stamp(::FullOutputRoute{CS}, state) where {CS}
+    return Expr(:tuple, [:((getfield(state.cohorts, $c).committed, state.reference_epochs[$c]))
+        for c in CS]...)
+end
+function _full_cached_output_column!(cache::FullOutputColumnCache{T,S}, route, state, origin) where {T,S}
+    stamp = _full_output_stamp(route, state)::S
+    if cache.stamp !== stamp
+        ids, column = _full_output_column(route, state, origin)
+        cache.ids = ids
+        cache.column = column
+        cache.stamp = stamp
+    end
+    return cache.ids, cache.column
+end
+_full_cached_output_column!(::Nothing, route, state, origin) =
+    _full_output_column(route, state, origin)
+
 # Output names are part of the admitted port schema. Emit direct literal field
 # projections so native compilation never sees a runtime Symbol/getproperty
 # callback over heterogeneous output routes or destination column types.
@@ -370,8 +413,8 @@ end
     NAMES isa Tuple && !isempty(NAMES) && all(name -> name isa Symbol, NAMES) ||
         return :(throw(ArgumentError("request at least one output variable as Symbols")))
     selections = Expr(:tuple, [
-        :(_full_output_column(getfield(context.application.recipe.outputs, $(QuoteNode(name))),
-            context.state, origin))
+        :(_full_cached_output_column!(getfield(caches, $(QuoteNode(name))),
+            getfield(context.application.recipe.outputs, $(QuoteNode(name))), context.state, origin))
         for name in NAMES
     ]...)
     checks = [
@@ -382,6 +425,7 @@ end
     columns = Expr(:tuple, [:(getfield(getfield(selected, $i), 2)) for i in eachindex(NAMES)]...)
     return quote
         origin = context.application.cohort.nodes[context.row]
+        caches = context.application.output_columns[context.row]
         selected = $selections
         ids = getfield(getfield(selected, 1), 1)
         $(checks...)

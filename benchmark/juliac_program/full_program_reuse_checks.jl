@@ -594,6 +594,47 @@ function run_checks()
             @test_throws "more than one canonical writer" RP.step!(state, NamedTuple())
             @test state.step == 0
         end
+        @testset "distributed column cache refreshes committed membership and refs" begin
+            initial = (Scene=NamedTuple(), Plant=NamedTuple(), Leaf=NamedTuple())
+            specs = (_writer_distribution(:plant_writer, :Plant, 2f0),
+                _application(WriterBirth(), :birth, :Plant))
+            state = _instantiate(specs, initial, _tree([10]))
+            app = first(state.applications)
+            targets() = PSE.output_targets(
+                RP.CohortContext(app, state, app.views[1], 1, NamedTuple(),
+                    PSE.Constants(), state.step + 1, false), (:value,))
+            first_targets = targets()
+            first_column = first_targets.columns.value
+            @test collect(PSE.object_ids(first_targets)) == [ObjectId(10)]
+            @test targets().columns.value === first_column
+            first_column[1] = 4f0
+            @test _status(state, 10).value === 4f0
+
+            RP.step!(state, NamedTuple())
+            grown_targets = targets()
+            grown_column = grown_targets.columns.value
+            @test collect(PSE.object_ids(grown_targets)) == [ObjectId(10), ObjectId(20)]
+            @test grown_column !== first_column
+            @test targets().columns.value === grown_column
+            @test collect(PSE.object_ids(first_targets)) == [ObjectId(10)]
+            @test length(first_column) == 1
+
+            slot, row = state.locations[10]
+            cohort = state.cohorts[slot]
+            previous = _status(state, 10)
+            replacement = Status(merge(NamedTuple(previous), (value=8f0,)))
+            RP._replace_full_status!(state, cohort, row, replacement)
+            rebound_targets = targets()
+            rebound_column = rebound_targets.columns.value
+            @test collect(PSE.object_ids(rebound_targets)) == [ObjectId(10), ObjectId(20)]
+            @test rebound_column !== grown_column
+            @test grown_column[1] === 2f0
+            @test rebound_column[1] === 8f0
+            @test targets().columns.value === rebound_column
+            rebound_column[1] = 11f0
+            @test _status(state, 10).value === 11f0
+            @test grown_column[1] === 2f0
+        end
         @testset "stable memberships, live values and real Ref replacement" begin
             state = _observer_state()
             environment = (delta=1.0, order=Int[])
