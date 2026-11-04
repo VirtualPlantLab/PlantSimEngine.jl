@@ -68,3 +68,53 @@ The independently generated ordinary oracles had the same SHA-256. All
 48 measured observations passed parity checks and reported zero timed
 compilation. The [raw comparison](writer-rebind-4160.json) records the
 source hashes, run order, individual timings and daily object counts.
+
+## Follow-up in fresh Julia sessions
+
+The original 6.7% difference covers the 4,160 steps after setup. GC time
+increased by 128 ms against an elapsed median difference of 199 ms, at
+essentially the same allocation volume. In all four unclocked pairs the
+corrected run spent 122–138 ms more in GC. The median of per-run
+`elapsed − GC` changed by +2.75% without daily clocks and −0.13% with them.
+In the clocked runs the extra time on birth days was concentrated in a few
+unusually long steps. Excluding each run's 20 slowest birth days removes the
+growth difference. This describes the tail of the measurements; elapsed time
+still includes all days and GC.
+
+The initial campaign used sessions with different warmup histories. The
+follow-up used two fresh Kaimon sessions with the same workload warmup, on
+the same Mac on AC power. It used the same reference and corrected sources,
+Julia version, thread counts, XPalm parameters and forcing. Four balanced
+rounds pair a run with daily clocks and one without. Setup, whole execution
+and time in GC use the unclocked runs; birth and no-birth totals use the
+clocked runs. The setup column includes recreating the ordinary scene or
+instantiating an already built typed plan. Compare setup within each runtime.
+
+| Runtime | Fresh setup | Days with births | Days without births | Execution | GC during execution |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ordinary PSE, reference | 24.344 ms | 3.584 s | 0.991 s | 4.522 s | 0.316 s |
+| Ordinary PSE, corrected | 23.584 ms | 3.554 s | 1.031 s | 4.422 s | 0.298 s |
+| Prepared, reference | 0.330 ms | 1.358 s | 1.510 s | 2.845 s | 0.356 s |
+| Prepared, corrected | 0.340 ms | 1.348 s | 1.443 s | 2.739 s | 0.355 s |
+
+The 6.7% prepared slowdown did not reproduce. The corrected elapsed median
+was 3.7% lower, with paired differences of −4.0%, +1.8%, −4.0% and −3.9%.
+Each prepared run recorded one full collection. Both sessions had about
+286 MB live after the pretrial collection, and both allocated 3.49 GB
+during the 4,160 steps. The fresh GC timings are comparable. The original
+excess GC time is measured; why those collections took longer is unresolved.
+
+Ordinary no-birth time was 4.1% higher in this clocked campaign and 2.8%
+lower in the first one. The fixed 768-destination case was stable: ordinary
+PSE took 1.894 vs 1.893 ms, and prepared execution took 7.469 vs 7.379 ms
+with the same 288,880 allocated bytes. This follow-up changes no runtime code.
+
+All 48 timed observations passed scientific parity with zero timed
+compilation, including setup. The ordinary reference and corrected oracles
+agree on canonical values, topology, RNG, step count and samples. Both
+runtimes reproduced the same daily object-count trace. The existing
+JuliaC safe binaries from `aa67ae2d8` passed a fresh replay of the leaf
+rebinding regression, XPalm at 60 and 4,160 days, and the 50-hour cadence
+check. The 4,160-day native run matched the fresh PSE oracle across 27,828
+fields, 1,190 objects and both RNG probes. The [follow-up raw timings](writer-rebind-recheck-4160.json)
+include the individual observations, GC counters and native replay receipt.
