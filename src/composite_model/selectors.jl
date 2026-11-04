@@ -578,40 +578,13 @@ function _ancestor_id(
     final_index < firstindex(ancestors) && return nothing
     isnothing(scale) && isnothing(kind) &&
         return @inbounds ancestors[final_index]
-    isnothing(kind) && return _ancestor_id_by_index(
-        ancestors,
-        final_index,
-        model.registry.by_scale,
-        scale,
-    )
-    isnothing(scale) && return _ancestor_id_by_index(
-        ancestors,
-        final_index,
-        model.registry.by_kind,
-        kind,
-    )
-    haskey(model.registry.by_scale, scale) || return nothing
-    haskey(model.registry.by_kind, kind) || return nothing
-    scale_ids = model.registry.by_scale[scale]
-    kind_ids = model.registry.by_kind[kind]
+    !isnothing(scale) && !haskey(model.registry.by_scale, scale) && return nothing
+    !isnothing(kind) && !haskey(model.registry.by_kind, kind) && return nothing
     for index in final_index:-1:firstindex(ancestors)
         id = @inbounds ancestors[index]
-        id in scale_ids && id in kind_ids && return id
-    end
-    return nothing
-end
-
-function _ancestor_id_by_index(
-    ancestors::Vector{ObjectId},
-    final_index::Int,
-    object_index::Dict{Symbol,Set{ObjectId}},
-    label::Symbol,
-)
-    haskey(object_index, label) || return nothing
-    matching_ids = object_index[label]
-    for index in final_index:-1:firstindex(ancestors)
-        id = @inbounds ancestors[index]
-        id in matching_ids && return id
+        object = _model_object(model, id)::Object
+        (isnothing(scale) || object.scale === scale) &&
+            (isnothing(kind) || object.kind === kind) && return id
     end
     return nothing
 end
