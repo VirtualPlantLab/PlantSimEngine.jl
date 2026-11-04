@@ -99,7 +99,9 @@ function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
     _is_constant_environment(PSE.environment_backend(model.environment)) ||
         throw(ArgumentError("The scenario environment must be a single immutable bits-valued row."))
     isnothing(model.binding_cache) ||
-        throw(ArgumentError("Compilation requires a fresh CompositeModel. Construct it again before preparing it."))
+        throw(ArgumentError(
+            "This CompositeModel already has live bindings. Construct it again before preparing it.",
+        ))
     isbits(constants) || throw(ArgumentError("Compilation requires isbits constants."))
 
     owned = deepcopy(model)

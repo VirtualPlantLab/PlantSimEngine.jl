@@ -9,17 +9,20 @@ of PlantSimEngine scenarios.
 ## Compare the two executions in Julia
 
 The repository's `examples/compiled_scenario` app contains two teaching
-models. One provides an increment of `2.5` at every step and the other adds
-that increment to a running total. The consumer is listed first in the
-`CompositeModel`. PlantSimEngine's scenario plan puts the producer first
-because the consumer needs its output.
+models. One reads an increment of `2.5` from its local environment. The
+other reads a coefficient from a second provider, mapped to its `factor`
+input, and adds the scaled increment to a running total. The consumer is
+listed first in the `CompositeModel`. PlantSimEngine's scenario plan puts
+the producer first because the consumer needs its output.
 
 ```@example compile_scenario
 using PlantSimEngine
 include(joinpath(pkgdir(PlantSimEngine), "examples", "compiled_scenario", "src", "PSECompiledScenario.jl"))
 
 ordinary = run!(PSECompiledScenario.make_model(); steps=4, outputs=:none)
-program = Compilation.prepare(PSECompiledScenario.make_model())
+model = PSECompiledScenario.make_model()
+Diagnostics.explain_schedule(model)
+program = Compilation.prepare(model)
 continue!(program; steps=2)
 step!(program)
 step!(program)
@@ -27,11 +30,12 @@ step!(program)
 (current_step=current_step(program), total=final_state(program).total)
 ```
 
-`Compilation.prepare` takes a fresh authored `CompositeModel`. It resolves
-its schedule and input bindings and gives the program its own status.
-The supplied model stays available for an ordinary run. Use `current_step`
-and `final_state` to inspect the program, and `continue!` or `step!` to
-advance it.
+`Compilation.prepare` takes an authored `CompositeModel` before a run binds
+its live status. Diagnostics such as `explain_schedule` and
+`explain_bindings` leave it available for preparation. To compare with an
+ordinary run, construct both models from the same recipe, as above.
+The prepared program owns its status. Use `current_step` and `final_state`
+to inspect it, and `continue!` or `step!` to advance it.
 
 ## Build the example executable
 
@@ -87,16 +91,26 @@ entry point. Use the entry point to parse arguments, advance the program,
 and write the result. JuliaC loads the module during the build, so put the
 fixed scenario in `make_model()` and handle runtime data in the entry point.
 
-This compiler admits one ordinary object with same-object scalar inputs and
-outputs. All applications run at every base step. Status values must be
+This compiler admits one ordinary object with at least one scheduled
+application, and same-object scalar inputs and outputs. All scheduled
+applications run at every base step. Status values must be
 numeric bits values such as `Float32`, `Float64` or `Int`, and model and
 constant types must be immutable bits types. Use fields with concrete types
 and write kernels that can run without inspecting a live scenario registry.
 
-Models that need multiple objects, an MTG, mounted instances, environment
-inputs, different cadences, temporal inputs, hard calls, initializers,
-distributed or stream-only outputs, topology edits, or retained histories
-can run through the ordinary PlantSimEngine API.
+The scenario and its applications can each provide a fixed environment
+row with immutable bits values. For example, use
+`Environment(backend=(air=20.0,), sources=(T=:air,))` to provide `T` from
+a local row. Preparation resolves the source and field names with the
+same rules as `run!`. The model parameters, constants, initial status and
+environment rows are captured at build time. The example accepts the
+number of steps at runtime.
+
+Models that need multiple objects, an MTG, mounted instances, time-varying
+or spatial environments, environment commits, different cadences, temporal
+inputs, hard calls, initializers, distributed or stream-only outputs,
+topology edits, or retained histories can run through the ordinary
+PlantSimEngine API.
 
 If preparation rejects a model, read the reported application or feature
 and check it against this list. If JuliaC's safe verifier rejects a call,

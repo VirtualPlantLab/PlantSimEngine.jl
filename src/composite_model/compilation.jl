@@ -4289,6 +4289,7 @@ required status or environment value is unresolved. Selector, writer, call,
 and other invalid configuration errors remain errors.
 """
 function explain_initialization(model::CompositeModel)
+    model = deepcopy(model)
     supplied = Dict(
         object.id => setdiff(
             Set{Symbol}(
@@ -8189,6 +8190,13 @@ function _ordered_model_applications(compiled::CompiledCompositeModel)
     return compiled.ordered_applications
 end
 
+function _diagnostic_bindings(model::CompositeModel)
+    compiled = compiled_bindings(model)
+    # A dirty binding refresh can update existing carriers and consume the
+    # lifecycle delta that a running simulation still needs.
+    return isnothing(compiled) ? refresh_bindings!(deepcopy(model)) : compiled
+end
+
 function explain_applications(compiled::CompiledCompositeModel)
     return [
         (
@@ -8255,7 +8263,7 @@ function explain_applications(compiled::CompiledCompositeModel)
 end
 
 explain_applications(model::CompositeModel) =
-    explain_applications(refresh_bindings!(model))
+    explain_applications(_diagnostic_bindings(model))
 
 function _application_model_dispatch(application::CompiledModelApplication)
     isnothing(application.model_overrides) && return :concrete_shared
@@ -8303,7 +8311,7 @@ function explain_schedule(compiled::CompiledCompositeModel)
     ]
 end
 
-explain_schedule(model::CompositeModel) = explain_schedule(refresh_bindings!(model))
+explain_schedule(model::CompositeModel) = explain_schedule(_diagnostic_bindings(model))
 
 function _model_binding_carrier_kind(binding::CompiledModelInputBinding)
     binding.carrier_hint == :temporal_stream && return :temporal_stream
@@ -8325,7 +8333,7 @@ function _model_binding_copy_semantics(binding::CompiledModelInputBinding)
     return :backend_defined
 end
 
-    function explain_bindings(compiled::CompiledCompositeModel)
+function explain_bindings(compiled::CompiledCompositeModel)
     return [
         (
             input_plan_slot=binding.plan.slot,
@@ -8335,10 +8343,10 @@ end
             input=binding.input,
             origin=binding.origin,
             source_ids=[id.value for id in binding.source_ids],
-        source_application_ids=binding.source_application_ids,
-        potential_source_application_ids=
-            binding.plan.potential_source_application_ids,
-        breaks_same_step_cycle=binding.plan.breaks_same_step_cycle,
+            source_application_ids=copy(binding.source_application_ids),
+            potential_source_application_ids=
+                binding.plan.potential_source_application_ids,
+            breaks_same_step_cycle=binding.plan.breaks_same_step_cycle,
             order_after_application_ids=binding.order_after_application_ids,
             source_var=binding.source_var,
             process=binding.process,
@@ -8357,7 +8365,7 @@ end
     ]
 end
 
-explain_bindings(model::CompositeModel) = explain_bindings(refresh_bindings!(model))
+explain_bindings(model::CompositeModel) = explain_bindings(_diagnostic_bindings(model))
 
 function explain_calls(compiled::CompiledCompositeModel)
     return [
@@ -8373,7 +8381,7 @@ function explain_calls(compiled::CompiledCompositeModel)
             mode=_compiled_call_mode(binding),
             origin=binding.origin,
             callee_object_ids=[id.value for id in callee_object_ids],
-            callee_application_ids=callee_application_ids,
+            callee_application_ids=copy(callee_application_ids),
             potential_callee_application_ids=
                 binding.plan.potential_callee_application_ids,
             process=binding.process,
@@ -8391,7 +8399,7 @@ function explain_calls(compiled::CompiledCompositeModel)
     ]
 end
 
-explain_calls(model::CompositeModel) = explain_calls(refresh_bindings!(model))
+explain_calls(model::CompositeModel) = explain_calls(_diagnostic_bindings(model))
 
 """
     Diagnostics.explain_output_bindings(model_or_compiled)
@@ -8447,7 +8455,7 @@ function _explain_output_bindings(outputs::CompiledDistributedOutputs, compiled)
 end
 
 explain_output_bindings(model::CompositeModel) =
-    explain_output_bindings(refresh_bindings!(model))
+    explain_output_bindings(_diagnostic_bindings(model))
 
 function explain_writers(compiled::CompiledCompositeModel)
     return _explain_writers(compiled, compiled.distributed_outputs)
@@ -8526,4 +8534,4 @@ function _explain_writers(
     return rows
 end
 
-explain_writers(model::CompositeModel) = explain_writers(refresh_bindings!(model))
+explain_writers(model::CompositeModel) = explain_writers(_diagnostic_bindings(model))

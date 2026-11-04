@@ -700,5 +700,5 @@ function explain_environment_bindings(compiled::CompiledEnvironmentBindings)
 end
 
 function explain_environment_bindings(model::CompositeModel)
-    return explain_environment_bindings(refresh_environment_bindings!(model))
+    return explain_environment_bindings(refresh_environment_bindings!(deepcopy(model)))
 end
