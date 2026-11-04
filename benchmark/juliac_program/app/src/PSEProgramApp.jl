@@ -104,9 +104,11 @@ function (@main)(args::Vector{String})
     isempty(args) && throw(ArgumentError("expected mode"))
     mode = args[1]
     if mode=="cadence"
-        length(args)==2 || throw(ArgumentError("cadence hours"))
+        length(args) in (2,3) || throw(ArgumentError("cadence hours [continuation_hours]"))
         state=MixedCadenceFixture.instantiate(MIXED_CADENCE_PROGRAM)
-        MixedCadenceFixture.advance!(state,parse(Int,args[2]))
+        for i in 2:length(args)
+            MixedCadenceFixture.advance!(state,parse(Int,args[i]))
+        end
         _print_full_xpalm(state)
         return 0
     end

@@ -12,6 +12,7 @@ import ..FullXPalmNativeChecks as NativeChecks
 
 const PSE = PlantSimEngine
 const PLANT = ObjectId(2)
+const CHUNKS = (24, 26)
 
 function _ordinary_samples(simulation)
     return Dict((row.application_id, ObjectId(row.object_id).value, row.timestep, row.variable) => row.value
@@ -38,7 +39,7 @@ function _test_schedule(clock, due)
     @test program.base_step_seconds == 3600
     ordinary = PSE.run!(Fixture.scene(; readout_every=clock); steps=0, outputs=:all)
     state = Fixture.instantiate(program)
-    for chunk in (24, 26)
+    for chunk in CHUNKS
         PSE.continue!(ordinary; steps=chunk)
         Fixture.advance!(state, chunk)
         _compare(state, ordinary)
@@ -55,9 +56,13 @@ function _test_schedule(clock, due)
 end
 
 function _test_native(executable, ordinary, state)
-    command = Cmd([abspath(executable), "cadence", string(state.step)])
-    command = addenv(command, "JULIA_PROJECT"=>nothing, "JULIA_LOAD_PATH"=>nothing)
-    result = NativeChecks.parse_native(read(command, String))
+    function run_cadence(hours...)
+        command = Cmd([abspath(executable), "cadence", string.(hours)...])
+        command = addenv(command, "JULIA_PROJECT"=>nothing, "JULIA_LOAD_PATH"=>nothing)
+        return NativeChecks.parse_native(read(command, String))
+    end
+    result = run_cadence(state.step)
+    @test run_cadence(CHUNKS...) == result
     @test (result.objects, result.step, result.applications) == (2, state.step, 3)
     @test result.topology == Dict(1=>(:Scene, 0, :/, 1), 2=>(:Plant, 1, :+, 1))
     @test isempty(result.rng)
