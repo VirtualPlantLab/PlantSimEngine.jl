@@ -3331,112 +3331,19 @@ function _remove_stale_status_views!(
     return compiled
 end
 
-function _extend_compiled_scene(
+function _refresh_scene_call_bindings!(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
-    added_objects;
-    forced_input_binding_keys=Set{Tuple{Symbol,ObjectId,Symbol}}(),
-    forced_call_target_keys=Set{Tuple{Symbol,ObjectId}}(),
-    previous_views=compiled.status_views_by_target,
-    previous_temporal_sources_seed=Dict{
-        Tuple{Symbol,ObjectId,Symbol},
-        Vector{ObjectId},
-    }(),
-    changed_application_ids_seed=Set{Symbol}(),
-    changed_target_ids_seed=Set{Tuple{Symbol,ObjectId}}(),
-    pure_addition::Bool=true,
-    structural_dirty_ids=ObjectId[],
-    performance=nothing,
+    added_applications,
+    added_ids,
+    forced_call_target_keys,
+    pure_addition::Bool,
+    performance,
 )
-    added_ids = ObjectId[id for id in added_objects if haskey(model.registry.objects, id)]
-    started_at = _runtime_performance_start(performance)
-    new_targets = _new_application_targets(
-        model,
-        compiled,
-        added_ids,
-        performance,
-    )
-    isnothing(new_targets) && return compile_composite_model(
-        model,
-        model.applications;
-        performance=performance,
-    )
     applications = compiled.applications
     applications_by_id = compiled.applications_by_id
-    new_target_application_ids = sort!(
-        collect(keys(new_targets));
-        by=application_id -> applications_by_id[application_id].slot,
-    )
-    new_target_applications = Tuple(
-        applications_by_id[application_id]
-        for application_id in new_target_application_ids
-    )
-    for application in new_target_applications
-        _insert_sorted_object_ids!(
-            application.target_ids,
-            new_targets[application.id],
-        )
-    end
-    changed_application_ids = union(
-        Set(new_target_application_ids),
-        changed_application_ids_seed,
-    )
-    for application_id in changed_application_ids
-        application = applications_by_id[application_id]
-        if application.id in changed_application_ids_seed
-            target_count = length(application.target_ids)
-            if application.applies_to isa One && target_count != 1
-                error(
-                    "Lifecycle refresh left application `$(application.id)` with ",
-                    "$(target_count) targets for a `One` selector.",
-                )
-            elseif application.applies_to isa OptionalOne && target_count > 1
-                error(
-                    "Lifecycle refresh left application `$(application.id)` with ",
-                    "$(target_count) targets for an `OptionalOne` selector.",
-                )
-            end
-        end
-    end
     applications_by_object = compiled.applications_by_object
-    for application in new_target_applications
-        for object_id in new_targets[application.id]
-            push!(get!(applications_by_object, object_id, Any[]), application)
-        end
-    end
-    manual_application_ids = compiled.scenario_plan.manual_application_ids
-    distributed_outputs, changed_distributed_output_target_ids, changed_writers_by_variable =
-        _refresh_model_distributed_outputs(
-            model,
-            compiled.distributed_outputs,
-            applications,
-            applications_by_id,
-            manual_application_ids,
-            compiled.scenario_plan.distributed_output_plans,
-            added_ids,
-            new_targets,
-            pure_addition,
-        )
-    union!(changed_target_ids_seed, changed_distributed_output_target_ids)
-    union!(
-        changed_application_ids_seed,
-        (first(key) for key in changed_distributed_output_target_ids),
-    )
-    _runtime_performance_finish!(
-        performance,
-        :application_target_refresh,
-        started_at,
-    )
-
-    started_at = _runtime_performance_start(performance)
     has_calls = !isempty(compiled.scenario_plan.call_plans)
-    added_applications = CompiledModelApplication[
-        CompiledModelApplication(
-            application.plan,
-            new_targets[application.id],
-        )
-        for application in new_target_applications
-    ]
     rebuilt_existing_call_targets =
         Set{Tuple{Symbol,ObjectId}}(forced_call_target_keys)
     changed_call_target_keys =
@@ -3626,6 +3533,127 @@ function _extend_compiled_scene(
                 applications_by_id,
             )
     end
+    return new_call_bindings, changed_call_target_keys,
+           observed_manual_call_binding_indices_by_callee_target
+end
+
+function _extend_compiled_scene(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    added_objects;
+    forced_input_binding_keys=Set{Tuple{Symbol,ObjectId,Symbol}}(),
+    forced_call_target_keys=Set{Tuple{Symbol,ObjectId}}(),
+    previous_views=compiled.status_views_by_target,
+    previous_temporal_sources_seed=Dict{
+        Tuple{Symbol,ObjectId,Symbol},
+        Vector{ObjectId},
+    }(),
+    changed_application_ids_seed=Set{Symbol}(),
+    changed_target_ids_seed=Set{Tuple{Symbol,ObjectId}}(),
+    pure_addition::Bool=true,
+    structural_dirty_ids=ObjectId[],
+    performance=nothing,
+)
+    added_ids = ObjectId[id for id in added_objects if haskey(model.registry.objects, id)]
+    started_at = _runtime_performance_start(performance)
+    new_targets = _new_application_targets(
+        model,
+        compiled,
+        added_ids,
+        performance,
+    )
+    isnothing(new_targets) && return compile_composite_model(
+        model,
+        model.applications;
+        performance=performance,
+    )
+    applications = compiled.applications
+    applications_by_id = compiled.applications_by_id
+    new_target_application_ids = sort!(
+        collect(keys(new_targets));
+        by=application_id -> applications_by_id[application_id].slot,
+    )
+    new_target_applications = Tuple(
+        applications_by_id[application_id]
+        for application_id in new_target_application_ids
+    )
+    for application in new_target_applications
+        _insert_sorted_object_ids!(
+            application.target_ids,
+            new_targets[application.id],
+        )
+    end
+    changed_application_ids = union(
+        Set(new_target_application_ids),
+        changed_application_ids_seed,
+    )
+    for application_id in changed_application_ids
+        application = applications_by_id[application_id]
+        if application.id in changed_application_ids_seed
+            target_count = length(application.target_ids)
+            if application.applies_to isa One && target_count != 1
+                error(
+                    "Lifecycle refresh left application `$(application.id)` with ",
+                    "$(target_count) targets for a `One` selector.",
+                )
+            elseif application.applies_to isa OptionalOne && target_count > 1
+                error(
+                    "Lifecycle refresh left application `$(application.id)` with ",
+                    "$(target_count) targets for an `OptionalOne` selector.",
+                )
+            end
+        end
+    end
+    applications_by_object = compiled.applications_by_object
+    for application in new_target_applications
+        for object_id in new_targets[application.id]
+            push!(get!(applications_by_object, object_id, Any[]), application)
+        end
+    end
+    manual_application_ids = compiled.scenario_plan.manual_application_ids
+    distributed_outputs, changed_distributed_output_target_ids, changed_writers_by_variable =
+        _refresh_model_distributed_outputs(
+            model,
+            compiled.distributed_outputs,
+            applications,
+            applications_by_id,
+            manual_application_ids,
+            compiled.scenario_plan.distributed_output_plans,
+            added_ids,
+            new_targets,
+            pure_addition,
+        )
+    union!(changed_target_ids_seed, changed_distributed_output_target_ids)
+    union!(
+        changed_application_ids_seed,
+        (first(key) for key in changed_distributed_output_target_ids),
+    )
+    _runtime_performance_finish!(
+        performance,
+        :application_target_refresh,
+        started_at,
+    )
+
+    started_at = _runtime_performance_start(performance)
+    added_applications = CompiledModelApplication[
+        CompiledModelApplication(
+            application.plan,
+            new_targets[application.id],
+        )
+        for application in new_target_applications
+    ]
+    new_call_bindings, changed_call_target_keys, observed_manual_call_binding_indices_by_callee_target =
+        _refresh_scene_call_bindings!(
+            model,
+            compiled,
+            added_applications,
+            added_ids,
+            forced_call_target_keys,
+            pure_addition,
+            performance,
+        )
+    call_bindings = compiled.call_bindings
+    dynamic_call_binding_indices = compiled.dynamic_call_binding_indices
     _validate_model_writers_for_objects!(
         applications,
         applications_by_object,
