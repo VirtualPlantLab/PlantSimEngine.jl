@@ -18,9 +18,11 @@ Term = "22787eb5-b846-44ae-b979-8e399b8463ab"
 
 [weakdeps]
 HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+JuliaC = "acedd4c2-ced6-4a15-accc-2607eb759ba2"
 
 [extensions]
 PlantSimEngineGraphEditorExt = "HTTP"
+PlantSimEngineJuliaCExt = "JuliaC"
 
 [compat]
 CSV = "0.10, 1.0"
@@ -28,6 +30,7 @@ DataFrames = "1"
 Dates = "1.10"
 HTTP = "1, 2.0"
 JSON = "1.6.1"
+JuliaC = "0.3.12"
 Markdown = "1.10"
 MultiScaleTreeGraph = "0.16.0"
 PlantMeteo = "0.9.0"

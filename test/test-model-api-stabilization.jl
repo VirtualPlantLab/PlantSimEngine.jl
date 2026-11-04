@@ -247,6 +247,7 @@ end
         :CallTarget,
         :CallTargets,
         :ClockSpec,
+        :Compilation,
         :CompositeModel,
         :CompositeModelTemplate,
         :Constants,
@@ -358,6 +359,7 @@ end
     graph_editor_names = names(PlantSimEngine.GraphEditor)
     environment_api_names = names(PlantSimEngine.EnvironmentAPI)
     evaluation_names = names(PlantSimEngine.Evaluation)
+    @test Set(names(PlantSimEngine.Compilation)) == Set([:Compilation, :compile, :prepare])
     @test Set(advanced_names) == Set([
         :Advanced,
         :CompiledApplicationPlan,

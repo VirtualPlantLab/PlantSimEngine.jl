@@ -73,6 +73,10 @@ else
         include("test-model-prepared-scenario.jl")
     end
 
+    @testset "Public native compilation API" begin
+        include("test-native-compilation.jl")
+    end
+
     @testset "Typed temporal initial values" begin
         include("test-model-temporal-initial-typing.jl")
     end
