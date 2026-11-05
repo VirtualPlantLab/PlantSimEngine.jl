@@ -179,4 +179,4 @@ jobs:
           realpath(pkgdir(PlantSimEngine)) == realpath(pwd()) ||
               error("The native test must load this PlantSimEngine checkout.")
           @info "Native integration environment" julia=VERSION juliac=pkgversion(JuliaC)
-          include("test/integration/native_compilation.jl")
+          include(joinpath(pkgdir(PlantSimEngine), "test", "integration", "native_compilation.jl"))
