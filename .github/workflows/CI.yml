@@ -171,8 +171,10 @@ jobs:
           Pkg.add(PackageSpec(name="JuliaC", version=v"0.3.12"))
           Pkg.precompile()
       - name: Build and verify the safe executable
-        shell: julia --project=${{ runner.temp }}/juliac-safe --color=yes {0}
+        shell: julia --color=yes {0}
         run: |
+          using Pkg
+          Pkg.activate(joinpath(ENV["RUNNER_TEMP"], "juliac-safe"))
           using PlantSimEngine, JuliaC
           realpath(pkgdir(PlantSimEngine)) == realpath(pwd()) ||
               error("The native test must load this PlantSimEngine checkout.")
