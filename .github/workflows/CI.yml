@@ -6,6 +6,12 @@ on:
     tags: "*"
   pull_request:
   workflow_dispatch:
+    inputs:
+      juliac_safe:
+        description: Run only the JuliaC safe integration test
+        required: false
+        default: false
+        type: boolean
 concurrency:
   # Skip intermediate builds: always.
   # Cancel intermediate builds: only if it is a pull request build.
@@ -13,6 +19,7 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.juliac_safe }}
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     # The expanded full suite with coverage can exceed two hours on the latest Julia.
@@ -46,6 +53,7 @@ jobs:
         with:
           files: lcov.info
   docs:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.juliac_safe }}
     name: Documentation
     runs-on: ubuntu-latest
     permissions:
@@ -77,6 +85,7 @@ jobs:
           DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine); recursive=true)
           doctest(PlantSimEngine)
   graph-editor-e2e:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.juliac_safe }}
     name: Graph editor E2E
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -132,3 +141,40 @@ jobs:
           path: |
             frontend/playwright-report/
             frontend/test-results/
+
+  juliac-safe:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.juliac_safe }}
+    name: JuliaC safe - Julia 1.13 - Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: read
+    env:
+      JULIA_NUM_THREADS: "2"
+      JULIA_PKG_PRECOMPILE_AUTO: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1.13"
+      - name: Cache JuliaC dependencies
+        uses: julia-actions/cache@v3
+        with:
+          cache-name: juliac-safe-1.13
+      - name: Prepare JuliaC build environment
+        shell: julia --color=yes {0}
+        run: |
+          using Pkg
+          Pkg.activate(joinpath(ENV["RUNNER_TEMP"], "juliac-safe"))
+          Pkg.develop(PackageSpec(path=pwd()))
+          Pkg.add(PackageSpec(name="JuliaC", version=v"0.3.12"))
+          Pkg.precompile()
+      - name: Build and verify the safe executable
+        shell: julia --project=${{ runner.temp }}/juliac-safe --color=yes {0}
+        run: |
+          using PlantSimEngine, JuliaC
+          realpath(pkgdir(PlantSimEngine)) == realpath(pwd()) ||
+              error("The native test must load this PlantSimEngine checkout.")
+          @info "Native integration environment" julia=VERSION juliac=pkgversion(JuliaC)
+          include("test/integration/native_compilation.jl")
