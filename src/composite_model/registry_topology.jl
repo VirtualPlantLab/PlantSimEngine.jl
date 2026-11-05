@@ -25,6 +25,12 @@ end
 ObjectId(id::ObjectId) = id
 ObjectId(id::AbstractString) = ObjectId(Symbol(id))
 
+function Base.show(io::IO, id::ObjectId)
+    print(io, "ObjectId(")
+    show(io, id.value)
+    print(io, ')')
+end
+
 """
     Object(id; scale=nothing, kind=nothing, species=nothing, name=nothing,
            parent=nothing, children=ObjectId[], geometry=nothing,
@@ -384,6 +390,7 @@ mutable struct CompositeModel{R,A,E,I,SA,SC}
     status_conversion_records::Dict{Any,Any}
     status_source_owners::IdDict{Base.RefValue{Nothing},ObjectId}
     status_source_identities::Dict{ObjectId,Base.RefValue{Nothing}}
+    scenario_plan_cache::Any
     binding_cache::Any
     environment_binding_cache::Any
     bindings_dirty::Bool
@@ -563,6 +570,7 @@ function CompositeModel(
         conversion_records,
         IdDict{Base.RefValue{Nothing},ObjectId}(),
         Dict{ObjectId,Base.RefValue{Nothing}}(),
+        nothing,
         nothing,
         nothing,
         true,
@@ -865,6 +873,7 @@ function _mark_bindings_dirty!(
     kind in (:addition, :structural, :full) || error(
         "Unsupported binding dirty kind `$(kind)`.",
     )
+    model.scenario_plan_cache = nothing
     delta = model.lifecycle_delta
     ids = _lifecycle_object_ids(object_ids)
     if isnothing(ids)
@@ -1733,10 +1742,18 @@ function refresh_bindings!(
             performance=performance,
         )
     end
-    if force || model.bindings_dirty || isnothing(model.binding_cache)
+    prepared = model.scenario_plan_cache
+    previous = model.binding_cache
+    if force
+        prepared = model.scenario_plan_cache = nothing
+    end
+    plan_changed = !isnothing(prepared) && !isnothing(previous) &&
+                   prepared.plan !== previous.scenario_plan
+    if force || model.bindings_dirty || isnothing(previous) || plan_changed
         delta = model.lifecycle_delta
         dirty_object_ids = delta.structural_dirty_ids
         can_extend = !force &&
+                     isnothing(prepared) &&
                      !isnothing(model.binding_cache) &&
                      !isempty(dirty_object_ids)
         if can_extend && delta.structural_kind == :addition
@@ -1773,11 +1790,9 @@ function refresh_bindings!(
             )
         else
             previous_binding_cache = model.binding_cache
-            refreshed_binding_cache = compile_composite_model(
-                model,
-                model.applications;
-                performance=performance,
-            )
+            refreshed_binding_cache = isnothing(prepared) ?
+                compile_composite_model(model; performance) :
+                _compile_scene(model, prepared; performance)
             if !force &&
                !isnothing(previous_binding_cache) &&
                previous_binding_cache.distributed_outputs isa

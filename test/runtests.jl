@@ -41,12 +41,20 @@ else
         include("test-model-object-id.jl")
     end
 
+    @testset "Concrete runtime object identities" begin
+        include("test-model-concrete-object-identities.jl")
+    end
+
     @testset "Organ creation allocations" begin
         include("test-organ-creation-allocation.jl")
     end
 
     @testset "Lifecycle snapshot allocations" begin
         include("test-lifecycle-snapshot-allocations.jl")
+    end
+
+    @testset "Structural delta binding intersection" begin
+        include("test-structural-delta-intersection.jl")
     end
 
     @testset "Organ status assembly" begin
@@ -59,6 +67,18 @@ else
 
     @testset "Composite Model/Object API stabilization" begin
         include("test-model-api-stabilization.jl")
+    end
+
+    @testset "Reusable scenario plans" begin
+        include("test-model-prepared-scenario.jl")
+    end
+
+    @testset "Typed temporal initial values" begin
+        include("test-model-temporal-initial-typing.jl")
+    end
+
+    @testset "Concrete selector construction" begin
+        include("test-selector-construction-inference.jl")
     end
 
     @testset "Selector candidate scope fast path" begin
@@ -124,6 +144,10 @@ else
 
     @testset "Singular manual-call target access" begin
         include("test-model-only-call-targets.jl")
+    end
+
+    @testset "Transient singular manual-call views" begin
+        include("test-model-transient-single-call-views.jl")
     end
 
     @testset "Individual manual-call environments" begin
@@ -248,6 +272,10 @@ else
 
     @testset "Composite model configuration errors" begin
         include("test-model-configuration-errors.jl")
+    end
+
+    @testset "Model discovery" begin
+        include("test-model-discovery.jl")
     end
 
     @testset "Model graph viewer" begin

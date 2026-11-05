@@ -592,6 +592,21 @@ struct CompiledScenarioPlan{AP,AI,ATI,IP,IPI,CP,CPI,DOP,CO,MA,AC,AO,OAP,AS,TL}
     timeline::TL
 end
 
+# The snapshot owns its target lists. Runtime application membership can
+# change during growth, so each binding compilation takes a private copy.
+struct PreparedScenario{P}
+    plan::P
+    target_ids::Vector{Vector{ObjectId}}
+end
+
+Base.@nospecializeinfer function _scenario_applications(prepared::PreparedScenario)
+    @nospecialize prepared
+    return CompiledModelApplication[
+        CompiledModelApplication(plan, sizehint!(copy(ids), length(ids) + 1))
+        for (plan, ids) in zip(prepared.plan.applications, prepared.target_ids)
+    ]
+end
+
 function _plans_by_application(applications, plans)
     application_ids = Tuple(application.id for application in applications)
     grouped = Tuple(
@@ -1754,21 +1769,7 @@ function _model_timeline(model::CompositeModel)
     return _timeline_context(backend)
 end
 
-function _compile_scene(
-    model::CompositeModel,
-    raw_specs;
-    validate_required_inputs::Bool=true,
-    performance=nothing,
-)
-    started_at = _runtime_performance_start(performance)
-    timeline = _model_timeline(model)
-    applications = _compile_model_applications(model, raw_specs, timeline)
-    _runtime_performance_finish!(
-        performance,
-        :application_target_compile,
-        started_at,
-    )
-    started_at = _runtime_performance_start(performance)
+function _compile_resolved_scenario_plan(model::CompositeModel, applications, timeline)
     distributed_output_plans =
         _compile_model_output_destination_plans(model, applications)
     input_plans = _compile_model_input_plans(
@@ -1777,7 +1778,7 @@ function _compile_scene(
         distributed_output_plans,
     )
     call_plans = _compile_model_call_plans(model, applications)
-    scenario_plan = _compiled_scenario_plan(
+    return _compiled_scenario_plan(
         model,
         applications,
         input_plans,
@@ -1785,21 +1786,93 @@ function _compile_scene(
         distributed_output_plans,
         timeline,
     )
+end
+
+function _build_scenario_plan(
+    model::CompositeModel,
+    raw_specs,
+    timeline;
+    performance=nothing,
+)
+    started_at = _runtime_performance_start(performance)
+    applications = _compile_model_applications(model, raw_specs, timeline)
+    _runtime_performance_finish!(
+        performance,
+        :application_target_compile,
+        started_at,
+    )
+    started_at = _runtime_performance_start(performance)
+    scenario_plan = _compile_resolved_scenario_plan(model, applications, timeline)
+    _validate_model_call_plan_cadences!(applications, scenario_plan.call_plans, timeline)
+    _validate_manual_model_output_destination_plans!(
+        scenario_plan.distributed_output_plans,
+        scenario_plan.manual_application_ids,
+    )
     _runtime_performance_finish!(
         performance,
         :scenario_plan_compile,
         started_at,
     )
+    return scenario_plan, applications
+end
+
+function _prepare_scenario_plan(model::CompositeModel; force::Bool=false, performance=nothing)
+    return _prepare_scenario_plan(model, _model_timeline(model); force, performance)
+end
+
+function _prepare_scenario_plan(
+    model::CompositeModel, timeline;
+    force::Bool=false, performance=nothing,
+)
+    if !force
+        prepared = model.scenario_plan_cache
+        if !isnothing(prepared) && prepared.plan.timeline.base_step_seconds == timeline.base_step_seconds
+            return prepared
+        end
+        compiled = compiled_bindings(model)
+        if !isnothing(compiled) && compiled.scenario_plan.timeline.base_step_seconds == timeline.base_step_seconds
+            prepared = PreparedScenario(compiled.scenario_plan,
+                Vector{ObjectId}[copy(app.target_ids) for app in compiled.applications])
+            return model.scenario_plan_cache = prepared
+        end
+    end
+    plan, applications = _build_scenario_plan(model, model.applications, timeline; performance)
+    prepared = PreparedScenario(plan, Vector{ObjectId}[app.target_ids for app in applications])
+    # A running simulation still needs its pending topology refresh. Give
+    # an adapter the requested snapshot without replacing that live plan.
+    if !force && model.bindings_dirty && !isnothing(model.binding_cache)
+        return prepared
+    end
+    return model.scenario_plan_cache = prepared
+end
+
+function _compile_scene(
+    model::CompositeModel,
+    raw_specs;
+    validate_required_inputs::Bool=true,
+    performance=nothing,
+)
+    scenario_plan, applications = _build_scenario_plan(model, raw_specs, _model_timeline(model); performance)
+    return _compile_scene(model, scenario_plan, applications; validate_required_inputs, performance)
+end
+
+function _compile_scene(model::CompositeModel, prepared::PreparedScenario; kwargs...)
+    return _compile_scene(model, prepared.plan, _scenario_applications(prepared); kwargs...)
+end
+
+function _compile_scene(
+    model::CompositeModel,
+    scenario_plan,
+    applications;
+    validate_required_inputs::Bool=true,
+    performance=nothing,
+)
+    timeline = scenario_plan.timeline
     started_at = _runtime_performance_start(performance)
     call_bindings = _compile_model_call_bindings(
         model,
         applications;
         plans_by_application=scenario_plan.call_plans_by_application,
-    )
-    _validate_model_call_plan_cadences!(
-        applications,
-        scenario_plan.call_plans,
-        timeline,
     )
     _runtime_performance_finish!(
         performance,
@@ -2653,8 +2726,15 @@ function _preserve_temporal_input_state!(
     for (current_index, object_id) in pairs(current.binding.source_ids)
         previous_index = get(previous_indices, object_id, nothing)
         isnothing(previous_index) && continue
-        current_initial[current_index] =
+        preserved_initial =
             _private_temporal_value(previous_initial[previous_index])
+        if !(preserved_initial isa eltype(current_initial))
+            # A rebuilt binding's current source values need not have the
+            # schema of its saved initial values. Preserve those snapshots
+            # exactly rather than converting them into the fresh schema.
+            current_initial = Any[current_initial...]
+        end
+        current_initial[current_index] = preserved_initial
         current_storage[current_index] =
             _private_temporal_value(previous_storage[previous_index])
     end
@@ -2789,6 +2869,9 @@ function _stage_temporal_many_extension(
         _private_temporal_value(source_values[index])
         for index in new_indices
     ]
+    # A newly selected schema may require rebuilding the private carrier. Do
+    # not let append! silently convert an initial value into the old schema.
+    all(value -> value isa eltype(initial), new_initial) || return nothing
     new_source_applications = Union{Nothing,Symbol}[
         _temporal_source_application(
             binding,
@@ -3071,6 +3154,29 @@ function _changed_previous_time_step_targets(
     return changed_target_ids
 end
 
+function _sorted_object_ids_intersect_set(sorted_ids, ids::AbstractSet)
+    # A large lifecycle delta must not be scanned once for every singular
+    # input/call binding. Probe the set from a shorter source list; otherwise
+    # binary-search the sorted source list from the smaller dirty set.
+    if length(sorted_ids) <= length(ids)
+        for object_id in sorted_ids
+            object_id in ids && return true
+        end
+    else
+        for object_id in ids
+            # Different identities can compare equal in the sort order.
+            # Find the first one, then check exact membership within the tie.
+            start = searchsortedfirst(sorted_ids, object_id; lt=_object_id_isless)
+            for index in start:lastindex(sorted_ids)
+                candidate = @inbounds sorted_ids[index]
+                isequal(candidate, object_id) && return true
+                _object_id_isless(object_id, candidate) && break
+            end
+        end
+    end
+    return false
+end
+
 function _prepare_structural_compiled_delta(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -3113,7 +3219,7 @@ function _prepare_structural_compiled_delta(
         Vector{ObjectId},
     }()
     for binding in input_bindings
-        any(dirty_id -> first(_sorted_object_id_position(binding.source_ids, dirty_id)), dirty) ||
+        _sorted_object_ids_intersect_set(binding.source_ids, dirty) ||
             continue
         key = (binding.application_id, binding.consumer_id, binding.input)
         push!(forced_input_binding_keys, key)
@@ -3141,15 +3247,7 @@ function _prepare_structural_compiled_delta(
     forced_call_target_keys = Set{Tuple{Symbol,ObjectId}}()
     for binding in call_bindings
         _compiled_call_membership_is_observed(binding) || continue
-        any(
-            dirty_id -> first(
-                _sorted_object_id_position(
-                    binding.callee_object_ids,
-                    dirty_id,
-                ),
-            ),
-            dirty,
-        ) ||
+        _sorted_object_ids_intersect_set(binding.callee_object_ids, dirty) ||
             continue
         push!(
             forced_call_target_keys,
@@ -3307,7 +3405,7 @@ function _extend_compiled_scene(
         end
     end
     manual_application_ids = compiled.scenario_plan.manual_application_ids
-    distributed_outputs, changed_distributed_output_target_ids =
+    distributed_outputs, changed_distributed_output_target_ids, changed_writers_by_variable =
         _refresh_model_distributed_outputs(
             model,
             compiled.distributed_outputs,
@@ -3576,6 +3674,20 @@ function _extend_compiled_scene(
     previous_shared_many_sources = IdDict{Any,Vector{ObjectId}}()
     rebuild_dynamic_input_index = !pure_addition
     candidate_binding_indices = Set{Int}()
+    writer_rebind_keys = nothing
+    if !isnothing(changed_writers_by_variable)
+        rebinds = pure_addition ? forced_input_binding_keys : Set{Tuple{Symbol,ObjectId,Symbol}}()
+        _force_distributed_producer_rebinds!(
+            rebinds,
+            model,
+            input_bindings,
+            changed_writers_by_variable,
+        )
+        if !pure_addition
+            union!(forced_input_binding_keys, rebinds)
+            writer_rebind_keys = rebinds
+        end
+    end
     if !isempty(forced_input_binding_keys)
         for (binding_index, binding) in pairs(input_bindings)
             key = (binding.application_id, binding.consumer_id, binding.input)
@@ -3603,13 +3715,9 @@ function _extend_compiled_scene(
         index = pending_binding_indices[pending_binding_position]
         pending_binding_position += 1
         binding = input_bindings[index]
-        force_rebuild =
-            !isempty(forced_input_binding_keys) &&
-            (
-                binding.application_id,
-                binding.consumer_id,
-                binding.input,
-            ) in forced_input_binding_keys
+        binding_key = (binding.application_id, binding.consumer_id, binding.input)
+        force_rebuild = !isempty(forced_input_binding_keys) &&
+                        binding_key in forced_input_binding_keys
         if !force_rebuild &&
            binding.multiplicity == :many &&
            haskey(processed_many_sources, binding.source_ids)
@@ -3630,7 +3738,8 @@ function _extend_compiled_scene(
             binding.carrier_hint == :temporal_stream &&
             (previous_shared_many_sources[binding.source_ids] = copy(binding.source_ids))
         default_scope = _default_dependency_scope(model, binding.consumer_id)
-        if !pure_addition
+        if !pure_addition &&
+           (isnothing(writer_rebind_keys) || !(binding_key in writer_rebind_keys))
             structural_update = _update_structural_many_sources!(
                 model,
                 binding,
@@ -4031,23 +4140,6 @@ function _validate_model_call_plan_cadences!(applications, call_plans, timeline)
     return nothing
 end
 
-function _validate_model_call_cadences!(applications, call_bindings, timeline)
-    applications_by_id = _applications_by_id(applications)
-    for binding in call_bindings
-        caller = applications_by_id[binding.application_id]
-        for callee_id in binding.callee_application_ids
-            _validate_model_call_cadence!(
-                caller,
-                applications_by_id[callee_id],
-                binding.call,
-                timeline,
-                _compiled_call_mode(binding),
-            )
-        end
-    end
-    return nothing
-end
-
 function _initialization_effective_value(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -4180,7 +4272,7 @@ function explain_initialization(model::CompositeModel)
     )
     compiled = _compile_scene(
         model,
-        Tuple(model.applications);
+        _prepare_scenario_plan(model);
         validate_required_inputs=false,
     )
     bindings = Dict(
@@ -4793,6 +4885,8 @@ function _compile_model_writer_ownership(
     return _validate_compiled_writer_ownership!(ownership, applications)
 end
 
+_validate_manual_model_output_destination_plans!(::NoCompiledDistributedOutputPlans, _) = nothing
+
 function _validate_manual_model_output_destination_plans!(
     plans::CompiledDistributedOutputPlans,
     manual_application_ids,
@@ -4805,7 +4899,7 @@ function _validate_manual_model_output_destination_plans!(
             "supported yet; declare the application as root-scheduled instead.",
         )
     end
-    return plans
+    return nothing
 end
 
 function _validate_model_writers!(applications, call_bindings=())
@@ -5702,10 +5796,6 @@ function _compile_model_distributed_outputs(
     manual_application_ids,
     plans::CompiledDistributedOutputPlans,
 )
-    _validate_manual_model_output_destination_plans!(
-        plans,
-        manual_application_ids,
-    )
     resolved = _resolve_model_output_destinations(
         model,
         applications,
@@ -5768,7 +5858,7 @@ function _refresh_model_distributed_outputs(
     new_targets,
     pure_addition,
 )
-    return previous, Set{Tuple{Symbol,ObjectId}}()
+    return previous, Set{Tuple{Symbol,ObjectId}}(), nothing
 end
 
 function _stage_distributed_writer_owner!(
@@ -5939,7 +6029,7 @@ function _incremental_distributed_output_addition!(
         )
         for resolved in resolved_additions
     )
-    return previous, changed_targets
+    return previous, changed_targets, nothing
 end
 
 function _refresh_model_distributed_outputs(
@@ -5972,7 +6062,86 @@ function _refresh_model_distributed_outputs(
         manual_application_ids,
         plans,
     )
-    return current, _changed_distributed_output_target_ids(previous, current)
+    changed_targets = _changed_distributed_output_target_ids(previous, current)
+    changed_writers_by_variable = if pure_addition
+        # A new origin may write to a destination already in the registry.
+        _new_writers_on_existing_destinations(current, new_targets, added_ids)
+    else
+        _changed_writers_on_surviving_destinations(model, previous, current, changed_targets)
+    end
+    return current, changed_targets, changed_writers_by_variable
+end
+
+function _new_writers_on_existing_destinations(outputs, new_targets, added_ids)
+    added = Set(added_ids)
+    by_variable = nothing
+    for (application_id, origins) in new_targets, origin in origins
+        groups = get(outputs.by_execution_target, (application_id, origin), ())
+        for group in groups, destination in group.destination_ids
+            destination in added && continue
+            if isnothing(by_variable)
+                by_variable = Dict{Symbol,Vector{Tuple{ObjectId,Symbol}}}()
+            end
+            for variable in keys(group.declarations)
+                push!(
+                    get!(Vector{Tuple{ObjectId,Symbol}}, by_variable, variable),
+                    (destination, application_id),
+                )
+            end
+        end
+    end
+    return by_variable
+end
+
+function _changed_writers_on_surviving_destinations(model, previous, current, changed_targets)
+    by_variable = nothing
+    for key in changed_targets
+        before = get(previous.by_execution_target, key, NamedTuple())
+        after = get(current.by_execution_target, key, NamedTuple())
+        for (groups, other) in ((before, after), (after, before))
+            for (name, group) in pairs(groups)
+                other_ids = haskey(other, name) ? other[name].destination_ids : ()
+                for destination in group.destination_ids
+                    haskey(model.registry.objects, destination) || continue
+                    first(_sorted_object_id_position(other_ids, destination)) && continue
+                    if isnothing(by_variable)
+                        by_variable = Dict{Symbol,Vector{Tuple{ObjectId,Symbol}}}()
+                    end
+                    for variable in keys(group.declarations)
+                        push!(get!(Vector{Tuple{ObjectId,Symbol}}, by_variable, variable),
+                            (destination, group.application_id))
+                    end
+                end
+            end
+        end
+    end
+    return by_variable
+end
+
+function _force_distributed_producer_rebinds!(forced, model, bindings, by_variable)
+    for binding in bindings
+        binding.origin === :inferred_same_object && continue
+        (binding.carrier_hint === :temporal_stream ||
+         !isnothing(binding.process) || !isnothing(binding.application)) ||
+            continue
+        candidates = get(by_variable, binding.source_var, ())
+        isempty(candidates) && continue
+        default_scope = _default_dependency_scope(model, binding.consumer_id)
+        for (destination, producer) in candidates
+            producer in binding.plan.potential_source_application_ids || continue
+            _selector_matches_object_id(
+                model,
+                binding.matcher,
+                destination;
+                context=binding.consumer_id,
+                default_to_context=true,
+                default_scope,
+            ) || continue
+            push!(forced, (binding.application_id, binding.consumer_id, binding.input))
+            break
+        end
+    end
+    return nothing
 end
 
 _model_input_status_reference(binding) =
@@ -6280,6 +6449,18 @@ function _private_temporal_value(value)
     return deepcopy(value)
 end
 
+# Initial values are private snapshots, but their concrete element schema is
+# already known after binding. Preserve it for the first-step/missing-sample
+# branch of the numerical executor without converting heterogeneous values.
+function _typed_temporal_initial_values(values::Vector{Any})
+    isempty(values) && return values
+    value_type = typeof(first(values))
+    all(value -> typeof(value) === value_type, values) || return values
+    typed = Vector{value_type}(undef, length(values))
+    copyto!(typed, values)
+    return typed
+end
+
 function _temporal_input_initial(binding::CompiledModelInputBinding, status::Status)
     initial = _input_value(binding.carrier)
     if isnothing(initial)
@@ -6298,7 +6479,9 @@ function _temporal_input_initial(binding::CompiledModelInputBinding, status::Sta
             "`$(typeof(initial))`.",
         )
         if length(initial) == length(binding.source_ids)
-            return Any[_private_temporal_value(value) for value in initial]
+            return _typed_temporal_initial_values(
+                Any[_private_temporal_value(value) for value in initial],
+            )
         end
         binding.policy isa PreviousTimeStep && error(
             "Temporal `Many` input `$(binding.input)` on application ",
@@ -6311,10 +6494,10 @@ function _temporal_input_initial(binding::CompiledModelInputBinding, status::Sta
             "`$(binding.application_id)` needs an initialized element to preallocate ",
             "$(length(binding.source_ids)) temporal values.",
         )
-        return Any[
+        return _typed_temporal_initial_values(Any[
             _private_temporal_value(first(initial))
             for _ in binding.source_ids
-        ]
+        ])
     end
     return _private_temporal_value(initial)
 end
@@ -6379,6 +6562,19 @@ _distributed_temporal_source_application(
     matches,
 ) = nothing
 
+@inline function _last_matching_writer(matches, owners)
+    for owner in Iterators.reverse(owners)
+        matches(owner) && return owner
+    end
+    return nothing
+end
+
+@inline _last_matching_writer(matches, ::Tuple{}) = nothing
+@inline function _last_matching_writer(matches, owners::Tuple)
+    owner = last(owners)
+    return matches(owner) ? owner : _last_matching_writer(matches, Base.front(owners))
+end
+
 function _distributed_temporal_source_application(
     distributed_outputs::CompiledDistributedOutputs,
     source_id::ObjectId,
@@ -6392,10 +6588,8 @@ function _distributed_temporal_source_application(
         (source_id, source_var),
         (),
     )
-    for owner in Iterators.reverse(owners)
-        owner.application_id in matching_ids && return owner.application_id
-    end
-    return nothing
+    owner = _last_matching_writer(owner -> owner.application_id in matching_ids, owners)
+    return isnothing(owner) ? nothing : owner.application_id
 end
 
 function _validate_temporal_input_output_overlap!(
@@ -6739,7 +6933,7 @@ function _selector_labels_may_overlap(left, right)
 end
 
 function _potential_input_source_application_ids(
-    applications,
+    writer_applications,
     consumer_application,
     selector,
     source_var::Symbol,
@@ -6753,7 +6947,7 @@ function _potential_input_source_application_ids(
     source_selector = origin == :inferred_same_object ?
                       consumer_application.applies_to : selector
     return Tuple(
-        application.id for application in applications
+        application.id for application in get(writer_applications, source_var, ())
         if (isnothing(process_filter) ||
             application.process == process_filter) &&
            (isnothing(application_filter) ||
@@ -6766,6 +6960,34 @@ function _potential_input_source_application_ids(
                distributed_output_plans,
            )
     )
+end
+
+function _input_plan_writer_applications(
+    applications,
+    local_output_names,
+    distributed_output_plans,
+)
+    writers = Dict{Symbol,Vector{CompiledModelApplication}}()
+    for application in applications
+        for variable in local_output_names[application.id]
+            push!(get!(Vector{CompiledModelApplication}, writers, variable), application)
+        end
+        distributed_output_plans isa NoCompiledDistributedOutputPlans && continue
+        for plan in get(
+            distributed_output_plans.by_application,
+            application.id,
+            (),
+        )
+            for variable in keys(plan.declarations)
+                candidates = get!(Vector{CompiledModelApplication}, writers, variable)
+                # An application can write the same name through several
+                # destination plans. Keep it once, in application order.
+                (isempty(candidates) || last(candidates).id != application.id) &&
+                    push!(candidates, application)
+            end
+        end
+    end
+    return writers
 end
 
 function _application_may_output_variable(
@@ -6836,10 +7058,23 @@ Base.@nospecializeinfer function _potential_call_application_ids(
     )
 end
 
+Base.@nospecializeinfer function _input_plan_variable_contracts!(
+    contracts_by_application::Dict{Symbol,NamedTuple},
+    application,
+)
+    @nospecialize application
+    application_id = application.id
+    schema = get(contracts_by_application, application_id, nothing)
+    isnothing(schema) || return schema
+    schema = _variable_contract_schema(application.spec)
+    contracts_by_application[application_id] = schema
+    return schema
+end
+
 Base.@nospecializeinfer function _compiled_model_input_plan(
     plans,
     model,
-    applications,
+    writer_applications,
     application,
     input::Symbol,
     selector,
@@ -6847,6 +7082,7 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
     applications_by_id,
     distributed_output_plans,
     local_output_names,
+    variable_contracts_by_application,
 )
     # Selector and application values still determine the concrete final plan.
     @nospecialize application selector
@@ -6862,7 +7098,7 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
     )
     potential_source_application_ids =
         _potential_input_source_application_ids(
-        applications,
+        writer_applications,
         application,
         selector,
         source_var,
@@ -6878,6 +7114,11 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
             input,
             applications_by_id[producer_id],
             source_var,
+            variable_contracts_by_application[application.id],
+            _input_plan_variable_contracts!(
+                variable_contracts_by_application,
+                applications_by_id[producer_id],
+            ),
         )
     end
     policy = _selector_has_policy(selector) ? _selector_policy(selector) : nothing
@@ -6928,14 +7169,29 @@ function _compile_model_input_plans(
         application.id => _model_output_names(application)
         for application in applications
     )
+    # Restrict producer scans by declared variable, before applying selectors
+    # and process/application filters. This remains a compile-pass inventory:
+    # retain empty applications, stream-only local outputs, and distributed
+    # declarations regardless of their current destination membership.
+    writer_applications = _input_plan_writer_applications(
+        applications,
+        local_output_names,
+        distributed_output_plans,
+    )
     canonical_output_names = Dict(
         application.id => Symbol[
             variable for variable in local_output_names[application.id]
             if _publish_mode_for_output(application.spec, variable) == :canonical
         ] for application in applications
     )
+    # Contract-name validation reads full declarations, which may allocate
+    # array defaults. Validate each exact application once in this pass and
+    # reuse only its contract metadata for every producer/consumer comparison.
+    # Fill lazily to preserve declaration/endpoint error ordering. Do not retain
+    # initialization values or cache across compilations.
+    variable_contracts_by_application = Dict{Symbol,NamedTuple}()
     for application in applications
-        _variable_contract_schema(application.spec)
+        _input_plan_variable_contracts!(variable_contracts_by_application, application)
         declared_inputs = value_inputs(application.spec)
         declared_inputs isa NamedTuple || (declared_inputs = NamedTuple())
         declared_names = Set(Symbol.(keys(declared_inputs)))
@@ -6950,7 +7206,7 @@ function _compile_model_input_plans(
                 _compiled_model_input_plan(
                     plans,
                     model,
-                    applications,
+                    writer_applications,
                     application,
                     input,
                     selector,
@@ -6958,12 +7214,13 @@ function _compile_model_input_plans(
                     applications_by_id,
                     distributed_output_plans,
                     local_output_names,
+                    variable_contracts_by_application,
                 ),
             )
         end
         for input in _model_input_names(application)
             input in declared_names && continue
-            for producer in applications
+            for producer in get(writer_applications, input, ())
                 producer.id == application.id && continue
                 local_output = input in canonical_output_names[producer.id] &&
                                _selector_labels_may_overlap(
@@ -6988,7 +7245,7 @@ function _compile_model_input_plans(
                     _compiled_model_input_plan(
                         plans,
                         model,
-                        applications,
+                        writer_applications,
                         application,
                         input,
                         selector,
@@ -6996,6 +7253,7 @@ function _compile_model_input_plans(
                         applications_by_id,
                         distributed_output_plans,
                         local_output_names,
+                        variable_contracts_by_application,
                     ),
                 )
             end
@@ -7385,13 +7643,8 @@ function _final_many_source_applications(
             (source_id, source_var),
             (),
         )
-        final_owner = nothing
-        for owner in Iterators.reverse(owners)
-            if owner.application_id in matching_ids
-                final_owner = owner.application_id
-                break
-            end
-        end
+        writer = _last_matching_writer(owner -> owner.application_id in matching_ids, owners)
+        final_owner = isnothing(writer) ? nothing : writer.application_id
         if isnothing(final_owner)
             for application_id in source_application_ids
                 application = applications_by_id[application_id]

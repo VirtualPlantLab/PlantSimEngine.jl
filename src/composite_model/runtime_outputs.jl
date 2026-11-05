@@ -259,11 +259,11 @@ Runtime context passed as the final argument to model kernels. Use
 [`call_targets`](@ref), and [`run_call!`](@ref) instead of inspecting its
 fields.
 """
-mutable struct RunContext{CS,A,CT,BI,OT,TS,OR,C,E}
+mutable struct RunContext{CS,A,CT,BI,OT,TS,OR,C,E,I<:ObjectId}
     compiled::CS
     environment_bindings::CompiledEnvironmentBindings
     application::A
-    object_id::ObjectId
+    object_id::I
     calls::CT
     bound_inputs::BI
     output_targets::OT
@@ -484,7 +484,7 @@ individual target to [`run_call!(::CallTarget)`](@ref). A target is a runtime
 view owned by its compiled simulation; construct hard-call relationships with
 `ModelSpec(...; calls=...)` rather than constructing this type directly.
 """
-struct CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
+struct CallTarget{T,CS,EB,A,CT,TS,OR,C,E,I<:ObjectId}
     # Keep the execution owner by reference; only caller-specific metadata and
     # the descendant-call snapshot belong to a materialized view. Owners are
     # replaced when their model/status/binding identity changes.
@@ -492,7 +492,7 @@ struct CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
     compiled::CS
     environment_bindings::EB
     application::A
-    object_id::ObjectId
+    object_id::I
     calls::CT
     temporal_streams::TS
     output_retention::OR
@@ -504,8 +504,15 @@ end
 
 # Bind the existential variables once, rather than constructing fresh
 # TypeVar/UnionAll objects while checking each singular target view.
-const _SingleCallTargetView{T,CS,EB,A,TS,OR,C} =
-    CallTarget{T,CS,EB,A,CT,TS,OR,C,E} where {CT,E}
+const _SingleCallTargetView{T,CS,EB,A,TS,OR,C,I} =
+    CallTarget{T,CS,EB,A,CT,TS,OR,C,E,I} where {CT,E}
+
+# V fixes caller metadata while allowing descendant and environment types to change.
+# The concrete mutable slot crosses the dispatch boundary without unboxing its
+# immutable snapshot or erasing the metadata types needed by the caller.
+mutable struct _TransientSingleCallSlot{V}
+    snapshot::V
+end
 
 @inline function Base.getproperty(target::CallTarget, name::Symbol)
     name === :model && return getfield(getfield(target, :execution_target), :model)
@@ -606,7 +613,7 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C,BT} <: AbstractVector{CallTarget}
     execution_batches::BT
     evaluation::Union{Nothing,CallEvaluationFrame}
     target_buffer_cache::Union{Nothing,_CallTargetBufferCache}
-    # One immutable singular snapshot; numerical state remains in its owner.
+    # One singular snapshot or transient slot; numerical state stays in its owner.
     last_single_snapshot::Any
 end
 
@@ -999,8 +1006,8 @@ struct CachedGlobalModelEnvironment{B}
     binding::B
 end
 
-mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OT,OB,CB,EB,RC}
-    object_id::ObjectId
+mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OT,OB,CB,EB,RC,I<:ObjectId}
+    object_id::I
     model::M
     status::S
     canonical_status::CS
@@ -1061,6 +1068,23 @@ CompiledExecutionBatch(
 struct CompiledApplicationExecutionGroup{A,B}
     application::A
     batches::B
+end
+
+function _compiled_application_execution_group(application, batches)
+    if !isempty(batches)
+        batch_type = typeof(first(batches))
+        eltype(batches) === batch_type &&
+            return CompiledApplicationExecutionGroup(application, batches)
+        if all(batch -> typeof(batch) === batch_type, batches)
+            # Dispatch once at the application boundary, then retain the batch
+            # schema through its loop. Counts and object identities remain
+            # runtime data, including after same-schema lifecycle changes.
+            typed = Vector{batch_type}(undef, length(batches))
+            copyto!(typed, batches)
+            return CompiledApplicationExecutionGroup(application, typed)
+        end
+    end
+    return CompiledApplicationExecutionGroup(application, batches)
 end
 
 mutable struct RuntimeApplicationSchedule
@@ -1297,14 +1321,18 @@ runtime_model(model::CompositeModel) = model
 runtime_model(context::RunContext) = context.compiled.model
 runtime_model(target::CallTarget) = target.model
 runtime_model(simulation::Simulation) = simulation.model
+# A CallTarget exposes its scientific model through runtime_model; registry
+# accessors still resolve identities and canonical state through its owner.
+@inline _runtime_registry_owner(runtime::Union{RunContext,CallTarget}) = runtime.compiled.model
+@inline _runtime_registry_owner(runtime::Simulation) = runtime.model
 object_id(runtime::Union{RunContext,CallTarget,Simulation}, source) =
-    object_id(runtime_model(runtime), source)
+    object_id(_runtime_registry_owner(runtime), source)
 model_object(runtime::Union{RunContext,CallTarget,Simulation}, source) =
-    model_object(runtime_model(runtime), source)
+    model_object(_runtime_registry_owner(runtime), source)
 model_status(runtime::Union{RunContext,CallTarget,Simulation}, source) =
-    model_status(runtime_model(runtime), source)
+    model_status(_runtime_registry_owner(runtime), source)
 source_node(runtime::Union{RunContext,CallTarget,Simulation}, source) =
-    source_node(runtime_model(runtime), source)
+    source_node(_runtime_registry_owner(runtime), source)
 
 """
     object_id(context::Union{RunContext,CallTarget})
@@ -1318,13 +1346,13 @@ kernel. `source_node(context)` is available for MTG-backed models and avoids
 requiring a topology node inside that local status view.
 """
 object_id(runtime::Union{RunContext,CallTarget}) =
-    object_id(runtime_model(runtime), getfield(runtime, :object_id))
+    object_id(_runtime_registry_owner(runtime), getfield(runtime, :object_id))
 model_object(runtime::Union{RunContext,CallTarget}) =
-    model_object(runtime_model(runtime), object_id(runtime))
+    model_object(_runtime_registry_owner(runtime), object_id(runtime))
 model_status(runtime::Union{RunContext,CallTarget}) =
-    model_status(runtime_model(runtime), object_id(runtime))
+    model_status(_runtime_registry_owner(runtime), object_id(runtime))
 source_node(runtime::Union{RunContext,CallTarget}) =
-    source_node(runtime_model(runtime), object_id(runtime))
+    source_node(_runtime_registry_owner(runtime), object_id(runtime))
 current_step(simulation::Simulation) = simulation.current_step
 
 outputs(sim::Simulation) = sim.temporal_streams
@@ -1819,6 +1847,17 @@ end
     return samples
 end
 
+@inline function _model_prune_dependency_samples!(stream, sample_time::Float64, horizon::Float64)
+    stream isa TemporalDependencyBuffer || return nothing
+    cutoff = horizon <= 0.0 ? sample_time : sample_time - horizon + 1.0
+    # Keep a preceding sample for PreviousTimeStep and linear extrapolation
+    # when fractional clocks or manual calls leave a gap in the cadence.
+    while length(stream) > 2 && first(stream)[1] < cutoff - 1.0e-8
+        _temporal_dependency_popfirst!(stream)
+    end
+    return nothing
+end
+
 @inline function _model_publish_runtime_output_value!(
     output,
     stream,
@@ -1832,24 +1871,14 @@ end
         "`$(expected_type)` to `$(typeof(value))`. CompositeModel temporal ",
         "streams require a stable output type.",
     )
+    sample_time = float(time)
     _model_publish_sample!(
         stream,
-        float(time),
+        sample_time,
         value,
         ; copy_value=copy_value,
     )
-    if stream isa TemporalDependencyBuffer
-        cutoff = output.dependency_horizon <= 0.0 ?
-                 float(time) :
-                 float(time) - output.dependency_horizon + 1.0
-        # The preceding publication is needed by PreviousTimeStep and linear
-        # extrapolation even when fractional clocks or manual calls leave a
-        # larger gap than the nominal cadence. Capacity still bounds storage.
-        while length(stream) > 2 &&
-              first(stream)[1] < cutoff - 1.0e-8
-            _temporal_dependency_popfirst!(stream)
-        end
-    end
+    _model_prune_dependency_samples!(stream, sample_time, output.dependency_horizon)
     return nothing
 end
 
@@ -3785,7 +3814,7 @@ function compile_model_execution_plan(
         first_batch > length(batches) && continue
         push!(
             groups,
-            CompiledApplicationExecutionGroup(
+            _compiled_application_execution_group(
                 application,
                 batches[first_batch:end],
             ),
@@ -4645,7 +4674,8 @@ function _refresh_model_execution_group_delta!(
         :execution_groups_updated_in_place,
     )
     batches = copy(previous_group.batches)
-    working_group = CompiledApplicationExecutionGroup(application, batches)
+    working_group = _compiled_application_execution_group(application, batches)
+    batches = working_group.batches
     for action in actions
         location = _model_execution_target_location(
             working_group,
@@ -5070,7 +5100,7 @@ function _refresh_model_execution_plan(
         isempty(application_batches) && continue
         push!(
             groups,
-            CompiledApplicationExecutionGroup(
+            _compiled_application_execution_group(
                 application,
                 application_batches,
             ),
@@ -5764,7 +5794,53 @@ end
 ) where {CS,EB,B,TS,OR,C,A,T<:CompiledExecutionTarget,RC<:RunContext}
     CT = fieldtype(RC, :calls)
     E = fieldtype(RC, :environment)
-    return CallTarget{T,CS,EB,A,CT,TS,OR,C,E}
+    I = fieldtype(T, :object_id)
+    return CallTarget{T,CS,EB,A,CT,TS,OR,C,E,I}
+end
+
+@noinline function _transient_single_call_target_slot(
+    targets::CallTargets{CS,EB,B,TS,OR,C},
+    application::A,
+    target::T,
+    context::RC,
+    environment::E,
+) where {CS,EB,B,TS,OR,C,A,T<:CompiledExecutionTarget,RC<:RunContext,E}
+    # The collection stores override metadata behind Any. Cross that boundary
+    # once so this specialization knows the actual environment type while
+    # checking and constructing cached immutable views.
+    CT = fieldtype(RC, :calls)
+    I = fieldtype(T, :object_id)
+    Slot = _TransientSingleCallSlot{_SingleCallTargetView{T,CS,EB,A,TS,OR,C,I}}
+    View = CallTarget{T,CS,EB,A,CT,TS,OR,C,E,I}
+    previous = targets.last_single_snapshot
+    if previous isa Slot
+        snapshot = previous.snapshot
+        if snapshot isa View &&
+           _single_call_snapshot_matches(snapshot, targets, application, target, context)
+            return previous::Slot
+        end
+    end
+    snapshot = View(
+        target,
+        targets.compiled,
+        targets.environment_bindings,
+        application,
+        target.object_id,
+        context.calls,
+        targets.temporal_streams,
+        targets.output_retention,
+        targets.time,
+        targets.constants,
+        targets.publication_allowed,
+        environment,
+    )
+    if previous isa Slot
+        previous.snapshot = snapshot
+        return previous::Slot
+    end
+    slot = Slot(snapshot)
+    targets.last_single_snapshot = slot
+    return slot
 end
 
 @inline function _single_call_target_snapshot(
@@ -5774,7 +5850,7 @@ end
 ) where {CS,EB,B,TS,OR,C,A,T<:CompiledExecutionTarget}
     # The execution owner determines model/status types. Descendant tuple and
     # environment types may change, including during a leased lifecycle refresh.
-    View = _SingleCallTargetView{T,CS,EB,A,TS,OR,C}
+    View = _SingleCallTargetView{T,CS,EB,A,TS,OR,C,fieldtype(T, :object_id)}
     context = target.context
     if context isa RunContext && !target.call_context_cache.in_use
         _prepare_runtime_call_targets!(
@@ -5793,7 +5869,7 @@ end
             targets, application, target, context,
         )
         # Exact default metadata permits a concrete type check instead of
-        # existential subtyping; changed environment types keep the general path.
+        # existential subtyping without crossing a dynamic override boundary.
         if isconcretetype(ConcreteView) &&
            isconcretetype(CS) && isconcretetype(EB) &&
            isconcretetype(TS) && isconcretetype(OR) && isconcretetype(C) &&
@@ -5819,6 +5895,15 @@ end
             )
             targets.last_single_snapshot = snapshot
             return snapshot
+        end
+        if isconcretetype(CS) && isconcretetype(EB) &&
+           isconcretetype(TS) && isconcretetype(OR) && isconcretetype(C) &&
+           isconcretetype(fieldtype(typeof(context), :calls))
+            # A concrete mutable slot preserves the cached box and the known
+            # metadata types without an existential view check at this boundary.
+            return _transient_single_call_target_slot(
+                targets, application, target, context, targets.environment,
+            ).snapshot
         end
         if previous isa View &&
            _single_call_snapshot_matches(previous, targets, application, target, context)
@@ -6726,8 +6811,8 @@ end
 # not change the concrete child-call tuple. Recover the context type without
 # erasing the normal no-override execution path.
 @inline _call_context_type(
-    ::RunContext{CS,A,CT,BI,OT,TS,OR,C}, ::E,
-) where {CS,A,CT,BI,OT,TS,OR,C,E} = RunContext{CS,A,CT,BI,OT,TS,OR,C,E}
+    ::RunContext{CS,A,CT,BI,OT,TS,OR,C,OldE,I}, ::E,
+) where {CS,A,CT,BI,OT,TS,OR,C,OldE,I,E} = RunContext{CS,A,CT,BI,OT,TS,OR,C,E,I}
 @inline _call_context_type(::Nothing, environment) = RunContext
 
 @inline function _call_context_matches(
@@ -6822,13 +6907,13 @@ end
     return nothing
 end
 
-@noinline function _run_materialized_call_kernel!(
+@noinline function _run_owned_call_kernel!(
     owner::CompiledExecutionTarget,
     environment,
     context::RunContext,
     frame,
 )
-    # Sampling can erase the environment type on the materialized-call path.
+    # Sampling can erase the environment type on either hard-call path.
     # Cross that boundary with the mutable owner, then read its typed payload
     # here instead of boxing model/status/output tuples as dispatch arguments.
     if frame === nothing
@@ -6881,7 +6966,7 @@ end
             # Input materialization above updates this owner's references and
             # returns the same Status. Targeted newborns have a distinct payload
             # and retain the original dispatch path below.
-            _run_materialized_call_kernel!(
+            _run_owned_call_kernel!(
                 target.execution_target, environment_value, context, frame,
             )
         elseif frame === nothing
@@ -6978,7 +7063,7 @@ end
 )
     cache = target.call_context_cache
     _record_call_execution!(cache, frame)
-    status = _materialize_model_inputs!(
+    _materialize_model_inputs!(
         target.status,
         target.input_bindings,
         targets.compiled,
@@ -7017,15 +7102,7 @@ end
                 targets.constants, publication_allowed, environment,
             )
         end
-        if frame === nothing
-            _run_call_kernel!(
-                target.model, status, environment_value, context, target.output_bindings,
-            )
-        else
-            _run_evaluated_call_kernel!(
-                target.model, status, environment_value, context, target.output_bindings, frame,
-            )
-        end
+        _run_owned_call_kernel!(target, environment_value, context, frame)
     finally
         acquired && (cache.in_use = false)
     end
@@ -8098,10 +8175,37 @@ function run!(
     outputs=:none,
     performance::Bool=false,
 )
+    simulation = _prepare_simulation!(model; steps, constants, outputs, performance)
+    return _continue_scene!(simulation, steps)
+end
+
+function _prepare_simulation!(
+    model::CompositeModel;
+    steps::Integer,
+    constants,
+    outputs,
+    performance::Bool=false,
+)
     performance_counters = performance ? RuntimePerformanceCounters() : nothing
     initial_composite_started_at =
         _runtime_performance_start(performance_counters)
     started_at = initial_composite_started_at
+    # An existing simulation may have refreshed its environment while retaining
+    # its schedule. Compare the current base step even after that refresh.
+    prepared = model.scenario_plan_cache
+    compiled = model.binding_cache
+    if !isnothing(prepared) || !isnothing(compiled)
+        previous = isnothing(prepared) ? compiled.scenario_plan : prepared.plan
+        backend = environment_backend(model.environment)
+        timeline = _timeline_context(backend)
+        cadence_changed = previous.timeline.base_step_seconds != timeline.base_step_seconds
+        if cadence_changed || (model.environment_bindings_dirty && model.lifecycle_delta.full_environment)
+            _validate_environment_duration(backend)
+        end
+        if cadence_changed
+            _prepare_scenario_plan(model, timeline; force=true, performance=performance_counters)
+        end
+    end
     compiled = refresh_bindings!(
         model;
         performance=performance_counters,
@@ -8228,7 +8332,7 @@ function run!(
         :initial_composite_compile,
         initial_composite_started_at,
     )
-    simulation = Simulation(
+    return Simulation(
         model,
         compiled,
         env_bindings,
@@ -8245,7 +8349,6 @@ function run!(
         constants,
         performance_counters,
     )
-    return _continue_scene!(simulation, steps)
 end
 
 """

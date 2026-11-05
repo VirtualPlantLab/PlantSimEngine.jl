@@ -110,7 +110,7 @@ function _normalize_object_id_criterion(value)
     return ObjectId(value)
 end
 
-function _normalize_object_selector_value(key::Symbol, value)
+Base.@constprop :aggressive function _normalize_object_selector_value(key::Symbol, value)
     key == :id && return _normalize_object_id_criterion(value)
     key == :within && begin
         value isa Union{SceneScope,Self,Subtree,SelfPlant,Ancestor,Scope} || error(
@@ -143,14 +143,16 @@ function _object_matches_selector_value(object_value, requested)
     return object_value == requested
 end
 
-function _normalize_selector_kwargs(kwargs)
-    unsupported = Symbol[key for key in keys(kwargs) if !(key in _OBJECT_SELECTOR_KEYWORD_FIELDS)]
-    isempty(unsupported) || error(
-        "Unsupported object selector keyword(s) `$(Tuple(unsupported))`. ",
-        "Supported keywords are `$(_OBJECT_SELECTOR_KEYWORD_FIELDS)`."
-    )
-    return NamedTuple{keys(kwargs)}(
-        Tuple(_normalize_object_selector_value(k, v) for (k, v) in pairs(kwargs))
+Base.@constprop :aggressive function _normalize_selector_kwargs(kwargs::NamedTuple{K}) where {K}
+    if !all(key -> key in _OBJECT_SELECTOR_KEYWORD_FIELDS,K)
+        unsupported = filter(key -> !(key in _OBJECT_SELECTOR_KEYWORD_FIELDS),K)
+        error(
+            "Unsupported object selector keyword(s) `$(unsupported)`. ",
+            "Supported keywords are `$(_OBJECT_SELECTOR_KEYWORD_FIELDS)`."
+        )
+    end
+    return NamedTuple{K}(
+        map(_normalize_object_selector_value,K,values(kwargs))
     )
 end
 
@@ -576,40 +578,13 @@ function _ancestor_id(
     final_index < firstindex(ancestors) && return nothing
     isnothing(scale) && isnothing(kind) &&
         return @inbounds ancestors[final_index]
-    isnothing(kind) && return _ancestor_id_by_index(
-        ancestors,
-        final_index,
-        model.registry.by_scale,
-        scale,
-    )
-    isnothing(scale) && return _ancestor_id_by_index(
-        ancestors,
-        final_index,
-        model.registry.by_kind,
-        kind,
-    )
-    haskey(model.registry.by_scale, scale) || return nothing
-    haskey(model.registry.by_kind, kind) || return nothing
-    scale_ids = model.registry.by_scale[scale]
-    kind_ids = model.registry.by_kind[kind]
+    !isnothing(scale) && !haskey(model.registry.by_scale, scale) && return nothing
+    !isnothing(kind) && !haskey(model.registry.by_kind, kind) && return nothing
     for index in final_index:-1:firstindex(ancestors)
         id = @inbounds ancestors[index]
-        id in scale_ids && id in kind_ids && return id
-    end
-    return nothing
-end
-
-function _ancestor_id_by_index(
-    ancestors::Vector{ObjectId},
-    final_index::Int,
-    object_index::Dict{Symbol,Set{ObjectId}},
-    label::Symbol,
-)
-    haskey(object_index, label) || return nothing
-    matching_ids = object_index[label]
-    for index in final_index:-1:firstindex(ancestors)
-        id = @inbounds ancestors[index]
-        id in matching_ids && return id
+        object = _model_object(model, id)::Object
+        (isnothing(scale) || object.scale === scale) &&
+            (isnothing(kind) || object.kind === kind) && return id
     end
     return nothing
 end
@@ -622,53 +597,6 @@ function _ancestor_ids(model::CompositeModel, current_id::ObjectId)
         parent_id = _model_object(model, parent_id).parent
     end
     return ids
-end
-
-@inline function _object_is_in_nearest_ancestor_scope(
-    model::CompositeModel,
-    object_id::ObjectId,
-    current_id::ObjectId,
-    scale::Union{Nothing,Symbol},
-    include_self::Bool,
-)
-    current_ancestors = _object_ancestor_ids(model.registry, current_id)
-    final_index = lastindex(current_ancestors) - (include_self ? 0 : 1)
-    final_index < firstindex(current_ancestors) && error(
-        "No matching ancestor found for object `$(current_id.value)` and scale `$(scale)`.",
-    )
-    object_ancestors = _object_ancestor_ids(model.registry, object_id)
-    if isnothing(scale)
-        ancestor_id = @inbounds current_ancestors[final_index]
-        return ancestor_id in object_ancestors
-    end
-    for index in final_index:-1:firstindex(current_ancestors)
-        ancestor_id = @inbounds current_ancestors[index]
-        _model_object(model, ancestor_id).scale == scale || continue
-        return ancestor_id in object_ancestors
-    end
-    scale === :Plant && include_self && error(
-        "No `scale=:Plant` ancestor found for object `$(current_id.value)`.",
-    )
-    error(
-        "No matching ancestor found for object `$(current_id.value)` and scale `$(scale)`.",
-    )
-end
-
-@inline function _object_is_nearest_ancestor(
-    model::CompositeModel,
-    object_id::ObjectId,
-    current_id::ObjectId,
-    scale::Symbol,
-)
-    current_ancestors = _object_ancestor_ids(model.registry, current_id)
-    final_index = lastindex(current_ancestors) - 1
-    final_index < firstindex(current_ancestors) && return false
-    for index in final_index:-1:firstindex(current_ancestors)
-        ancestor_id = @inbounds current_ancestors[index]
-        _model_object(model, ancestor_id).scale == scale || continue
-        return object_id == ancestor_id
-    end
-    return false
 end
 
 function _relation_object_ids(model::CompositeModel, relation::Symbol, context)
@@ -892,9 +820,7 @@ function _selector_subtree_root(model::CompositeModel, scope, context)
         isnothing(current_id) && error("`$(scope)` selectors require a current object context.")
         _model_object(model, current_id)
         scope isa Subtree && return current_id
-        root = scope isa SelfPlant ?
-               _ancestor_id(model, current_id; scale=:Plant) :
-               _ancestor_id(model, current_id; scale=scope.scale, include_self=false)
+        root = _scope_anchor(model, scope, current_id)
         if isnothing(root)
             scope isa SelfPlant && error("No `scale=:Plant` ancestor found for object `$(current_id.value)`.")
             error("No matching ancestor found for object `$(current_id.value)` and selector `$(scope)`.")
@@ -908,40 +834,65 @@ function _selector_subtree_root(model::CompositeModel, scope, context)
     return nothing
 end
 
-function _object_is_in_subtree(model::CompositeModel, object_id::ObjectId, root_id::ObjectId)
+# On Julia 1.10, keep the target ID unboxed when the ancestor's ID type is unknown.
+@inline function _object_is_in_subtree(model::CompositeModel, object_id::ObjectId, root_id::ObjectId)
     return root_id in _object_ancestor_ids(model.registry, object_id)
 end
 
+@inline _point_scope_contains(topology, ::Union{Nothing,SceneScope}, origin, object) = true
+
+@inline _point_scope_contains(topology, ::Self, origin, object) =
+    _relation_same_object(topology, origin, object)
+
+@inline _point_scope_contains(topology, ::Subtree, origin, object) =
+    _relation_in_subtree(topology, object, origin)
+
+@inline _scope_ancestor(model::CompositeModel, origin, scale, include_self) =
+    _ancestor_id(model, origin, scale, nothing, include_self)
+
+@inline _scope_anchor(topology, ::SelfPlant, origin) =
+    _scope_ancestor(topology, origin, :Plant, true)
+@inline _scope_anchor(topology, scope::Ancestor, origin) =
+    _scope_ancestor(topology, origin, scope.scale, false)
+
+@inline function _required_scope_anchor(topology, scope, origin)
+    root = _scope_anchor(topology, scope, origin)
+    isnothing(root) && _missing_point_scope_anchor(topology, scope, origin)
+    return root
+end
+
+_missing_point_scope_anchor(::CompositeModel, ::SelfPlant, id) =
+    error("No `scale=:Plant` ancestor found for object `$(id.value)`.")
+_missing_point_scope_anchor(::CompositeModel, scope::Ancestor, id) =
+    error("No matching ancestor found for object `$(id.value)` and scale `$(scope.scale)`.")
+
+@inline _point_scope_contains(topology, scope::Union{SelfPlant,Ancestor}, origin, object) =
+    _relation_in_subtree(topology, object, _required_scope_anchor(topology, scope, origin))
+
+@inline function _nearest_ancestor_matches(topology, scope::Ancestor, origin, object)
+    ancestor = _scope_anchor(topology, scope, origin)
+    return !isnothing(ancestor) && _relation_same_object(topology, ancestor, object)
+end
+
 function _scope_contains_object(model::CompositeModel, scope, context, object_id::ObjectId)
-    (isnothing(scope) || scope isa SceneScope) && return true
+    scope isa Union{Nothing,SceneScope} &&
+        return _point_scope_contains(model, scope, context, object_id)
     return if scope isa Self
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error("`Self()` selectors require a current object context.")
-        object_id == current_id
+        _point_scope_contains(model, scope, current_id, object_id)
     elseif scope isa Subtree
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error("`Subtree()` selectors require a current object context.")
-        _object_is_in_subtree(model, object_id, current_id)
+        _point_scope_contains(model, scope, current_id, object_id)
     elseif scope isa SelfPlant
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error("`SelfPlant()` selectors require a current object context.")
-        _object_is_in_nearest_ancestor_scope(
-            model,
-            object_id,
-            current_id,
-            :Plant,
-            true,
-        )
+        _point_scope_contains(model, scope, current_id, object_id)
     elseif scope isa Ancestor
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error("`Ancestor(...)` selectors require a current object context.")
-        _object_is_in_nearest_ancestor_scope(
-            model,
-            object_id,
-            current_id,
-            scope.scale,
-            false,
-        )
+        _point_scope_contains(model, scope, current_id, object_id)
     elseif scope isa Scope
         _object_is_in_subtree(
             model,
@@ -958,68 +909,43 @@ function _scope_contains_object(model::CompositeModel, scope, context, object_id
     end
 end
 
-@inline _relation_contains_object(
-    ::CompositeModel,
-    ::Nothing,
-    context_id::ObjectId,
-    object_id::ObjectId,
-) = true
+# Share relation predicates across topology representations while keeping
+# registry lookups and traversal specific to each representation.
+@inline _relation_parent(model::CompositeModel, id) = _model_object(model, id).parent
+@inline _relation_in_subtree(model::CompositeModel, id, root) =
+    _object_is_in_subtree(model, id, root)
+@inline _relation_same_object(::CompositeModel, left, right) = left == right
 
-@inline _relation_contains_object(
-    ::CompositeModel,
-    ::Val{:self},
-    context_id::ObjectId,
-    object_id::ObjectId,
-) = object_id == context_id
+@inline _relation_contains_object(topology, ::Nothing, origin, object) = true
 
-@inline function _relation_contains_object(
-    model::CompositeModel,
-    ::Val{:parent},
-    context_id::ObjectId,
-    object_id::ObjectId,
-)
-    return _model_object(model, context_id).parent == object_id
+@inline _relation_contains_object(topology, ::Val{:self}, origin, object) =
+    _relation_same_object(topology, origin, object)
+
+@inline function _relation_contains_object(topology, ::Val{:parent}, origin, object)
+    parent = _relation_parent(topology, origin)
+    return !isnothing(parent) && _relation_same_object(topology, parent, object)
 end
 
-@inline function _relation_contains_object(
-    model::CompositeModel,
-    ::Val{:children},
-    context_id::ObjectId,
-    object_id::ObjectId,
-)
-    return _model_object(model, object_id).parent == context_id
+@inline function _relation_contains_object(topology, ::Val{:children}, origin, object)
+    return _relation_contains_object(topology, Val(:parent), object, origin)
 end
 
-@inline function _relation_contains_object(
-    model::CompositeModel,
-    ::Val{:ancestors},
-    context_id::ObjectId,
-    object_id::ObjectId,
-)
-    return object_id != context_id &&
-           object_id in _object_ancestor_ids(model.registry, context_id)
+@inline function _relation_contains_object(topology, ::Val{:ancestors}, origin, object)
+    return !_relation_same_object(topology, origin, object) &&
+           _relation_in_subtree(topology, origin, object)
 end
 
-@inline function _relation_contains_object(
-    model::CompositeModel,
-    ::Val{:descendants},
-    context_id::ObjectId,
-    object_id::ObjectId,
-)
-    return object_id != context_id &&
-           context_id in _object_ancestor_ids(model.registry, object_id)
+@inline function _relation_contains_object(topology, ::Val{:descendants}, origin, object)
+    return _relation_contains_object(topology, Val(:ancestors), object, origin)
 end
 
-@inline function _relation_contains_object(
-    model::CompositeModel,
-    ::Val{:siblings},
-    context_id::ObjectId,
-    object_id::ObjectId,
-)
-    object_id == context_id && return false
-    context_parent = _model_object(model, context_id).parent
-    return !isnothing(context_parent) &&
-           _model_object(model, object_id).parent == context_parent
+@inline function _relation_contains_object(topology, ::Val{:siblings}, origin, object)
+    _relation_same_object(topology, origin, object) && return false
+    origin_parent = _relation_parent(topology, origin)
+    isnothing(origin_parent) && return false
+    object_parent = _relation_parent(topology, object)
+    return !isnothing(object_parent) &&
+           _relation_same_object(topology, origin_parent, object_parent)
 end
 
 function _symbol_edit_distance(left::Symbol, right::Symbol)
@@ -1141,12 +1067,7 @@ function _selector_matches_object_id(
             isnothing(current_id) && error(
                 "`Ancestor(...)` selectors require a current object context.",
             )
-            return _object_is_nearest_ancestor(
-                model,
-                object_id,
-                current_id,
-                scope.scale,
-            )
+            return _nearest_ancestor_matches(model, scope, current_id, object_id)
         end
         return _scope_contains_object(model, scope, context, object_id)
     end

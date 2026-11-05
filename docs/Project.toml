@@ -11,7 +11,8 @@ PlantMeteo = "4630fe09-e0fb-4da5-a846-781cb73437b6"
 PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"
 
 [compat]
-Bonito = "5.2"
+# The static export post-processing targets Bonito's 5.2 HTML.
+Bonito = "~5.2.0"
 Documenter = "1.11"
 LiveServer = "1"
 MonteCarloMeasurements = "1.5"

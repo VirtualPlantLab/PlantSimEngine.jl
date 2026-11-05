@@ -72,12 +72,12 @@ macro process(f, args...)
         All models implemented to simulate the `$($process_name)` process must be a subtype of this type, *e.g.* 
         `struct My$($(titlecase(process_name)))Model <: $($process_abstract_type_name) end`.
 
-        You can list all models implementing this process using `subtypes`:
+        List the loaded models implementing this process with `Authoring.available_models`.
 
         # Examples
 
         ```julia
-        subtypes($($process_abstract_type_name))
+        PlantSimEngine.Authoring.available_models($($process_abstract_type_name))
         ```
         """, $(doc))
         abstract type $(esc(process_abstract_type)) <: AbstractModel end
@@ -86,12 +86,13 @@ macro process(f, args...)
         PlantSimEngine.process_(::Type{$(esc(process_abstract_type))}) = Symbol($process_name)
     end
 
-    # Print help when creating a process:
-    p = Term.RenderableText(
-        Markdown.parse(_process_model_tutorial(process_name, process_abstract_type))
-    )
-
-    isinteractive() && verbose && print(p)
+    # Rendering loads terminal backends, so construct help only when displayed.
+    if isinteractive() && verbose
+        p = Term.RenderableText(
+            Markdown.parse(_process_model_tutorial(process_name, process_abstract_type))
+        )
+        print(p)
+    end
 
     return expr
 end

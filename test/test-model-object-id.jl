@@ -1,3 +1,10 @@
+@testset "ObjectId display" begin
+    @test repr(ObjectId(42)) == "ObjectId(42)"
+    @test repr(ObjectId(:leaf)) == "ObjectId(:leaf)"
+    @test repr(ObjectId("leaf")) == "ObjectId(:leaf)"
+    @test repr(ObjectId(1.0f0)) == "ObjectId(1.0f0)"
+end
+
 PlantSimEngine.@process "object_identity_probe" verbose = false
 
 struct ObjectIdentityProbeModel{N,I} <: AbstractObject_Identity_ProbeModel
