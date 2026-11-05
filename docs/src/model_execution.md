@@ -105,7 +105,8 @@ Diagnostics.explain_writers(model)
 
 These reports show which objects and models were selected, where their
 inputs come from, when they run, and which growing conditions they receive.
-Both people and coding agents can inspect the reports.
+Inspecting a model preserves its live status and pending topology changes.
+Reports that need to prepare or refresh bindings work on a private copy.
 
 ### Readable source views
 

@@ -5162,6 +5162,7 @@ function explain_execution_plan(sim::Simulation)
 end
 
 function explain_execution_plan(model::CompositeModel)
+    model = deepcopy(model)
     compiled = refresh_bindings!(model)
     environment_bindings = refresh_environment_bindings!(model, compiled)
     return explain_execution_plan(
@@ -5440,7 +5441,7 @@ function explain_output_retention(sim::Simulation)
 end
 
 function explain_output_retention(model::CompositeModel; outputs=:none)
-    compiled = refresh_bindings!(model)
+    compiled = _diagnostic_bindings(model)
     output_requests, retain_all = _model_output_selection(outputs)
     plan = compile_model_output_retention(
         compiled,

@@ -136,6 +136,7 @@ makedocs(;
             "Why Julia?" => "introduction/why_julia.md",
             "How multiscale models execute" => "guides/multiscale/concepts.md",
             "Model execution" => "model_execution.md",
+            "Compile a fixed scenario" => "guides/compile_scenario.md",
             "Model traits" => "model_traits.md",
             "Graph editor" => "guides/graph_visualizer_editor.md",
             "Environment backend extensions" => "guides/extensions/environment_backends.md",

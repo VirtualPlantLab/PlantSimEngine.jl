@@ -1,0 +1,12 @@
+name = "PSECompiledScenario"
+uuid = "ac67530e-c1dc-4bfe-8d89-6dced94d41bf"
+version = "0.1.0"
+
+[deps]
+PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"
+
+[sources]
+PlantSimEngine = {path = "../.."}
+
+[compat]
+julia = "1.13"

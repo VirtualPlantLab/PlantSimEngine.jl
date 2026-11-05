@@ -83,6 +83,9 @@ include("authoring.jl")
 # Fitting
 include("evaluation/fit.jl")
 
+# Optional standalone application compilation:
+include("native_compilation.jl")
+
 """
     PlantSimEngine.Authoring
 
@@ -392,7 +395,7 @@ export environment_bindings, environment_window, output_routing, updates
 export environment_inputs, environment_outputs
 export validate_environment_inputs
 export run!, continue!, step!
-export Authoring, Advanced, Diagnostics, GraphEditor, EnvironmentAPI, Evaluation
+export Authoring, Advanced, Diagnostics, GraphEditor, EnvironmentAPI, Evaluation, Compilation
 
 # Re-exporting PlantMeteo main functions:
 export Atmosphere, Constants, Weather

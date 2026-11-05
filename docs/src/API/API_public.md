@@ -415,6 +415,15 @@ Parameter fitting and evaluation metrics are available under `Evaluation`: `Eval
 PlantMeteo reducers are accessed from `PlantMeteo` directly rather than being
 re-exported by PlantSimEngine.
 
+## Native compilation
+
+`Compilation.prepare(model; constants=Constants())` prepares the supported
+one-object subset of `CompositeModel`. Use `continue!`, `step!`,
+`current_step`, and `final_state` with the returned program.
+`Compilation.compile(app_project; destination, name="simulation")` builds
+and bundles a named Julia app when JuliaC is loaded. The
+[compilation guide](../guides/compile_scenario.md) shows both steps.
+
 ## Advanced compiler API
 
 ```@docs
@@ -447,6 +456,7 @@ Modules = [
     PlantSimEngine.GraphEditor,
     PlantSimEngine.EnvironmentAPI,
     PlantSimEngine.Evaluation,
+    PlantSimEngine.Compilation,
 ]
 Private = false
 ```
