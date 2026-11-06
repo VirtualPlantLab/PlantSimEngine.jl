@@ -39,6 +39,7 @@ else
 
     @testset "Registered object identity" begin
         include("test-model-object-id.jl")
+        include("test-object-families.jl")
     end
 
     @testset "Concrete runtime object identities" begin
@@ -65,6 +66,7 @@ else
 
     @testset "Organ status assembly" begin
         include("test-organ-status-assembly.jl")
+        include("test-status-construction.jl")
     end
 
     @testset "CompositeModel display" begin

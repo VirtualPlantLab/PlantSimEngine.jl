@@ -5270,69 +5270,43 @@ function _ref_vector_carrier(refs)
 end
 
 """
-Mutable, storage-neutral recipe used to assemble one canonical object status.
+Sparse reference edits staged before committing one canonical object status.
 
-The recipe keeps existing field order and reference identity, stages additions
-or replacements in place, then materializes at most one new `Status`. Keeping
-the logical names separate from the current `Ref` backing also leaves a
-small seam for a future columnar status-storage experiment.
+Unchanged fields remain in the original status. A model-owned construction
+recipe supplies their order when the staged edits are committed.
 """
 mutable struct _CanonicalStatusRecipe
     original::Union{Nothing,Status}
-    names::Vector{Symbol}
-    references::Union{Vector{Base.RefValue},Vector{Ref}}
-    positions::Union{Nothing,Dict{Symbol,Int}}
+    edit_names::Vector{Symbol}
+    edit_references::Vector{Ref}
     changed::Bool
     field_changes::Int
 end
 
-_status_recipe_references(references::Tuple{Vararg{Base.RefValue}}) =
-    Base.RefValue[references...]
-_status_recipe_references(references) = Ref[references...]
-
 function _CanonicalStatusRecipe(status::Union{Nothing,Status})
-    names = isnothing(status) ? Symbol[] : collect(propertynames(status))
-    references = if isnothing(status)
-        Base.RefValue[]
-    else
-        _status_recipe_references(refvalues(status))
-    end
-    positions = if length(names) > 1
-        index = Dict{Symbol,Int}()
-        sizehint!(index, length(names))
-        for (position, name) in pairs(names)
-            index[name] = position
-        end
-        index
-    else
-        nothing
-    end
     return _CanonicalStatusRecipe(
         status,
-        names,
-        references,
-        positions,
+        Symbol[],
+        Ref[],
         isnothing(status),
         0,
     )
 end
 
-@inline function _status_recipe_position(recipe::_CanonicalStatusRecipe, variable::Symbol)
-    positions = recipe.positions
-    isnothing(positions) || return get(positions, variable, 0)
-    return !isempty(recipe.names) && first(recipe.names) === variable ? 1 : 0
+@inline function _status_recipe_has_variable(recipe::_CanonicalStatusRecipe, variable::Symbol)
+    variable in recipe.edit_names && return true
+    return !isnothing(recipe.original) && variable in propertynames(recipe.original)
 end
-
-@inline _status_recipe_has_variable(recipe::_CanonicalStatusRecipe, variable::Symbol) =
-    !iszero(_status_recipe_position(recipe, variable))
 
 function _status_recipe_reference(
     recipe::_CanonicalStatusRecipe,
     variable::Symbol,
 )
-    position = _status_recipe_position(recipe, variable)
-    iszero(position) && throw(KeyError(variable))
-    return recipe.references[position]
+    position = findfirst(isequal(variable), recipe.edit_names)
+    isnothing(position) || return recipe.edit_references[position]
+    isnothing(recipe.original) && throw(KeyError(variable))
+    variable in propertynames(recipe.original) || throw(KeyError(variable))
+    return refvalue(recipe.original, variable)
 end
 
 function _status_recipe_set_reference!(
@@ -5340,23 +5314,18 @@ function _status_recipe_set_reference!(
     variable::Symbol,
     reference::Ref,
 )
-    position = _status_recipe_position(recipe, variable)
-    if iszero(position)
-        push!(recipe.names, variable)
-        push!(recipe.references, reference)
-        if isnothing(recipe.positions)
-            # Zero/one-field recipes need no lookup table. Once a second field
-            # is added, use the same indexed path as wider status schemas.
-            if length(recipe.names) == 2
-                recipe.positions = Dict(first(recipe.names) => 1, variable => 2)
-            end
-        else
-            recipe.positions[variable] = length(recipe.names)
+    position = findfirst(isequal(variable), recipe.edit_names)
+    if isnothing(position)
+        original = recipe.original
+        if !isnothing(original) && variable in propertynames(original) &&
+           refvalue(original, variable) === reference
+            return false
         end
-    elseif recipe.references[position] === reference
-        return false
+        push!(recipe.edit_names, variable)
+        push!(recipe.edit_references, reference)
     else
-        recipe.references[position] = reference
+        recipe.edit_references[position] === reference && return false
+        recipe.edit_references[position] = reference
     end
     recipe.changed = true
     recipe.field_changes += 1
@@ -5387,18 +5356,24 @@ function _status_recipe_add_default!(
     return _status_recipe_set_reference!(recipe, variable, Ref(initial))
 end
 
-function _finish_status_recipe(recipe::_CanonicalStatusRecipe)
+function _finish_status_recipe(model::CompositeModel, recipe::_CanonicalStatusRecipe)
     recipe.changed || return recipe.original
-    names = Tuple(recipe.names)
-    references = Tuple(recipe.references)
-    return Status(NamedTuple{names}(references))
+    original = recipe.original
+    existing_names = isnothing(original) ? () : propertynames(original)
+    existing_references = isnothing(original) ? () : refvalues(original)
+    construction = _status_construction_recipe!(
+        model.registry.objects.layout_cache,
+        existing_names,
+        Tuple(recipe.edit_names),
+    )
+    return _construct_status(construction, existing_references, Tuple(recipe.edit_references))
 end
 
 function _model_object_status_for_preparation(
     model::CompositeModel,
     object_id::ObjectId,
 )
-    status = _model_object(model, object_id).status
+    status = model_status(model, object_id)
     (isnothing(status) || status isa Status) || error(
         "Model object `$(object_id.value)` uses model applications but its status has type " *
         "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
@@ -5446,7 +5421,7 @@ function _apply_status_recipes!(
         _replace_model_object_status!(
             model,
             object_id,
-            _finish_status_recipe(recipe),
+            _finish_status_recipe(model, recipe),
         )
         _runtime_performance_count!(
             performance,

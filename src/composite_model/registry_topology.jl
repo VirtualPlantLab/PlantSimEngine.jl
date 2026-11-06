@@ -214,9 +214,10 @@ function Object(
     )
 end
 
-mutable struct ObjectRegistry
-    objects::Dict{ObjectId,Any}
-    object_ids_by_status::IdDict{Base.RefValue{Nothing},ObjectId}
+include("object_families.jl")
+
+mutable struct ObjectRegistry{O}
+    objects::O
     by_scale::Dict{Symbol,Set{ObjectId}}
     by_kind::Dict{Symbol,Set{ObjectId}}
     by_species::Dict{Symbol,Set{ObjectId}}
@@ -224,8 +225,7 @@ mutable struct ObjectRegistry
 end
 
 ObjectRegistry() = ObjectRegistry(
-    Dict{ObjectId,Any}(),
-    IdDict{Base.RefValue{Nothing},ObjectId}(),
+    ObjectFamilyStore(),
     Dict{Symbol,Set{ObjectId}}(),
     Dict{Symbol,Set{ObjectId}}(),
     Dict{Symbol,Set{ObjectId}}(),
@@ -244,7 +244,7 @@ struct MTGObjectAccessors{I,S,K,SP,N,G,ST}
     status::ST
 end
 
-struct MTGObjectAdapter{R,I,S,K,SP,N,G,ST}
+struct MTGObjectAdapter{R,I,S,K,SP,N,G,ST,FI,RI}
     root::R
     id::I
     scale::S
@@ -254,8 +254,21 @@ struct MTGObjectAdapter{R,I,S,K,SP,N,G,ST}
     geometry::G
     status::ST
     max_node_id::Base.RefValue{Int}
-    object_ids_by_node::IdDict{Any,ObjectId}
-    nodes_by_object_id::Dict{ObjectId,Any}
+    object_ids_by_node::FI
+    nodes_by_object_id::RI
+end
+
+# Close only identity carrier types, preserving the source tree and every
+# accessor. A closed execution schema can still create arbitrary numbers of
+# nodes and call the same registration/removal operations.
+function _closed_mtg_object_adapter(adapter::MTGObjectAdapter, ::Type{I}) where {I<:ObjectId}
+    R = typeof(adapter.root)
+    return MTGObjectAdapter(
+        adapter.root, adapter.id, adapter.scale, adapter.kind, adapter.species,
+        adapter.name, adapter.geometry, adapter.status, adapter.max_node_id,
+        IdDict{R,I}(adapter.object_ids_by_node),
+        Dict{I,R}(adapter.nodes_by_object_id),
+    )
 end
 
 function _register_mtg_object_identity!(adapter::MTGObjectAdapter, node)
@@ -822,8 +835,8 @@ function CompositeModel(
         geometry,
         status,
         Ref(MultiScaleTreeGraph.new_id(root) - 1),
-        IdDict{Any,ObjectId}(),
-        Dict{ObjectId,Any}(),
+        IdDict{typeof(root),ObjectId}(),
+        Dict{ObjectId,typeof(root)}(),
     )
     objects = _objects_from_mtg(root, adapter)
     return CompositeModel(
@@ -973,8 +986,6 @@ function _index_object!(registry::ObjectRegistry, object::Object)
     _push_index!(registry.by_scale, object.scale, object.id)
     _push_index!(registry.by_kind, object.kind, object.id)
     _push_index!(registry.by_species, object.species, object.id)
-    object.status isa Status &&
-        (registry.object_ids_by_status[_status_identity(object.status)] = object.id)
     return nothing
 end
 
@@ -982,14 +993,6 @@ function _deindex_object!(registry::ObjectRegistry, object::Object)
     _delete_index!(registry.by_scale, object.scale, object.id)
     _delete_index!(registry.by_kind, object.kind, object.id)
     _delete_index!(registry.by_species, object.species, object.id)
-    if object.status isa Status &&
-       get(
-           registry.object_ids_by_status,
-           _status_identity(object.status),
-           nothing,
-       ) == object.id
-        delete!(registry.object_ids_by_status, _status_identity(object.status))
-    end
     return nothing
 end
 
@@ -998,22 +1001,7 @@ function _validate_status_identity_available!(
     status,
     object_id::ObjectId,
 )
-    status isa Status || return nothing
-    existing = get(
-        registry.object_ids_by_status,
-        _status_identity(status),
-        nothing,
-    )
-    if !isnothing(existing) && existing != object_id
-        throw(
-            ArgumentError(
-                "The same Status instance cannot be owned by model objects " *
-                "`$(existing.value)` and `$(object_id.value)`. Give each Object " *
-                "its own Status instance.",
-            ),
-        )
-    end
-    return nothing
+    return _validate_object_family_status_owner!(registry.objects, status, object_id)
 end
 
 function _validate_status_source_identity_available!(
@@ -1077,19 +1065,8 @@ function _replace_model_object_status!(
         "got `$(typeof(status))`.",
     )
     object.status === status && return status
-    registry = model.registry
-    _validate_status_identity_available!(registry, status, object.id)
-    if object.status isa Status &&
-       get(
-           registry.object_ids_by_status,
-           _status_identity(object.status),
-           nothing,
-       ) == object.id
-        delete!(registry.object_ids_by_status, _status_identity(object.status))
-    end
+    _store_object_family_row!(model.registry.objects, object, object.id, status)
     setfield!(object, :status, status)
-    status isa Status &&
-        (registry.object_ids_by_status[_status_identity(status)] = object.id)
     _set_status_source_identity!(model, object.id, status)
     return status
 end
@@ -1150,7 +1127,7 @@ function object_id(model::CompositeModel, object::Object)
 end
 
 function object_id(model::CompositeModel, status::Status)
-    index = model.registry.object_ids_by_status
+    index = model.registry.objects.status_owners
     identity = _status_identity(status)
     haskey(index, identity) || throw(
         ArgumentError("The supplied Status instance is not registered by this model."),
@@ -1189,7 +1166,8 @@ represented by `source`. `source` accepts the same identities as
 [`object_id`](@ref), including an exact MTG node. Runtime status belongs to the
 model registry and is not stored in MTG attributes.
 """
-model_status(model::CompositeModel, source) = model_object(model, source).status
+model_status(model::CompositeModel, source) =
+    _object_family_status(model.registry.objects, object_id(model, source))
 
 """
     source_node(model::CompositeModel, source) -> MultiScaleTreeGraph.Node
