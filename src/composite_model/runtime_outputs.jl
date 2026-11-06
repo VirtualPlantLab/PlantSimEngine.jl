@@ -833,6 +833,7 @@ function _record_call_execution_batch_cache!(
     else
         batches
     end
+    _retire_call_cohort_targets!(targets.temporal_streams, targets.binding, batches)
     return batches
 end
 
@@ -1022,6 +1023,11 @@ mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OT,OB,CB,EB,RC,I<:ObjectId}
     call_context_cache::CallContextCache{RC}
 end
 
+function Base.show(io::IO, target::CompiledExecutionTarget)
+    print(io, "CompiledExecutionTarget(", target.object_id,
+        ", model=", nameof(typeof(target.model)), ")")
+end
+
 function _call_bindings_signature(call_bindings)
     signature = hash(length(call_bindings))
     for binding in call_bindings
@@ -1095,6 +1101,7 @@ mutable struct RuntimeApplicationSchedule
 end
 
 struct CompiledExecutionPlan{G,B,I,S}
+    cohorts::ExecutionCohortStore
     groups::G
     batches::B
     groups_by_application_slot::I
@@ -3576,8 +3583,20 @@ function _compiled_model_execution_target(
     object_id::ObjectId,
     temporal_streams=nothing,
     output_retention=nothing,
-    constants=nothing,
+    constants=nothing;
+    owner=nothing,
 )
+    if temporal_streams isa RuntimeStorage
+        location = cohort_location(temporal_streams.cohorts, application.id, object_id; owner)
+        if !isnothing(location)
+            previous = location.cohort.rows[location.row]
+            if !isnothing(previous) && isnothing(_model_execution_target_change_reason(
+                previous, compiled, env_bindings, application, output_retention, temporal_streams,
+            ))
+                return previous
+            end
+        end
+    end
     status_view = _model_status_view_for_application(
         compiled,
         application,
@@ -3651,14 +3670,21 @@ function _compiled_model_execution_target(
     )
 end
 
-function _typed_model_execution_targets(targets, first_index::Int, last_index::Int)
+function _typed_model_execution_targets(
+    cohorts::ExecutionCohortStore,
+    application_id::Symbol,
+    targets,
+    first_index::Int,
+    last_index::Int;
+    owner=nothing,
+)
     target_type = typeof(targets[first_index])
     typed = Vector{target_type}(undef, last_index - first_index + 1)
     sizehint!(typed, length(typed) + 1)
     for (destination, source) in enumerate(first_index:last_index)
         typed[destination] = targets[source]
     end
-    return typed
+    return cohort_rows!(cohorts, application_id, typed; owner)
 end
 
 function _compiled_model_execution_environment_provider(
@@ -3698,6 +3724,8 @@ function _append_model_execution_batches!(
     application::CompiledModelApplication,
     targets,
     output_retention,
+    cohorts::ExecutionCohortStore;
+    owner=nothing,
 )
     isempty(targets) && return batches
     output_publication = _compiled_output_publication(
@@ -3712,7 +3740,7 @@ function _append_model_execution_batches!(
             batches,
             CompiledExecutionBatch(
                 application,
-                _typed_model_execution_targets(targets, first_index, index - 1),
+                _typed_model_execution_targets(cohorts, application.id, targets, first_index, index - 1; owner),
                 _compiled_model_execution_environment_provider(
                     env_bindings,
                     application,
@@ -3728,7 +3756,7 @@ function _append_model_execution_batches!(
         batches,
         CompiledExecutionBatch(
             application,
-            _typed_model_execution_targets(targets, first_index, lastindex(targets)),
+            _typed_model_execution_targets(cohorts, application.id, targets, first_index, lastindex(targets); owner),
             _compiled_model_execution_environment_provider(
                 env_bindings,
                 application,
@@ -3748,6 +3776,7 @@ function _compiled_call_execution_batches(
     output_retention,
     constants,
 )
+    cohorts = _execution_cohort_store(temporal_streams)
     batches = AbstractExecutionBatch[]
     for application_id in binding.callee_application_ids
         application = _compiled_application_by_id(compiled, application_id)
@@ -3764,7 +3793,8 @@ function _compiled_call_execution_batches(
                     object_id,
                     temporal_streams,
                     output_retention,
-                    constants,
+                    constants;
+                    owner=_execution_call_owner(binding),
                 ),
             )
         end
@@ -3774,6 +3804,8 @@ function _compiled_call_execution_batches(
             application,
             targets,
             output_retention,
+            cohorts;
+            owner=_execution_call_owner(binding),
         )
     end
     return Tuple(batches)
@@ -3786,6 +3818,7 @@ function compile_model_execution_plan(
     output_retention=nothing,
     constants=nothing,
 )
+    cohorts = _execution_cohort_store(temporal_streams)
     manual_application_ids = _manual_call_application_ids(compiled)
     groups = CompiledApplicationExecutionGroup[]
     batches = AbstractExecutionBatch[]
@@ -3810,6 +3843,7 @@ function compile_model_execution_plan(
             application,
             targets,
             output_retention,
+            cohorts,
         )
         first_batch > length(batches) && continue
         push!(
@@ -3822,6 +3856,7 @@ function compile_model_execution_plan(
     end
     application_count = length(compiled.scenario_plan.applications)
     return CompiledExecutionPlan(
+        cohorts,
         groups,
         batches,
         _execution_groups_by_application_slot(groups, application_count),
@@ -4886,6 +4921,7 @@ function _try_refresh_model_execution_plan_for_pure_addition!(
 
     return (
         plan=CompiledExecutionPlan(
+            previous.cohorts,
             previous.groups,
             previous.batches,
             previous.groups_by_application_slot,
@@ -5096,6 +5132,7 @@ function _refresh_model_execution_plan(
             application,
             targets,
             output_retention,
+            previous.cohorts,
         )
         isempty(application_batches) && continue
         push!(
@@ -5111,6 +5148,7 @@ function _refresh_model_execution_plan(
 
     return (
         plan=CompiledExecutionPlan(
+            previous.cohorts,
             groups,
             batches,
             _execution_groups_by_application_slot(
@@ -5135,6 +5173,8 @@ function explain_execution_plan(plan::CompiledExecutionPlan)
             process=batch.application.process,
             object_ids=[target.object_id.value for target in batch.targets],
             batch_size=length(batch.targets),
+            target_storage=:cohort,
+            cohort_schema=eltype(batch.targets),
             target_type=eltype(batch.targets),
             model_type=fieldtype(eltype(batch.targets), :model),
             status_type=fieldtype(eltype(batch.targets), :status),
@@ -7594,6 +7634,9 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             changed_execution_application_ids,
         )
         simulation.execution_plan = execution_refresh.plan
+        if !simulation.compiled.status_view_refresh_is_pure_addition
+            _retire_scheduled_cohort_targets!(simulation.execution_plan.cohorts, simulation.compiled)
+        end
         _runtime_performance_finish!(
             simulation.performance,
             :execution_plan_compile,
@@ -8277,7 +8320,7 @@ function _prepare_simulation!(
         :initial_output_retention_compile,
         started_at,
     )
-    temporal_streams = Dict{Tuple{Symbol,ObjectId,Symbol},Any}()
+    temporal_streams = RuntimeStorage(Dict{Tuple{Symbol,ObjectId,Symbol},Any}())
     _initialize_model_output_streams!(
         temporal_streams,
         compiled,

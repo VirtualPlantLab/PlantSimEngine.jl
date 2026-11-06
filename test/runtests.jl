@@ -45,6 +45,11 @@ else
         include("test-model-concrete-object-identities.jl")
     end
 
+    @testset "Persistent typed execution cohorts" begin
+        include("test-execution-cohorts.jl")
+        include("test-model-canonical-cohorts.jl")
+    end
+
     @testset "Organ creation allocations" begin
         include("test-organ-creation-allocation.jl")
     end
