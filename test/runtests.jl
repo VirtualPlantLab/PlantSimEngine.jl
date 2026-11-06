@@ -82,6 +82,7 @@ else
         include("test-model-scenario-authoring.jl")
         include("test-compilation-metadata.jl")
         include("test-model-input-recipes.jl")
+        include("test-owned-metadata-tables.jl")
         include("test-resolved-input-materialization.jl")
     end
 

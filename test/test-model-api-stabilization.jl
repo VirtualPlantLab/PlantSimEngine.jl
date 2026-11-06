@@ -814,7 +814,7 @@ end
     Advanced.refresh_environment_bindings!(model)
     register_object!(model, Object(:leaf_1; scale=:Leaf, parent=:scene))
     first_refresh = Advanced.refresh_bindings!(model)
-    @test first_refresh.applications_by_id.source.target_ids ==
+    @test first_refresh.applications_by_id[:source].target_ids ==
           ObjectId[ObjectId(:leaf_1)]
     after_binding_refresh = Advanced.lifecycle_delta(model)
     @test after_binding_refresh.structural_kind == :clean
@@ -829,7 +829,7 @@ end
     @test Tuple(snapshot.id for snapshot in pending.added) ==
           (ObjectId(:leaf_1), ObjectId(:leaf_2))
     Advanced.refresh_environment_bindings!(model)
-    @test Advanced.compiled_bindings(model).applications_by_id.source.target_ids ==
+    @test Advanced.compiled_bindings(model).applications_by_id[:source].target_ids ==
           ObjectId.([:leaf_1, :leaf_2])
     @test Advanced.lifecycle_delta(model).structural_kind == :clean
     @test isempty(Advanced.lifecycle_delta(model).added)
@@ -1676,7 +1676,7 @@ end
     @test !ismutabletype(typeof(only(application_schedule.entries)))
     @test ismutabletype(typeof(application))
     @test isconst(typeof(application), :plan)
-    @test compiled.applications_by_id isa NamedTuple
+    @test compiled.applications_by_id isa PlantSimEngine.CompiledMetadataTable
     @test scenario_plan.call_owners isa NamedTuple
     @test scenario_plan.application_children isa NamedTuple
     @test scenario_plan.manual_application_ids == ()
@@ -2114,7 +2114,7 @@ end
         Object(:leaf_2; scale=:Leaf, parent=:plant),
     )
     @test ObjectId(:leaf_2) ∉
-          simulation.compiled.applications_by_id.source.target_ids
+          simulation.compiled.applications_by_id[:source].target_ids
     pending_delta = Advanced.lifecycle_delta(model)
     @test pending_delta.structural_kind == :addition
     @test only(pending_delta.added).id == ObjectId(:leaf_2)

@@ -74,12 +74,33 @@ struct CompiledModelInputPlan{TAG,SEL,M,OA,PSA,W}
     window::W
 end
 
+"""Fixed metadata schema whose scalar lookups stay inside its typed owner."""
+mutable struct CompiledMetadataTable{T<:NamedTuple}
+    const entries::T
+end
+
+@inline Base.getindex(table::CompiledMetadataTable, key::Union{Symbol,Int}) =
+    getindex(getfield(table, :entries), key)
+@inline Base.get(table::CompiledMetadataTable, key::Symbol, default) =
+    get(getfield(table, :entries), key, default)
+@inline Base.haskey(table::CompiledMetadataTable, key::Symbol) =
+    haskey(getfield(table, :entries), key)
+@inline Base.keys(table::CompiledMetadataTable) = keys(getfield(table, :entries))
+@inline Base.length(table::CompiledMetadataTable) = length(getfield(table, :entries))
+# Iterate through the owner; returning values(entries) would expose the complete
+# tuple again at an unspecialized caller boundary.
+Base.values(table::CompiledMetadataTable) = table
+@inline function Base.iterate(table::CompiledMetadataTable, slot::Int=1)
+    slot > length(table) && return nothing
+    return (table[slot], slot + 1)
+end
+
 """Prepared application input order and query sharing; no live object state."""
-struct CompiledApplicationInputRecipe{E,G,Q}
-    explicit::E
-    inferred::G
-    query_slots::Q
-    query_count::Int
+mutable struct CompiledApplicationInputRecipe{E,G,Q}
+    const explicit::E
+    const inferred::G
+    const query_slots::Q
+    const query_count::Int
 end
 
 function _input_query_key(plan::CompiledModelInputPlan)
@@ -120,7 +141,7 @@ function _compiled_application_input_recipe(plans)
 end
 
 _compiled_application_input_recipes(plans_by_application) =
-    map(_compiled_application_input_recipe, plans_by_application)
+    CompiledMetadataTable(map(_compiled_application_input_recipe, plans_by_application))
 
 """Immutable authored hard-call declaration for one application."""
 struct CompiledModelCallPlan{NAME,MODE,SEL,M,PCA}
@@ -805,7 +826,7 @@ end
 
 function _applications_by_id(applications)
     application_ids = Tuple(application.id for application in applications)
-    return NamedTuple{application_ids}(Tuple(applications))
+    return CompiledMetadataTable(NamedTuple{application_ids}(Tuple(applications)))
 end
 
 function _scenario_call_owners(applications, call_plans)
@@ -1323,7 +1344,7 @@ function _compiled_scenario_plan(
         applications,
         application_children,
     )
-    application_plans_by_id = NamedTuple{application_ids}(application_plans)
+    application_plans_by_id = CompiledMetadataTable(NamedTuple{application_ids}(application_plans))
     application_schedule = _compiled_application_schedule(
         application_plans_by_id,
         application_order,
@@ -7583,7 +7604,7 @@ function _compile_model_output_destination_plans(
 end
 
 _application_plans(plans_by_application, application_slot::Integer) =
-    getfield(plans_by_application, application_slot)
+    plans_by_application[application_slot]
 
 function _potential_input_source_applications(
     applications_by_id,

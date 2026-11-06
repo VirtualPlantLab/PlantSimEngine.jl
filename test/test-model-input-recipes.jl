@@ -118,7 +118,7 @@ end
             ModelSpec(Writer(3f0); name=:source, on=Many(scale=:Leaf)),
         ), environment=(duration=Hour(1),))
     simulation = run!(model; outputs=:all)
-    recipe = simulation.compiled.scenario_plan.input_recipes_by_application.inferred
+    recipe = simulation.compiled.scenario_plan.input_recipes_by_application[:inferred]
     @test isempty(recipe.explicit)
     @test Tuple(first(group).input for group in recipe.inferred) == (:x, :y)
     @test model_status(model, 1).total === 9f0
