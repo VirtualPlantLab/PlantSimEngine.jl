@@ -292,7 +292,8 @@ end
             if batch.application.id == :lagged_consumer
         ),
     )
-    @test execution_target.status === status_view.status
+    @test execution_target.status_view === status_view
+    @test execution_target.status_view.status === status_view.status
     runtime_temporal_input = only(execution_target.input_bindings)
     @test runtime_temporal_input isa PlantSimEngine.RuntimeTemporalInput
     @test runtime_temporal_input.compiled === only(status_view.temporal_inputs)
@@ -306,7 +307,7 @@ end
     @test consumer_runtime_output.reference ===
           PlantSimEngine.refvalue(canonical_status, :observed_signal)
     PlantSimEngine._materialize_model_inputs!(
-        execution_target.status,
+        execution_target.status_view.status,
         execution_target.input_bindings,
         simulation.compiled,
         simulation.compiled.applications_by_id[:lagged_consumer],
@@ -314,7 +315,7 @@ end
         4,
     )
     @test _runtime_materialization_allocations(
-        execution_target.status,
+        execution_target.status_view.status,
         execution_target.input_bindings,
         simulation.compiled,
         simulation.compiled.applications_by_id[:lagged_consumer],
@@ -513,7 +514,7 @@ end
         ),
     )
     PlantSimEngine._materialize_model_inputs!(
-        many_execution_target.status,
+        many_execution_target.status_view.status,
         many_execution_target.input_bindings,
         many_simulation.compiled,
         many_simulation.compiled.applications_by_id[:many_consumer],
@@ -522,7 +523,7 @@ end
     )
     @test @allocated(
         PlantSimEngine._materialize_model_inputs!(
-            many_execution_target.status,
+            many_execution_target.status_view.status,
             many_execution_target.input_bindings,
             many_simulation.compiled,
             many_simulation.compiled.applications_by_id[:many_consumer],
@@ -627,7 +628,7 @@ end
             batch.targets for batch in dynamic_simulation.execution_plan.batches
             if batch.application.id == :many_consumer
         ),
-    ).status === dynamic_view.status
+    ).status_view.status === dynamic_view.status
 
     dynamic_same_step = CompositeModel(
         Object(:scene; scale=:Scene);
@@ -772,7 +773,7 @@ end
     initial_temporal_inputs = initial_target.input_bindings
     initial_source_streams = only(initial_temporal_inputs).source_streams
     initial_source_stream = only(initial_source_streams)
-    initial_private_values = initial_target.status.signals
+    initial_private_values = initial_target.status_view.status.signals
     initial_context = initial_target.context
     @test final_state(simulation, :scene).signal_total == 1.0
     @test final_state(simulation, :scene).source_count == 1
@@ -799,8 +800,8 @@ end
     @test only(refreshed_target.input_bindings).source_streams === initial_source_streams
     @test first(initial_source_streams) === initial_source_stream
     @test length(initial_source_streams) == 2
-    @test refreshed_target.status.signals === initial_private_values
-    @test length(refreshed_target.status.signals) == 2
+    @test refreshed_target.status_view.status.signals === initial_private_values
+    @test length(refreshed_target.status_view.status.signals) == 2
     @test outputs(simulation)[
         (:manual_controller, ObjectId(:scene), :signal_total)
     ] == [(1.0, 1.0), (2.0, 12.0), (3.0, 14.0)]
@@ -854,7 +855,7 @@ end
         ),
     )
     materialize_mixed!() = PlantSimEngine._materialize_model_inputs!(
-        mixed_execution_target.status,
+        mixed_execution_target.status_view.status,
         mixed_execution_target.input_bindings,
         mixed_simulation.compiled,
         mixed_application,
@@ -863,10 +864,10 @@ end
     )
 
     materialize_mixed!()
-    @test mixed_execution_target.status.scalar == 12.0
-    @test collect(mixed_execution_target.status.signals) == [3.0, 4.0]
+    @test mixed_execution_target.status_view.status.scalar == 12.0
+    @test collect(mixed_execution_target.status_view.status.signals) == [3.0, 4.0]
     @test _runtime_materialization_allocations(
-        mixed_execution_target.status,
+        mixed_execution_target.status_view.status,
         mixed_execution_target.input_bindings,
         mixed_simulation.compiled,
         mixed_application,

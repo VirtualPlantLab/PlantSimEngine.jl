@@ -182,6 +182,8 @@ else
 
     @testset "Scheduled newborn initializers" begin
         include("test-model-initializers.jl")
+        include("test-model-newborn-execution-owner.jl")
+        include("test-model-runtime-call-names.jl")
     end
 
     @testset "Composite model numerical parity" begin
@@ -230,6 +232,7 @@ else
 
     @testset "Composite model output boundaries" begin
         include("test-model-output-boundaries.jl")
+        include("test-model-empty-output-requests.jl")
     end
 
     @testset "Composite model output datetimes" begin
@@ -246,6 +249,7 @@ else
 
     @testset "Composite model environment sampling" begin
         include("test-model-environment-sampling.jl")
+        include("test-model-environment-binding-identity.jl")
     end
 
     @testset "Composite model temporal reducers" begin

@@ -86,7 +86,9 @@ function assert_canonical_storage(simulation)
             location = PSE.cohort_location(store, batch.application.id, target.object_id)
             @test location.cohort === view.cohort
             @test location.row == view.indices[index]
-            @test target.canonical_status === model_status(simulation.model, target.object_id)
+            @test target.status_view === simulation.compiled.status_views_by_target[
+                (batch.application.id, target.object_id)]
+            @test target.status_view.canonical_status === model_status(simulation.model, target.object_id)
         end
     end
     return store
@@ -118,8 +120,8 @@ end
     @test override_target.model isa ScaledAccumulator{Float64}
     @test PSE.cohort_location(store, :plant__accumulate, ObjectId(:leaf_default)).cohort !==
           PSE.cohort_location(store, :plant__accumulate, ObjectId(:leaf_override)).cohort
-    @test default_target.canonical_status === default_status
-    @test override_target.canonical_status === override_status
+    @test default_target.status_view.canonical_status === default_status
+    @test override_target.status_view.canonical_status === override_status
 
     continue!(simulation; steps=2)
     @test assert_canonical_storage(simulation) === store
@@ -139,7 +141,7 @@ end
     @test restarted_store !== store
     @test restarted_target !== default_target
     @test restarted_target.context !== default_target.context
-    @test restarted_target.canonical_status === default_status
+    @test restarted_target.status_view.canonical_status === default_status
     @test current_step(restarted) == 0
     step!(restarted)
     @test default_status.value === 16.0f0

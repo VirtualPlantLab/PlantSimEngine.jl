@@ -61,7 +61,7 @@ function _check_target(application, target)
         _unsupported(application.id, "temporal input bindings are unsupported")
     isempty(target.bound_inputs) ||
         _unsupported(application.id, "collection-valued inputs are unsupported")
-    _has_scalar_status(target.status) ||
+    _has_scalar_status(target.status_view.status) ||
         _unsupported(application.id, "status values must have concrete scalar numeric types")
     # Validate the same environment row that the canonical batch sampler uses.
     binding = target.environment_binding

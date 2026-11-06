@@ -1286,12 +1286,15 @@ struct CompiledTemporalInput{B,S,I,R}
     reference::R
 end
 
-struct CompiledModelStatusView{S,C,T,P,BI}
-    status::S
-    canonical_status::C
-    temporal_inputs::T
-    private_outputs::P
-    bound_inputs::BI
+# One reference-backed owner keeps the immutable Status headers shared by
+# compiled bindings and every execution owner. Numerical state remains in the
+# existing reference carriers; only those carriers' values may change in place.
+mutable struct CompiledModelStatusView{S,C,T,P,BI}
+    const status::S
+    const canonical_status::C
+    const temporal_inputs::T
+    const private_outputs::P
+    const bound_inputs::BI
 end
 
 struct CompiledModelCallBinding{P}
@@ -1460,18 +1463,20 @@ Base.propertynames(binding::CompiledEnvironmentBinding) = (
     propertynames(binding.plan)...,
 )
 
-struct CompiledEnvironmentBindings{SC,AP,API,B,I,PI,OI,C}
-    model::SC
-    application_plans::AP
-    application_plans_by_id::API
-    bindings::B
-    by_target::I
-    positions_by_target::PI
-    targets_by_object::OI
-    sample_cache::C
-    model_revision::Int
-    environment_revision::Int
-    applications_identity::UInt
+# Share one heap identity across typed simulation fields and context caches.
+# Providers and cache contents keep their existing live sampling semantics.
+mutable struct CompiledEnvironmentBindings{SC,AP,API,B,I,PI,OI,C}
+    const model::SC
+    const application_plans::AP
+    const application_plans_by_id::API
+    const bindings::B
+    const by_target::I
+    const positions_by_target::PI
+    const targets_by_object::OI
+    const sample_cache::C
+    const model_revision::Int
+    const environment_revision::Int
+    const applications_identity::UInt
 end
 
 # Keep a stable heap identity at dynamic execution-batch boundaries. The
@@ -6728,10 +6733,6 @@ Base.@nospecializeinfer function _compile_model_status_view(
             Ref(_private_temporal_storage(binding, initial)),
         ))
     end
-    temporal_by_name = Dict(
-        temporal_input.binding.input => temporal_input
-        for temporal_input in temporal_inputs
-    )
     private_references = Ref[]
     for name in private_output_names
         initial, _, _ = _materialize_status_value(
@@ -6747,27 +6748,14 @@ Base.@nospecializeinfer function _compile_model_status_view(
         push!(private_references, Ref(initial))
     end
     private_outputs = NamedTuple{Tuple(private_output_names)}(Tuple(private_references))
-    names = collect(Symbol, propertynames(canonical_status))
-    for name in private_output_names
-        name in names || push!(names, name)
+    recipe = _CanonicalStatusRecipe(canonical_status)
+    for (name, reference) in pairs(private_outputs)
+        _status_recipe_set_reference!(recipe, name, reference)
     end
     for input in temporal_inputs
-        name = input.binding.input
-        name in names || push!(names, name)
+        _status_recipe_set_reference!(recipe, input.binding.input, input.reference)
     end
-    references = Ref[]
-    for name in names
-        temporal_input = get(temporal_by_name, name, nothing)
-        reference = if !isnothing(temporal_input)
-            temporal_input.reference
-        elseif hasproperty(private_outputs, name)
-            getproperty(private_outputs, name)
-        else
-            refvalue(canonical_status, name)
-        end
-        push!(references, reference)
-    end
-    status = Status(NamedTuple{Tuple(names)}(Tuple(references)))
+    status = _finish_status_recipe(model, recipe)
     return CompiledModelStatusView(
         status,
         canonical_status,

@@ -516,8 +516,8 @@ end
 
 @inline function Base.getproperty(target::CallTarget, name::Symbol)
     name === :model && return getfield(getfield(target, :execution_target), :model)
-    name === :status && return getfield(getfield(target, :execution_target), :status)
-    name === :canonical_status && return getfield(getfield(target, :execution_target), :canonical_status)
+    name === :status && return getfield(getfield(getfield(target, :execution_target), :status_view), :status)
+    name === :canonical_status && return getfield(getfield(getfield(target, :execution_target), :status_view), :canonical_status)
     name === :temporal_inputs && return getfield(getfield(target, :execution_target), :input_bindings)
     name === :output_bindings && return getfield(getfield(target, :execution_target), :output_bindings)
     name === :bound_inputs && return getfield(getfield(target, :execution_target), :bound_inputs)
@@ -1012,11 +1012,10 @@ struct CachedGlobalModelEnvironment{B}
     binding::B
 end
 
-mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OT,OB,CB,EB,RC,I<:ObjectId}
+mutable struct CompiledExecutionTarget{M,V<:CompiledModelStatusView,IB,BI,OT,OB,CB,EB,RC,I<:ObjectId}
     object_id::I
     model::M
-    status::S
-    canonical_status::CS
+    const status_view::V
     input_bindings::IB
     bound_inputs::BI
     output_targets::OT
@@ -1046,6 +1045,30 @@ function _call_bindings_signature(call_bindings)
         )
     end
     return signature
+end
+
+# Fully specified payload construction shared by scheduled, manual, and
+# pre-barrier newborn execution. Binding resolution and cache ownership stay
+# with their callers; this factory neither interns targets nor refreshes time.
+function _compiled_execution_target(
+    object_id::ObjectId,
+    model,
+    status_view::CompiledModelStatusView,
+    input_bindings,
+    bound_inputs,
+    output_targets,
+    output_bindings,
+    call_bindings,
+    environment_binding,
+    context,
+    call_context_cache::CallContextCache,
+)
+    return CompiledExecutionTarget(
+        object_id, model, status_view, input_bindings, bound_inputs,
+        output_targets, output_bindings, call_bindings,
+        _call_bindings_signature(call_bindings), environment_binding,
+        context, call_context_cache,
+    )
 end
 
 mutable struct ExecutionBatchContextState
@@ -2808,9 +2831,9 @@ end
     publish_outputs::Bool,
 )
     status = isempty(target.input_bindings) ?
-             target.status :
+             target.status_view.status :
              _materialize_model_inputs!(
-        target.status,
+        target.status_view.status,
         target.input_bindings,
         compiled,
         application,
@@ -2877,9 +2900,9 @@ end
         publish_outputs,
     )
     status = isempty(target.input_bindings) ?
-             target.status :
+             target.status_view.status :
              _materialize_model_inputs!(
-        target.status,
+        target.status_view.status,
         target.input_bindings,
         compiled,
         application,
@@ -3013,9 +3036,9 @@ end
         end
         for target in batch.targets
             status = isempty(target.input_bindings) ?
-                     target.status :
+                     target.status_view.status :
                      _materialize_model_inputs!(
-                target.status,
+                target.status_view.status,
                 target.input_bindings,
                 compiled,
                 batch.application,
@@ -3117,9 +3140,9 @@ function _run_model_execution_batch_profiled!(
     for target in batch.targets
         started_at = _runtime_performance_start(performance)
         status = isempty(target.input_bindings) ?
-                 target.status :
+                 target.status_view.status :
                  _materialize_model_inputs!(
-            target.status,
+            target.status_view.status,
             target.input_bindings,
             compiled,
             batch.application,
@@ -3672,11 +3695,10 @@ function _new_model_execution_target(
         local_output_bindings...,
         distributed_output_bindings...,
     )
-    return CompiledExecutionTarget(
+    return _compiled_execution_target(
         object_id,
         model,
-        status_view.status,
-        status_view.canonical_status,
+        status_view,
         _runtime_model_temporal_inputs(
             status_view.temporal_inputs,
             temporal_streams,
@@ -3685,7 +3707,6 @@ function _new_model_execution_target(
         distributed_targets,
         output_bindings,
         call_bindings,
-        _call_bindings_signature(call_bindings),
         environment_binding,
         context,
         CallContextCache(context),
@@ -4135,8 +4156,8 @@ function _model_execution_target_change_reason(
     isnothing(status_view) && return :missing_status_view
     target.model === _application_model(application, object_id) ||
         return :model
-    target.status === status_view.status || return :status_view
-    target.canonical_status === status_view.canonical_status ||
+    target.status_view.status === status_view.status || return :status_view
+    target.status_view.canonical_status === status_view.canonical_status ||
         return :canonical_status
     target.bound_inputs === status_view.bound_inputs ||
         return :bound_inputs
@@ -4691,7 +4712,7 @@ function explain_execution_plan(plan::CompiledExecutionPlan)
             cohort_schema=eltype(batch.targets),
             target_type=eltype(batch.targets),
             model_type=fieldtype(eltype(batch.targets), :model),
-            status_type=fieldtype(eltype(batch.targets), :status),
+            status_type=fieldtype(fieldtype(eltype(batch.targets), :status_view), :status),
             input_bindings_type=fieldtype(eltype(batch.targets), :input_bindings),
             call_bindings_type=fieldtype(eltype(batch.targets), :call_bindings),
             call_capability=isempty(first(batch.targets).call_bindings) ?
@@ -5015,58 +5036,28 @@ end
     return targets
 end
 
-@inline _find_call_targets(::Tuple{}, ::Val, ::RunContext) = nothing
+@inline _with_named_call(operation, ::Tuple{}, name::Symbol, context::RunContext, args...) =
+    _missing_named_call(context, name)
 
-@inline function _find_call_targets(
-    calls::Tuple,
-    ::Val{name},
-    context::RunContext,
-) where {name}
+# The declared call tuple supplies the finite branches. Keep the operation in
+# the selected concrete branch without constructing Val from a runtime name.
+@inline function _with_named_call(operation, calls::Tuple, name::Symbol, context::RunContext, args...)
     targets = first(calls)
     if _compiled_call_name(targets.binding) === name
-        targets.time == context.time &&
-            targets.publication_allowed == context.publication_allowed &&
-            targets.environment === context.environment &&
-            return targets
-        return _synchronize_call_targets_slow!(targets, context)
+        return operation(targets, context, name, args...)
     end
-    return _find_call_targets(Base.tail(calls), Val(name), context)
+    return _with_named_call(operation, Base.tail(calls), name, context, args...)
 end
 
-@inline _find_manual_call_targets(::Tuple{}, ::Val, ::RunContext) = nothing
-
-@inline function _find_manual_call_targets(
-    calls::Tuple,
-    ::Val{name},
-    context::RunContext,
-) where {name}
-    targets = first(calls)
-    if _compiled_call_name(targets.binding) === name
-        _compiled_call_mode(targets.binding) === :manual ||
-            _initializer_requires_dedicated_api(context, name)
-        targets.time == context.time &&
-            targets.publication_allowed == context.publication_allowed &&
-            targets.environment === context.environment &&
-            return targets
-        return _synchronize_call_targets_slow!(targets, context)
-    end
-    return _find_manual_call_targets(Base.tail(calls), Val(name), context)
+@inline function _synchronized_named_call(targets, context::RunContext, name::Symbol)
+    targets.time == context.time &&
+        targets.publication_allowed == context.publication_allowed &&
+        targets.environment === context.environment && return targets
+    return _synchronize_call_targets_slow!(targets, context)
 end
 
-Base.@constprop :aggressive function _model_call_targets(
-    context::RunContext,
-    name::Symbol,
-)
-    found = _find_call_targets(context.calls, Val(name), context)
-    if isnothing(found)
-        available = Symbol[targets.binding.call for targets in context.calls]
-        error(
-            "Application `$(context.application.id)` on object ",
-            "`$(context.object_id.value)` did not declare call `$(name)`. ",
-            "Declared calls: $(available).",
-        )
-    end
-    return found
+Base.@constprop :aggressive function _model_call_targets(context::RunContext, name::Symbol)
+    return _with_named_call(_synchronized_named_call, context.calls, name, context)
 end
 
 @noinline function _initializer_requires_dedicated_api(context, name)
@@ -5079,20 +5070,15 @@ end
     )
 end
 
-@inline Base.@constprop :aggressive function _manual_call_targets(
-    context::RunContext,
-    name::Symbol,
-)
-    found = _find_manual_call_targets(context.calls, Val(name), context)
-    if isnothing(found)
-        available = Symbol[targets.binding.call for targets in context.calls]
-        error(
-            "Application `$(context.application.id)` on object ",
-            "`$(context.object_id.value)` did not declare call `$(name)`. ",
-            "Declared calls: $(available).",
-        )
+@inline function _selected_call_targets(targets, context::RunContext, name::Symbol, requested_ids)
+    if isnothing(requested_ids)
+        _compiled_call_mode(targets.binding) === :manual ||
+            _initializer_requires_dedicated_api(context, name)
+        return _synchronized_named_call(targets, context, name)
     end
-    return found
+    return _current_topology_call_targets(
+        _synchronized_named_call(targets, context, name), context, name, requested_ids,
+    )
 end
 
 _call_target_matches(targets::CallTargets, application, object_id::ObjectId) =
@@ -5548,9 +5534,9 @@ Base.@constprop :aggressive function call_targets(
     ;
     objects=nothing,
 )
-    return isnothing(objects) ?
-           _manual_call_targets(context, name) :
-           _current_topology_call_targets(context, name, objects)
+    requested_ids = isnothing(objects) ? nothing :
+        _call_target_object_ids(runtime_model(context), objects)
+    return _with_named_call(_selected_call_targets, context.calls, name, context, requested_ids)
 end
 
 @inline function _single_call_model(batches::Tuple{B}) where {B}
@@ -5580,7 +5566,7 @@ execution target and remains valid until a lifecycle refresh barrier.
     )
 end
 
-@noinline function _call_model_missing_error(context, name)
+@noinline function _missing_named_call(context, name)
     available = Symbol[targets.binding.call for targets in context.calls]
     error(
         "Application `$(context.application.id)` on object ",
@@ -5589,26 +5575,16 @@ end
     )
 end
 
-@inline function _call_model(
-    context::RunContext,
-    ::Val{name},
-) where {name}
-    targets = _find_call_targets(context.calls, Val(name), context)
-    isnothing(targets) && _call_model_missing_error(context, name)
+@inline function _selected_call_model(targets, context::RunContext, name::Symbol)
+    targets = _synchronized_named_call(targets, context, name)
     _compiled_call_mode(targets.binding) === :manual ||
         _initializer_requires_dedicated_api(context, name)
     length(targets) == 1 || _call_model_target_count_error(name, targets)
-    return _single_call_model(
-        _materialize_call_execution_batches!(targets),
-    )
+    return _single_call_model(_materialize_call_execution_batches!(targets))
 end
 
-
-@inline Base.@constprop :aggressive function call_model(
-    context::RunContext,
-    name::Symbol,
-)
-    return _call_model(context, Val(name))
+@inline Base.@constprop :aggressive function call_model(context::RunContext, name::Symbol)
+    return _with_named_call(_selected_call_model, context.calls, name, context)
 end
 
 function call_model(context, name::Symbol)
@@ -5884,11 +5860,11 @@ function _targeted_new_object_call_targets(
     context::RunContext,
     name::Symbol,
     requested_ids,
+    cached_targets::CallTargets,
     ;
     initializer::Bool=false,
 )
     model = runtime_model(context)
-    cached_targets = _model_call_targets(context, name)
     binding = cached_targets.binding
     expected_mode = initializer ? :initializer : :manual
     _compiled_call_mode(binding) === expected_mode || error(
@@ -6167,17 +6143,12 @@ function _targeted_newborn_call_target(
     environment_binding,
     cache::CallContextCache,
 )
-    execution_target = (
-        model=model,
-        status=status_view.status,
-        canonical_status=status_view.canonical_status,
-        input_bindings=status_view.temporal_inputs,
-        output_bindings=outputs,
-        bound_inputs=status_view.bound_inputs,
-        output_targets=output_targets,
-        environment_binding=environment_binding,
-        # Reaccessing a newborn retains its evaluation execution stamps.
-        call_context_cache=cache,
+    # Keep the targeted runtime's cache and partial binding shell. In
+    # particular, do not intern this owner into the post-barrier cohort store.
+    execution_target = _compiled_execution_target(
+        object_id, model, status_view, status_view.temporal_inputs,
+        status_view.bound_inputs, output_targets, outputs, (),
+        environment_binding, cache.default, cache,
     )
     return CallTarget(
         execution_target, context.compiled, environment_bindings, application,
@@ -6187,16 +6158,17 @@ function _targeted_newborn_call_target(
 end
 
 function _current_topology_call_targets(
+    cached_targets::CallTargets,
     context::RunContext,
     name::Symbol,
-    objects,
+    requested_ids,
 )
     model = runtime_model(context)
-    requested_ids = _call_target_object_ids(model, objects)
     targeted = _targeted_new_object_call_targets(
         context,
         name,
         requested_ids,
+        cached_targets,
     )
     isnothing(targeted) || return targeted
     compiled = refresh_bindings!(model)
@@ -6502,11 +6474,11 @@ end
     # here instead of boxing model/status/output tuples as dispatch arguments.
     if frame === nothing
         _run_call_kernel!(
-            owner.model, owner.status, environment, context, owner.output_bindings,
+            owner.model, owner.status_view.status, environment, context, owner.output_bindings,
         )
     else
         _run_evaluated_call_kernel!(
-            owner.model, owner.status, environment, context, owner.output_bindings, frame,
+            owner.model, owner.status_view.status, environment, context, owner.output_bindings, frame,
         )
     end
     return nothing
@@ -6520,7 +6492,7 @@ end
 )
     cache = target.context_cache
     frame = _record_call_execution!(cache)
-    status = _materialize_model_inputs!(
+    _materialize_model_inputs!(
         target.status,
         target.temporal_inputs,
         target.compiled,
@@ -6546,22 +6518,9 @@ end
             target.output_targets, target.temporal_streams, target.output_retention,
             target.time, target.constants, publication_allowed, environment,
         )
-        if target.execution_target isa CompiledExecutionTarget
-            # Input materialization above updates this owner's references and
-            # returns the same Status. Targeted newborns have a distinct payload
-            # and retain the original dispatch path below.
-            _run_owned_call_kernel!(
-                target.execution_target, environment_value, context, frame,
-            )
-        elseif frame === nothing
-            _run_call_kernel!(
-                target.model, status, environment_value, context, target.output_bindings,
-            )
-        else
-            _run_evaluated_call_kernel!(
-                target.model, status, environment_value, context, target.output_bindings, frame,
-            )
-        end
+        _run_owned_call_kernel!(
+            target.execution_target, environment_value, context, frame,
+        )
     finally
         acquired && (cache.in_use = false)
     end
@@ -6648,7 +6607,7 @@ end
     cache = target.call_context_cache
     _record_call_execution!(cache, frame)
     _materialize_model_inputs!(
-        target.status,
+        target.status_view.status,
         target.input_bindings,
         targets.compiled,
         application,
@@ -6823,21 +6782,19 @@ object, is an error. The application/object pair is reserved before model code
 runs, so a failed attempt remains marked and cannot be retried in the same
 lifecycle event after an unknown partial mutation.
 """
-function run_initializer!(
-    context::RunContext,
-    name::Symbol,
-    object,
-)
+function run_initializer!(context::RunContext, name::Symbol, object)
     context.publication_allowed || error(
         "Initializer `$(name)` cannot run inside a non-publishing hard call. " *
         "Keep its creator application root-scheduled.",
     )
+    requested_ids = _call_target_object_ids(runtime_model(context), object)
+    return _with_named_call(_selected_run_initializer!, context.calls, name, context, requested_ids)
+end
+
+function _selected_run_initializer!(cached_targets, context::RunContext, name::Symbol, requested_ids)
     model = runtime_model(context)
-    requested_ids = _call_target_object_ids(model, object)
     targets = _targeted_new_object_call_targets(
-        context,
-        name,
-        requested_ids;
+        context, name, requested_ids, _synchronized_named_call(cached_targets, context, name);
         initializer=true,
     )
     target = only(targets)
@@ -6905,18 +6862,18 @@ function run_call!(
             ),
         )
     end
-    targets = isnothing(objects) ?
-              call_targets(context, name) :
-              call_targets(context, name; objects=objects)
+    requested_ids = isnothing(objects) ? nothing :
+        _call_target_object_ids(runtime_model(context), objects)
+    return _with_named_call(_selected_run_call!, context.calls, name, context,
+        requested_ids, publish, sampled_environment, environment)
+end
+
+@inline function _selected_run_call!(cached_targets, context::RunContext, name::Symbol,
+    requested_ids, publish, sampled_environment, environment)
+    targets = _selected_call_targets(cached_targets, context, name, requested_ids)
     selected_environment = environment isa NoEnvironmentOverride ?
-                           context.environment :
-                           environment
-    return _run_call_targets!(
-        targets,
-        publish,
-        sampled_environment,
-        selected_environment,
-    )
+                           context.environment : environment
+    return _run_call_targets!(targets, publish, sampled_environment, selected_environment)
 end
 
 function run_call!(
@@ -6935,12 +6892,13 @@ function run_call!(
 end
 
 function _model_output_selection(outputs)
-    outputs === :all && return (OutputRequest[], true)
-    outputs === :none && return (OutputRequest[], false)
+    outputs === :all && return ((), true)
+    outputs === :none && return ((), false)
     outputs isa Symbol && error(
         "Unsupported output selection `$(outputs)`. Use `:all`, `:none`, an `OutputRequest`, or a vector of requests.",
     )
     requests = _normalize_output_requests(outputs)
+    isempty(requests) && return ((), false)
     return requests, false
 end
 

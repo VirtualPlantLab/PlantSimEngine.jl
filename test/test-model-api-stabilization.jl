@@ -2745,7 +2745,7 @@ end
         simulation.output_retention,
         nothing,
         false,
-    ) === float32_target.status
+    ) === float32_target.status_view.status
     @test float32_target.context.time == Float64(float32_time)
 end
 
