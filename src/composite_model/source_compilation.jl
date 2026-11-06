@@ -969,10 +969,13 @@ function _compiled_source_prepare_target!(
         target.object_id,
         target.bound_inputs,
         target.output_targets,
+        target.call_bindings,
         simulation.temporal_streams,
         simulation.output_retention,
         time,
         simulation.constants,
+        true,
+        _NO_ENVIRONMENT_OVERRIDE,
     )
     return status, environment, context
 end
@@ -1057,6 +1060,7 @@ function _compiled_source_run_call_target!(
         target.object_id,
         target.bound_inputs,
         target.output_targets,
+        target.call_bindings,
         targets.temporal_streams,
         targets.output_retention,
         targets.time,

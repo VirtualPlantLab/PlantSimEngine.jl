@@ -109,6 +109,7 @@ end
     return PSE._prepare_cached_call_context!(
         target.context_cache, reuse, target.compiled, target.environment_bindings,
         target.application, target.object_id, target.bound_inputs, target.output_targets,
+        target.execution_target.call_bindings,
         target.temporal_streams, target.output_retention, time, target.constants,
         publish, environment,
     )
@@ -315,8 +316,10 @@ end
                 parent.time, parent.constants, true, parent.environment)
             PSE._prepare_model_execution_context!(active, refreshed, environments,
                 parent.application, parent.object_id, parent.bound_inputs, parent.output_targets,
+                parent.execution_target.call_bindings,
                 parent.temporal_streams, parent.output_retention, parent.time,
-                parent.constants, true, parent.environment)
+                parent.constants, true, parent.environment,
+            )
             @test active.compiled === refreshed
             @test active.environment_bindings === environments
             @test old_optional.compiled === refreshed
@@ -369,6 +372,61 @@ end
         @test model_status(model, :newborn).visits == 2
         @test current.status.seen === T(20)
     end
+end
+
+@testset "one context factory consumes the payload's already resolved bindings" begin
+    data = fixture(Float64)
+    parent = data.parent
+    bindings = parent.execution_target.call_bindings
+    @test length(bindings) == 3
+    key = (parent.application.id,parent.object_id)
+    saved = pop!(parent.compiled.call_bindings_by_target,key)
+    context = nothing
+    try
+        # A target payload already owns these validated bindings. Context
+        # construction must not silently rediscover a different/empty schema.
+        context = PSE._prepare_model_execution_context!(
+            nothing,parent.compiled,parent.environment_bindings,parent.application,
+            parent.object_id,parent.bound_inputs,parent.output_targets,bindings,
+            parent.temporal_streams,parent.output_retention,2.0,parent.constants,
+            false,parent.environment,
+        )
+        @test !haskey(parent.compiled.call_bindings_by_target,key)
+        @test context isa PSE.RunContext
+        @test Tuple(PSE._compiled_call_name(target.binding) for target in context.calls) ==
+            Tuple(PSE._compiled_call_name(binding) for binding in bindings)
+        @test all(target.binding === binding for (target,binding) in zip(context.calls,bindings))
+        @test context.time == 2.0 && !context.publication_allowed
+        @test PSE.refvalue(only(call_targets(context,:one)).status,:seen) ===
+            PSE.refvalue(model_status(data.model,:leaf),:seen)
+        @test data.backend.samples == 0
+    finally
+        parent.compiled.call_bindings_by_target[key] = saved
+    end
+    @test parent.compiled.call_bindings_by_target[key] === saved
+end
+
+@testset "same-shaped replacement bindings do not reuse a stale prototype" begin
+    data = fixture(Float64)
+    parent = data.parent
+    original = parent.execution_target.call_bindings
+    replacement = map(original) do binding
+        PSE.CompiledModelCallBinding(binding.plan, binding.consumer_id,
+            copy(binding.callee_object_ids), copy(binding.callee_application_ids))
+    end
+    prototype = parent.context_cache.default
+    @test PSE._call_context_bindings_match(prototype.calls, original)
+    @test !PSE._call_context_bindings_match(prototype.calls, replacement)
+    context = PSE._prepare_model_execution_context!(
+        prototype,parent.compiled,parent.environment_bindings,parent.application,
+        parent.object_id,parent.bound_inputs,parent.output_targets,replacement,
+        parent.temporal_streams,parent.output_retention,2.0,parent.constants,
+        false,parent.environment; fresh=true,
+    )
+    @test context !== prototype
+    @test all(target.binding === binding for (target,binding) in zip(context.calls,replacement))
+    @test all(target.binding === binding for (target,binding) in zip(prototype.calls,original))
+    @test data.backend.samples == 0
 end
 
 end # module TypedCallContextCloningChecks

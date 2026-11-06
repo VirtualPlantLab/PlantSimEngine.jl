@@ -2740,21 +2740,48 @@ end
     )
 end
 
+# The execution payload owns the already resolved current call bindings.
+# Context creation never rediscovers that dependency schema through a global map.
+# A fresh shell either clones a current prototype or rebuilds from those bindings;
+# updating an existing shell retains its leased descendant views.
 @inline function _prepare_model_execution_context!(
-    context::RunContext,
+    context::Union{Nothing,RunContext},
     compiled,
     environment_bindings,
     application,
     object_id,
     bound_inputs,
     output_targets,
+    call_bindings::Tuple,
     temporal_streams,
     output_retention,
     time,
     constants,
     publication_allowed::Bool,
-    environment,
+    environment;
+    fresh::Bool=false,
 )
+    if isnothing(context) || fresh
+        calls = if context isa RunContext && _call_context_clone_is_current(
+            context, compiled, environment_bindings, application, object_id,
+            bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
+        )
+            _clone_runtime_call_targets(
+                context.calls, compiled, environment_bindings, temporal_streams,
+                output_retention, time, constants, publication_allowed, environment,
+            )
+        else
+            _runtime_call_targets(
+                compiled, environment_bindings, call_bindings, temporal_streams,
+                output_retention, time, constants, publication_allowed, environment,
+            )
+        end
+        return RunContext(
+            compiled, environment_bindings, application, object_id, calls,
+            bound_inputs, output_targets, temporal_streams, output_retention,
+            float(time), constants, publication_allowed, environment,
+        )
+    end
     runtime_changed =
         context.compiled !== compiled ||
         context.environment_bindings !== environment_bindings
@@ -2772,126 +2799,11 @@ end
     _synchronize_current_call_context!(context, time, publication_allowed, environment)
     if runtime_changed
         _prepare_runtime_call_targets!(
-            context.calls,
-            compiled,
-            environment_bindings,
-            temporal_streams,
-            output_retention,
-            time,
-            constants,
-            publication_allowed,
-            environment,
+            context.calls, compiled, environment_bindings, temporal_streams,
+            output_retention, time, constants, publication_allowed, environment,
         )
     end
     return context
-end
-
-@inline function _prepare_model_execution_context!(
-    context::RunContext,
-    compiled,
-    environment_bindings,
-    application,
-    object_id,
-    bound_inputs,
-    output_targets,
-    temporal_streams,
-    output_retention,
-    time,
-    constants,
-)
-    return _prepare_model_execution_context!(
-        context,
-        compiled,
-        environment_bindings,
-        application,
-        object_id,
-        bound_inputs,
-        output_targets,
-        temporal_streams,
-        output_retention,
-        time,
-        constants,
-        true,
-        _NO_ENVIRONMENT_OVERRIDE,
-    )
-end
-
-@inline function _prepare_model_execution_context!(
-    ::Nothing,
-    compiled,
-    environment_bindings,
-    application,
-    object_id,
-    bound_inputs,
-    output_targets,
-    temporal_streams,
-    output_retention,
-    time,
-    constants,
-    publication_allowed::Bool,
-    environment,
-)
-    call_bindings = get(
-        compiled.call_bindings_by_target,
-        (application.id, object_id),
-        (),
-    )
-    calls = _runtime_call_targets(
-        compiled,
-        environment_bindings,
-        call_bindings,
-        temporal_streams,
-        output_retention,
-        time,
-        constants,
-        publication_allowed,
-        environment,
-    )
-    return RunContext(
-        compiled,
-        environment_bindings,
-        application,
-        object_id,
-        calls,
-        bound_inputs,
-        output_targets,
-        temporal_streams,
-        output_retention,
-        float(time),
-        constants,
-        publication_allowed,
-        environment,
-    )
-end
-
-@inline function _prepare_model_execution_context!(
-    context::Nothing,
-    compiled,
-    environment_bindings,
-    application,
-    object_id,
-    bound_inputs,
-    output_targets,
-    temporal_streams,
-    output_retention,
-    time,
-    constants,
-)
-    return _prepare_model_execution_context!(
-        context,
-        compiled,
-        environment_bindings,
-        application,
-        object_id,
-        bound_inputs,
-        output_targets,
-        temporal_streams,
-        output_retention,
-        time,
-        constants,
-        true,
-        _NO_ENVIRONMENT_OVERRIDE,
-    )
 end
 
 function _synchronize_model_execution_batch_contexts!(
@@ -2917,10 +2829,13 @@ function _synchronize_model_execution_batch_contexts!(
             target.object_id,
             target.bound_inputs,
             target.output_targets,
+            target.call_bindings,
             temporal_streams,
             output_retention,
             time,
             constants,
+            true,
+            _NO_ENVIRONMENT_OVERRIDE,
         )
     end
     # Mark the batch current only after every retained context has been
@@ -2964,20 +2879,11 @@ end
         target.context.time = time
         target.context
     else
-        RunContext(
-            compiled,
-            env_bindings,
-            application,
-            target.object_id,
-            (),
-            target.bound_inputs,
-            target.output_targets,
-            temporal_streams,
-            output_retention,
-            time,
-            constants,
-            true,
-            _NO_ENVIRONMENT_OVERRIDE,
+        _prepare_model_execution_context!(
+            nothing, compiled, env_bindings, application, target.object_id,
+            target.bound_inputs, target.output_targets, target.call_bindings,
+            temporal_streams, output_retention, time, constants,
+            true, _NO_ENVIRONMENT_OVERRIDE,
         )
     end
     run!(target.model, status, environment_value, constants, context)
@@ -3041,10 +2947,13 @@ end
             target.object_id,
             target.bound_inputs,
             target.output_targets,
+            target.call_bindings,
             temporal_streams,
             output_retention,
             time,
             constants,
+            true,
+            _NO_ENVIRONMENT_OVERRIDE,
         )
     end
     run!(target.model, status, environment_value, constants, context)
@@ -3177,10 +3086,13 @@ end
                     target.object_id,
                     target.bound_inputs,
                     target.output_targets,
+                    target.call_bindings,
                     temporal_streams,
                     output_retention,
                     batch_time,
                     constants,
+                    true,
+                    _NO_ENVIRONMENT_OVERRIDE,
                 )
             end
             run!(
@@ -3295,10 +3207,13 @@ function _run_model_execution_batch_profiled!(
                 target.object_id,
                 target.bound_inputs,
                 target.output_targets,
+                target.call_bindings,
                 temporal_streams,
                 output_retention,
                 batch_time,
                 constants,
+                true,
+                _NO_ENVIRONMENT_OVERRIDE,
             )
         end
         started_at = _runtime_performance_start(performance)
@@ -3678,47 +3593,6 @@ _runtime_model_output_targets(compiled, application, object_id) =
         compiled.distributed_outputs,
     )
 
-function _compiled_model_execution_context(
-    compiled,
-    env_bindings,
-    application,
-    object_id,
-    bound_inputs,
-    output_targets,
-    call_bindings,
-    temporal_streams,
-    output_retention,
-    constants,
-)
-    isnothing(temporal_streams) && isempty(output_targets) && return nothing
-    calls = _runtime_call_targets(
-        compiled,
-        env_bindings,
-        call_bindings,
-        temporal_streams,
-        output_retention,
-        0.0,
-        constants,
-        true,
-        _NO_ENVIRONMENT_OVERRIDE,
-    )
-    return RunContext(
-        compiled,
-        env_bindings,
-        application,
-        object_id,
-        calls,
-        bound_inputs,
-        output_targets,
-        temporal_streams,
-        output_retention,
-        0.0,
-        constants,
-        true,
-        _NO_ENVIRONMENT_OVERRIDE,
-    )
-end
-
 function _compiled_model_execution_target(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
@@ -3777,18 +3651,15 @@ function _new_model_execution_target(
         application.id,
         object_id,
     )
-    context = _compiled_model_execution_context(
-        compiled,
-        env_bindings,
-        application,
-        object_id,
-        bound_inputs,
-        distributed_targets,
-        call_bindings,
-        temporal_streams,
-        output_retention,
-        constants,
-    )
+    context = if isnothing(temporal_streams) && isempty(distributed_targets)
+        nothing
+    else
+        _prepare_model_execution_context!(
+            nothing, compiled, env_bindings, application, object_id,
+            bound_inputs, distributed_targets, call_bindings, temporal_streams,
+            output_retention, 0.0, constants, true, _NO_ENVIRONMENT_OVERRIDE,
+        )
+    end
     local_output_bindings = _runtime_model_output_streams(
         status_view.status,
         application,
@@ -3866,6 +3737,28 @@ function _execution_batch_matches(
            batch.output_publication.enabled == output_publication.enabled
 end
 
+# Retained ordered views already describe the current concrete payloads. Check
+# their providers and publication contract before allocating reconciliation
+# indexes; an unchanged layout needs no new batch-list owner.
+function _execution_batches_match_membership(
+    env_bindings, application, membership, output_publication, previous_group,
+)
+    isnothing(previous_group) && return false
+    previous_group.application === application || return false
+    batches = previous_group.batches
+    length(batches) == length(membership.runs) || return false
+    for index in eachindex(membership.runs)
+        rows = membership.runs[index]
+        batch = batches[index]
+        batch.targets === rows || return false
+        provider = _compiled_model_execution_environment_provider(
+            env_bindings, application, first(rows),
+        )
+        _execution_batch_matches(batch, application, provider, output_publication) || return false
+    end
+    return true
+end
+
 function _model_execution_batches(
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
@@ -3874,6 +3767,11 @@ function _model_execution_batches(
     previous_group=nothing,
 )
     output_publication = _compiled_output_publication(output_retention, application)
+    if _execution_batches_match_membership(
+        env_bindings, application, membership, output_publication, previous_group,
+    )
+        return (batches=previous_group.batches, batches_constructed=0)
+    end
     live_views = IdDict{ExecutionCohortRows,Nothing}(rows => nothing for rows in membership.runs)
     previous_by_view = IdDict{ExecutionCohortRows,Any}()
     spare_by_cohort = IdDict{AbstractExecutionCohort,Vector{Any}}()
@@ -5233,6 +5131,7 @@ end
             if _call_context_clone_is_current(
                 context, targets.compiled, targets.environment_bindings,
                 application, target.object_id, target.bound_inputs, target.output_targets,
+                target.call_bindings,
                 targets.temporal_streams, targets.output_retention, targets.constants,
             )
                 _clone_runtime_call_targets(
@@ -6146,22 +6045,15 @@ function _prepare_targeted_newborn_targets(
     end
     input_bindings = CompiledModelInputBinding[]
     for application in callee_applications
-        for object_id in application.target_ids
-            _compile_added_consumer_bindings!(
-                input_bindings,
-                model,
-                application,
-                object_id,
-                _application_plans(
-                    compiled.scenario_plan.input_recipes_by_application,
-                    application.slot,
-                ),
-                targeted_runtime.manual_application_ids,
-                applications_by_object,
-                compiled.applications_by_id,
-                compiled.distributed_outputs,
-            )
-        end
+        isempty(application.target_ids) && continue
+        recipe = _application_plans(
+            compiled.scenario_plan.input_recipes_by_application, application.slot,
+        )
+        _compile_application_consumer_bindings!(
+            input_bindings, model, application, recipe,
+            targeted_runtime.manual_application_ids, applications_by_object,
+            compiled.applications_by_id, compiled.distributed_outputs,
+        )
     end
     final_input_references = _model_input_status_references(input_bindings)
     _prepare_model_input_statuses_batched!(
@@ -6516,9 +6408,16 @@ end
     return context
 end
 
+@inline function _call_context_bindings_match(calls::Tuple, bindings::Tuple)
+    length(calls) == length(bindings) || return false
+    isempty(calls) && return true
+    first(calls).binding === first(bindings) || return false
+    return _call_context_bindings_match(Base.tail(calls), Base.tail(bindings))
+end
+
 @inline function _call_context_matches(
     context::RunContext, compiled, environment_bindings, application, object_id,
-    bound_inputs, output_targets, temporal_streams, output_retention, constants,
+    bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
     environment,
 )
     return context.compiled === compiled &&
@@ -6527,19 +6426,20 @@ end
            context.bound_inputs === bound_inputs && context.output_targets === output_targets &&
            context.temporal_streams === temporal_streams &&
            context.output_retention === output_retention && context.constants === constants &&
+           _call_context_bindings_match(context.calls, call_bindings) &&
            typeof(context.environment) === typeof(environment)
 end
 @inline _call_context_matches(::Nothing, args...) = false
 
 @inline function _call_context_clone_is_current(
     context::RunContext, compiled, environment_bindings, application, object_id,
-    bound_inputs, output_targets, temporal_streams, output_retention, constants,
+    bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
 )
     # The context identity guard also protects an empty descendant template:
     # no per-child stamp exists to prove it still describes another generation.
     return _call_context_matches(
         context, compiled, environment_bindings, application, object_id,
-        bound_inputs, output_targets, temporal_streams, output_retention, constants,
+        bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
         context.environment,
     ) && _call_context_preparation_is_current(
         context.calls, compiled, environment_bindings, temporal_streams,
@@ -6547,51 +6447,16 @@ end
     )
 end
 
-# A typed default already contains the resolved descendant schema. Reentry or
-# another environment specialization needs fresh mutable call wrappers, not a
-# second graph lookup. Each child execution owner retains its own lease.
-@inline function _clone_model_execution_context(
-    prototype::RunContext, compiled, environment_bindings, application, object_id,
-    bound_inputs, output_targets, temporal_streams, output_retention, time,
-    constants, publication_allowed, environment,
-)
-    if !_call_context_clone_is_current(
-        prototype, compiled, environment_bindings, application, object_id,
-        bound_inputs, output_targets, temporal_streams, output_retention, constants,
-    )
-        return _prepare_model_execution_context!(
-            nothing, compiled, environment_bindings, application, object_id,
-            bound_inputs, output_targets, temporal_streams, output_retention,
-            time, constants, publication_allowed, environment,
-        )
-    end
-    calls = _clone_runtime_call_targets(
-        prototype.calls, compiled, environment_bindings, temporal_streams,
-        output_retention, time, constants, publication_allowed, environment,
-    )
-    return RunContext(
-        compiled, environment_bindings, application, object_id, calls,
-        bound_inputs, output_targets, temporal_streams, output_retention,
-        float(time), constants, publication_allowed, environment,
-    )
-end
-
-# Truly cold owners still require canonical graph preparation. In particular,
-# Nothing does not imply that the application has no declared descendants.
-@inline function _clone_model_execution_context(::Nothing, args...)
-    return _prepare_model_execution_context!(nothing, args...)
-end
-
 @inline function _prepare_cached_call_context!(
     cache::CallContextCache, reuse::Bool, compiled, environment_bindings,
-    application, object_id, bound_inputs, output_targets, temporal_streams,
+    application, object_id, bound_inputs, output_targets, call_bindings::Tuple, temporal_streams,
     output_retention, time, constants, publication_allowed, environment,
 )
     Context = _call_context_type(cache.default, environment)
     context = reuse ? cache.default : nothing
     if !(context isa Context && _call_context_matches(
         context, compiled, environment_bindings, application, object_id,
-        bound_inputs, output_targets, temporal_streams, output_retention, constants,
+        bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
         environment,
     ) && _call_context_preparation_is_current(
         context.calls, compiled, environment_bindings, temporal_streams,
@@ -6601,11 +6466,11 @@ end
         if context isa RunContext && !(context isa Context) &&
            _call_context_matches(
                context, compiled, environment_bindings, application, object_id,
-               bound_inputs, output_targets, temporal_streams, output_retention,
+               bound_inputs, output_targets, call_bindings, temporal_streams, output_retention,
                constants, environment,
            ) && _call_context_clone_is_current(
                context, compiled, environment_bindings, application, object_id,
-               bound_inputs, output_targets, temporal_streams, output_retention, constants,
+               bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
            )
             # A stale OptionalOne can have acquired a different descendant tuple
             # type. Reuse that current transient rather than forcing the old
@@ -6616,7 +6481,7 @@ end
         end
         if !(context isa Context && _call_context_matches(
             context, compiled, environment_bindings, application, object_id,
-            bound_inputs, output_targets, temporal_streams, output_retention, constants,
+            bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
             environment,
         ) && _call_context_preparation_is_current(
             context.calls, compiled, environment_bindings, temporal_streams,
@@ -6624,10 +6489,10 @@ end
         ))
             # A reentrant call needs its own descendants as well as its shell:
             # child CallTargets carry mutable time, environment and permission.
-            context = _clone_model_execution_context(
+            context = _prepare_model_execution_context!(
                 cache.default, compiled, environment_bindings, application, object_id,
-                bound_inputs, output_targets, temporal_streams, output_retention,
-                time, constants, publication_allowed, environment,
+                bound_inputs, output_targets, call_bindings, temporal_streams, output_retention,
+                time, constants, publication_allowed, environment; fresh=true,
             )
             reuse && (cache.transient = context)
             return context
@@ -6635,7 +6500,7 @@ end
     end
     return _prepare_model_execution_context!(
         context::Context, compiled, environment_bindings, application, object_id,
-        bound_inputs, output_targets, temporal_streams, output_retention,
+        bound_inputs, output_targets, call_bindings, temporal_streams, output_retention,
         time, constants, publication_allowed, environment,
     )
 end
@@ -6733,7 +6598,7 @@ end
         context = _prepare_cached_call_context!(
             cache, acquired, target.compiled, target.environment_bindings,
             target.application, target.object_id, target.bound_inputs,
-            target.output_targets, target.temporal_streams, target.output_retention,
+            target.output_targets, target.execution_target.call_bindings, target.temporal_streams, target.output_retention,
             target.time, target.constants, publication_allowed, environment,
         )
         _run_owned_call_kernel!(
@@ -6852,6 +6717,7 @@ end
             _prepare_model_execution_context!(
                 target.context, targets.compiled, targets.environment_bindings,
                 application, target.object_id, target.bound_inputs, target.output_targets,
+                target.call_bindings,
                 targets.temporal_streams, targets.output_retention, targets.time,
                 targets.constants, publication_allowed, environment,
             )
@@ -6859,6 +6725,7 @@ end
             _prepare_cached_call_context!(
                 cache, acquired, targets.compiled, targets.environment_bindings,
                 application, target.object_id, target.bound_inputs, target.output_targets,
+                target.call_bindings,
                 targets.temporal_streams, targets.output_retention, targets.time,
                 targets.constants, publication_allowed, environment,
             )

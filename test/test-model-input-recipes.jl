@@ -178,7 +178,7 @@ end
 
 function materialize_reader(model, compiled, application, recipe)
     bindings = PSE.CompiledModelInputBinding[]
-    PSE._compile_added_consumer_bindings!(bindings, model, application, ObjectId(2),
+    PSE._compile_consumer_input_recipe!(bindings, model, application.id, application.process, ObjectId(2),
         recipe, compiled.scenario_plan.manual_application_ids,
         compiled.applications_by_object, compiled.applications_by_id,
         compiled.distributed_outputs)

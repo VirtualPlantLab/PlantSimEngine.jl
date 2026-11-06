@@ -2216,24 +2216,54 @@ function _insert_sorted_object_ids!(ids, added_ids)
     return ids
 end
 
-function _compile_added_consumer_bindings!(
-    bindings,
-    model,
-    application,
-    consumer_id,
-    recipe::CompiledApplicationInputRecipe,
-    manual_application_ids,
-    applications_by_object,
-    applications_by_id,
-    distributed_outputs=NoCompiledDistributedOutputs(),
-    many_binding_cache=nothing,
-    performance=nothing,
+# One coarse application boundary recovers the authored recipe before walking
+# real consumers. Initial binding, normal growth and targeted newborns share
+# this loop and the same per-consumer resolver/materializer below.
+function _compile_application_consumer_bindings!(
+    bindings, model, application, recipe::CompiledApplicationInputRecipe,
+    manual_application_ids, applications_by_object, applications_by_id,
+    distributed_outputs=NoCompiledDistributedOutputs(), many_binding_cache=nothing,
+    performance=nothing, recorder=nothing,
 )
-    return _compile_consumer_input_recipe!(
-        bindings, model, application.id, application.process, consumer_id, recipe,
-        manual_application_ids, applications_by_object, applications_by_id,
-        distributed_outputs, many_binding_cache, performance,
-    )
+    application_id, application_process = application.id, application.process
+    for consumer_id in application.target_ids
+        first_new_binding = length(bindings) + 1
+        _compile_consumer_input_recipe!(
+            bindings, model, application_id, application_process, consumer_id, recipe,
+            manual_application_ids, applications_by_object, applications_by_id,
+            distributed_outputs, many_binding_cache, performance,
+        )
+        _record_consumer_input_bindings!(
+            recorder, bindings, application, consumer_id,
+            first_new_binding, length(bindings),
+        )
+    end
+    return bindings
+end
+
+_record_consumer_input_bindings!(::Nothing, args...) = nothing
+
+struct _AddedConsumerInputBindings{M,C,B,I}
+    model::M
+    many_binding_cache::C
+    changed_bindings::B
+    input_bindings_by_target::I
+end
+
+function _record_consumer_input_bindings!(
+    recorder::_AddedConsumerInputBindings, bindings, application, consumer_id,
+    first_new_binding, last_new_binding,
+)
+    first_new_binding <= last_new_binding || return nothing
+    for binding_index in first_new_binding:last_new_binding
+        bindings[binding_index] = _share_many_input_binding!(
+            recorder.many_binding_cache, recorder.model, bindings[binding_index],
+        )
+    end
+    new_bindings = bindings[first_new_binding:last_new_binding]
+    append!(recorder.changed_bindings, new_bindings)
+    recorder.input_bindings_by_target[(application.id, consumer_id)] = Tuple(new_bindings)
+    return nothing
 end
 
 function _compile_consumer_input_recipe!(
@@ -3933,39 +3963,19 @@ function _extend_compiled_scene(
         )
     end
     previous_binding_count = length(input_bindings)
+    recorder = _AddedConsumerInputBindings(
+        model, many_binding_cache, changed_bindings, input_bindings_by_target,
+    )
     for application in added_applications
-        for consumer_id in application.target_ids
-            first_new_binding = length(input_bindings) + 1
-            _compile_added_consumer_bindings!(
-                input_bindings,
-                model,
-                application,
-                consumer_id,
-                _application_plans(
-                    compiled.scenario_plan.input_recipes_by_application,
-                    application.slot,
-                ),
-                manual_application_ids,
-                applications_by_object,
-                applications_by_id,
-                distributed_outputs,
-                many_binding_cache,
-                performance,
-            )
-            last_new_binding = length(input_bindings)
-            if first_new_binding <= last_new_binding
-                for binding_index in first_new_binding:last_new_binding
-                    input_bindings[binding_index] = _share_many_input_binding!(
-                        many_binding_cache,
-                        model,
-                        input_bindings[binding_index],
-                    )
-                end
-                new_bindings = input_bindings[first_new_binding:last_new_binding]
-                append!(changed_bindings, new_bindings)
-                input_bindings_by_target[(application.id, consumer_id)] = Tuple(new_bindings)
-            end
-        end
+        isempty(application.target_ids) && continue
+        recipe = _application_plans(
+            compiled.scenario_plan.input_recipes_by_application, application.slot,
+        )
+        _compile_application_consumer_bindings!(
+            input_bindings, model, application, recipe, manual_application_ids,
+            applications_by_object, applications_by_id, distributed_outputs,
+            many_binding_cache, performance, recorder,
+        )
     end
     dynamic_input_binding_indices = if rebuild_dynamic_input_index
         many_binding_cache =
@@ -7566,19 +7576,12 @@ function _compile_model_input_bindings(
     by_object = _applications_by_object(applications)
     by_id = Dict(application.id => application for application in applications)
     for application in applications
-        for consumer_id in application.target_ids
-            _compile_added_consumer_bindings!(
-                bindings,
-                model,
-                application,
-                consumer_id,
-                _application_plans(input_recipes_by_application, application.slot),
-                manual_application_ids,
-                by_object,
-                by_id,
-                distributed_outputs,
-            )
-        end
+        isempty(application.target_ids) && continue
+        recipe = _application_plans(input_recipes_by_application, application.slot)
+        _compile_application_consumer_bindings!(
+            bindings, model, application, recipe, manual_application_ids,
+            by_object, by_id, distributed_outputs,
+        )
     end
     return bindings
 end

@@ -344,8 +344,10 @@ end
         active = PSE._prepare_cached_call_context!(cache, true,
             parent.compiled, parent.environment_bindings, parent.application,
             parent.object_id, parent.bound_inputs, parent.output_targets,
+            parent.execution_target.call_bindings,
             parent.temporal_streams, parent.output_retention, parent.time,
-            parent.constants, true, parent.environment)
+            parent.constants, true, parent.environment,
+        )
         @test active === cache.default
         old_optional = call_targets(active, :child)
         old_calls = active.calls

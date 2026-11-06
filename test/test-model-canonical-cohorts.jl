@@ -1,6 +1,6 @@
 module CanonicalCohortChecks
 
-using PlantSimEngine, Random, Test
+using PlantSimEngine, Dates, Random, Test
 using PlantSimEngine.Diagnostics
 const PSE = PlantSimEngine
 
@@ -352,6 +352,76 @@ end
     @test assert_canonical_storage(simulation) === store
     @test model_status(model, :a).value == 2
     @test model_status(model, :d).value == 11
+end
+
+
+@testset "unchanged ordered batches reuse their list through same-schema growth" begin
+    model = CompositeModel(
+        Object(1; scale=:Leaf, status=Status(value=0f0, visits=0)),
+        Object(2; scale=:Leaf, status=Status(value=0.0, visits=0)),
+        Object(3; scale=:Leaf, status=Status(value=0f0, visits=0));
+        applications=(ModelSpec(Accumulator(1f0); name=:sum, on=Many(scale=:Leaf)),),
+        environment=(T=1f0, duration=Day(1)),
+    )
+    simulation = run!(model; steps=0, outputs=:none)
+    group = only(simulation.execution_plan.groups)
+    original_batches = group.batches
+    @test length(original_batches) == 3 # Preserve A/B/A execution order.
+    assembled = PSE._model_execution_batches(simulation.environment_bindings,
+        group.application, group.membership, simulation.output_retention, group)
+    @test assembled.batches === original_batches
+    @test assembled.batches_constructed == 0
+
+    # The fast reuse check must still reject changed sampling/publication
+    # metadata. This compiler-only probe does not run an inconsistent batch.
+    batch = first(original_batches)
+    publication = batch.output_publication
+    try
+        original_batches[1] = PSE.CompiledExecutionBatch(batch.application, batch.targets,
+            PSE.RawGlobalModelEnvironment((T=2f0, duration=Day(1))), publication)
+        changed = PSE._model_execution_batches(simulation.environment_bindings,
+            group.application, group.membership, simulation.output_retention, group)
+        @test changed.batches !== original_batches
+        @test changed.batches_constructed == 1
+        @test first(changed.batches) !== batch
+        @test changed.batches[2] === original_batches[2]
+        @test changed.batches[3] === original_batches[3]
+    finally
+        original_batches[1] = batch
+    end
+    try
+        original_batches[1] = PSE.CompiledExecutionBatch(batch.application, batch.targets,
+            batch.environment_provider,
+            PSE.CompiledOutputPublication(publication.variables, !publication.enabled))
+        changed = PSE._model_execution_batches(simulation.environment_bindings,
+            group.application, group.membership, simulation.output_retention, group)
+        @test changed.batches !== original_batches
+        @test changed.batches_constructed == 1
+        @test first(changed.batches) !== batch
+    finally
+        original_batches[1] = batch
+    end
+
+    continue!(simulation)
+    register_object!(model, Object(4; scale=:Leaf, status=Status(value=0f0, visits=0)))
+    continue!(simulation)
+    @test only(simulation.execution_plan.groups) === group
+    @test group.batches === original_batches
+    @test [target.object_id for rows in group.membership.runs for target in rows] == ObjectId.([1, 2, 3, 4])
+    @test model_status(model, 1).value === 2f0
+    @test model_status(model, 2).value === 2.0
+    @test model_status(model, 3).value === 2f0
+    @test model_status(model, 4).value === 1f0
+
+    remove_object!(model, 2)
+    continue!(simulation)
+    current = only(simulation.execution_plan.groups)
+    @test length(current.batches) == 1
+    @test current.batches !== original_batches
+    @test [target.object_id for target in only(current.batches).targets] == ObjectId.([1, 3, 4])
+    @test model_status(model, 1).value === 3f0
+    @test model_status(model, 3).value === 3f0
+    @test model_status(model, 4).value === 2f0
 end
 
 end # module CanonicalCohortChecks

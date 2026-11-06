@@ -97,7 +97,7 @@ PSE._final_inferred_output_plans(::CountWriterChecks, id, variable, matches) = m
     recipe = compiled.scenario_plan.input_recipes_by_application.reader
     counter = CountWriterChecks(Ref(0))
     bindings = PSE.CompiledModelInputBinding[]
-    PSE._compile_added_consumer_bindings!(bindings, model, application, ObjectId(:leaf),
+    PSE._compile_consumer_input_recipe!(bindings, model, application.id, application.process, ObjectId(:leaf),
         recipe, compiled.scenario_plan.manual_application_ids,
         compiled.applications_by_object, compiled.applications_by_id, counter)
     @test counter.count[] == 1
