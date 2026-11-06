@@ -82,6 +82,8 @@ else
     @testset "Reusable scenario plans" begin
         include("test-model-prepared-scenario.jl")
         include("test-model-scenario-authoring.jl")
+        include("test-model-prepared-authoring-owner.jl")
+        include("test-model-public-refresh-owners.jl")
         include("test-model-authored-call-plans.jl")
         include("test-model-authored-spec-matching.jl")
         include("test-compilation-metadata.jl")

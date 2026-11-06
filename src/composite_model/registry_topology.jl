@@ -976,6 +976,15 @@ function _consume_structural_lifecycle_delta!(model::CompositeModel)
     return consumed
 end
 
+# A public refresh can replace a prepared owner without a topology or
+# environment mutation. Publish that cold change through the same generation
+# checked after each scheduled application. Clean identity-preserving refresh
+# remains a no-op, and per-object execution performs no extra lookup.
+function _record_runtime_owner_replacement!(model::CompositeModel, previous, current)
+    previous === current || (model.runtime_revision += 1)
+    return nothing
+end
+
 bindings_dirty(model::CompositeModel) = model.bindings_dirty
 environment_bindings_dirty(model::CompositeModel) = model.environment_bindings_dirty
 lifecycle_delta(model::CompositeModel) = model.lifecycle_delta
@@ -1758,86 +1767,6 @@ function _geometry_inheriting_descendants(model::CompositeModel, root_id::Object
     return ids
 end
 
-function refresh_bindings!(
-    model::CompositeModel,
-    specs=model.applications;
-    force::Bool=false,
-    performance=nothing,
-)
-    uses_model_applications = specs === model.applications
-    if !uses_model_applications
-        return compile_composite_model(
-            model,
-            specs;
-            performance=performance,
-        )
-    end
-    preparation = _scenario_preparation(model; force)
-    _validate_authored_scenario(preparation)
-    prepared = preparation.resolved
-    previous = model.binding_cache
-    plan_changed = !isnothing(prepared) && !isnothing(previous) &&
-                   prepared.plan !== previous.scenario_plan
-    if force || model.bindings_dirty || isnothing(previous) || plan_changed
-        delta = model.lifecycle_delta
-        dirty_object_ids = delta.structural_dirty_ids
-        can_extend = !force &&
-                     isnothing(prepared) &&
-                     !isnothing(model.binding_cache) &&
-                     !isempty(dirty_object_ids)
-        if can_extend && delta.structural_kind == :addition
-            model.binding_cache = _extend_compiled_scene(
-                model,
-                model.binding_cache,
-                dirty_object_ids,
-                ;
-                performance=performance,
-            )
-        elseif can_extend && delta.structural_kind == :structural
-            delta = _prepare_structural_compiled_delta(
-                model,
-                model.binding_cache,
-                dirty_object_ids,
-                performance,
-            )
-            model.binding_cache = _extend_compiled_scene(
-                model,
-                delta.compiled,
-                dirty_object_ids;
-                forced_input_binding_keys=delta.forced_input_binding_keys,
-                forced_call_target_keys=delta.forced_call_target_keys,
-                previous_temporal_sources_seed=delta.previous_temporal_sources,
-                changed_application_ids_seed=delta.changed_application_ids,
-                changed_target_ids_seed=delta.changed_target_ids,
-                pure_addition=false,
-                structural_dirty_ids=dirty_object_ids,
-                performance=performance,
-            )
-            _remove_stale_status_views!(
-                model.binding_cache,
-                delta.changed_target_ids,
-            )
-        else
-            previous_binding_cache = model.binding_cache
-            refreshed_binding_cache = isnothing(prepared) ?
-                compile_composite_model(model; performance) :
-                _compile_scene(model, prepared; performance)
-            if !force &&
-               !isnothing(previous_binding_cache) &&
-               previous_binding_cache.distributed_outputs isa
-               CompiledDistributedOutputs
-                _preserve_recompiled_model_status_views!(
-                    refreshed_binding_cache,
-                    previous_binding_cache,
-                )
-            end
-            model.binding_cache = refreshed_binding_cache
-        end
-        model.bindings_dirty = false
-        _consume_structural_lifecycle_delta!(model)
-    end
-    return model.binding_cache
-end
 
 function object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, id=nothing)
     ids = _indexed_object_ids(

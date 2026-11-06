@@ -175,6 +175,7 @@ end
 
 function _model_graph_compiled(
     model,
+    preparation,
     applications,
     input_plans,
     call_plans,
@@ -191,6 +192,7 @@ function _model_graph_compiled(
     timeline = _model_timeline(model)
     scenario_plan = _compiled_scenario_plan(
         model,
+        preparation,
         applications,
         input_plans,
         call_plans,
@@ -246,16 +248,7 @@ function _model_graph_compiled(
     )
 end
 
-function _model_graph_compile_applications(model, timeline, diagnostics)
-    preparation = _scenario_preparation(model)
-    if isnothing(preparation.failure)
-        applications = _model_graph_phase!(diagnostics, :applications, CompiledModelApplication[]) do
-            _resolve_application_recipes(model, preparation.authored, timeline)
-        end
-        isempty(applications) || return applications
-        isempty(model.applications) && return applications
-    end
-
+function _model_graph_compile_applications(model, preparation, timeline, diagnostics)
     recovered = CompiledModelApplication[]
     recovered_ids = Set{Symbol}()
     for record in preparation.authored
@@ -269,7 +262,13 @@ function _model_graph_compile_applications(model, timeline, diagnostics)
             continue
         end
         try
-            application = only(_resolve_application_recipes(model, (record,), timeline))
+            on_environment_error = err -> push!(diagnostics, _model_graph_diagnostic(
+                err, :environment_bindings;
+                application_ids=[record.id],
+                suggestions=["Map only declared model-facing environment inputs."],
+            ))
+            application = only(_resolve_application_recipes(model, (record,), timeline;
+                on_environment_error))
             application.id in recovered_ids && error(
                 "Duplicate recovered model application id `$(application.id)`.",
             )
@@ -342,7 +341,8 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         nothing,
     )
 
-    applications = _model_graph_compile_applications(model, timeline, diagnostics)
+    preparation = _scenario_preparation(model)
+    applications = _model_graph_compile_applications(model, preparation, timeline, diagnostics)
     isempty(applications) && !isempty(model.applications) && return CompositeModelCompilationReport(
         model,
         initial_status_variables,
@@ -513,6 +513,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
     compiled = try
         _model_graph_compiled(
             model,
+            preparation,
             applications,
             input_plans,
             call_plans,

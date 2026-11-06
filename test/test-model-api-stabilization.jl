@@ -2830,6 +2830,9 @@ end
         group for group in original_groups
         if group.application.id == :leaf_context
     )
+    # The group is the live mutable owner. Save its ordered wrappers so later
+    # identity assertions do not compare a refreshed owner with itself.
+    original_context_batches = copy(original_context_group.batches)
     @test [
         [target.object_id for target in batch.targets]
         for batch in original_context_group.batches
@@ -2847,9 +2850,9 @@ end
           ObjectId.([:leaf_a, :leaf_z, :leaf_zz])
     @test [
         [target.object_id for target in batch.targets]
-        for batch in original_context_group.batches
+        for batch in original_context_batches
     ] == [ObjectId.([:leaf_a]), ObjectId.([:leaf_z])]
-    @test simulation.execution_plan.groups !== original_groups
+    @test simulation.execution_plan.groups === original_groups
     @test simulation.execution_plan.batches !== original_batches
 
     refreshed_source_group = only(
@@ -2862,16 +2865,18 @@ end
     )
     @test refreshed_source_group === original_source_group
     @test only(refreshed_source_group.batches) === original_source_batch
-    @test refreshed_context_group.batches[1] === original_context_group.batches[1]
-    @test refreshed_context_group.batches[2] === original_context_group.batches[2]
+    @test refreshed_context_group === original_context_group
+    @test refreshed_context_group.batches[1] === original_context_batches[1]
+    @test refreshed_context_group.batches[2] === original_context_batches[2]
     @test refreshed_context_group.batches[3].targets.cohort ===
-          original_context_group.batches[1].targets.cohort
+          original_context_batches[1].targets.cohort
     for batch in simulation.execution_plan.batches, target in batch.targets
         key = (batch.application.id, target.object_id)
         haskey(original_targets, key) || continue
         previous_target = original_targets[key]
         @test target === previous_target
         @test target.context === previous_target.context
+        @test target.context.compiled === simulation.compiled
         location = PlantSimEngine.cohort_location(simulation.execution_plan.cohorts, key...)
         @test location.cohort === original_locations[key].cohort
         @test location.row == original_locations[key].row
@@ -2895,7 +2900,7 @@ end
         performance.counts,
         :execution_groups_updated_in_place,
         0,
-    ) == 1
+    ) == 2 # source append and the context family's additional ordered run
     @test model_object(model, :leaf_zz).status.signal == 1.0
     @test model_object(model, :leaf_a).status.signal == 2.0
     @test model_object(model, :leaf_z).status.signal == 2.0

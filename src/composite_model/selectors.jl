@@ -578,19 +578,25 @@ function _ancestor_id(
     final_index < firstindex(ancestors) && return nothing
     isnothing(scale) && isnothing(kind) &&
         return @inbounds ancestors[final_index]
-    scale_ids = isnothing(scale) ? nothing : get(model.registry.by_scale, scale, nothing)
-    !isnothing(scale) && isnothing(scale_ids) && return nothing
-    kind_ids = isnothing(kind) ? nothing : get(model.registry.by_kind, kind, nothing)
-    !isnothing(kind) && isnothing(kind_ids) && return nothing
+    !isnothing(scale) && !haskey(model.registry.by_scale, scale) && return nothing
+    !isnothing(kind) && !haskey(model.registry.by_kind, kind) && return nothing
     for index in final_index:-1:firstindex(ancestors)
         id = @inbounds ancestors[index]
-        # Preserve the existing unknown-object error for a dangling cached
-        # ancestor, without fetching every live Object merely for its labels.
-        haskey(model.registry.objects, id) || _model_object(model, id)
-        (isnothing(scale_ids) || id in scale_ids) &&
-            (isnothing(kind_ids) || id in kind_ids) && return id
+        _ancestor_matches_indexed_labels(model, id, scale, kind) && return id
     end
     return nothing
+end
+
+# An ancestry path may contain several concrete ObjectId types. Keep each
+# scalar index lookup inside that identity's dispatch boundary so immutable
+# index and family-store headers do not escape across a dynamic call.
+@noinline function _ancestor_matches_indexed_labels(
+    model::CompositeModel, id::ObjectId,
+    scale::Union{Nothing,Symbol}, kind::Union{Nothing,Symbol},
+)
+    _model_object(model, id)
+    return (isnothing(scale) || id in model.registry.by_scale[scale]) &&
+           (isnothing(kind) || id in model.registry.by_kind[kind])
 end
 
 function _ancestor_ids(model::CompositeModel, current_id::ObjectId)

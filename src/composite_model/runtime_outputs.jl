@@ -5567,7 +5567,6 @@ function _new_object_applications(
         compiled,
         requested_ids,
     )
-    isnothing(new_targets) && return nothing
     for slot in sort!(Int[
         compiled.applications_by_id[application_id].slot
         for application_id in keys(new_targets)
@@ -6070,7 +6069,7 @@ function _current_topology_call_targets(
         cached_targets,
     )
     isnothing(targeted) || return targeted
-    compiled = refresh_bindings!(model)
+    compiled = _refresh_runtime_bindings!(model, context.compiled)
     environment_bindings = refresh_environment_bindings!(model, compiled)
     bindings = get(
         compiled.call_bindings_by_target,
@@ -6917,7 +6916,8 @@ end
 
 function _refresh_simulation_runtime!(simulation::Simulation)
     model = simulation.model
-    if bindings_dirty(model) ||
+    unobserved_compiled_owner = simulation.compiled !== getfield(model, :binding_cache)
+    if bindings_dirty(model) || unobserved_compiled_owner ||
        simulation.compiled.revision != model_revision(model)
         lifecycle = lifecycle_delta(model)
         _runtime_performance_count_lifecycle_delta!(
@@ -6948,10 +6948,16 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.environment_bindings.by_target,
         )
         started_at = _runtime_performance_start(simulation.performance)
-        simulation.compiled = refresh_bindings!(
-            model;
+        simulation.compiled = _refresh_runtime_bindings!(
+            model, simulation.compiled;
             performance=simulation.performance,
         )
+        # A previously published owner can change membership beyond the
+        # pending lifecycle delta, including at the same topology revision.
+        # Ordinary observed growth retains incremental request checks.
+        if unobserved_compiled_owner
+            simulation.output_request_model_revision = -1
+        end
         _runtime_performance_finish!(
             simulation.performance,
             :binding_refresh,
@@ -7013,7 +7019,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
                 ),
             )
         end
-        pure_object_addition =
+        pure_object_addition = !unobserved_compiled_owner &&
             simulation.compiled.status_view_refresh_is_pure_addition
         output_retention_reused = pure_object_addition &&
                                   _model_output_retention_covers_addition(
@@ -7055,14 +7061,12 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.compiled,
             simulation.output_retention,
             0,
-            output_retention_reused ?
+            output_retention_reused && !unobserved_compiled_owner ?
             simulation.compiled.changed_execution_target_ids : nothing,
         )
         started_at = _runtime_performance_start(simulation.performance)
         environment_owner = _current_environment_binding_owner(model, simulation.environment_bindings)
-        environment_delta_covers_runtime = !isnothing(environment_owner) &&
-            environment_owner.environment_revision == simulation.environment_bindings.environment_revision &&
-            environment_owner.applications_identity == simulation.environment_bindings.applications_identity
+        environment_delta_covers_runtime = environment_owner === simulation.environment_bindings
         simulation.environment_bindings = _refresh_environment_bindings!(
             model,
             simulation.compiled,
@@ -7095,7 +7099,8 @@ function _refresh_simulation_runtime!(simulation::Simulation)
                 ),
             )
         end
-        changed_execution_application_ids = output_retention_reused && environment_delta_covers_runtime ?
+        changed_execution_application_ids = !unobserved_compiled_owner &&
+                                            output_retention_reused && environment_delta_covers_runtime ?
                                             simulation.compiled.changed_execution_application_ids :
                                             nothing
         started_at = _runtime_performance_start(simulation.performance)
@@ -7140,6 +7145,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             execution_refresh.groups_reused,
         )
     elseif environment_bindings_dirty(model) ||
+           simulation.environment_bindings !== getfield(model, :environment_binding_cache) ||
            simulation.environment_bindings.environment_revision !=
            environment_revision(model)
         _runtime_performance_count_lifecycle_delta!(
@@ -7150,9 +7156,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
         # A public refresh can consume the lifecycle delta before this
         # Simulation observes it. A later partial event only describes changes
         # since that newer cache, so it cannot bound this runtime's stale rows.
-        environment_delta_covers_runtime = !isnothing(environment_owner) &&
-            environment_owner.environment_revision == simulation.environment_bindings.environment_revision &&
-            environment_owner.applications_identity == simulation.environment_bindings.applications_identity
+        environment_delta_covers_runtime = environment_owner === simulation.environment_bindings
         dirty_environment_object_ids =
             lifecycle_delta(model).full_environment || !environment_delta_covers_runtime ?
             nothing :
@@ -7552,7 +7556,8 @@ function _refresh_output_request_targets!(
         simulation.performance,
         :output_request_target_refreshes,
     )
-    added_object_ids = _incremental_output_request_object_ids(lifecycle)
+    added_object_ids = simulation.output_request_model_revision == -1 ?
+                       nothing : _incremental_output_request_object_ids(lifecycle)
     for request in simulation.output_requests
         matcher = simulation.output_request_matchers[request.name]
         application_id, object_targets =

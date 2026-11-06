@@ -203,9 +203,10 @@ method reads a transient backend-specific `state` supplied through
 `time` is an index on the simulation's base-step clock. Per-target backend
 sampling uses `float(step)` consistently, independently of output retention and
 performance instrumentation. Global forcing rows retain their scheduler-step
-lookup. Backends should accept an appropriate `Real` clock; normalization
-preserves floating representations such as `Float32`. Hard calls use the
-floating clock captured by their runtime context.
+lookup. Backends should accept an appropriate `Real` clock. The ordinary
+scheduler normalizes integer steps to `Float64`; already floating per-target
+clocks retain their representation. Hard calls use the `Float64` clock captured
+by their runtime context.
 """
 function sample(backend::AbstractEnvironmentBackend, handle, variable::Symbol, time)
     error(

@@ -145,4 +145,58 @@ end
     @test isempty(repaired.diagnostics)
 end
 
+
+@testset "invalid environment source names keep editable application metadata" begin
+    model = CompositeModel(Object(:root; scale=:Scene, status=Status(seed=1.0));
+        applications=(
+            ModelSpec(Good{:signal}(); name=:configured, on=One(id=:root),
+                environment=Environment(sources=(T=:temperature,))),
+            ModelSpec(Good{:later}(); name=:later, on=One(id=:root)),
+        ))
+    original = model_status(model, :root)
+    for _ in 1:2
+        report = PSE.compile_model_report(model)
+        @test [application.id for application in report.applications] == [:configured, :later]
+        configured = only(application for application in report.applications
+            if application.id === :configured)
+        @test environment_config(configured.spec).config.sources == (T=:temperature,)
+        @test configured.target_ids == [ObjectId(:root)]
+        @test configured.clock.dt == 1.0
+        @test any(diagnostic -> diagnostic.application_ids == [:configured] &&
+            occursin("unknown model-facing environment input", diagnostic.message),
+            report.diagnostics)
+        @test isnothing(report.compiled)
+        @test model_status(model, :root) === original
+        @test !hasproperty(original, :signal)
+    end
+    @test_throws ErrorException PSE.compile_model_report(model; strict=true)
+    @test_throws ErrorException run!(model; steps=0)
+end
+
+const failed_environment_port_reads = Ref(0)
+struct FailedEnvironmentPorts <: AbstractDiagnostic_Authoring_Recovery_GoodModel end
+PSE.inputs_(::FailedEnvironmentPorts) = NamedTuple()
+PSE.outputs_(::FailedEnvironmentPorts) = (signal=0.0,)
+function PSE.environment_inputs_(::FailedEnvironmentPorts)
+    failed_environment_port_reads[] += 1
+    throw(OpaqueDeclarationError(@__MODULE__))
+end
+
+@testset "recovery never retries an environment declaration that itself failed" begin
+    failed_environment_port_reads[] = 0
+    model = CompositeModel(Object(:root; scale=:Scene); applications=(
+        ModelSpec(FailedEnvironmentPorts(); name=:failed, on=One(id=:root),
+            environment=Environment(sources=(T=:temperature,))),
+        ModelSpec(Good{:later}(); name=:later, on=One(id=:root)),
+    ))
+    for expected_reads in 1:2
+        report = PSE.compile_model_report(model)
+        @test [application.id for application in report.applications] == [:later]
+        @test failed_environment_port_reads[] == expected_reads
+        @test any(diagnostic -> diagnostic.application_ids == [:failed] &&
+            occursin("opaque declaration failed once", diagnostic.message),
+            report.diagnostics)
+    end
+end
+
 end

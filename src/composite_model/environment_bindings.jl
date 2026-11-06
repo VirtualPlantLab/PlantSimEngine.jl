@@ -760,6 +760,7 @@ function _refresh_environment_bindings!(model::CompositeModel, compiled,
             compile_environment_bindings(model, compiled)
         end
         model.environment_binding_cache = refreshed
+        _record_runtime_owner_replacement!(model, cached, refreshed)
         model.environment_bindings_dirty = false
         _reset_lifecycle_delta_if_consumed!(model)
         return refreshed
@@ -772,6 +773,7 @@ function _refresh_environment_bindings!(model::CompositeModel, compiled,
         refreshed = isnothing(reconciled) ?
                     compile_environment_bindings(model, compiled) : reconciled
         model.environment_binding_cache = refreshed
+        _record_runtime_owner_replacement!(model, cached, refreshed)
         return refreshed
     end
 end

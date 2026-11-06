@@ -25,12 +25,11 @@ The required methods are:
 - `sample(backend, handle, variable, time)`: read a value from the stored,
   accepted environment state.
 
-The `time` argument is an index on the simulation's base-step clock. Per-target
-backend sampling uses `float(step)` with the same clock when outputs or
-performance counters are enabled. Global forcing tables select their row from
-the scheduler step. Hard calls use the floating clock saved by their runtime
-context. Accept a suitable `Real` argument in backend methods; floating
-representations such as `Float32` are preserved.
+The `time` argument is an index on the simulation's base-step clock. Scheduled
+targets use `float(step)` (`Float64` with the ordinary scheduler), independently
+of retained outputs and performance counters. Global forcing tables select
+their row from the scheduler step. Hard calls use the `Float64` clock saved by
+their runtime context. Accept a suitable `Real` argument in backend methods.
 
 Implement `environment_variables(backend)` if you can list the available
 variable names without an expensive calculation. PlantSimEngine can then

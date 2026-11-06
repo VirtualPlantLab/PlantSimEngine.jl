@@ -649,29 +649,6 @@ function _compiled_application_schedule(
     )
 end
 
-"""
-Immutable application, dependency-declaration, and timeline metadata shared by
-every lifecycle refresh of a compiled scenario.
-"""
-struct CompiledScenarioPlan{AP,AI,ATI,IP,IPI,IR,CP,CPI,DOP,CO,MA,AC,AO,OAP,AS,TL}
-    applications::AP
-    applications_by_id::AI
-    application_target_candidates::ATI
-    input_plans::IP
-    input_plans_by_application::IPI
-    input_recipes_by_application::IR
-    call_plans::CP
-    call_plans_by_application::CPI
-    distributed_output_plans::DOP
-    call_owners::CO
-    manual_application_ids::MA
-    application_children::AC
-    application_order::AO
-    ordered_application_plans::OAP
-    application_schedule::AS
-    timeline::TL
-end
-
 # Authoring records contain declarations, never current target identities,
 # status values, resolved overrides, clocks, or simulation-owned storage.
 struct AuthoredApplicationRecipe{S,M,H,ON,CN,CP}
@@ -718,6 +695,42 @@ mutable struct ScenarioPreparation{M,S,A,F}
     const failure::F
     resolved::Any
 end
+
+# Preserve the genuine owner, without copying its source tuple or encoding the
+# result types of declaration hooks in every runtime plan. Lifecycle refresh
+# needs only the owner identity and the immutable source-declaration schema.
+struct CompiledScenarioAuthoring{M,S}
+    preparation::ScenarioPreparation{M,S}
+
+    function CompiledScenarioAuthoring(preparation::ScenarioPreparation{M,S}) where {M,S}
+        return new{M,S}(preparation)
+    end
+end
+
+"""
+Immutable application, dependency-declaration, and timeline metadata shared by
+every lifecycle refresh of a compiled scenario.
+"""
+struct CompiledScenarioPlan{SA,AP,AI,ATI,IP,IPI,IR,CP,CPI,DOP,CO,MA,AC,AO,OAP,AS,TL}
+    authoring::SA
+    applications::AP
+    applications_by_id::AI
+    application_target_candidates::ATI
+    input_plans::IP
+    input_plans_by_application::IPI
+    input_recipes_by_application::IR
+    call_plans::CP
+    call_plans_by_application::CPI
+    distributed_output_plans::DOP
+    call_owners::CO
+    manual_application_ids::MA
+    application_children::AC
+    application_order::AO
+    ordered_application_plans::OAP
+    application_schedule::AS
+    timeline::TL
+end
+
 
 function _authored_specs_match(source_specs, specs)
     length(source_specs) == length(specs) || return false
@@ -871,11 +884,11 @@ function _authored_application_recipes(preparation::ScenarioPreparation)
     return preparation.authored
 end
 
-function _authored_application_recipes(model::CompositeModel, raw_specs)
+function _scenario_preparation(model::CompositeModel, raw_specs)
     if _authored_specs_match(model.applications, raw_specs)
-        return _authored_application_recipes(_scenario_preparation(model))
+        return _scenario_preparation(model)
     end
-    return _authored_application_recipes(_prepare_authored_scenario(model, raw_specs))
+    return _prepare_authored_scenario(model, raw_specs)
 end
 
 # The snapshot owns its target lists. Runtime application membership can
@@ -1386,6 +1399,7 @@ end
 
 function _compiled_scenario_plan(
     model::CompositeModel,
+    preparation::ScenarioPreparation,
     applications,
     input_plans,
     call_plans,
@@ -1430,6 +1444,7 @@ function _compiled_scenario_plan(
     )
     input_plans_by_application = _plans_by_application(applications, input_plans)
     return CompiledScenarioPlan(
+        CompiledScenarioAuthoring(preparation),
         application_plans,
         application_plans_by_id,
         _application_target_candidate_index(model, application_plans),
@@ -1748,6 +1763,112 @@ mutable struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,
     application_order::AO
     revision::Int
     execution_generation::UInt64
+end
+
+# Public configuration refresh is the authoring boundary. It selects one
+# genuine preparation, then gives the shared worker a resolved snapshot only
+# when the existing lifecycle metadata cannot be extended.
+function refresh_bindings!(
+    model::CompositeModel,
+    specs=model.applications;
+    force::Bool=false,
+    performance=nothing,
+)
+    specs === model.applications || return compile_composite_model(model, specs; performance)
+    preparation = _scenario_preparation(model; force)
+    _validate_authored_scenario(preparation)
+    previous = model.binding_cache
+    prepared = preparation.resolved
+    owner_changed = !isnothing(previous) &&
+                    previous.scenario_plan.authoring.preparation !== preparation
+    if owner_changed || _binding_refresh_required(model, previous, prepared, force)
+        if owner_changed || !_can_extend_binding_refresh(model, previous, prepared, force)
+            if owner_changed || isnothing(prepared)
+                plan, applications = _resolve_prepared_scenario(
+                    model, preparation, _model_timeline(model); performance,
+                )
+                prepared = PreparedScenario(plan,
+                    Vector{ObjectId}[application.target_ids for application in applications])
+            end
+        end
+    end
+    return _refresh_prepared_bindings!(model, previous, prepared; force, performance)
+end
+
+_binding_refresh_required(model, previous, prepared, force) =
+    force || model.bindings_dirty || isnothing(previous) ||
+    (!isnothing(prepared) && prepared.plan !== previous.scenario_plan)
+
+function _can_extend_binding_refresh(model, previous, prepared, force)
+    delta = model.lifecycle_delta
+    return !force && isnothing(prepared) && !isnothing(previous) &&
+           !isempty(delta.structural_dirty_ids) &&
+           delta.structural_kind in (:addition, :structural)
+end
+
+# This is the sole binding refresh algorithm. Its inputs are already-owned
+# declaration metadata and live membership; it does not invoke author hooks.
+function _refresh_prepared_bindings!(
+    model::CompositeModel, previous, prepared;
+    force::Bool=false, performance=nothing,
+)
+    _binding_refresh_required(model, previous, prepared, force) || return previous
+    delta = model.lifecycle_delta
+    dirty_object_ids = delta.structural_dirty_ids
+    can_extend = _can_extend_binding_refresh(model, previous, prepared, force)
+    if can_extend && delta.structural_kind === :addition
+        refreshed = _extend_compiled_scene(model, previous, dirty_object_ids; performance)
+    elseif can_extend && delta.structural_kind === :structural
+        structural = _prepare_structural_compiled_delta(model, previous, dirty_object_ids, performance)
+        refreshed = _extend_compiled_scene(
+            model, structural.compiled, dirty_object_ids;
+            forced_input_binding_keys=structural.forced_input_binding_keys,
+            forced_call_target_keys=structural.forced_call_target_keys,
+            previous_temporal_sources_seed=structural.previous_temporal_sources,
+            changed_application_ids_seed=structural.changed_application_ids,
+            changed_target_ids_seed=structural.changed_target_ids,
+            pure_addition=false, structural_dirty_ids=dirty_object_ids, performance,
+        )
+        _remove_stale_status_views!(refreshed, structural.changed_target_ids)
+    else
+        prepared isa PreparedScenario || _unprepared_runtime_configuration()
+        refreshed = _compile_scene(model, prepared; performance)
+        if !force && !isnothing(previous) && previous.distributed_outputs isa CompiledDistributedOutputs
+            _preserve_recompiled_model_status_views!(refreshed, previous)
+        end
+    end
+    model.binding_cache = refreshed
+    _record_runtime_owner_replacement!(model, previous, refreshed)
+    model.bindings_dirty = false
+    _consume_structural_lifecycle_delta!(model)
+    return refreshed
+end
+
+function _unprepared_runtime_configuration()
+    throw(ArgumentError("The authored model configuration changed after preparation. " *
+        "Call Advanced.refresh_bindings!(model; force=true) before continuing the simulation."))
+end
+
+# A running simulation already fixes its compiled representation. Read the
+# CURRENT model-owned cache through that witness, including a cache replaced
+# by public force, rather than reusing an old simulation's metadata owner.
+function _refresh_runtime_bindings!(
+    model::CompositeModel, witness::C; performance=nothing,
+) where {C<:CompiledCompositeModel}
+    current = getfield(model, :binding_cache)
+    current isa C || _unprepared_runtime_configuration()
+    return _refresh_owned_runtime_bindings!(model, current::C; performance)
+end
+
+function _refresh_owned_runtime_bindings!(
+    model::CompositeModel, current::CompiledCompositeModel{SC,SP}; performance=nothing,
+) where {SC,SP}
+    preparation = getfield(getfield(current.scenario_plan, :authoring), :preparation)
+    preparation.owner === model || _unprepared_runtime_configuration()
+    getfield(model, :scenario_plan_cache) === preparation || _unprepared_runtime_configuration()
+    _authored_specs_match(preparation, model) || _unprepared_runtime_configuration()
+    prepared = getfield(preparation, :resolved)::Union{Nothing,PreparedScenario{SP}}
+    return _refresh_prepared_bindings!(model, current, prepared; performance)
 end
 
 function _index_dynamic_input_binding!(
@@ -2071,7 +2192,9 @@ function _model_timeline(model::CompositeModel)
     return _timeline_context(backend)
 end
 
-function _compile_resolved_scenario_plan(model::CompositeModel, applications, timeline)
+function _compile_resolved_scenario_plan(
+    model::CompositeModel, preparation::ScenarioPreparation, applications, timeline,
+)
     distributed_output_plans =
         _compile_model_output_destination_plans(model, applications)
     input_plans = _compile_model_input_plans(
@@ -2082,6 +2205,7 @@ function _compile_resolved_scenario_plan(model::CompositeModel, applications, ti
     call_plans = _compile_model_call_plans(model, applications)
     return _compiled_scenario_plan(
         model,
+        preparation,
         applications,
         input_plans,
         call_plans,
@@ -2096,15 +2220,24 @@ function _build_scenario_plan(
     timeline;
     performance=nothing,
 )
+    preparation = _scenario_preparation(model, raw_specs)
+    return _resolve_prepared_scenario(model, preparation, timeline; performance)
+end
+
+function _resolve_prepared_scenario(
+    model::CompositeModel, preparation::ScenarioPreparation, timeline;
+    performance=nothing,
+)
+    recipes = _authored_application_recipes(preparation)
     started_at = _runtime_performance_start(performance)
-    applications = _compile_model_applications(model, raw_specs, timeline)
+    applications = _resolve_application_recipes(model, recipes, timeline)
     _runtime_performance_finish!(
         performance,
         :application_target_compile,
         started_at,
     )
     started_at = _runtime_performance_start(performance)
-    scenario_plan = _compile_resolved_scenario_plan(model, applications, timeline)
+    scenario_plan = _compile_resolved_scenario_plan(model, preparation, applications, timeline)
     _validate_model_call_plan_cadences!(applications, scenario_plan.call_plans, timeline)
     _validate_manual_model_output_destination_plans!(
         scenario_plan.distributed_output_plans,
@@ -2136,14 +2269,16 @@ function _prepare_scenario_plan(
             return prepared
         end
         compiled = compiled_bindings(model)
-        if !isnothing(compiled) && compiled.scenario_plan.timeline.base_step_seconds == timeline.base_step_seconds
+        if !isnothing(compiled) &&
+           compiled.scenario_plan.authoring.preparation === preparation &&
+           compiled.scenario_plan.timeline.base_step_seconds == timeline.base_step_seconds
             prepared = PreparedScenario(compiled.scenario_plan,
                 Vector{ObjectId}[copy(app.target_ids) for app in compiled.applications])
             preparation.resolved = prepared
             return prepared
         end
     end
-    plan, applications = _build_scenario_plan(model, model.applications, timeline; performance)
+    plan, applications = _resolve_prepared_scenario(model, preparation, timeline; performance)
     prepared = PreparedScenario(plan, Vector{ObjectId}[app.target_ids for app in applications])
     # A running simulation still needs its pending topology refresh. Give
     # an adapter the requested snapshot without replacing that live plan.
@@ -2404,7 +2539,10 @@ function _new_application_targets(
         new_count = length(application.target_ids) + length(matched)
         if (application.applies_to isa One && new_count != 1) ||
            (application.applies_to isa OptionalOne && new_count > 1)
-            return nothing
+            # Reuse canonical selector diagnostics without replaying authored
+            # model declarations or preparing any new status/default values.
+            _resolve_object_ids(model, application.applies_to, application.target_matcher)
+            error("Inconsistent lifecycle target cardinality for application `$(application.id)`.")
         end
     end
     return targets
@@ -2445,7 +2583,8 @@ end
 
 function _insert_sorted_object_ids!(ids, added_ids)
     isempty(added_ids) && return ids
-    sizehint!(ids, length(ids) + length(added_ids))
+    # Keep the vector's amortized reserve; an exact hint can shrink and copy it
+    # at every lifecycle barrier. push! grows storage only when necessary.
     for object_id in added_ids
         found, position = _sorted_object_id_position(ids, object_id)
         found || _insert_with_spare_capacity!(ids, position, object_id)
@@ -3899,11 +4038,6 @@ function _extend_compiled_scene(
         added_ids,
         performance,
     )
-    isnothing(new_targets) && return compile_composite_model(
-        model,
-        model.applications;
-        performance=performance,
-    )
     applications = compiled.applications
     applications_by_id = compiled.applications_by_id
     new_target_application_ids = sort!(
@@ -4821,11 +4955,13 @@ function explain_initialization(model::CompositeModel)
 end
 
 function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
-    recipes = _authored_application_recipes(model, raw_specs)
+    recipes = _authored_application_recipes(_scenario_preparation(model, raw_specs))
     return _resolve_application_recipes(model, recipes, timeline)
 end
 
-function _resolve_application_recipes(model::CompositeModel, recipes::Tuple, timeline)
+function _resolve_application_recipes(
+    model::CompositeModel, recipes::Tuple, timeline; on_environment_error=nothing,
+)
     applications = CompiledModelApplication[]
     for recipe in recipes
         target_matcher = _resolve_selector_matcher(model, recipe.target_matcher)
@@ -4834,7 +4970,7 @@ function _resolve_application_recipes(model::CompositeModel, recipes::Tuple, tim
         sizehint!(target_ids, length(target_ids) + 1)
         spec = _model_spec_with_environment_hints(
             model, recipe.spec, _model_application_hint_scale(model, target_ids),
-            recipe.environment_hint,
+            recipe.environment_hint; on_error=on_environment_error,
         )
         model_overrides = _compiled_object_model_overrides(spec, target_ids, recipe.id)
         push!(applications, CompiledModelApplication(
@@ -4851,13 +4987,18 @@ function _resolve_application_recipes(model::CompositeModel, recipes::Tuple, tim
     return applications
 end
 
-function _model_spec_with_environment_hints(model::CompositeModel, spec, scale::Symbol, authored_hint)
+function _model_spec_with_environment_hints(
+    model::CompositeModel, spec, scale::Symbol, authored_hint; on_error=nothing,
+)
     hint = _normalize_environment_hint(scale, process(spec), authored_hint)
 
     current_bindings = environment_bindings(spec)
     has_explicit_bindings = !(current_bindings isa NamedTuple && isempty(keys(current_bindings)))
     new_bindings = has_explicit_bindings || isnothing(hint.bindings) ? current_bindings : hint.bindings
-    new_bindings = _model_environment_bindings_with_environment_sources(spec, new_bindings)
+    new_bindings = _model_environment_bindings_with_environment_sources(spec, new_bindings; on_error)
+    # Only the diagnostic consumer records a rejected configuration and keeps
+    # its actual authored spec visible. Strict compilation throws below.
+    isnothing(new_bindings) && return spec
 
     current_window = environment_window(spec)
     new_window = isnothing(current_window) && !isnothing(hint.window) ? hint.window : current_window
@@ -4870,18 +5011,23 @@ function _model_spec_with_environment_hints(model::CompositeModel, spec, scale::
     )
 end
 
-function _model_environment_bindings_with_environment_sources(spec, bindings)
+function _model_environment_bindings_with_environment_sources(spec, bindings; on_error=nothing)
     sources = _environment_source_overrides(spec)
     isempty(keys(sources)) && return bindings
 
     bindings = bindings isa NamedTuple ? bindings : NamedTuple()
     model_inputs = Set(Symbol.(keys(environment_inputs_(spec))))
     unknown = Symbol[target for target in keys(sources) if !(Symbol(target) in model_inputs)]
-    isempty(unknown) || error(
-        "`Environment(; sources=...)` for process `$(process(spec))` contains ",
-        "unknown model-facing environment input(s) `$(Tuple(unknown))`. Declared ",
-        "`environment_inputs_` are `$(Tuple(sort!(collect(model_inputs); by=string)))`."
-    )
+    if !isempty(unknown)
+        message = string(
+            "`Environment(; sources=...)` for process `$(process(spec))` contains ",
+            "unknown model-facing environment input(s) `$(Tuple(unknown))`. Declared ",
+            "`environment_inputs_` are `$(Tuple(sort!(collect(model_inputs); by=string)))`."
+        )
+        isnothing(on_error) && error(message)
+        on_error(ErrorException(message))
+        return nothing
+    end
 
     targets = Symbol[Symbol(target) for target in keys(bindings)]
     for target in keys(sources)
