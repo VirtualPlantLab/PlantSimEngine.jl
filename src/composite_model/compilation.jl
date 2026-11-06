@@ -822,8 +822,34 @@ function _model_owned_scenario_preparation(model::CompositeModel, preparation::S
     return owned
 end
 
-_authored_specs_match(preparation::ScenarioPreparation, model::CompositeModel) =
-    _authored_specs_match(preparation.source_specs, model.applications)
+# Read each immutable source declaration inside its exact owner schema. Live
+# applications are iterated in order; no source tuple or model value escapes.
+@generated function _authored_specs_match(
+    preparation::ScenarioPreparation{M,S},
+    model::CompositeModel,
+) where {M,S<:Tuple}
+    count = fieldcount(S)
+    comparisons = Expr[]
+    for index in 1:count
+        next = index == 1 ? :(iterate(live_specs)) :
+               :(iterate(live_specs, getfield(current, 2)))
+        push!(comparisons, :(current = $next))
+        push!(comparisons, :(isnothing(current) && return false))
+        expected_type = fieldtype(S, index)
+        push!(comparisons, :(candidate = getfield(current, 1)))
+        push!(comparisons, :(candidate isa $expected_type || return false))
+        push!(comparisons, :(
+            getfield(getfield(preparation, :source_specs), $index) ===
+            (candidate::$expected_type) || return false
+        ))
+    end
+    return quote
+        live_specs = getfield(model, :applications)
+        length(live_specs) == $count || return false
+        $(comparisons...)
+        return true
+    end
+end
 
 function _scenario_preparation(model::CompositeModel; force::Bool=false)
     preparation = model.scenario_plan_cache

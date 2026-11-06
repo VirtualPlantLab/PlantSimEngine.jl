@@ -83,8 +83,10 @@ else
         include("test-model-prepared-scenario.jl")
         include("test-model-scenario-authoring.jl")
         include("test-model-authored-call-plans.jl")
+        include("test-model-authored-spec-matching.jl")
         include("test-compilation-metadata.jl")
         include("test-model-input-recipes.jl")
+        include("test-model-output-retention-owners.jl")
         include("test-input-default-values.jl")
         include("test-application-membership-slots.jl")
         include("test-registered-status-dispatch.jl")
@@ -267,6 +269,7 @@ else
 
     @testset "Composite model environment sampling" begin
         include("test-model-environment-sampling.jl")
+        include("test-model-execution-batch-times.jl")
         include("test-model-environment-binding-identity.jl")
         include("test-model-global-environment-sample-schema.jl")
     end

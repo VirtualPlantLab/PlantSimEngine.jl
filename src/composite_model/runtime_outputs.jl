@@ -1694,11 +1694,16 @@ explain_writers(sim::Simulation) = explain_writers(sim.compiled)
 explain_environment_bindings(sim::Simulation) =
     explain_environment_bindings(sim.environment_bindings)
 
-function _compiled_application_by_id(compiled::CompiledCompositeModel, id::Symbol)
-    application = get(compiled.applications_by_id, id, nothing)
-    isnothing(application) && error("No compiled model application with id `$(id)`.")
-    return application
+@inline function _compiled_application_by_id(f::F, compiled::CompiledCompositeModel,
+    id::Symbol,
+) where {F}
+    haskey(compiled.applications_by_id, id) ||
+        error("No compiled model application with id `$(id)`.")
+    return _with_metadata_entry(f, compiled.applications_by_id, id)
 end
+
+_compiled_application_by_id(compiled::CompiledCompositeModel, id::Symbol) =
+    _compiled_application_by_id(identity, compiled, id)
 
 function _environment_binding_for(env_bindings::CompiledEnvironmentBindings, application_id::Symbol, object_id::ObjectId)
     return get(env_bindings.by_target, (application_id, object_id), nothing)
@@ -1902,43 +1907,44 @@ function _initialize_changed_model_output_streams!(
             (),
         )
         isempty(variables) && continue
-        application = _compiled_application_by_id(compiled, application_id)
-        model_outputs = keys(_local_output_schema(application.spec))
-        if haskey(compiled.status_views_by_target, (application_id, object_id))
-            for variable in variables
-                variable in model_outputs || continue
-                _initialize_model_output_stream!(
-                    streams,
-                    compiled,
-                    retention,
-                    application,
-                    object_id,
-                    variable,
-                    sizehint_steps,
-                )
-            end
-        end
-        compiled.distributed_outputs isa CompiledDistributedOutputs || continue
-        groups = get(
-            compiled.distributed_outputs.by_execution_target,
-            (application_id, object_id),
-            nothing,
-        )
-        isnothing(groups) && continue
-        for binding in values(groups)
-            for variable_ in keys(binding.declarations)
-                variable = Symbol(variable_)
-                variable in variables || continue
-                for destination_id in binding.destination_ids
+        _compiled_application_by_id(compiled, application_id) do application
+            model_outputs = keys(_local_output_schema(application.spec))
+            if haskey(compiled.status_views_by_target, (application_id, object_id))
+                for variable in variables
+                    variable in model_outputs || continue
                     _initialize_model_output_stream!(
                         streams,
                         compiled,
                         retention,
                         application,
-                        destination_id,
+                        object_id,
                         variable,
                         sizehint_steps,
                     )
+                end
+            end
+            compiled.distributed_outputs isa CompiledDistributedOutputs || return nothing
+            groups = get(
+                compiled.distributed_outputs.by_execution_target,
+                (application_id, object_id),
+                nothing,
+            )
+            isnothing(groups) && return nothing
+            for binding in values(groups)
+                for variable_ in keys(binding.declarations)
+                    variable = Symbol(variable_)
+                    variable in variables || continue
+                    for destination_id in binding.destination_ids
+                        _initialize_model_output_stream!(
+                            streams,
+                            compiled,
+                            retention,
+                            application,
+                            destination_id,
+                            variable,
+                            sizehint_steps,
+                        )
+                    end
                 end
             end
         end
@@ -1961,22 +1967,23 @@ function _initialize_model_output_streams!(
         target_keys,
     )
     for (application_id, variables) in retention.retained_outputs_by_application
-        application = _compiled_application_by_id(compiled, application_id)
-        for variable in variables
-            for object_id in _model_output_object_ids(
-                compiled,
-                application,
-                variable,
-            )
-                _initialize_model_output_stream!(
-                    streams,
+        _compiled_application_by_id(compiled, application_id) do application
+            for variable in variables
+                for object_id in _model_output_object_ids(
                     compiled,
-                    retention,
                     application,
-                    object_id,
                     variable,
-                    sizehint_steps,
                 )
+                    _initialize_model_output_stream!(
+                        streams,
+                        compiled,
+                        retention,
+                        application,
+                        object_id,
+                        variable,
+                        sizehint_steps,
+                    )
+                end
             end
         end
     end
@@ -2046,7 +2053,7 @@ end
         "`$(expected_type)` to `$(typeof(value))`. CompositeModel temporal ",
         "streams require a stable output type.",
     )
-    sample_time = float(time)
+    sample_time = Float64(time)
     _model_publish_sample!(
         stream,
         sample_time,
@@ -2804,7 +2811,7 @@ end
         return RunContext(
             compiled, environment_bindings, application, object_id, calls,
             bound_inputs, output_targets, temporal_streams, output_retention,
-            float(time), constants, publication_allowed, environment,
+            Float64(time), constants, publication_allowed, environment,
         )
     end
     runtime_changed =
@@ -2871,54 +2878,6 @@ function _synchronize_model_execution_batch_contexts!(
     return nothing
 end
 
-@inline function _run_model_execution_target_without_calls!(
-    compiled::CompiledCompositeModel,
-    env_bindings::CompiledEnvironmentBindings,
-    application::CompiledModelApplication,
-    target::CompiledExecutionTarget,
-    time::Real,
-    constants,
-    temporal_streams,
-    output_retention,
-    sampled_environment,
-    publish_outputs::Bool,
-)
-    status = isempty(target.input_bindings) ?
-             target.status_view.status :
-             _materialize_model_inputs!(
-        target.status_view.status,
-        target.input_bindings,
-        compiled,
-        application,
-        temporal_streams,
-        time,
-    )
-    environment_value = sampled_environment isa UnspecifiedModelEnvironment ?
-                        _model_environment_for_binding(
-        env_bindings,
-        application,
-        target.environment_binding,
-        time,
-    ) : sampled_environment
-    context = if target.context isa RunContext
-        target.context.time = time
-        target.context
-    else
-        _prepare_model_execution_context!(
-            nothing, compiled, env_bindings, application, target.object_id,
-            target.bound_inputs, target.output_targets, target.call_bindings,
-            temporal_streams, output_retention, time, constants,
-            true, _NO_ENVIRONMENT_OVERRIDE,
-        )
-    end
-    run!(target.model, status, environment_value, constants, context)
-    if publish_outputs
-        isempty(target.output_bindings) ||
-            _model_publish_runtime_outputs!(target.output_bindings, time)
-    end
-    return status
-end
-
 @inline function _run_model_execution_target!(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
@@ -2930,19 +2889,9 @@ end
     output_retention,
     sampled_environment,
     publish_outputs::Bool,
+    performance::Union{Nothing,RuntimePerformanceCounters}=nothing,
 )
-    isempty(target.call_bindings) && return _run_model_execution_target_without_calls!(
-        compiled,
-        env_bindings,
-        application,
-        target,
-        time,
-        constants,
-        temporal_streams,
-        output_retention,
-        sampled_environment,
-        publish_outputs,
-    )
+    started_at = _runtime_performance_start(performance)
     status = isempty(target.input_bindings) ?
              target.status_view.status :
              _materialize_model_inputs!(
@@ -2953,6 +2902,8 @@ end
         temporal_streams,
         time,
     )
+    _runtime_performance_finish!(performance, :temporal_input_materialization, started_at)
+    started_at = _runtime_performance_start(performance)
     environment_value = sampled_environment isa UnspecifiedModelEnvironment ?
                         _model_environment_for_binding(
         env_bindings,
@@ -2960,6 +2911,7 @@ end
         target.environment_binding,
         time,
     ) : sampled_environment
+    _runtime_performance_finish!(performance, :environment_sampling, started_at)
     context = if target.context isa RunContext
         target.context.time = time
         target.context
@@ -2981,10 +2933,14 @@ end
             _NO_ENVIRONMENT_OVERRIDE,
         )
     end
+    started_at = _runtime_performance_start(performance)
     run!(target.model, status, environment_value, constants, context)
+    _runtime_performance_finish!(performance, :scientific_kernel_execution, started_at)
     if publish_outputs
+        started_at = _runtime_performance_start(performance)
         isempty(target.output_bindings) ||
             _model_publish_runtime_outputs!(target.output_bindings, time)
+        _runtime_performance_finish!(performance, :output_publication, started_at)
     end
     return status
 end
@@ -3045,14 +3001,17 @@ end
     constants,
     temporal_streams,
     output_retention,
+    performance::Union{Nothing,RuntimePerformanceCounters}=nothing,
 )
     batch_time = float(time)
+    started_at = _runtime_performance_start(performance)
     shared_environment = _model_execution_batch_environment(
         batch.environment_provider,
         env_bindings,
         batch.application,
         time,
     )
+    _runtime_performance_finish!(performance, :environment_sampling, started_at)
     _synchronize_model_execution_batch_contexts!(
         batch,
         compiled,
@@ -3063,80 +3022,6 @@ end
         constants,
     )
     publish_outputs = batch.output_publication.enabled
-    if isempty(first(batch.targets).call_bindings)
-        if isnothing(temporal_streams)
-            for target in batch.targets
-                _run_model_execution_target_without_calls!(
-                    compiled,
-                    env_bindings,
-                    batch.application,
-                    target,
-                    batch_time,
-                    constants,
-                    temporal_streams,
-                    output_retention,
-                    shared_environment,
-                    publish_outputs,
-                )
-            end
-            return nothing
-        end
-        for target in batch.targets
-            status = isempty(target.input_bindings) ?
-                     target.status_view.status :
-                     _materialize_model_inputs!(
-                target.status_view.status,
-                target.input_bindings,
-                compiled,
-                batch.application,
-                temporal_streams,
-                time,
-            )
-            environment_value = shared_environment isa UnspecifiedModelEnvironment ?
-                          _model_environment_for_binding(
-                env_bindings,
-                batch.application,
-                target.environment_binding,
-                time,
-            ) : shared_environment
-            context = target.context
-            if context isa RunContext
-                context.time = batch_time
-            else
-                context = _prepare_model_execution_context!(
-                    context,
-                    compiled,
-                    env_bindings,
-                    batch.application,
-                    target.object_id,
-                    target.bound_inputs,
-                    target.output_targets,
-                    target.call_bindings,
-                    temporal_streams,
-                    output_retention,
-                    batch_time,
-                    constants,
-                    true,
-                    _NO_ENVIRONMENT_OVERRIDE,
-                )
-            end
-            run!(
-                target.model,
-                status,
-                environment_value,
-                constants,
-                context,
-            )
-            if publish_outputs
-                isempty(target.output_bindings) ||
-                    _model_publish_runtime_outputs!(
-                        target.output_bindings,
-                        time,
-                    )
-            end
-        end
-        return nothing
-    end
     for target in batch.targets
         _run_model_execution_target!(
             compiled,
@@ -3149,123 +3034,7 @@ end
             output_retention,
             shared_environment,
             publish_outputs,
-        )
-    end
-    return nothing
-end
-
-function _run_model_execution_batch_profiled!(
-    batch::CompiledExecutionBatch,
-    compiled::CompiledCompositeModel,
-    env_bindings::CompiledEnvironmentBindings,
-    time::Real,
-    constants,
-    temporal_streams,
-    output_retention,
-    performance::RuntimePerformanceCounters,
-)
-    batch_time = float(time)
-    started_at = _runtime_performance_start(performance)
-    shared_environment = _model_execution_batch_environment(
-        batch.environment_provider,
-        env_bindings,
-        batch.application,
-        time,
-    )
-    _runtime_performance_finish!(
-        performance,
-        :environment_sampling,
-        started_at,
-    )
-    _synchronize_model_execution_batch_contexts!(
-        batch,
-        compiled,
-        env_bindings,
-        temporal_streams,
-        output_retention,
-        batch_time,
-        constants,
-    )
-    publish_outputs = batch.output_publication.enabled
-    for target in batch.targets
-        started_at = _runtime_performance_start(performance)
-        status = isempty(target.input_bindings) ?
-                 target.status_view.status :
-                 _materialize_model_inputs!(
-            target.status_view.status,
-            target.input_bindings,
-            compiled,
-            batch.application,
-            temporal_streams,
-            time,
-        )
-        _runtime_performance_finish!(
             performance,
-            :temporal_input_materialization,
-            started_at,
-        )
-
-        started_at = _runtime_performance_start(performance)
-        environment_value =
-            shared_environment isa UnspecifiedModelEnvironment ?
-            _model_environment_for_binding(
-                env_bindings,
-                batch.application,
-                target.environment_binding,
-                time,
-            ) : shared_environment
-        _runtime_performance_finish!(
-            performance,
-            :environment_sampling,
-            started_at,
-        )
-
-        context = if target.context isa RunContext
-            target.context.time = batch_time
-            target.context
-        else
-            _prepare_model_execution_context!(
-                target.context,
-                compiled,
-                env_bindings,
-                batch.application,
-                target.object_id,
-                target.bound_inputs,
-                target.output_targets,
-                target.call_bindings,
-                temporal_streams,
-                output_retention,
-                batch_time,
-                constants,
-                true,
-                _NO_ENVIRONMENT_OVERRIDE,
-            )
-        end
-        started_at = _runtime_performance_start(performance)
-        run!(
-            target.model,
-            status,
-            environment_value,
-            constants,
-            context,
-        )
-        _runtime_performance_finish!(
-            performance,
-            :scientific_kernel_execution,
-            started_at,
-        )
-
-        publish_outputs || continue
-        started_at = _runtime_performance_start(performance)
-        isempty(target.output_bindings) ||
-            _model_publish_runtime_outputs!(
-                target.output_bindings,
-                time,
-            )
-        _runtime_performance_finish!(
-            performance,
-            :output_publication,
-            started_at,
         )
     end
     return nothing
@@ -4846,20 +4615,20 @@ function _model_output_retention_covers_binding(
     binding,
 )
     plan.retain_all && return true
-    consumer = _compiled_application_by_id(compiled, binding.application_id)
-    for application_id in binding.source_application_ids
-        source = _compiled_application_by_id(compiled, application_id)
-        required = _model_temporal_retention_horizon(
-            binding,
-            consumer,
-            source,
-            compiled.scenario_plan.timeline,
-        )
-        key = (application_id, binding.source_var)
-        key in plan.temporal_dependencies || return false
-        get(plan.dependency_horizons, key, -Inf) >= required || return false
+    return _compiled_application_by_id(compiled, binding.application_id) do consumer
+        for source_application_id in binding.source_application_ids
+            covered = _compiled_application_by_id(compiled, source_application_id) do source
+                required = _model_temporal_retention_horizon(
+                    binding, consumer, source, compiled.scenario_plan.timeline,
+                )
+                key = (source_application_id, binding.source_var)
+                key in plan.temporal_dependencies &&
+                    get(plan.dependency_horizons, key, -Inf) >= required
+            end
+            covered || return false
+        end
+        return true
     end
-    return true
 end
 
 function _model_output_retention_covers_addition(
@@ -4964,24 +4733,19 @@ function compile_model_output_retention(
     timeline = compiled.scenario_plan.timeline
     for binding in compiled.input_bindings
         binding.carrier_hint == :temporal_stream || continue
-        consumer = _compiled_application_by_id(compiled, binding.application_id)
-        for application_id in binding.source_application_ids
-            source = _compiled_application_by_id(compiled, application_id)
-            required = _model_temporal_retention_horizon(
-                binding,
-                consumer,
-                source,
-                timeline,
-            )
-            key = (application_id, binding.source_var)
-            push!(
-                temporal_dependencies,
-                key,
-            )
-            dependency_horizons[key] = max(
-                get(dependency_horizons, key, 0.0),
-                required,
-            )
+        _compiled_application_by_id(compiled, binding.application_id) do consumer
+            for source_application_id in binding.source_application_ids
+                _compiled_application_by_id(compiled, source_application_id) do source
+                    required = _model_temporal_retention_horizon(
+                        binding, consumer, source, timeline,
+                    )
+                    key = (source_application_id, binding.source_var)
+                    push!(temporal_dependencies, key)
+                    dependency_horizons[key] = max(
+                        get(dependency_horizons, key, 0.0), required,
+                    )
+                end
+            end
         end
     end
 
@@ -5004,14 +4768,15 @@ function compile_model_output_retention(
     end
     retained_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
     retained_keys = if retain_all
-        Set(
-            (application.id, variable)
-            for application in compiled.applications
-            for variable in _model_application_output_variables(
-                compiled,
-                application,
-            )
-        )
+        all_outputs = Set{Tuple{Symbol,Symbol}}()
+        for retained_application_id in keys(compiled.applications_by_id)
+            _compiled_application_by_id(compiled, retained_application_id) do application
+                for variable in _model_application_output_variables(compiled, application)
+                    push!(all_outputs, (application.id, variable))
+                end
+            end
+        end
+        all_outputs
     else
         union(temporal_dependencies, requested_outputs)
     end
@@ -5036,14 +4801,15 @@ end
 
 function _explain_output_retention(compiled::CompiledCompositeModel, plan)
     keys_to_explain = if plan.retain_all
-        Set(
-            (application.id, variable)
-            for application in compiled.applications
-            for variable in _model_application_output_variables(
-                compiled,
-                application,
-            )
-        )
+        all_outputs = Set{Tuple{Symbol,Symbol}}()
+        for retained_application_id in keys(compiled.applications_by_id)
+            _compiled_application_by_id(compiled, retained_application_id) do application
+                for variable in _model_application_output_variables(compiled, application)
+                    push!(all_outputs, (application.id, variable))
+                end
+            end
+        end
+        all_outputs
     else
         union(plan.temporal_dependencies, plan.requested_outputs)
     end
@@ -7558,7 +7324,7 @@ end
         :application_groups_considered,
     )
     for batch in group.batches
-        _run_model_execution_batch_profiled!(
+        _run_model_execution_batch!(
             batch,
             simulation.compiled,
             simulation.environment_bindings,
