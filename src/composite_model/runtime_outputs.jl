@@ -7293,9 +7293,14 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.compiled.changed_execution_target_ids : nothing,
         )
         started_at = _runtime_performance_start(simulation.performance)
-        simulation.environment_bindings = refresh_environment_bindings!(
+        environment_owner = _current_environment_binding_owner(model, simulation.environment_bindings)
+        environment_delta_covers_runtime = !isnothing(environment_owner) &&
+            environment_owner.environment_revision == simulation.environment_bindings.environment_revision &&
+            environment_owner.applications_identity == simulation.environment_bindings.applications_identity
+        simulation.environment_bindings = _refresh_environment_bindings!(
             model,
             simulation.compiled,
+            environment_owner,
         )
         _runtime_performance_finish!(
             simulation.performance,
@@ -7324,7 +7329,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
                 ),
             )
         end
-        changed_execution_application_ids = output_retention_reused ?
+        changed_execution_application_ids = output_retention_reused && environment_delta_covers_runtime ?
                                             simulation.compiled.changed_execution_application_ids :
                                             nothing
         started_at = _runtime_performance_start(simulation.performance)
@@ -7375,8 +7380,15 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.performance,
             lifecycle_delta(model),
         )
+        environment_owner = _current_environment_binding_owner(model, simulation.environment_bindings)
+        # A public refresh can consume the lifecycle delta before this
+        # Simulation observes it. A later partial event only describes changes
+        # since that newer cache, so it cannot bound this runtime's stale rows.
+        environment_delta_covers_runtime = !isnothing(environment_owner) &&
+            environment_owner.environment_revision == simulation.environment_bindings.environment_revision &&
+            environment_owner.applications_identity == simulation.environment_bindings.applications_identity
         dirty_environment_object_ids =
-            lifecycle_delta(model).full_environment ?
+            lifecycle_delta(model).full_environment || !environment_delta_covers_runtime ?
             nothing :
             copy(lifecycle_delta(model).environment_dirty_ids)
         changed_environment_target_ids = Set{Tuple{Symbol,ObjectId}}()
@@ -7406,9 +7418,10 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.environment_bindings.by_target,
         )
         started_at = _runtime_performance_start(simulation.performance)
-        simulation.environment_bindings = refresh_environment_bindings!(
+        simulation.environment_bindings = _refresh_environment_bindings!(
             model,
             simulation.compiled,
+            environment_owner,
         )
         _runtime_performance_finish!(
             simulation.performance,

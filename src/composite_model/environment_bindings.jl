@@ -717,3 +717,61 @@ end
 function explain_environment_bindings(model::CompositeModel)
     return explain_environment_bindings(refresh_environment_bindings!(deepcopy(model)))
 end
+
+function refresh_environment_bindings!(model::CompositeModel, compiled=refresh_bindings!(model); force::Bool=false)
+    cached = getfield(model, :environment_binding_cache)::Union{Nothing,CompiledEnvironmentBindings}
+    return _refresh_environment_bindings!(model, compiled, cached; force)
+end
+
+# Canonical model caches keep the same container schema: plan/binding Vectors,
+# Symbol/target/object Dicts, the sample Dict, and SC == typeof(model). Backends,
+# handles, remapping, and alternate compiled applications remain values inside
+# those containers. Targeted partial shells are never installed in this cache.
+# Use the prepared shell only as its type witness; the current model cache is
+# authoritative and can have been replaced by a public refresh in the meantime.
+@inline function _current_environment_binding_owner(model::CompositeModel,
+    ::E,
+) where {E<:CompiledEnvironmentBindings}
+    return getfield(model, :environment_binding_cache)::Union{Nothing,E}
+end
+
+function _refresh_environment_bindings!(model::CompositeModel, compiled,
+    cached::Union{Nothing,CompiledEnvironmentBindings}; force::Bool=false,
+)
+    if force || model.environment_bindings_dirty || isnothing(cached)
+        delta = model.lifecycle_delta
+        refreshed = if !force && !isnothing(cached) && !delta.full_environment
+            # A public Advanced refresh may have prepared another application
+            # set. Reconcile that current owner before using its plans for a
+            # partial event in this compiled scene.
+            partial_owner = cached.applications_identity == objectid(compiled.applications) ?
+                            cached : _reconcile_environment_binding_metadata(model, compiled, cached)
+            if isnothing(partial_owner)
+                compile_environment_bindings(model, compiled)
+            else
+                _refresh_environment_bindings_for_objects(
+                    model,
+                    compiled,
+                    partial_owner,
+                    delta.environment_dirty_ids,
+                )
+            end
+        else
+            compile_environment_bindings(model, compiled)
+        end
+        model.environment_binding_cache = refreshed
+        model.environment_bindings_dirty = false
+        _reset_lifecycle_delta_if_consumed!(model)
+        return refreshed
+    elseif cached.model_revision == compiled.revision &&
+           cached.environment_revision == model.environment_revision &&
+           cached.applications_identity == objectid(compiled.applications)
+        return cached
+    else
+        reconciled = _reconcile_environment_binding_metadata(model, compiled, cached)
+        refreshed = isnothing(reconciled) ?
+                    compile_environment_bindings(model, compiled) : reconciled
+        model.environment_binding_cache = refreshed
+        return refreshed
+    end
+end

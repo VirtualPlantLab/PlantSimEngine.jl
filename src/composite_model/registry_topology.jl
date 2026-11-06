@@ -1839,42 +1839,6 @@ function refresh_bindings!(
     return model.binding_cache
 end
 
-function refresh_environment_bindings!(model::CompositeModel, compiled=refresh_bindings!(model); force::Bool=false)
-    if force || model.environment_bindings_dirty || isnothing(model.environment_binding_cache)
-        delta = model.lifecycle_delta
-        if !force &&
-           !isnothing(model.environment_binding_cache) &&
-           !delta.full_environment
-            model.environment_binding_cache = _refresh_environment_bindings_for_objects(
-                model,
-                compiled,
-                model.environment_binding_cache,
-                delta.environment_dirty_ids,
-            )
-        else
-            model.environment_binding_cache = compile_environment_bindings(model, compiled)
-        end
-        model.environment_bindings_dirty = false
-        _reset_lifecycle_delta_if_consumed!(model)
-    elseif model.environment_binding_cache.model_revision == compiled.revision &&
-           model.environment_binding_cache.environment_revision ==
-           model.environment_revision &&
-           model.environment_binding_cache.applications_identity ==
-           objectid(compiled.applications)
-        return model.environment_binding_cache
-    else
-        reconciled = _reconcile_environment_binding_metadata(
-            model,
-            compiled,
-            model.environment_binding_cache,
-        )
-        model.environment_binding_cache = isnothing(reconciled) ?
-                                          compile_environment_bindings(model, compiled) :
-                                          reconciled
-    end
-    return model.environment_binding_cache
-end
-
 function object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, id=nothing)
     ids = _indexed_object_ids(
         model;
