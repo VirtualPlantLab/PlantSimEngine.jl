@@ -582,6 +582,34 @@ mutable struct _CallTargetBufferCache
     second::Any
 end
 
+# A wrapper's invocation metadata can be synchronized while its execution
+# batches remain a retained snapshot. Capture preparation independently so a
+# leased old owner cannot share an obsolete One/OptionalOne tuple after growth.
+struct CallTargetsPreparation{CS,EB,TS,OR,C}
+    compiled::CS
+    environment_bindings::EB
+    temporal_streams::TS
+    output_retention::OR
+    constants::C
+    model_revision::Int
+    environment_revision::Int
+    applications_identity::UInt
+    membership_reference::Base.RefValue{UInt64}
+    membership_generation::UInt64
+end
+
+function _call_targets_preparation(
+    compiled, environment_bindings, binding, temporal_streams, output_retention, constants,
+)
+    return CallTargetsPreparation(
+        compiled, environment_bindings, temporal_streams, output_retention, constants,
+        compiled.revision, environment_bindings.environment_revision,
+        environment_bindings.applications_identity,
+        getfield(binding, :membership_generation),
+        _compiled_call_membership_generation(binding),
+    )
+end
+
 """
     CallTargets <: AbstractVector{CallTarget}
 
@@ -611,6 +639,7 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C,BT} <: AbstractVector{CallTarget}
     # may legitimately change its concrete type between invocations.
     environment::Any
     execution_batches::BT
+    preparation::CallTargetsPreparation{CS,EB,TS,OR,C}
     evaluation::Union{Nothing,CallEvaluationFrame}
     target_buffer_cache::Union{Nothing,_CallTargetBufferCache}
     # One singular snapshot or transient slot; numerical state stays in its owner.
@@ -667,7 +696,7 @@ Base.@nospecializeinfer function CallTargets(
             constants,
         )
     end
-    targets = CallTargets(
+    return _prepared_call_targets(
         compiled,
         environment_bindings,
         binding,
@@ -678,13 +707,89 @@ Base.@nospecializeinfer function CallTargets(
         publication_allowed,
         environment,
         execution_batches,
-        nothing,
-        nothing,
-        nothing,
+    )
+end
+
+# Both graph preparation and a leased context's clone use this fully specified
+# shell constructor. Execution owners and scientific reference carriers belong
+# to the prepared batches; mutable views and their borrowing caches do not.
+@inline function _prepared_call_targets(
+    compiled, environment_bindings, binding, temporal_streams, output_retention,
+    time, constants, publication_allowed, environment, execution_batches,
+)
+    targets = CallTargets(
+        compiled, environment_bindings, binding, temporal_streams, output_retention,
+        float(time), constants, publication_allowed, environment, execution_batches,
+        _call_targets_preparation(
+            compiled, environment_bindings, binding, temporal_streams, output_retention, constants,
+        ),
+        nothing, nothing, nothing,
     )
     execution_batches isa LazyCallExecutionBatches &&
         (execution_batches.owner = targets)
     return targets
+end
+
+@inline function _call_targets_preparation_is_current(
+    targets::CallTargets, compiled, environment_bindings, temporal_streams,
+    output_retention, constants,
+)
+    prepared = targets.preparation
+    return prepared.compiled === compiled &&
+           prepared.environment_bindings === environment_bindings &&
+           prepared.temporal_streams === temporal_streams &&
+           prepared.output_retention === output_retention &&
+           prepared.constants === constants &&
+           prepared.model_revision == compiled.revision &&
+           prepared.environment_revision == environment_bindings.environment_revision &&
+           prepared.applications_identity == environment_bindings.applications_identity &&
+           prepared.membership_reference === getfield(targets.binding, :membership_generation) &&
+           prepared.membership_generation == _compiled_call_membership_generation(targets.binding)
+end
+
+@inline _call_context_preparation_is_current(::Tuple{}, args...) = true
+
+@inline function _call_context_preparation_is_current(
+    calls::Tuple, compiled, environment_bindings, temporal_streams,
+    output_retention, constants,
+)
+    _call_targets_preparation_is_current(
+        first(calls), compiled, environment_bindings, temporal_streams,
+        output_retention, constants,
+    ) || return false
+    return _call_context_preparation_is_current(
+        Base.tail(calls), compiled, environment_bindings, temporal_streams,
+        output_retention, constants,
+    )
+end
+
+@inline _clone_call_execution_batches(batches::Tuple) = batches
+
+@inline function _clone_call_execution_batches(batches::LazyCallExecutionBatches)
+    # A lazy wrapper points at its owning CallTargets. Share its prepared state,
+    # never its owner link; cloning must leave a cold Many membership cold.
+    return LazyCallExecutionBatches(
+        nothing, batches.batches, batches.tracks_full_membership,
+    )
+end
+
+@inline _clone_runtime_call_targets(::Tuple{}, args...) = ()
+
+@inline function _clone_runtime_call_targets(
+    calls::Tuple, compiled, environment_bindings, temporal_streams,
+    output_retention, time, constants, publication_allowed, environment,
+)
+    prototype = first(calls)
+    targets = _prepared_call_targets(
+        compiled, environment_bindings, prototype.binding, temporal_streams,
+        output_retention, time, constants, publication_allowed, environment,
+        _clone_call_execution_batches(prototype.execution_batches),
+    )
+    remaining = _clone_runtime_call_targets(
+        Base.tail(calls), compiled, environment_bindings, temporal_streams,
+        output_retention, time, constants, publication_allowed, environment,
+    )
+    return (targets, remaining...)
 end
 
 function _current_call_binding_for_retained_view(
@@ -833,6 +938,10 @@ function _record_call_execution_batch_cache!(
     else
         batches
     end
+    targets.preparation = _call_targets_preparation(
+        targets.compiled, targets.environment_bindings, targets.binding,
+        targets.temporal_streams, targets.output_retention, targets.constants,
+    )
     # Explicit `objects=` selections share the call owner's payloads with its
     # complete cached view. Only that complete membership can retire rows;
     # absence from one selection does not remove a target from the call.
@@ -849,6 +958,10 @@ function _record_extended_call_execution_batch_cache!(
     binding::CompiledModelCallBinding,
 )
     targets.last_single_snapshot = nothing
+    targets.preparation = _call_targets_preparation(
+        compiled, environment_bindings, binding, targets.temporal_streams,
+        targets.output_retention, targets.constants,
+    )
     cached = targets.execution_batches
     cached isa LazyCallExecutionBatches || return targets
     cached.tracks_full_membership || return targets
@@ -2585,14 +2698,16 @@ function _model_environment_for_binding(
         step = Int(round(time))
         key = (application.id, step)
         haskey(env_bindings.sample_cache, key) &&
-            return env_bindings.sample_cache[key]
+            return _global_environment_sample_value(
+                binding.plan.sample_schema, env_bindings.sample_cache[key],
+            )
         sampled = _sample_compiled_global_environment(
             binding,
             application,
             step,
         )
         env_bindings.sample_cache[key] = sampled
-        return sampled
+        return _global_environment_sample_value(binding.plan.sample_schema, sampled)
     end
     return sample_environment(
         binding.backend,
@@ -2654,9 +2769,7 @@ end
         context.output_retention = output_retention
         context.constants = constants
     end
-    context.time = float(time)
-    context.publication_allowed = publication_allowed
-    context.environment = environment
+    _synchronize_current_call_context!(context, time, publication_allowed, environment)
     if runtime_changed
         _prepare_runtime_call_targets!(
             context.calls,
@@ -5115,19 +5228,39 @@ end
     environment = isconcretetype(V) ?
         (targets.environment::fieldtype(V, :environment)) : targets.environment
     context = target.context
-    calls = if context isa RunContext && !target.call_context_cache.in_use
-        _prepare_runtime_call_targets!(
-            context.calls,
-            targets.compiled,
-            targets.environment_bindings,
-            targets.temporal_streams,
-            targets.output_retention,
-            targets.time,
-            targets.constants,
-            targets.publication_allowed,
-            environment,
-        )
-        context.calls
+    calls = if context isa RunContext
+        if target.call_context_cache.in_use
+            if _call_context_clone_is_current(
+                context, targets.compiled, targets.environment_bindings,
+                application, target.object_id, target.bound_inputs, target.output_targets,
+                targets.temporal_streams, targets.output_retention, targets.constants,
+            )
+                _clone_runtime_call_targets(
+                    context.calls, targets.compiled, targets.environment_bindings,
+                    targets.temporal_streams, targets.output_retention, targets.time,
+                    targets.constants, targets.publication_allowed, environment,
+                )
+            else
+                _runtime_call_targets(
+                    targets.compiled, targets.environment_bindings, target.call_bindings,
+                    targets.temporal_streams, targets.output_retention, targets.time,
+                    targets.constants, targets.publication_allowed, environment,
+                )
+            end
+        else
+            _prepare_runtime_call_targets!(
+                context.calls,
+                targets.compiled,
+                targets.environment_bindings,
+                targets.temporal_streams,
+                targets.output_retention,
+                targets.time,
+                targets.constants,
+                targets.publication_allowed,
+                environment,
+            )
+            context.calls
+        end
     else
         _runtime_call_targets(
             targets.compiled,
@@ -6371,6 +6504,18 @@ end
 ) where {CS,A,CT,BI,OT,TS,OR,C,OldE,I,E} = RunContext{CS,A,CT,BI,OT,TS,OR,C,E,I}
 @inline _call_context_type(::Nothing, environment) = RunContext
 
+# Metadata already proved current needs only invocation values synchronized.
+# Keep this small boundary usable when a stale owner's new descendant tuple
+# differs from its original default type, without reboxing all owner metadata.
+@inline function _synchronize_current_call_context!(
+    context::RunContext, time, publication_allowed::Bool, environment,
+)
+    context.time = float(time)
+    context.publication_allowed = publication_allowed
+    context.environment = environment
+    return context
+end
+
 @inline function _call_context_matches(
     context::RunContext, compiled, environment_bindings, application, object_id,
     bound_inputs, output_targets, temporal_streams, output_retention, constants,
@@ -6386,6 +6531,57 @@ end
 end
 @inline _call_context_matches(::Nothing, args...) = false
 
+@inline function _call_context_clone_is_current(
+    context::RunContext, compiled, environment_bindings, application, object_id,
+    bound_inputs, output_targets, temporal_streams, output_retention, constants,
+)
+    # The context identity guard also protects an empty descendant template:
+    # no per-child stamp exists to prove it still describes another generation.
+    return _call_context_matches(
+        context, compiled, environment_bindings, application, object_id,
+        bound_inputs, output_targets, temporal_streams, output_retention, constants,
+        context.environment,
+    ) && _call_context_preparation_is_current(
+        context.calls, compiled, environment_bindings, temporal_streams,
+        output_retention, constants,
+    )
+end
+
+# A typed default already contains the resolved descendant schema. Reentry or
+# another environment specialization needs fresh mutable call wrappers, not a
+# second graph lookup. Each child execution owner retains its own lease.
+@inline function _clone_model_execution_context(
+    prototype::RunContext, compiled, environment_bindings, application, object_id,
+    bound_inputs, output_targets, temporal_streams, output_retention, time,
+    constants, publication_allowed, environment,
+)
+    if !_call_context_clone_is_current(
+        prototype, compiled, environment_bindings, application, object_id,
+        bound_inputs, output_targets, temporal_streams, output_retention, constants,
+    )
+        return _prepare_model_execution_context!(
+            nothing, compiled, environment_bindings, application, object_id,
+            bound_inputs, output_targets, temporal_streams, output_retention,
+            time, constants, publication_allowed, environment,
+        )
+    end
+    calls = _clone_runtime_call_targets(
+        prototype.calls, compiled, environment_bindings, temporal_streams,
+        output_retention, time, constants, publication_allowed, environment,
+    )
+    return RunContext(
+        compiled, environment_bindings, application, object_id, calls,
+        bound_inputs, output_targets, temporal_streams, output_retention,
+        float(time), constants, publication_allowed, environment,
+    )
+end
+
+# Truly cold owners still require canonical graph preparation. In particular,
+# Nothing does not imply that the application has no declared descendants.
+@inline function _clone_model_execution_context(::Nothing, args...)
+    return _prepare_model_execution_context!(nothing, args...)
+end
+
 @inline function _prepare_cached_call_context!(
     cache::CallContextCache, reuse::Bool, compiled, environment_bindings,
     application, object_id, bound_inputs, output_targets, temporal_streams,
@@ -6397,20 +6593,42 @@ end
         context, compiled, environment_bindings, application, object_id,
         bound_inputs, output_targets, temporal_streams, output_retention, constants,
         environment,
+    ) && _call_context_preparation_is_current(
+        context.calls, compiled, environment_bindings, temporal_streams,
+        output_retention, constants,
     ))
         context = reuse ? cache.transient : nothing
+        if context isa RunContext && !(context isa Context) &&
+           _call_context_matches(
+               context, compiled, environment_bindings, application, object_id,
+               bound_inputs, output_targets, temporal_streams, output_retention,
+               constants, environment,
+           ) && _call_context_clone_is_current(
+               context, compiled, environment_bindings, application, object_id,
+               bound_inputs, output_targets, temporal_streams, output_retention, constants,
+           )
+            # A stale OptionalOne can have acquired a different descendant tuple
+            # type. Reuse that current transient rather than forcing the old
+            # default's Context type and rebuilding it on every invocation.
+            return _synchronize_current_call_context!(
+                context, time, publication_allowed, environment,
+            )
+        end
         if !(context isa Context && _call_context_matches(
             context, compiled, environment_bindings, application, object_id,
             bound_inputs, output_targets, temporal_streams, output_retention, constants,
             environment,
+        ) && _call_context_preparation_is_current(
+            context.calls, compiled, environment_bindings, temporal_streams,
+            output_retention, constants,
         ))
             # A reentrant call needs its own descendants as well as its shell:
             # child CallTargets carry mutable time, environment and permission.
-            context = _prepare_model_execution_context!(
-                nothing, compiled, environment_bindings, application, object_id,
+            context = _clone_model_execution_context(
+                cache.default, compiled, environment_bindings, application, object_id,
                 bound_inputs, output_targets, temporal_streams, output_retention,
                 time, constants, publication_allowed, environment,
-            )::Context
+            )
             reuse && (cache.transient = context)
             return context
         end

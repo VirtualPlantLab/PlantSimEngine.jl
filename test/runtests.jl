@@ -81,6 +81,7 @@ else
         include("test-model-prepared-scenario.jl")
         include("test-compilation-metadata.jl")
         include("test-model-input-recipes.jl")
+        include("test-resolved-input-materialization.jl")
     end
 
     @testset "Isolated model diagnostics" begin
@@ -138,6 +139,7 @@ else
 
     @testset "Transient manual-call context reuse" begin
         include("test-model-call-context-cache.jl")
+        include("test-model-call-context-cloning.jl")
     end
 
     @testset "Lightweight manual-call target views" begin
@@ -250,6 +252,7 @@ else
     @testset "Composite model environment sampling" begin
         include("test-model-environment-sampling.jl")
         include("test-model-environment-binding-identity.jl")
+        include("test-model-global-environment-sample-schema.jl")
     end
 
     @testset "Composite model temporal reducers" begin

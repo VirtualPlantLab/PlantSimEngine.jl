@@ -110,12 +110,19 @@ function _evaluate_call_targets!(targets::AbstractVector{<:CallTarget}, sampled_
     return nothing
 end
 
+# Base.empty!(IdDict) allocates a fresh table. Its one-pass filter removes
+# current identities in place; insertion handles eventual tombstone cleanup.
+function _clear_call_execution_stamps!(frame::CallEvaluationFrame)
+    filter!(_ -> false, frame.executions)
+    return nothing
+end
+
 function _begin_call_evaluation!(frame, compiled, time, permission)
     frame.generation += UInt64(1)
     frame.pending = false
     frame.in_use = true
     empty!(frame.events)
-    empty!(frame.executions)
+    _clear_call_execution_stamps!(frame)
     frame.task_identity = _call_evaluation_task_identity!()
     frame.compiled = compiled
     frame.model_revision = compiled.model.revision
@@ -142,7 +149,7 @@ function _with_call_evaluation(f, frame)
         return result
     catch
         empty!(frame.events)
-        empty!(frame.executions)
+        _clear_call_execution_stamps!(frame)
         frame.task_identity = nothing
         frame.parent = nothing
         rethrow()
@@ -241,7 +248,7 @@ call_targets(evaluation::CallEvaluation) = evaluation.targets
     return nothing
 end
 
-@noinline _call_execution_matches(cache::CallContextCache, executions::Dict{Any,UInt64}) =
+@noinline _call_execution_matches(cache::CallContextCache, executions::IdDict{Any,UInt64}) =
     cache.execution_revision == executions[cache]
 
 function _validate_call_evaluation(evaluation::CallEvaluation)
@@ -310,7 +317,7 @@ function accept_call!(evaluation::CallEvaluation)
         # Keep prepared capacity, but release consumed snapshots. Published
         # streams or the parent journal now own the captured values.
         empty!(frame.events)
-        empty!(frame.executions)
+        _clear_call_execution_stamps!(frame)
         frame.task_identity = nothing
         frame.parent = nothing
     end

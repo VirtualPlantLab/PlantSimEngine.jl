@@ -625,4 +625,83 @@ end
     end
 end
 
+@testset "execution stamps track mutable cache identities independently" begin
+    left = PSE.CallContextCache(nothing)
+    right = PSE.CallContextCache(nothing)
+    frame = PSE.CallEvaluationFrame()
+    @test frame.executions isa IdDict{Any,UInt64}
+    @test left !== right
+    @test left.default === right.default === nothing
+    PSE._record_call_execution!(left, frame)
+    PSE._record_call_execution!(right, frame)
+    @test length(frame.executions) == 2
+    @test frame.executions[left] == frame.executions[right] == UInt64(1)
+    left.transient = (candidate=:changed,)
+    left.in_use = true
+    PSE._record_call_execution!(left, frame)
+    @test frame.executions[left] == UInt64(2)
+    @test frame.executions[right] == UInt64(1)
+    @test PSE._call_execution_matches(left, frame.executions)
+    @test PSE._call_execution_matches(right, frame.executions)
+    left.execution_revision += UInt64(1)
+    @test !PSE._call_execution_matches(left, frame.executions)
+    @test PSE._call_execution_matches(right, frame.executions)
+    PSE._clear_call_execution_stamps!(frame)
+    @test isempty(frame.executions)
+    PSE._clear_call_execution_stamps!(frame)
+    @test isempty(frame.executions)
+end
+
+@testset "a different execution owner does not stale a disjoint candidate" begin
+    fixture = basic_scene()
+    simulation = run!(fixture.model; steps=1, outputs=:all)
+    context = fixture.capture[]
+    left = only(call_targets(context, :one))
+    right = only(call_targets(context, :many; objects=(:leaf_b,)))
+    @test left.context_cache !== right.context_cache
+    pending_left = evaluate_call!(left)
+    pending_right = evaluate_call!(right)
+    @test length(pending_left.frame.executions) == 1
+    @test haskey(pending_left.frame.executions, left.context_cache)
+    @test !haskey(pending_left.frame.executions, right.context_cache)
+    run_call!(right; publish=false)
+    @test accept_call!(pending_left) === pending_left
+    @test_throws ArgumentError accept_call!(pending_right)
+    @test model_status(fixture.model, :leaf_a).calls == 1
+    @test model_status(fixture.model, :leaf_b).calls == 2
+    @test raw(simulation, :leaf, :leaf_a, :seen) == [(1.0, 10.0)]
+    @test isempty(raw(simulation, :leaf, :leaf_b, :seen))
+    @test isempty(pending_left.frame.executions)
+end
+
+@testset "nested accepted child stamps survive in the parent by identity" begin
+    fixture = nested_scene(; evaluate_child=true)
+    simulation = run!(fixture.model; steps=1, outputs=:all)
+    context = fixture.capture[]
+    middle = only(call_targets(context, :middle))
+    outer = evaluate_call!(context, :middle)
+    leaf = only(call_targets(middle.context_cache.default, :leaf))
+    @test length(outer.frame.executions) == 2
+    @test haskey(outer.frame.executions, middle.context_cache)
+    @test haskey(outer.frame.executions, leaf.context_cache)
+    @test isempty(leaf.context_cache.evaluation.executions)
+    @test isempty(raw(simulation, :leaf, :leaf, :seen))
+    @test accept_call!(outer) === outer
+    @test model_status(fixture.model, :middle).middle_calls == 1
+    @test model_status(fixture.model, :leaf).calls == 2
+    @test raw(simulation, :middle, :middle, :middle_seen) == [(1.0, 12.0)]
+    @test raw(simulation, :leaf, :leaf, :calls) == [(1.0, 2)]
+    @test isempty(outer.frame.executions)
+
+    # A later descendant execution invalidates the whole pending parent,
+    # while retaining the already accepted sample and avoiding kernel replay.
+    pending = evaluate_call!(context, :middle)
+    leaf = only(call_targets(middle.context_cache.default, :leaf))
+    run_call!(leaf; publish=false)
+    @test_throws ArgumentError accept_call!(pending)
+    @test model_status(fixture.model, :middle).middle_calls == 2
+    @test model_status(fixture.model, :leaf).calls == 5
+    @test raw(simulation, :leaf, :leaf, :calls) == [(1.0, 2)]
+end
+
 end # module CallEvaluationChecks

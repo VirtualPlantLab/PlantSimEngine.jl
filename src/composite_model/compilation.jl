@@ -1402,7 +1402,12 @@ struct CompiledEnvironmentSamplingRule{T,S} end
 CompiledEnvironmentSamplingRule(target::Symbol, source::Symbol) =
     CompiledEnvironmentSamplingRule{target,source}()
 
-struct CompiledEnvironmentApplicationPlan{B,C,RI,SI,PO,R,CR,S,P}
+# A value-type witness narrows the existing shared Any-valued sample memo.
+# It carries no sampled state and does not change cache ownership or resets.
+struct GlobalEnvironmentSampleSchema{R} end
+@inline _global_environment_sample_value(::GlobalEnvironmentSampleSchema{R}, value) where {R} = value::R
+
+struct CompiledEnvironmentApplicationPlan{B,C,RI,SI,PO,R,CR,S,P,GS}
     application_id::Symbol
     backend::B
     config::C
@@ -1414,6 +1419,7 @@ struct CompiledEnvironmentApplicationPlan{B,C,RI,SI,PO,R,CR,S,P}
     sampler::S
     prepared_source::P
     uses_raw_global_source::Bool
+    sample_schema::GS
 end
 
 struct CompiledEnvironmentBinding{P,H,C}
@@ -2223,6 +2229,27 @@ function _compile_added_consumer_bindings!(
     many_binding_cache=nothing,
     performance=nothing,
 )
+    return _compile_consumer_input_recipe!(
+        bindings, model, application.id, application.process, consumer_id, recipe,
+        manual_application_ids, applications_by_object, applications_by_id,
+        distributed_outputs, many_binding_cache, performance,
+    )
+end
+
+function _compile_consumer_input_recipe!(
+    bindings,
+    model,
+    application_id::Symbol,
+    application_process::Symbol,
+    consumer_id,
+    recipe::CompiledApplicationInputRecipe,
+    manual_application_ids,
+    applications_by_object,
+    applications_by_id,
+    distributed_outputs=NoCompiledDistributedOutputs(),
+    many_binding_cache=nothing,
+    performance=nothing,
+)
     query_cache = _input_query_cache(model.registry.objects, recipe.query_count)
     foreach(recipe.explicit, recipe.query_slots) do plan, query_slot
         if !isnothing(many_binding_cache)
@@ -2236,12 +2263,12 @@ function _compile_added_consumer_bindings!(
             end
         end
         _resolve_materialize_input_route!(
-            bindings, model, application, consumer_id, plan,
+            bindings, model, application_id, application_process, consumer_id, plan,
             applications_by_object, applications_by_id, nothing, distributed_outputs;
             query_cache, query_slot,
         )
     end
-    application.id in manual_application_ids && return bindings
+    application_id in manual_application_ids && return bindings
     foreach(recipe.inferred) do group
         plan = first(group)
         matches = CompiledModelInputPlan[
@@ -2259,15 +2286,20 @@ function _compile_added_consumer_bindings!(
         isempty(matches) && return nothing
         if length(matches) > 1
             error(
-                "Input `$(plan.input)` on application `$(application.id)` for object `$(consumer_id.value)` " *
+                "Input `$(plan.input)` on application `$(application_id)` for object `$(consumer_id.value)` " *
                 "has ambiguous same-object producers: `$([match.application for match in matches])`. " *
                 "Add `inputs=(:$(plan.input) => One(...),)` to disambiguate."
             )
         end
-        _resolve_materialize_input_route!(
-            bindings, model, application, consumer_id, only(matches),
-            applications_by_object, applications_by_id, [consumer_id], distributed_outputs,
+        selected = only(matches)
+        sources = ResolvedInputSources(
+            _input_binding_source_ids(model.registry.objects, [consumer_id]),
+            Symbol[selected.application],
         )
+        push!(bindings, _materialize_input_route(
+            model, application_id, application_process, consumer_id, selected,
+            sources, applications_by_id,
+        ))
     end
     return bindings
 end
@@ -3864,7 +3896,8 @@ function _extend_compiled_scene(
         _resolve_materialize_input_route!(
             replacement,
             model,
-            application,
+            application.id,
+            application.process,
             binding.consumer_id,
             binding.plan,
             applications_by_object,
@@ -5206,19 +5239,92 @@ function _status_ref_or_nothing(status::S, variable) where {S}
     return refvalue(status, name)
 end
 
-function _input_carrier(model::CompositeModel, selector::AbstractObjectMultiplicity, source_ids::AbstractVector{<:ObjectId}, source_var)
-    refs = Base.RefValue[]
-    selector isa Many && sizehint!(refs, length(source_ids) + 1)
-    for source_id in source_ids
-        source_ref = _status_ref_or_nothing(model_status(model, source_id), source_var)
-        isnothing(source_ref) && return nothing
-        push!(refs, source_ref)
+@inline function _checked_input_reference(reference)
+    isnothing(reference) && return nothing
+    reference isa Base.RefValue || throw(ArgumentError(
+        "Input reference carriers require Base.RefValue storage; got `$(typeof(reference))`.",
+    ))
+    return reference
+end
+
+function _input_reference_carrier(
+    ::Union{One,OptionalOne}, source_ids, reference_for,
+)
+    isempty(source_ids) && return nothing
+    return _checked_input_reference(reference_for(only(source_ids)))
+end
+
+function _input_reference_carrier(::Many, source_ids, reference_for)
+    first_source = iterate(source_ids)
+    isnothing(first_source) && return RefVector{Any}()
+    source_id, iteration_state = first_source
+    reference = _checked_input_reference(reference_for(source_id))
+    isnothing(reference) && return nothing
+    return _many_input_reference_carrier(
+        source_ids, reference_for, reference, typeof(reference[]), iteration_state,
+    )
+end
+
+function _many_input_reference_carrier(
+    source_ids, reference_for, first_reference::Base.RefValue{T}, ::Type{T},
+    iteration_state,
+) where {T}
+    references = Base.RefValue{T}[]
+    sizehint!(references, length(source_ids) + 1)
+    push!(references, first_reference)
+    while true
+        next_source = iterate(source_ids, iteration_state)
+        isnothing(next_source) && break
+        source_id, iteration_state = next_source
+        reference = _checked_input_reference(reference_for(source_id))
+        isnothing(reference) && return nothing
+        if reference isa Base.RefValue{T}
+            push!(references, reference)
+        else
+            heterogeneous = Base.RefValue[references...]
+            push!(heterogeneous, reference)
+            return _heterogeneous_input_reference_carrier(
+                source_ids, reference_for, heterogeneous, iteration_state,
+            )
+        end
     end
-    if selector isa Many
-        isempty(refs) && return RefVector{Any}()
-        return _ref_vector_carrier(refs)
+    return RefVector(references)
+end
+
+# An abstract Ref payload must retain the previous ObjectRefVector contract,
+# even when its current value happens to have the same type as another source.
+function _many_input_reference_carrier(
+    source_ids, reference_for, first_reference::Base.RefValue, ::Type,
+    iteration_state,
+)
+    references = Base.RefValue[first_reference]
+    sizehint!(references, length(source_ids) + 1)
+    return _heterogeneous_input_reference_carrier(
+        source_ids, reference_for, references, iteration_state,
+    )
+end
+
+function _heterogeneous_input_reference_carrier(
+    source_ids, reference_for, references, iteration_state,
+)
+    while true
+        next_source = iterate(source_ids, iteration_state)
+        isnothing(next_source) && break
+        source_id, iteration_state = next_source
+        reference = _checked_input_reference(reference_for(source_id))
+        isnothing(reference) && return nothing
+        push!(references, reference)
     end
-    return isempty(refs) ? nothing : only(refs)
+    return ObjectRefVector(references)
+end
+
+function _input_carrier(
+    model::CompositeModel, selector::AbstractObjectMultiplicity,
+    source_ids::AbstractVector{<:ObjectId}, source_var,
+)
+    reference_for = source_id ->
+        _status_ref_or_nothing(model_status(model, source_id), source_var)
+    return _input_reference_carrier(selector, source_ids, reference_for)
 end
 
 function _has_stream_only_input_source(
@@ -5276,23 +5382,10 @@ function _stream_only_initial_carrier(
     source_var::Symbol,
     applications_by_id,
 )
-    references = Base.RefValue[]
-    for source_id in source_ids
-        reference = _stream_only_initial_reference(
-            model,
-            source_id,
-            source_application_ids,
-            source_var,
-            applications_by_id,
-        )
-        isnothing(reference) && return nothing
-        push!(references, reference)
-    end
-    if selector isa Many
-        isempty(references) && return RefVector{Any}()
-        return _ref_vector_carrier(references)
-    end
-    return isempty(references) ? nothing : only(references)
+    reference_for = source_id -> _stream_only_initial_reference(
+        model, source_id, source_application_ids, source_var, applications_by_id,
+    )
+    return _input_reference_carrier(selector, source_ids, reference_for)
 end
 
 function _ref_vector_carrier(refs)
@@ -7490,17 +7583,21 @@ function _compile_model_input_bindings(
     return bindings
 end
 
-function _resolve_materialize_input_route!(
-    bindings,
+"""Resolved live object membership and validated producer ownership for one input."""
+struct ResolvedInputSources{I<:AbstractVector{<:ObjectId}}
+    source_ids::I
+    source_application_ids::Vector{Symbol}
+end
+
+function _resolve_input_sources(
     model::CompositeModel,
-    application::CompiledModelApplication,
     consumer_id::ObjectId,
     plan::CompiledModelInputPlan,
     applications_by_object,
     applications_by_id,
     source_ids_override=nothing,
-    distributed_outputs=NoCompiledDistributedOutputs(),
-    ; query_cache=nothing, query_slot::Int=0,
+    distributed_outputs=NoCompiledDistributedOutputs();
+    query_cache=nothing, query_slot::Int=0,
 )
     input_sym = _input_route_input(plan.route)
     selector = plan.selector
@@ -7577,7 +7674,7 @@ function _resolve_materialize_input_route!(
     end
     if !(selector isa Many) && length(source_application_ids) > 1
         error(
-            "Input `$(input_sym)` on application `$(application.id)` matched several " *
+            "Input `$(input_sym)` on application `$(plan.application_id)` matched several " *
             "source applications `$(source_application_ids)`. Add one of those canonical " *
             "identifiers as `application=...` to the `inputs=...` selector.",
         )
@@ -7587,17 +7684,35 @@ function _resolve_materialize_input_route!(
        isempty(source_application_ids)
         source_ids = empty(source_ids)
     end
+    return ResolvedInputSources(source_ids, source_application_ids)
+end
+
+function _materialize_input_route(
+    model::CompositeModel,
+    application_id::Symbol,
+    application_process::Symbol,
+    consumer_id::ObjectId,
+    plan::CompiledModelInputPlan,
+    sources::ResolvedInputSources,
+    applications_by_id,
+)
+    input_sym = _input_route_input(plan.route)
+    selector = plan.selector
+    source_var_tag = _input_route_source(plan.route)
+    source_var = _input_reference_name(source_var_tag)
+    source_ids = sources.source_ids
+    source_application_ids = sources.source_application_ids
     policy = _model_selector_policy(selector, applications_by_id, source_application_ids, source_var)
     if policy isa PreviousTimeStep
         policy.variable == input_sym || error(
             "PreviousTimeStep marker for input `$(input_sym)` on application ",
-            "`$(application.id)` names `$(policy.variable)`. Use ",
+            "`$(application_id)` names `$(policy.variable)`. Use ",
             "`PreviousTimeStep(:$(input_sym))`."
         )
     else
         _validate_policy_instance(
             something(_model_object(model, consumer_id).scale, :Default),
-            application.process,
+            application_process,
             input_sym,
             policy,
         )
@@ -7628,7 +7743,7 @@ function _resolve_materialize_input_route!(
     end
     _validate_model_input_source!(
         model,
-        application,
+        application_id,
         consumer_id,
         input_sym,
         source_var,
@@ -7636,18 +7751,34 @@ function _resolve_materialize_input_route!(
         carrier,
         carrier_hint,
     )
-    push!(
-        bindings,
-        CompiledModelInputBinding(
-            plan,
-            consumer_id,
-            source_ids,
-            source_application_ids,
-            policy,
-            carrier_hint,
-            carrier,
-        ),
+    return CompiledModelInputBinding(
+        plan, consumer_id, source_ids, source_application_ids,
+        policy, carrier_hint, carrier,
     )
+end
+
+
+function _resolve_materialize_input_route!(
+    bindings,
+    model::CompositeModel,
+    application_id::Symbol,
+    application_process::Symbol,
+    consumer_id::ObjectId,
+    plan::CompiledModelInputPlan,
+    applications_by_object,
+    applications_by_id,
+    source_ids_override=nothing,
+    distributed_outputs=NoCompiledDistributedOutputs();
+    query_cache=nothing, query_slot::Int=0,
+)
+    sources = _resolve_input_sources(
+        model, consumer_id, plan, applications_by_object, applications_by_id,
+        source_ids_override, distributed_outputs; query_cache, query_slot,
+    )
+    push!(bindings, _materialize_input_route(
+        model, application_id, application_process, consumer_id, plan,
+        sources, applications_by_id,
+    ))
     return bindings
 end
 
@@ -7780,7 +7911,7 @@ end
 
 function _validate_model_input_source!(
     model::CompositeModel,
-    application::CompiledModelApplication,
+    application_id::Symbol,
     consumer_id::ObjectId,
     input_sym::Symbol,
     source_var::Symbol,
@@ -7795,7 +7926,7 @@ function _validate_model_input_source!(
     ]
     isempty(status_source_ids) && return nothing
     error(
-        "Input binding `$(input_sym)` on application `$(application.id)` for object ",
+        "Input binding `$(input_sym)` on application `$(application_id)` for object ",
         "`$(consumer_id.value)` reads `$(source_var)` from objects ",
         "`$([id.value for id in status_source_ids])`, but no source `Status` reference is available."
     )

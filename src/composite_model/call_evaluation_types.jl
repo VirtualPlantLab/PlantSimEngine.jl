@@ -26,7 +26,7 @@ mutable struct CallEvaluationTaskIdentity end
 
 mutable struct CallEvaluationFrame
     events::Vector{AbstractCallPublicationEvent}
-    executions::Dict{Any,UInt64}
+    executions::IdDict{Any,UInt64}
     generation::UInt64
     pending::Bool
     in_use::Bool
@@ -46,9 +46,9 @@ mutable struct CallEvaluationFrame
 end
 
 CallEvaluationFrame() = CallEvaluationFrame(
-    # Cache keys are mutable objects with identity equality. Dict keeps its
-    # storage when emptied and stores revision values without boxing.
-    AbstractCallPublicationEvent[], Dict{Any,UInt64}(), UInt64(0), false,
+    # Execution stamps belong to mutable cache identities. Their contents and
+    # transient leases may change while a candidate is pending.
+    AbstractCallPublicationEvent[], IdDict{Any,UInt64}(), UInt64(0), false,
     false, nothing, nothing, 0, 0, 0, nothing, UInt64(0), (false, false), UInt64(0),
     0.0, nothing, UInt64(0), false,
 )

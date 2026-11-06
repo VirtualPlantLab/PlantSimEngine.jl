@@ -168,6 +168,16 @@ function _environment_source_variable_names(sampling_rules)
     return Tuple(Symbol(source) for (_, source) in sampling_rules)
 end
 
+# Raw singleton sampling returns the source itself. Other sampling recipes
+# retain Any until their result schema is known; preparation never samples a
+# custom source merely to discover its return type.
+function _global_environment_sample_schema(backend, source, sampler, uses_raw::Bool, prepare_runtime::Bool)
+    R = prepare_runtime && isnothing(sampler) && uses_raw &&
+        backend isa GlobalConstant &&
+        DataFormat(environment_source(backend)) isa SingletonAlike ? typeof(source) : Any
+    return GlobalEnvironmentSampleSchema{R}()
+end
+
 function _compile_environment_application_plans(
     model::CompositeModel,
     applications;
@@ -216,6 +226,9 @@ function _compile_environment_application_plans(
         has_bindings = bindings isa NamedTuple && !isempty(keys(bindings))
         has_source_overrides =
             !isempty(keys(_environment_source_overrides(application.spec)))
+        uses_raw_global_source = backend isa GlobalConstant &&
+                                 isnothing(sampler) &&
+                                 !has_bindings && !has_source_overrides
         plan = CompiledEnvironmentApplicationPlan(
             application.id,
             backend,
@@ -227,10 +240,10 @@ function _compile_environment_application_plans(
             compiled_sampling_rules,
             sampler,
             prepared_source,
-            backend isa GlobalConstant &&
-            isnothing(sampler) &&
-            !has_bindings &&
-            !has_source_overrides,
+            uses_raw_global_source,
+            _global_environment_sample_schema(
+                backend, prepared_source, sampler, uses_raw_global_source, prepare_runtime,
+            ),
         )
         push!(plans, plan)
         haskey(plans_by_id, application.id) && error(
@@ -463,7 +476,8 @@ function _same_environment_application_plan(a, b)
            typeof(b.compiled_sampling_rules) &&
            a.sampler === b.sampler &&
            a.prepared_source === b.prepared_source &&
-           a.uses_raw_global_source == b.uses_raw_global_source
+           a.uses_raw_global_source == b.uses_raw_global_source &&
+           typeof(a.sample_schema) === typeof(b.sample_schema)
 end
 
 function _reconciled_environment_application_plans(
