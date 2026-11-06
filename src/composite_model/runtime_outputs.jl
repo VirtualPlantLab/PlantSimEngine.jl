@@ -7379,23 +7379,26 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             lifecycle_delta(model).full_environment ?
             nothing :
             copy(lifecycle_delta(model).environment_dirty_ids)
-        changed_execution_application_ids = nothing
-        changed_execution_target_ids =
-            Set{Tuple{Symbol,ObjectId}}()
-        if !isnothing(dirty_environment_object_ids)
-            changed_execution_application_ids = Set{Symbol}()
-            for object_id in dirty_environment_object_ids
-                _foreach_object_application(simulation.compiled, object_id) do application
-                    push!(
-                        changed_execution_application_ids,
-                        application.id,
-                    )
-                    push!(
-                        changed_execution_target_ids,
-                        (application.id, object_id),
-                    )
+        changed_environment_target_ids = Set{Tuple{Symbol,ObjectId}}()
+        changed_environment_application_ids = if isnothing(dirty_environment_object_ids)
+            nothing
+        else
+            application_ids = Set{Symbol}()
+            for dirty_object_id in dirty_environment_object_ids
+                # The lifecycle set can contain heterogeneous IDs. Capture the
+                # canonical index's identity schema inside this query instead
+                # of an existential ObjectId in the application callback.
+                let object_id = _application_index_object_id(
+                    simulation.compiled.applications_by_object,
+                    dirty_object_id,
+                )
+                    _foreach_object_application(simulation.compiled, object_id) do application
+                        push!(application_ids, application.id)
+                        push!(changed_environment_target_ids, (application.id, object_id))
+                    end
                 end
             end
+            application_ids
         end
         previous_environment_bindings = isnothing(simulation.performance) ?
                                         nothing :
@@ -7443,8 +7446,8 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.output_retention,
             simulation.constants,
             simulation.performance,
-            changed_execution_application_ids,
-            changed_execution_target_ids,
+            changed_environment_application_ids,
+            changed_environment_target_ids,
         )
         simulation.execution_plan = execution_refresh.plan
         _runtime_performance_finish!(

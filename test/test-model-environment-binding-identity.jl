@@ -142,4 +142,55 @@ end
         @test data.backend.samples == samples
     end
 end
+
+@testset "partial and full environment refresh preserve scientific owners and sampling" begin
+    data = fixture(Float32)
+    simulation = data.simulation
+    original_compiled = simulation.compiled
+    kept_status = model_status(data.model, :scheduled_keep)
+    moved_status = model_status(data.model, :scheduled_move)
+    kept_binding = simulation.environment_bindings.by_target[(:scheduled_probe, ObjectId(:scheduled_keep))]
+    moved_binding = simulation.environment_bindings.by_target[(:scheduled_probe, ObjectId(:scheduled_move))]
+
+    move_object!(data.model, :scheduled_move, (cell=:b,))
+    samples = data.backend.samples
+    PSE._refresh_simulation_runtime!(simulation)
+    @test data.backend.samples == samples
+    @test simulation.compiled === original_compiled
+    @test model_status(data.model, :scheduled_keep) === kept_status
+    @test model_status(data.model, :scheduled_move) === moved_status
+    @test simulation.environment_bindings.by_target[(:scheduled_probe, ObjectId(:scheduled_keep))] === kept_binding
+    refreshed_move = simulation.environment_bindings.by_target[(:scheduled_probe, ObjectId(:scheduled_move))]
+    @test refreshed_move !== moved_binding
+    @test refreshed_move.handle.cell === :b
+    @test refreshed_move.backend === data.backend
+    scheduled = only(batch for batch in simulation.execution_plan.batches
+        if batch.application.id === :scheduled_probe)
+    @test only(target for target in scheduled.targets if target.object_id === ObjectId(:scheduled_keep)) === data.kept
+    continue!(simulation)
+    @test kept_status.seen === 10.0f0
+    @test moved_status.seen === 20.0f0
+
+    # A full refresh keeps the whole-application sentinel rather than treating
+    # an empty set as a proof that no execution payload must be refreshed.
+    data.backend.values[:a] = 12.0f0
+    data.backend.values[:b] = 22.0f0
+    mark_environment_binding_dirty!(data.model)
+    samples = data.backend.samples
+    PSE._refresh_simulation_runtime!(simulation)
+    @test data.backend.samples == samples
+    @test simulation.compiled === original_compiled
+    @test all(binding -> binding.backend === data.backend,
+        simulation.environment_bindings.bindings)
+    continue!(simulation)
+    @test kept_status.seen === 12.0f0
+    @test moved_status.seen === 22.0f0
+    @test kept_status.calls == moved_status.calls == 3
+    @test outputs(simulation)[(:scheduled_probe, ObjectId(:scheduled_move), :seen)] ==
+        [(1.0, 10.0f0), (2.0, 20.0f0), (3.0, 22.0f0)]
+    target = only(call_targets(data.capture[], :leaves))
+    run_call!(target; publish=false)
+    @test target.status.seen === 12.0f0
+    @test target.environment_binding.backend === data.backend
+end
 end
