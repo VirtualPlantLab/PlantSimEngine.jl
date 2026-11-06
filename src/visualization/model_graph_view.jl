@@ -255,6 +255,7 @@ function _model_graph_fallback_application(model, raw_spec, timeline, slot)
     application_id = something(application_name(spec), process(spec))
     target_matcher = _compile_selector_matcher(model, selector)
     target_ids = _resolve_object_ids(model, selector, target_matcher)
+    output_names, canonical_output_names = _compiled_output_names(spec)
     return CompiledModelApplication(
         CompiledApplicationPlan(
             slot,
@@ -267,6 +268,8 @@ function _model_graph_fallback_application(model, raw_spec, timeline, slot)
             timestep(spec),
             _model_application_clock(model, spec, target_ids, timeline),
             _compiled_object_model_overrides(spec, target_ids, application_id),
+            output_names,
+            canonical_output_names,
         ),
         target_ids,
     )

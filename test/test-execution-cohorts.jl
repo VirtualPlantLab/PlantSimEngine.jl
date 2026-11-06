@@ -16,6 +16,9 @@ end
     right = PlantSimEngine.cohort_rows!(store, :growth, [last])
 
     @test left isa AbstractVector{typeof(first)}
+    @test keytype(left.cohort.indices) === typeof(first.object_id)
+    @test isconcretetype(fieldtype(typeof(left), :cohort))
+    @test (@inferred left[1]) === first
     @test eltype(center) === typeof(middle)
     @test left.cohort === right.cohort
     @test left.cohort !== center.cohort

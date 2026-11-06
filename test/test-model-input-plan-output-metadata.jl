@@ -106,16 +106,17 @@ plan_signature(plans) = [(plan.application_id, plan.input, plan.origin,
         @test length(plans) == count
         @test all(plan -> plan.potential_source_application_ids == (:source,), plans)
         @test all(plan -> plan.origin == (explicit ? :model_spec : :inferred_same_object), plans)
-        # One name snapshot and one contract validation per application; every
-        # real binding still compares the validated endpoint contracts.
-        @test queries.source == 2
-        @test all(==(2), queries.readers)
+        # Names already belong to the prepared application. Only contract
+        # validation reads declarations again, once per application; every real
+        # binding still compares the validated endpoint contracts.
+        @test queries.source == 1
+        @test all(==(1), queries.readers)
         @test queries.source_contracts == 1
         @test all(==(1), queries.reader_contracts)
         repeated, fresh_queries = planner_pass(data, applications, destinations)
         @test plan_signature(repeated) == plan_signature(plans)
-        @test fresh_queries.source == 2
-        @test all(==(2), fresh_queries.readers)
+        @test fresh_queries.source == 1
+        @test all(==(1), fresh_queries.readers)
         @test fresh_queries.source_contracts == 1
         @test all(==(1), fresh_queries.reader_contracts)
 

@@ -2,7 +2,7 @@
 Immutable scenario-level metadata for one model application. Runtime object
 membership is stored separately in [`CompiledModelApplication`](@ref).
 """
-struct CompiledApplicationPlan{S,AT,TM,TS,CL,MO}
+struct CompiledApplicationPlan{S,AT,TM,TS,CL,MO,ON,CN}
     slot::Int
     id::Symbol
     spec::S
@@ -13,6 +13,8 @@ struct CompiledApplicationPlan{S,AT,TM,TS,CL,MO}
     timestep::TS
     clock::CL
     model_overrides::MO
+    output_names::ON
+    canonical_output_names::CN
 end
 
 """
@@ -2164,7 +2166,7 @@ Base.@nospecializeinfer function _compile_added_consumer_bindings!(
     # variables/producers. Keep this cache local to this invocation so neither
     # scene identity nor lifecycle invalidation needs persistent cache state.
     share_object_queries = count(
-        plan -> plan.origin != :inferred_same_object && plan.selector isa Many,
+        plan -> plan.origin != :inferred_same_object,
         input_plans,
     ) > 1
     object_query_cache = share_object_queries ? Dict{Any,Vector{ObjectId}}() : nothing
@@ -4539,6 +4541,7 @@ function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
             _model_application_hint_scale(model, target_ids),
         )
         model_overrides = _compiled_object_model_overrides(spec, target_ids, app_id)
+        output_names, canonical_output_names = _compiled_output_names(spec)
         push!(
             applications,
             CompiledModelApplication(
@@ -4558,6 +4561,8 @@ function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
                         timeline,
                     ),
                     model_overrides,
+                    output_names,
+                    canonical_output_names,
                 ),
                 target_ids,
             ),
@@ -4641,16 +4646,21 @@ function _application_model(application::CompiledModelApplication, object_id::Ob
     )
 end
 
-function _model_output_names(application::CompiledModelApplication)
-    return Symbol[Symbol(var) for var in keys(_local_output_schema(application.spec))]
+function _compiled_output_names(spec)
+    # Port names belong to the immutable application schema. Reading a model's
+    # declarations again during growth can allocate fresh default arrays even
+    # though writer matching needs only their names.
+    names = Tuple(Symbol(var) for var in keys(_local_output_schema(spec)))
+    canonical = Tuple(variable for variable in names
+        if _publish_mode_for_output(spec, variable) === :canonical)
+    return names, canonical
 end
 
-function _model_canonical_output_names(application::CompiledModelApplication)
-    return Symbol[
-        variable for variable in _model_output_names(application)
-        if _publish_mode_for_output(application.spec, variable) == :canonical
-    ]
-end
+_model_output_names(application::CompiledModelApplication) =
+    getfield(application, :plan).output_names
+
+_model_canonical_output_names(application::CompiledModelApplication) =
+    getfield(application, :plan).canonical_output_names
 
 function _model_writer_groups(applications, skipped_application_ids=Set{Symbol}())
     groups = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Int,Any}}}()
@@ -5129,9 +5139,10 @@ function _cached_dependency_object_ids(
     matcher::CompiledSelectorMatcher,
     context::ObjectId,
 )
-    (isnothing(cache) || !(selector isa Many)) &&
+    isnothing(cache) &&
         return _dependency_object_ids(model, selector, matcher, context)
     key = (
+        multiplicity(selector),
         matcher.scope, matcher.relation, matcher.scale, matcher.kind,
         matcher.species, matcher.id, matcher.defaults_to_context,
     )

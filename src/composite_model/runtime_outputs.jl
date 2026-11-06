@@ -833,7 +833,12 @@ function _record_call_execution_batch_cache!(
     else
         batches
     end
-    _retire_call_cohort_targets!(targets.temporal_streams, targets.binding, batches)
+    # Explicit `objects=` selections share the call owner's payloads with its
+    # complete cached view. Only that complete membership can retire rows;
+    # absence from one selection does not remove a target from the call.
+    if cached.tracks_full_membership
+        _retire_call_cohort_targets!(targets.temporal_streams, targets.binding, batches)
+    end
     return batches
 end
 
@@ -1071,26 +1076,27 @@ CompiledExecutionBatch(
     ExecutionBatchContextState(nothing, nothing),
 )
 
-struct CompiledApplicationExecutionGroup{A,B}
+mutable struct CompiledApplicationExecutionGroup{A,B}
     application::A
     batches::B
+    membership::ExecutionCohortMembership
 end
 
-function _compiled_application_execution_group(application, batches)
+function _compiled_application_execution_group(application, batches, membership)
     if !isempty(batches)
         batch_type = typeof(first(batches))
         eltype(batches) === batch_type &&
-            return CompiledApplicationExecutionGroup(application, batches)
+            return CompiledApplicationExecutionGroup(application, batches, membership)
         if all(batch -> typeof(batch) === batch_type, batches)
             # Dispatch once at the application boundary, then retain the batch
             # schema through its loop. Counts and object identities remain
             # runtime data, including after same-schema lifecycle changes.
             typed = Vector{batch_type}(undef, length(batches))
             copyto!(typed, batches)
-            return CompiledApplicationExecutionGroup(application, typed)
+            return CompiledApplicationExecutionGroup(application, typed, membership)
         end
     end
-    return CompiledApplicationExecutionGroup(application, batches)
+    return CompiledApplicationExecutionGroup(application, batches, membership)
 end
 
 mutable struct RuntimeApplicationSchedule
@@ -1100,8 +1106,9 @@ mutable struct RuntimeApplicationSchedule
     last_step::Int
 end
 
-struct CompiledExecutionPlan{G,B,I,S}
+struct CompiledExecutionPlan{G,B,I,S,TP}
     cohorts::ExecutionCohortStore
+    topology::TP
     groups::G
     batches::B
     groups_by_application_slot::I
@@ -1537,11 +1544,11 @@ function _environment_binding_for(env_bindings::CompiledEnvironmentBindings, app
 end
 
 function _model_object_status(model::CompositeModel, object_id::ObjectId)
-    object = _model_object(model, object_id)
-    object.status isa Status || error(
+    status = model_status(model, object_id)
+    status isa Status || error(
         "CompositeModel object `$(object_id.value)` has no `Status`; model runtime requires status-backed objects."
     )
-    return object.status
+    return status
 end
 
 @inline function _model_status_view_for_application(
@@ -3597,6 +3604,21 @@ function _compiled_model_execution_target(
             end
         end
     end
+    return _new_model_execution_target(
+        compiled, env_bindings, application, object_id,
+        temporal_streams, output_retention, constants,
+    )
+end
+
+function _new_model_execution_target(
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    application::CompiledModelApplication,
+    object_id::ObjectId,
+    temporal_streams,
+    output_retention,
+    constants,
+)
     status_view = _model_status_view_for_application(
         compiled,
         application,
@@ -3670,23 +3692,6 @@ function _compiled_model_execution_target(
     )
 end
 
-function _typed_model_execution_targets(
-    cohorts::ExecutionCohortStore,
-    application_id::Symbol,
-    targets,
-    first_index::Int,
-    last_index::Int;
-    owner=nothing,
-)
-    target_type = typeof(targets[first_index])
-    typed = Vector{target_type}(undef, last_index - first_index + 1)
-    sizehint!(typed, length(typed) + 1)
-    for (destination, source) in enumerate(first_index:last_index)
-        typed[destination] = targets[source]
-    end
-    return cohort_rows!(cohorts, application_id, typed; owner)
-end
-
 function _compiled_model_execution_environment_provider(
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
@@ -3718,54 +3723,81 @@ end
 _compiled_output_publication(::Nothing, application) =
     CompiledOutputPublication((), false)
 
-function _append_model_execution_batches!(
-    batches,
+function _execution_batch_matches(
+    batch, application, provider, output_publication,
+)
+    return batch.application === application &&
+           isequal(batch.environment_provider, provider) &&
+           batch.output_publication.variables == output_publication.variables &&
+           batch.output_publication.enabled == output_publication.enabled
+end
+
+function _model_execution_batches(
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
-    targets,
+    membership::ExecutionCohortMembership,
     output_retention,
-    cohorts::ExecutionCohortStore;
-    owner=nothing,
+    previous_group=nothing,
 )
-    isempty(targets) && return batches
-    output_publication = _compiled_output_publication(
-        output_retention,
-        application,
-    )
-    first_index = firstindex(targets)
-    target_type = typeof(targets[first_index])
-    for index in (first_index + 1):lastindex(targets)
-        typeof(targets[index]) == target_type && continue
-        push!(
-            batches,
-            CompiledExecutionBatch(
-                application,
-                _typed_model_execution_targets(cohorts, application.id, targets, first_index, index - 1; owner),
-                _compiled_model_execution_environment_provider(
-                    env_bindings,
-                    application,
-                    targets[first_index],
-                ),
-                output_publication,
-            ),
-        )
-        first_index = index
-        target_type = typeof(targets[index])
+    output_publication = _compiled_output_publication(output_retention, application)
+    live_views = IdDict{ExecutionCohortRows,Nothing}(rows => nothing for rows in membership.runs)
+    previous_by_view = IdDict{ExecutionCohortRows,Any}()
+    spare_by_cohort = IdDict{AbstractExecutionCohort,Vector{Any}}()
+    next_spare = IdDict{AbstractExecutionCohort,Int}()
+    if !isnothing(previous_group) && previous_group.application === application
+        for batch in previous_group.batches
+            previous_by_view[batch.targets] = batch
+            if !haskey(live_views, batch.targets)
+                candidates = get!(spare_by_cohort, batch.targets.cohort) do
+                    Any[]
+                end
+                push!(candidates, batch)
+            end
+        end
     end
-    push!(
-        batches,
-        CompiledExecutionBatch(
-            application,
-            _typed_model_execution_targets(cohorts, application.id, targets, first_index, lastindex(targets); owner),
-            _compiled_model_execution_environment_provider(
-                env_bindings,
-                application,
-                targets[first_index],
-            ),
-            output_publication,
-        ),
-    )
-    return batches
+    batches = AbstractExecutionBatch[]
+    batches_constructed = 0
+    for (index, rows) in pairs(membership.runs)
+        provider = _compiled_model_execution_environment_provider(
+            env_bindings, application, first(rows),
+        )
+        reused = get(previous_by_view, rows, nothing)
+        if !isnothing(reused) &&
+           !_execution_batch_matches(reused, application, provider, output_publication)
+            reused = nothing
+        end
+        if isnothing(reused)
+            candidates = get(spare_by_cohort, rows.cohort, ())
+            candidate_index = get(next_spare, rows.cohort, 1)
+            while candidate_index <= length(candidates)
+                candidate = candidates[candidate_index]
+                candidate_index += 1
+                if _execution_batch_matches(candidate, application, provider, output_publication)
+                    reused = candidate
+                    break
+                end
+            end
+            next_spare[rows.cohort] = candidate_index
+        end
+        if isnothing(reused)
+            push!(batches, CompiledExecutionBatch(
+                application, rows, provider, output_publication,
+            ))
+            batches_constructed += 1
+        else
+            if reused.targets !== rows
+                # Never consume a view still reserved for a later ordered run.
+                # Spares are retired views, and shared index vectors need no copy.
+                if reused.targets.indices !== rows.indices
+                    empty!(reused.targets.indices)
+                    append!(reused.targets.indices, rows.indices)
+                end
+                membership.runs[index] = reused.targets
+            end
+            push!(batches, reused)
+        end
+    end
+    return (batches=batches, batches_constructed=batches_constructed)
 end
 
 function _compiled_call_execution_batches(
@@ -3777,36 +3809,26 @@ function _compiled_call_execution_batches(
     constants,
 )
     cohorts = _execution_cohort_store(temporal_streams)
+    owner = _execution_call_owner(binding)
     batches = AbstractExecutionBatch[]
     for application_id in binding.callee_application_ids
         application = _compiled_application_by_id(compiled, application_id)
-        targets = Any[]
-        for object_id in binding.callee_object_ids
-            _call_binding_target_matches(binding, application, object_id) ||
-                continue
-            push!(
-                targets,
-                _compiled_model_execution_target(
-                    compiled,
-                    env_bindings,
-                    application,
-                    object_id,
-                    temporal_streams,
-                    output_retention,
-                    constants;
-                    owner=_execution_call_owner(binding),
-                ),
+        current_ids = ObjectId[
+            object_id for object_id in binding.callee_object_ids
+            if _call_binding_target_matches(binding, application, object_id)
+        ]
+        refreshed = refresh_cohort_membership!(
+            cohorts, application.id, current_ids, nothing; owner,
+        ) do object_id, previous_target
+            _compiled_model_execution_target(
+                compiled, env_bindings, application, object_id,
+                temporal_streams, output_retention, constants; owner,
             )
         end
-        _append_model_execution_batches!(
-            batches,
-            env_bindings,
-            application,
-            targets,
-            output_retention,
-            cohorts;
-            owner=_execution_call_owner(binding),
+        assembled = _model_execution_batches(
+            env_bindings, application, refreshed.membership, output_retention,
         )
+        append!(batches, assembled.batches)
     end
     return Tuple(batches)
 end
@@ -3824,45 +3846,22 @@ function compile_model_execution_plan(
     batches = AbstractExecutionBatch[]
     for application in _ordered_model_applications(compiled)
         application.id in manual_application_ids && continue
-        first_batch = length(batches) + 1
-        targets = Any[
-            _compiled_model_execution_target(
-                compiled,
-                env_bindings,
-                application,
-                object_id,
-                temporal_streams,
-                output_retention,
-                constants,
-            )
-            for object_id in application.target_ids
-        ]
-        _append_model_execution_batches!(
-            batches,
-            env_bindings,
-            application,
-            targets,
-            output_retention,
-            cohorts,
+        refreshed = _refresh_model_execution_group!(
+            nothing, cohorts, compiled, env_bindings, application,
+            temporal_streams, output_retention, constants, nothing, nothing,
         )
-        first_batch > length(batches) && continue
-        push!(
-            groups,
-            _compiled_application_execution_group(
-                application,
-                batches[first_batch:end],
-            ),
-        )
+        isnothing(refreshed.group) && continue
+        push!(groups, refreshed.group)
+        append!(batches, refreshed.group.batches)
     end
     application_count = length(compiled.scenario_plan.applications)
     return CompiledExecutionPlan(
         cohorts,
+        DynamicExecution(),
         groups,
         batches,
         _execution_groups_by_application_slot(groups, application_count),
-        _runtime_application_schedule(
-            compiled.scenario_plan.application_schedule,
-        ),
+        _runtime_application_schedule(compiled.scenario_plan.application_schedule),
         compiled.revision,
         env_bindings.environment_revision,
     )
@@ -4220,89 +4219,6 @@ function _count_model_execution_target_rebuild!(
     return _runtime_performance_count!(performance, counter)
 end
 
-function _model_execution_group_reusable(
-    group::CompiledApplicationExecutionGroup,
-    compiled::CompiledCompositeModel,
-    env_bindings::CompiledEnvironmentBindings,
-    application::CompiledModelApplication,
-    output_retention=nothing,
-    temporal_streams=nothing,
-)
-    group.application === application || return false
-    target_index = 0
-    for batch in group.batches
-        for target in batch.targets
-            target_index += 1
-            target_index <= length(application.target_ids) || return false
-            target.object_id == application.target_ids[target_index] ||
-                return false
-            isnothing(_model_execution_target_change_reason(
-                target,
-                compiled,
-                env_bindings,
-                application,
-                output_retention,
-                temporal_streams,
-            )) || return false
-        end
-    end
-    return target_index == length(application.target_ids)
-end
-
-function _sorted_execution_target_position(
-    targets,
-    object_id::ObjectId,
-)
-    lower = firstindex(targets)
-    upper = lastindex(targets)
-    while lower <= upper
-        middle = (lower + upper) >>> 1
-        candidate_id = @inbounds targets[middle].object_id
-        candidate_id == object_id && return (true, middle)
-        if _object_id_isless(candidate_id, object_id)
-            lower = middle + 1
-        else
-            upper = middle - 1
-        end
-    end
-    return (false, lower)
-end
-
-function _model_execution_target_location(
-    group::CompiledApplicationExecutionGroup,
-    object_id::ObjectId,
-)
-    for (batch_index, batch) in pairs(group.batches)
-        found, target_index =
-            _sorted_execution_target_position(batch.targets, object_id)
-        found && return (batch_index, target_index)
-    end
-    return nothing
-end
-
-function _model_execution_target_insertion(
-    group::CompiledApplicationExecutionGroup,
-    object_id::ObjectId,
-)
-    for (batch_index, batch) in pairs(group.batches)
-        isempty(batch.targets) && continue
-        if !_object_id_isless(last(batch.targets).object_id, object_id)
-            _, target_index =
-                _sorted_execution_target_position(
-                    batch.targets,
-                    object_id,
-                )
-            return (batch_index, target_index)
-        end
-    end
-    isempty(group.batches) && return nothing
-    batch_index = lastindex(group.batches)
-    return (
-        batch_index,
-        length(group.batches[batch_index].targets) + 1,
-    )
-end
-
 function _model_execution_batch_accepts_target(
     batch::CompiledExecutionBatch,
     target::CompiledExecutionTarget,
@@ -4387,7 +4303,8 @@ function _extend_execution_target_call_batches_by_prefix!(
                     object_id,
                     temporal_streams,
                     output_retention,
-                    constants,
+                    constants;
+                    owner=_execution_call_owner(binding),
                 )
                 _model_execution_batch_accepts_target(
                     destination_batch,
@@ -4525,7 +4442,8 @@ function _extend_execution_target_call_batches_for_pure_addition!(
                 object_id,
                 temporal_streams,
                 output_retention,
-                constants,
+                constants;
+                owner=_execution_call_owner(binding),
             )
             _model_execution_batch_accepts_target(
                 destination_batch,
@@ -4594,8 +4512,14 @@ function _extend_execution_target_call_batches!(
     )
 end
 
-function _refresh_model_execution_group_delta!(
-    previous_group::CompiledApplicationExecutionGroup,
+function _same_execution_members(left, right)
+    length(left) == length(right) || return false
+    return all(index -> left[index] === right[index], eachindex(left))
+end
+
+function _refresh_model_execution_group!(
+    previous_group,
+    cohorts::ExecutionCohortStore,
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
@@ -4605,150 +4529,64 @@ function _refresh_model_execution_group_delta!(
     performance,
     changed_object_ids,
 )
-    previous_group.application === application || return nothing
-    isempty(changed_object_ids) && return nothing
-    actions = NamedTuple[]
-    targets_constructed = 0
-    for object_id in changed_object_ids
-        location = _model_execution_target_location(
-            previous_group,
-            object_id,
+    previous_membership = isnothing(previous_group) ? nothing : previous_group.membership
+    calls_extended = Ref(false)
+    refreshed = refresh_cohort_membership!(
+        cohorts, application.id, application.target_ids, changed_object_ids;
+        previous=previous_membership,
+    ) do object_id, previous_target
+        reason = isnothing(previous_target) ? :new_target :
+                 _model_execution_target_change_reason(
+            previous_target, compiled, env_bindings, application,
+            output_retention, temporal_streams,
         )
-        is_current_target =
-            first(_sorted_object_id_position(application.target_ids, object_id))
-        if !is_current_target
-            isnothing(location) || push!(
-                actions,
-                (
-                    kind=:remove,
-                    object_id=object_id,
-                    target=nothing,
-                    reason=nothing,
-                ),
-            )
-            continue
-        end
-        previous_target = if isnothing(location)
-            nothing
-        else
-            batch_index, target_index = location
-            previous_group.batches[batch_index].targets[target_index]
-        end
-        change_reason = if isnothing(previous_target)
-            :new_target
-        else
-            _model_execution_target_change_reason(
-                previous_target,
-                compiled,
-                env_bindings,
-                application,
-                output_retention,
-                temporal_streams,
-            )
-        end
-        isnothing(change_reason) && continue
-        if change_reason === :call_bindings &&
-           _extend_execution_target_call_batches!(
-            previous_target,
-            compiled,
-            env_bindings,
-            temporal_streams,
-            output_retention,
-            constants,
-            performance,
+        isnothing(reason) && return previous_target
+        if reason === :call_bindings && _extend_execution_target_call_batches!(
+            previous_target, compiled, env_bindings, temporal_streams,
+            output_retention, constants, performance,
         )
-            _runtime_performance_count!(
-                performance,
-                :execution_target_call_batches_extended,
-            )
-            continue
+            calls_extended[] = true
+            _runtime_performance_count!(performance, :execution_target_call_batches_extended)
+            return previous_target
         end
-        target = _compiled_model_execution_target(
-            compiled,
-            env_bindings,
-            application,
-            object_id,
-            temporal_streams,
-            output_retention,
-            constants,
+        target = _new_model_execution_target(
+            compiled, env_bindings, application, object_id,
+            temporal_streams, output_retention, constants,
         )
-        insertion = isnothing(location) ?
-                    _model_execution_target_insertion(
-            previous_group,
-            object_id,
-        ) : location
-        isnothing(insertion) && return nothing
-        batch = previous_group.batches[first(insertion)]
-        _model_execution_batch_accepts_target(
-            batch,
-            target,
-            env_bindings,
-            application,
-        ) || return nothing
-        push!(
-            actions,
-            (
-                kind=isnothing(location) ? :insert : :replace,
-                object_id=object_id,
-                target=target,
-                reason=change_reason,
-            ),
-        )
-        targets_constructed += 1
+        _count_model_execution_target_rebuild!(performance, reason)
+        return target
     end
-
-    for action in actions
-        isnothing(action.reason) && continue
-        _count_model_execution_target_rebuild!(
-            performance,
-            action.reason,
-        )
-    end
-    isempty(actions) || _runtime_performance_count!(
-        performance,
-        :execution_groups_updated_in_place,
+    assembled = _model_execution_batches(
+        env_bindings, application, refreshed.membership,
+        output_retention, previous_group,
     )
-    batches = copy(previous_group.batches)
-    working_group = _compiled_application_execution_group(application, batches)
-    batches = working_group.batches
-    for action in actions
-        location = _model_execution_target_location(
-            working_group,
-            action.object_id,
+    reused_group = !isnothing(previous_group) &&
+                   previous_group.application === application &&
+                   _same_execution_members(previous_group.batches, assembled.batches)
+    group_changed = refreshed.membership_changed ||
+                    refreshed.targets_constructed > 0 || calls_extended[]
+    group = if isempty(assembled.batches)
+        nothing
+    elseif reused_group
+        previous_group.membership = refreshed.membership
+        group_changed && _runtime_performance_count!(
+            performance, :execution_groups_updated_in_place,
         )
-        if action.kind === :remove
-            isnothing(location) && continue
-            batch_index, target_index = location
-            deleteat!(batches[batch_index].targets, target_index)
-        elseif action.kind === :replace
-            isnothing(location) && return nothing
-            batch_index, target_index = location
-            batches[batch_index].targets[target_index] = action.target
-        else
-            insertion = _model_execution_target_insertion(
-                working_group,
-                action.object_id,
-            )
-            isnothing(insertion) && return nothing
-            batch_index, target_index = insertion
-            _insert_with_spare_capacity!(
-                batches[batch_index].targets,
-                target_index,
-                action.target,
-            )
-        end
+        previous_group
+    else
+        _compiled_application_execution_group(
+            application, assembled.batches, refreshed.membership,
+        )
     end
-    filter!(batch -> !isempty(batch.targets), batches)
     return (
-        group=isempty(batches) ? nothing : working_group,
-        targets_constructed=targets_constructed,
-        batches_constructed=0,
+        group=group,
+        targets_constructed=refreshed.targets_constructed,
+        batches_constructed=assembled.batches_constructed,
+        group_reused=reused_group && !group_changed,
     )
 end
 
-function _changed_execution_target_ids_by_application(
-    changed_execution_target_ids,
-)
+function _changed_execution_target_ids_by_application(changed_execution_target_ids)
     changed_by_application = Dict{Symbol,Vector{ObjectId}}()
     for (application_id, object_id) in changed_execution_target_ids
         object_ids = get!(changed_by_application, application_id) do
@@ -4760,179 +4598,6 @@ function _changed_execution_target_ids_by_application(
         _sort_object_ids!(object_ids)
     end
     return changed_by_application
-end
-
-function _try_refresh_model_execution_plan_for_pure_addition!(
-    previous::CompiledExecutionPlan,
-    compiled::CompiledCompositeModel,
-    env_bindings::CompiledEnvironmentBindings,
-    temporal_streams,
-    output_retention,
-    constants,
-    performance,
-    changed_application_ids,
-    changed_targets_by_application,
-    manual_application_ids,
-    is_pure_addition::Bool,
-)
-    is_pure_addition || return nothing
-    isnothing(changed_application_ids) && return nothing
-
-    staged_targets = Dict{Tuple{Symbol,ObjectId},Any}()
-    applications = CompiledModelApplication[]
-    for application_id in changed_application_ids
-        application_id in manual_application_ids && continue
-        application = get(compiled.applications_by_id, application_id, nothing)
-        isnothing(application) && return (
-            plan=nothing,
-            staged_targets=staged_targets,
-        )
-        push!(applications, application)
-    end
-    sort!(applications; by=application -> application.slot)
-
-    # Validate every affected group before constructing a target. Target
-    # construction is then staged globally, and no batch is mutated unless all
-    # applications can extend their existing final batch.
-    candidates = NamedTuple[]
-    for application in applications
-        previous_group = previous.groups_by_application_slot[application.slot]
-        isnothing(previous_group) && return (
-            plan=nothing,
-            staged_targets=staged_targets,
-        )
-        previous_group.application === application || return (
-            plan=nothing,
-            staged_targets=staged_targets,
-        )
-        changed_object_ids = get(
-            changed_targets_by_application,
-            application.id,
-            (),
-        )
-        isempty(changed_object_ids) && return (
-            plan=nothing,
-            staged_targets=staged_targets,
-        )
-        isempty(previous_group.batches) && return (
-            plan=nothing,
-            staged_targets=staged_targets,
-        )
-        last_batch = last(previous_group.batches)
-        isempty(last_batch.targets) && return (
-            plan=nothing,
-            staged_targets=staged_targets,
-        )
-        last_existing_id = last(last_batch.targets).object_id
-        _object_id_isless(last_existing_id, first(changed_object_ids)) ||
-            return (
-                plan=nothing,
-                staged_targets=staged_targets,
-            )
-        length(application.target_ids) >= length(changed_object_ids) || return (
-            plan=nothing,
-            staged_targets=staged_targets,
-        )
-        suffix_start = length(application.target_ids) - length(changed_object_ids) + 1
-        all(
-            index ->
-                application.target_ids[suffix_start + index - 1] ==
-                changed_object_ids[index],
-            eachindex(changed_object_ids),
-        ) || return (
-            plan=nothing,
-            staged_targets=staged_targets,
-        )
-        previous_target_count = sum(
-            batch -> length(batch.targets),
-            previous_group.batches;
-            init=0,
-        )
-        (
-            previous_target_count + length(changed_object_ids) ==
-            length(application.target_ids)
-        ) || return (
-            plan=nothing,
-            staged_targets=staged_targets,
-        )
-        for object_id in changed_object_ids
-            isnothing(
-                _model_execution_target_location(previous_group, object_id),
-            ) || return (
-                plan=nothing,
-                staged_targets=staged_targets,
-            )
-        end
-        push!(
-            candidates,
-            (
-                application=application,
-                batch=last_batch,
-                object_ids=changed_object_ids,
-            ),
-        )
-    end
-
-    staged_appends = NamedTuple[]
-    for candidate in candidates
-        targets = Any[]
-        for object_id in candidate.object_ids
-            target = _compiled_model_execution_target(
-                compiled,
-                env_bindings,
-                candidate.application,
-                object_id,
-                temporal_streams,
-                output_retention,
-                constants,
-            )
-            staged_targets[(candidate.application.id, object_id)] = target
-            _model_execution_batch_accepts_target(
-                candidate.batch,
-                target,
-                env_bindings,
-                candidate.application,
-            ) || return (
-                plan=nothing,
-                staged_targets=staged_targets,
-            )
-            push!(targets, target)
-        end
-        push!(
-            staged_appends,
-            (
-                application=candidate.application,
-                batch=candidate.batch,
-                targets=targets,
-            ),
-        )
-    end
-
-    for staged in staged_appends
-        for target in staged.targets
-            push!(staged.batch.targets, target)
-            _count_model_execution_target_rebuild!(performance, :new_target)
-        end
-        isempty(staged.targets) || _runtime_performance_count!(
-            performance,
-            :execution_groups_updated_in_place,
-        )
-    end
-
-    return (
-        plan=CompiledExecutionPlan(
-            previous.cohorts,
-            previous.groups,
-            previous.batches,
-            previous.groups_by_application_slot,
-            previous.schedule,
-            compiled.revision,
-            env_bindings.environment_revision,
-        ),
-        targets_constructed=length(staged_targets),
-        batches_constructed=0,
-        groups_reused=length(previous.groups) - length(staged_appends),
-    )
 end
 
 function _refresh_model_execution_plan(
@@ -4947,47 +4612,11 @@ function _refresh_model_execution_plan(
     changed_execution_target_ids=compiled.changed_execution_target_ids,
 )
     manual_application_ids = _manual_call_application_ids(compiled)
-    changed_targets_by_application = isnothing(changed_application_ids) ?
-                                     nothing :
-                                     _changed_execution_target_ids_by_application(
+    changed_by_application = isnothing(changed_application_ids) ? nothing :
+                             _changed_execution_target_ids_by_application(
         changed_execution_target_ids,
     )
-    staged_execution_targets = nothing
-    force_general_changed_groups = false
-    if !isnothing(changed_targets_by_application)
-        pure_addition_refresh =
-            _try_refresh_model_execution_plan_for_pure_addition!(
-                previous,
-                compiled,
-                env_bindings,
-                temporal_streams,
-                output_retention,
-                constants,
-                performance,
-                changed_application_ids,
-                changed_targets_by_application,
-                manual_application_ids,
-                compiled.status_view_refresh_is_pure_addition &&
-                    changed_execution_target_ids ===
-                    compiled.changed_execution_target_ids,
-            )
-        if !isnothing(pure_addition_refresh)
-            isnothing(pure_addition_refresh.plan) ||
-                return pure_addition_refresh
-            staged_execution_targets =
-                pure_addition_refresh.staged_targets
-            # The transactional attempt did not touch the old plan. Rebuild
-            # changed groups directly only when target construction actually
-            # started, reusing every staged target instead of retrying the
-            # in-place group delta. A preflight rejection leaves this empty and
-            # must retain the normal incremental-delta fallback.
-            force_general_changed_groups =
-                !isempty(staged_execution_targets)
-        end
-    end
-    previous_groups = Dict(
-        group.application.id => group for group in previous.groups
-    )
+    previous_groups = Dict(group.application.id => group for group in previous.groups)
     groups = CompiledApplicationExecutionGroup[]
     batches = AbstractExecutionBatch[]
     sizehint!(groups, length(previous.groups))
@@ -4995,166 +4624,51 @@ function _refresh_model_execution_plan(
     targets_constructed = 0
     batches_constructed = 0
     groups_reused = 0
-
     for application in _ordered_model_applications(compiled)
         application.id in manual_application_ids && continue
-        previous_group = get(previous_groups, application.id, nothing)
-        if !isnothing(previous_group)
-            if !isnothing(changed_application_ids)
-                if !(application.id in changed_application_ids)
-                    push!(groups, previous_group)
-                    append!(batches, previous_group.batches)
-                    groups_reused += 1
-                    continue
-                end
-                if !force_general_changed_groups
-                    delta_group = _refresh_model_execution_group_delta!(
-                        previous_group,
-                        compiled,
-                        env_bindings,
-                        application,
-                        temporal_streams,
-                        output_retention,
-                        constants,
-                        performance,
-                        get(
-                            changed_targets_by_application,
-                            application.id,
-                            (),
-                        ),
-                    )
-                    if !isnothing(delta_group)
-                        if !isnothing(delta_group.group)
-                            push!(groups, delta_group.group)
-                            append!(batches, delta_group.group.batches)
-                        end
-                        targets_constructed +=
-                            delta_group.targets_constructed
-                        batches_constructed +=
-                            delta_group.batches_constructed
-                        continue
-                    end
-                end
-            elseif _model_execution_group_reusable(
-                previous_group,
-                compiled,
-                env_bindings,
-                application,
-                output_retention,
-                temporal_streams,
-            )
-                push!(groups, previous_group)
-                append!(batches, previous_group.batches)
-                groups_reused += 1
-                continue
-            end
+        previous_group = pop!(previous_groups, application.id, nothing)
+        if !isnothing(previous_group) && !isnothing(changed_application_ids) &&
+           !(application.id in changed_application_ids)
+            push!(groups, previous_group)
+            append!(batches, previous_group.batches)
+            groups_reused += 1
+            continue
         end
-
-        targets = Any[]
-        previous_batch_index = 1
-        previous_target_index = 1
-        for object_id in application.target_ids
-            previous_target = nothing
-            while !isnothing(previous_group) &&
-                  previous_batch_index <= length(previous_group.batches)
-                previous_batch =
-                    previous_group.batches[previous_batch_index]
-                if previous_target_index > length(previous_batch.targets)
-                    previous_batch_index += 1
-                    previous_target_index = 1
-                    continue
-                end
-                candidate =
-                    previous_batch.targets[previous_target_index]
-                if candidate.object_id == object_id
-                    previous_target = candidate
-                    previous_target_index += 1
-                    break
-                elseif _object_id_isless(candidate.object_id, object_id)
-                    previous_target_index += 1
-                    continue
-                end
-                break
-            end
-            target_key = (application.id, object_id)
-            change_reason = if isnothing(previous_target)
-                :new_target
-            elseif !isnothing(changed_application_ids) &&
-                   !(target_key in compiled.changed_execution_target_ids)
-                nothing
-            else
-                _model_execution_target_change_reason(
-                    previous_target,
-                    compiled,
-                    env_bindings,
-                    application,
-                    output_retention,
-                    temporal_streams,
-                )
-            end
-            if isnothing(change_reason)
-                push!(targets, previous_target)
-            else
-                execution_target = isnothing(staged_execution_targets) ?
-                                   nothing :
-                                   get(
-                    staged_execution_targets,
-                    target_key,
-                    nothing,
-                )
-                if isnothing(execution_target)
-                    execution_target = _compiled_model_execution_target(
-                        compiled,
-                        env_bindings,
-                        application,
-                        object_id,
-                        temporal_streams,
-                        output_retention,
-                        constants,
-                    )
-                end
-                push!(
-                    targets,
-                    execution_target,
-                )
-                _count_model_execution_target_rebuild!(
-                    performance,
-                    change_reason,
-                )
-                targets_constructed += 1
-            end
+        changed_ids = isnothing(changed_by_application) ? nothing :
+                      get(changed_by_application, application.id, ())
+        refreshed = _refresh_model_execution_group!(
+            previous_group, previous.cohorts, compiled, env_bindings, application,
+            temporal_streams, output_retention, constants, performance, changed_ids,
+        )
+        if !isnothing(refreshed.group)
+            push!(groups, refreshed.group)
+            append!(batches, refreshed.group.batches)
         end
-
-        application_batches = AbstractExecutionBatch[]
-        _append_model_execution_batches!(
-            application_batches,
-            env_bindings,
-            application,
-            targets,
-            output_retention,
-            previous.cohorts,
-        )
-        isempty(application_batches) && continue
-        push!(
-            groups,
-            _compiled_application_execution_group(
-                application,
-                application_batches,
-            ),
-        )
-        append!(batches, application_batches)
-        batches_constructed += length(application_batches)
+        targets_constructed += refreshed.targets_constructed
+        batches_constructed += refreshed.batches_constructed
+        groups_reused += refreshed.group_reused
     end
-
+    # A removed application (or one now exclusively called) has no scheduled
+    # membership to merge. Retire only its former owners, never scan survivors.
+    for group in values(previous_groups)
+        for object_id in group.membership.object_ids
+            remove_cohort_target!(previous.cohorts, group.application.id, object_id)
+        end
+    end
+    same_groups = _same_execution_members(previous.groups, groups)
+    same_batches = _same_execution_members(previous.batches, batches)
+    application_count = length(compiled.scenario_plan.applications)
+    groups_by_slot = same_groups &&
+                     length(previous.groups_by_application_slot) == application_count ?
+                     previous.groups_by_application_slot :
+                     _execution_groups_by_application_slot(groups, application_count)
     return (
         plan=CompiledExecutionPlan(
             previous.cohorts,
-            groups,
-            batches,
-            _execution_groups_by_application_slot(
-                groups,
-                length(compiled.scenario_plan.applications),
-            ),
+            previous.topology,
+            same_groups ? previous.groups : groups,
+            same_batches ? previous.batches : batches,
+            groups_by_slot,
             previous.schedule,
             compiled.revision,
             env_bindings.environment_revision,
@@ -6256,7 +5770,7 @@ function _targeted_application_set!(
             added_applications_by_object,
         )
         return _TargetedApplicationSet(
-            output_applications,
+            Tuple(output_applications),
             _ApplicationsByObjectOverlay(
                 runtime.compiled.applications_by_object,
                 runtime.added_applications_by_object,
@@ -6320,7 +5834,7 @@ function _targeted_callee_applications(
         "Hard call `$(binding.call)` from application `$(binding.application_id)` does not ",
         "resolve requested object(s) `$(Tuple(id.value for id in unresolved_ids))`."
     )
-    return applications
+    return Tuple(applications)
 end
 
 function _applications_use_only_global_environment(
@@ -6473,7 +5987,6 @@ function _targeted_new_object_call_targets(
         return nothing
     end
     output_applications = application_set.applications
-    applications_by_object = application_set.applications_by_object
     callee_applications = _targeted_callee_applications(
         binding,
         requested_ids,
@@ -6498,6 +6011,26 @@ function _targeted_new_object_call_targets(
         )
     end
 
+    return _prepare_targeted_newborn_targets(
+        context, name, targeted_runtime, application_set, callee_applications, initializer,
+    )
+end
+
+# Application membership is assembled dynamically, but its finite schema is
+# stable for newborns selected by the same application recipe. Keep that tuple
+# concrete across the canonical status and binding preparation below.
+function _prepare_targeted_newborn_targets(
+    context::RunContext,
+    name::Symbol,
+    targeted_runtime::_TargetedTopologyRuntime,
+    application_set::_TargetedApplicationSet,
+    callee_applications::Tuple,
+    initializer::Bool,
+)
+    model = runtime_model(context)
+    compiled = context.compiled
+    output_applications = application_set.applications
+    applications_by_object = application_set.applications_by_object
     if !application_set.outputs_prepared
         _prepare_model_output_statuses_batched!(model, output_applications)
         application_set.outputs_prepared = true
@@ -6570,69 +6103,10 @@ function _targeted_new_object_call_targets(
 
     targets = CallTarget[]
     for partial_application in callee_applications
-        application = compiled.applications_by_id[partial_application.id]
-        for object_id in partial_application.target_ids
-            key = (application.id, object_id)
-            status_view = _compile_model_status_view(
-                model,
-                partial_application,
-                object_id,
-                get(targeted_input_bindings, key, ()),
-                compiled.applications_by_id,
-                targeted_runtime.application_positions,
-                compiled.distributed_outputs,
-            )
-            # Targeted newborns have no ordinary compiled execution owner yet.
-            # Keep only their exact application-local payload, without adding
-            # a second mutable CompiledExecutionTarget allocation.
-            execution_target = (
-                model=_application_model(application, object_id),
-                status=status_view.status,
-                canonical_status=status_view.canonical_status,
-                input_bindings=status_view.temporal_inputs,
-                output_bindings=_runtime_model_output_streams(
-                    status_view.status,
-                    application,
-                    object_id,
-                    context.temporal_streams,
-                    context.output_retention,
-                    true,
-                ),
-                bound_inputs=status_view.bound_inputs,
-                output_targets=_runtime_model_output_targets(
-                    compiled,
-                    application,
-                    object_id,
-                ),
-                environment_binding=_environment_binding_for(
-                    environment_bindings,
-                    application.id,
-                    object_id,
-                ),
-                # Re-resolving the same newborn preserves its physical call
-                # owner, including execution stamps used by pending evaluations.
-                call_context_cache=get!(targeted_runtime.call_context_caches, key) do
-                    CallContextCache(nothing)
-                end,
-            )
-            push!(
-                targets,
-                CallTarget(
-                    execution_target,
-                    compiled,
-                    environment_bindings,
-                    application,
-                    object_id,
-                    (),
-                    context.temporal_streams,
-                    context.output_retention,
-                    context.time,
-                    context.constants,
-                    context.publication_allowed,
-                    context.environment,
-                ),
-            )
-        end
+        _append_targeted_newborn_targets!(
+            targets, context, targeted_runtime, partial_application,
+            targeted_input_bindings, environment_bindings,
+        )
     end
     if initializer
         length(targets) == 1 || error(
@@ -6641,6 +6115,75 @@ function _targeted_new_object_call_targets(
         )
     end
     return targets
+end
+
+function _append_targeted_newborn_targets!(
+    targets,
+    context::RunContext,
+    targeted_runtime::_TargetedTopologyRuntime,
+    partial_application::CompiledModelApplication,
+    targeted_input_bindings,
+    environment_bindings::CompiledEnvironmentBindings,
+)
+    compiled = context.compiled
+    # A partial application preserves its exact plan type. Recover that type
+    # after the heterogeneous application index before constructing its rows.
+    application = compiled.applications_by_id[partial_application.id]::typeof(partial_application)
+    for object_id in partial_application.target_ids
+        key = (application.id, object_id)
+        status_view = _compile_model_status_view(
+            runtime_model(context), partial_application, object_id,
+            get(targeted_input_bindings, key, ()), compiled.applications_by_id,
+            targeted_runtime.application_positions, compiled.distributed_outputs,
+        )
+        outputs = _runtime_model_output_streams(
+            status_view.status, application, object_id, context.temporal_streams,
+            context.output_retention, true,
+        )
+        output_targets = _runtime_model_output_targets(compiled, application, object_id)
+        environment_binding = _environment_binding_for(environment_bindings, application.id, object_id)
+        cache = get!(targeted_runtime.call_context_caches, key) do
+            CallContextCache(nothing)
+        end
+        push!(targets, _targeted_newborn_call_target(
+            context, application, object_id, _application_model(application, object_id),
+            status_view, outputs, output_targets, environment_bindings, environment_binding, cache,
+        ))
+    end
+    return targets
+end
+
+# Status views, publication tuples and handles leave heterogeneous assembly at
+# this boundary. Reuse one concrete payload constructor for each actual schema.
+function _targeted_newborn_call_target(
+    context::RunContext,
+    application::CompiledModelApplication,
+    object_id::ObjectId,
+    model,
+    status_view::CompiledModelStatusView,
+    outputs::Tuple,
+    output_targets::NamedTuple,
+    environment_bindings::CompiledEnvironmentBindings,
+    environment_binding,
+    cache::CallContextCache,
+)
+    execution_target = (
+        model=model,
+        status=status_view.status,
+        canonical_status=status_view.canonical_status,
+        input_bindings=status_view.temporal_inputs,
+        output_bindings=outputs,
+        bound_inputs=status_view.bound_inputs,
+        output_targets=output_targets,
+        environment_binding=environment_binding,
+        # Reaccessing a newborn retains its evaluation execution stamps.
+        call_context_cache=cache,
+    )
+    return CallTarget(
+        execution_target, context.compiled, environment_bindings, application,
+        object_id, (), context.temporal_streams, context.output_retention,
+        context.time, context.constants, context.publication_allowed, context.environment,
+    )
 end
 
 function _current_topology_call_targets(
@@ -7634,9 +7177,6 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             changed_execution_application_ids,
         )
         simulation.execution_plan = execution_refresh.plan
-        if !simulation.compiled.status_view_refresh_is_pure_addition
-            _retire_scheduled_cohort_targets!(simulation.execution_plan.cohorts, simulation.compiled)
-        end
         _runtime_performance_finish!(
             simulation.performance,
             :execution_plan_compile,
@@ -7899,16 +7439,13 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
     completed_schedule_entry = 0
     for entry_index in due_entry_indices
         schedule_entry = schedule_plan.entries[entry_index]
-        group = simulation.execution_plan.groups_by_application_slot[
-            schedule_entry.application_slot
-        ]
-        isnothing(group) && continue
-        _run_model_execution_group!(
-            group,
-            simulation,
-            step,
-            simulation.performance,
-        )
+        _run_execution_slot!(simulation.execution_plan.groups_by_application_slot,
+            schedule_entry.application_slot, simulation, step) || continue
+
+        if simulation.execution_plan.topology isa FixedExecution
+            _refresh_timeline!(simulation, simulation.execution_plan.topology)
+            continue
+        end
 
         if !isnothing(completed_applications)
             _mark_schedule_prefix_completed!(
@@ -7966,19 +7503,19 @@ function _incremental_output_request_object_ids(delta)
 end
 
 function _continue_scene!(simulation::Simulation, steps::Integer)
-    steps >= 0 || error("`steps` must be non-negative, got $(steps).")
-    start_step = simulation.current_step + 1
-    final_step = simulation.current_step + steps
+    steps >= 0 || throw(ArgumentError("`steps` must be non-negative, got $(steps)."))
+    if iszero(steps)
+        _refresh_timeline!(simulation, simulation.execution_plan.topology)
+        return simulation
+    end
+    final_step = Base.Checked.checked_add(simulation.current_step, Int(steps))
+    start_step = Base.Checked.checked_add(simulation.current_step, 1)
     for step in start_step:final_step
-        lifecycle = _pending_output_request_lifecycle_delta(simulation.model)
-        _refresh_simulation_runtime!(simulation)
-        _refresh_output_request_targets!(simulation, lifecycle)
+        _refresh_timeline!(simulation, simulation.execution_plan.topology)
         _run_model_execution_step!(simulation, step)
         simulation.current_step = step
     end
-    lifecycle = _pending_output_request_lifecycle_delta(simulation.model)
-    _refresh_simulation_runtime!(simulation)
-    _refresh_output_request_targets!(simulation, lifecycle)
+    _refresh_timeline!(simulation, simulation.execution_plan.topology)
     return simulation
 end
 

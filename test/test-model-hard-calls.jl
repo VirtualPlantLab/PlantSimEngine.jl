@@ -1204,6 +1204,23 @@ end
         ObjectId(:leaf_keep),
         ObjectId(:leaf_z_after_observation),
     ]
+    # A later explicit selection is only a view over this call's membership.
+    # It must leave the other retained target available in the complete view.
+    run_call!(
+        LAZY_MANY_CALL_CONTEXT[],
+        :children;
+        objects=(:leaf_keep,),
+    )
+    @test getproperty.(collect(full_call_view), :object_id) ==
+          ObjectId[ObjectId(:leaf_keep), ObjectId(:leaf_z_after_observation)]
+    other_target = only(call_targets(
+        LAZY_MANY_CALL_CONTEXT[],
+        :children;
+        objects=(:leaf_z_after_observation,),
+    ))
+    @test other_target.object_id == ObjectId(:leaf_z_after_observation)
+    @test getproperty.(collect(full_call_view), :object_id) ==
+          ObjectId[ObjectId(:leaf_keep), ObjectId(:leaf_z_after_observation)]
     @test Advanced.runtime_performance(simulation).counts[
         :selector_call_binding_candidates
     ] == 1

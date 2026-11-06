@@ -36,21 +36,6 @@ _execution_cohort_store(::Nothing) = ExecutionCohortStore()
 _insert_with_spare_capacity!(rows::ExecutionCohortRows, position::Integer, target) =
     insert!(rows, position, target)
 
-function _retire_scheduled_cohort_targets!(store::ExecutionCohortStore, compiled)
-    obsolete = Tuple{Symbol,ObjectId}[]
-    for (owner, application_id, object_id) in keys(store.locations)
-        isnothing(owner) || continue
-        application = get(compiled.applications_by_id, application_id, nothing)
-        if isnothing(application) || !first(_sorted_object_id_position(application.target_ids, object_id))
-            push!(obsolete, (application_id, object_id))
-        end
-    end
-    for (application_id, object_id) in obsolete
-        remove_cohort_target!(store, application_id, object_id)
-    end
-    return nothing
-end
-
 function _retire_call_cohort_targets!(storage::RuntimeStorage, binding, batches)
     store = storage.cohorts
     owner = _execution_call_owner(binding)

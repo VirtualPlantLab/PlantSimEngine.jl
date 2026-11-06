@@ -10,9 +10,8 @@ import ..PlantSimEngine as PSE
 
 export prepare, compile
 
-struct PreparedSimulation{S,E,ST}
+struct PreparedSimulation{S,ST}
     simulation::S
-    scheduled_targets::E
     status::ST
 end
 
@@ -55,7 +54,7 @@ function _has_scalar_status(status)
     end
 end
 
-function _prepare_scheduled_target(application, target)
+function _check_target(application, target)
     isbits(target.model) ||
         _unsupported(application.id, "model parameters must have an isbits type")
     isempty(target.input_bindings) ||
@@ -64,14 +63,13 @@ function _prepare_scheduled_target(application, target)
         _unsupported(application.id, "collection-valued inputs are unsupported")
     _has_scalar_status(target.status) ||
         _unsupported(application.id, "status values must have concrete scalar numeric types")
-    # The ordinary sampler handles raw rows and field remapping. A singleton
-    # row is independent of the step, so the native loop can reuse its value.
+    # Validate the same environment row that the canonical batch sampler uses.
     binding = target.environment_binding
     environment = isnothing(binding) ? nothing :
                   PSE._sample_compiled_global_environment(binding, application, 1)
     isbits(environment) ||
         _unsupported(application.id, "sampled environment must be an immutable bits-valued row")
-    return (; application, target, environment)
+    return nothing
 end
 
 """
@@ -108,47 +106,20 @@ function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
     prepared = PSE._prepare_scenario_plan(owned)
     _check_scenario(owned, prepared.plan)
     simulation = PSE._prepare_simulation!(owned; steps=0, outputs=:none, constants)
-    scheduled_targets = Tuple(_prepare_scheduled_target(group.application, target)
-        for group in simulation.execution_plan.groups
-        for batch in group.batches for target in batch.targets)
-    isempty(scheduled_targets) &&
+    isempty(simulation.execution_plan.groups) &&
         throw(ArgumentError("Compilation requires at least one scheduled application."))
+    for group in simulation.execution_plan.groups, batch in group.batches, target in batch.targets
+        _check_target(group.application, target)
+    end
     status = only(PSE.model_objects(owned)).status
     _has_scalar_status(status) ||
         throw(ArgumentError("Compilation requires concrete scalar numeric object status values."))
-    return PreparedSimulation(simulation, scheduled_targets, status)
+    plan = PSE._fixed_execution_plan(simulation.execution_plan)
+    return PreparedSimulation(PSE._simulation_with_execution_plan(simulation, plan), status)
 end
-
-@inline function _check_static_runtime(simulation)
-    PSE._simulation_runtime_dirty(simulation, nothing) &&
-        throw(ArgumentError("Compiled simulation topology and bindings must stay fixed."))
-    return nothing
-end
-
-@inline function _run_scheduled_targets!(simulation, scheduled_targets::Tuple, time::Float64)
-    (; application, target, environment) = first(scheduled_targets)
-    PSE._run_model_execution_target_without_calls!(
-        simulation.compiled, simulation.environment_bindings, application, target,
-        time, simulation.constants, simulation.temporal_streams,
-        simulation.output_retention, environment, false,
-    )
-    _check_static_runtime(simulation)
-    return _run_scheduled_targets!(simulation, Base.tail(scheduled_targets), time)
-end
-
-@inline _run_scheduled_targets!(simulation, ::Tuple{}, time::Float64) = nothing
 
 function PSE.continue!(program::PreparedSimulation; steps::Integer=1)
-    steps >= 0 || throw(ArgumentError("`steps` must be non-negative."))
-    simulation = program.simulation
-    _check_static_runtime(simulation)
-    iszero(steps) && return program
-    final_step = Base.Checked.checked_add(simulation.current_step, Int(steps))
-    for step in (simulation.current_step + 1):final_step
-        simulation.compiled.execution_generation += UInt64(1)
-        _run_scheduled_targets!(simulation, program.scheduled_targets, Float64(step))
-        simulation.current_step = step
-    end
+    PSE.continue!(program.simulation; steps)
     return program
 end
 

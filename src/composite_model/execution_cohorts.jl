@@ -1,10 +1,10 @@
 abstract type AbstractExecutionCohort end
 
-mutable struct ExecutionCohort{T} <: AbstractExecutionCohort
+mutable struct ExecutionCohort{T,I<:ObjectId} <: AbstractExecutionCohort
     owner::Any
     application_id::Symbol
     rows::Vector{Union{Nothing,T}}
-    indices::Dict{ObjectId,Int}
+    indices::Dict{I,Int}
 end
 
 struct ExecutionCohortLocation
@@ -24,11 +24,14 @@ ExecutionCohortStore() = ExecutionCohortStore(
 )
 
 """An ordered membership view over one application's concrete payload family."""
-struct ExecutionCohortRows{T} <: AbstractVector{T}
+struct ExecutionCohortRows{T,C<:ExecutionCohort{T}} <: AbstractVector{T}
     store::ExecutionCohortStore
-    cohort::ExecutionCohort{T}
+    cohort::C
     indices::Vector{Int}
 end
+
+ExecutionCohortRows{T}(store::ExecutionCohortStore, cohort::C, indices::Vector{Int}) where {T,C<:ExecutionCohort{T}} =
+    ExecutionCohortRows{T,C}(store, cohort, indices)
 
 Base.IndexStyle(::Type{<:ExecutionCohortRows}) = IndexLinear()
 Base.size(rows::ExecutionCohortRows) = size(rows.indices)
@@ -50,10 +53,14 @@ function _execution_cohort(store::ExecutionCohortStore, owner, application_id::S
     isconcretetype(T) && T !== Nothing || throw(ArgumentError(
         "An execution cohort requires a concrete target payload type.",
     ))
+    I = fieldtype(T, :object_id)
+    I <: ObjectId && isconcretetype(I) || throw(ArgumentError(
+        "An execution cohort requires a concrete ObjectId field in its target payload.",
+    ))
     cohort = get!(store.cohorts, (owner, application_id, T)) do
-        ExecutionCohort{T}(owner, application_id, Union{Nothing,T}[], Dict{ObjectId,Int}())
+        ExecutionCohort{T,I}(owner, application_id, Union{Nothing,T}[], Dict{I,Int}())
     end
-    return cohort::ExecutionCohort{T}
+    return cohort::ExecutionCohort{T,I}
 end
 
 function _clear_execution_cohort_row!(cohort::ExecutionCohort, row::Int)

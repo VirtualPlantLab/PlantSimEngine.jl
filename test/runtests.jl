@@ -47,6 +47,7 @@ else
 
     @testset "Persistent typed execution cohorts" begin
         include("test-execution-cohorts.jl")
+        include("test-execution-cohort-refresh.jl")
         include("test-model-canonical-cohorts.jl")
     end
 
@@ -76,6 +77,7 @@ else
 
     @testset "Reusable scenario plans" begin
         include("test-model-prepared-scenario.jl")
+        include("test-compilation-metadata.jl")
     end
 
     @testset "Isolated model diagnostics" begin
