@@ -578,13 +578,17 @@ function _ancestor_id(
     final_index < firstindex(ancestors) && return nothing
     isnothing(scale) && isnothing(kind) &&
         return @inbounds ancestors[final_index]
-    !isnothing(scale) && !haskey(model.registry.by_scale, scale) && return nothing
-    !isnothing(kind) && !haskey(model.registry.by_kind, kind) && return nothing
+    scale_ids = isnothing(scale) ? nothing : get(model.registry.by_scale, scale, nothing)
+    !isnothing(scale) && isnothing(scale_ids) && return nothing
+    kind_ids = isnothing(kind) ? nothing : get(model.registry.by_kind, kind, nothing)
+    !isnothing(kind) && isnothing(kind_ids) && return nothing
     for index in final_index:-1:firstindex(ancestors)
         id = @inbounds ancestors[index]
-        object = _model_object(model, id)::Object
-        (isnothing(scale) || object.scale === scale) &&
-            (isnothing(kind) || object.kind === kind) && return id
+        # Preserve the existing unknown-object error for a dangling cached
+        # ancestor, without fetching every live Object merely for its labels.
+        haskey(model.registry.objects, id) || _model_object(model, id)
+        (isnothing(scale_ids) || id in scale_ids) &&
+            (isnothing(kind_ids) || id in kind_ids) && return id
     end
     return nothing
 end
@@ -715,12 +719,12 @@ function _authored_selector_matcher(selector::AbstractObjectMultiplicity)
     )
 end
 
+_selector_matcher_with_scope(matcher::CompiledSelectorMatcher, scope) =
+    CompiledSelectorMatcher(scope, matcher.relation, matcher.scale, matcher.kind,
+        matcher.species, matcher.id, matcher.defaults_to_context)
+
 function _resolve_selector_matcher(model::CompositeModel, matcher::CompiledSelectorMatcher)
-    return CompiledSelectorMatcher(
-        _compile_selector_scope(model, matcher.scope), matcher.relation,
-        matcher.scale, matcher.kind, matcher.species, matcher.id,
-        matcher.defaults_to_context,
-    )
+    return _selector_matcher_with_scope(matcher, _compile_selector_scope(model, matcher.scope))
 end
 
 _compile_selector_matcher(model::CompositeModel, selector::AbstractObjectMultiplicity) =
@@ -840,6 +844,25 @@ function _selector_subtree_root(model::CompositeModel, scope, context)
         return scope.root_id
     end
     return nothing
+end
+
+# A query owns its resolved root only until its current candidates are consumed.
+# Existing compiled named scopes already carry this root; relations and nearest
+# ancestor queries retain their original point predicates.
+function _query_scope_matcher(matcher::CompiledSelectorMatcher, scope, root)
+    (isnothing(matcher.relation) && !isnothing(root) &&
+     !(scope isa CompiledNamedScope)) || return matcher
+    return _selector_matcher_with_scope(matcher, CompiledNamedScope(scope, root))
+end
+
+function _query_scope_matcher(model::CompositeModel, matcher::CompiledSelectorMatcher,
+    context, default_scope)
+    isnothing(matcher.relation) || return matcher
+    scope = isnothing(matcher.scope) ? default_scope : matcher.scope
+    if scope isa Ancestor && !isnothing(matcher.scale) && matcher.scale == scope.scale
+        return matcher
+    end
+    return _query_scope_matcher(matcher, scope, _selector_subtree_root(model, scope, context))
 end
 
 # On Julia 1.10, keep the target ID unboxed when the ancestor's ID type is unknown.
@@ -1058,14 +1081,20 @@ function _selector_matches_object_id(
     if default_to_context && matcher.defaults_to_context && !isnothing(context)
         return object_id == _object_id_from_context(context)
     end
-    object = _model_object(model, object_id)
-    _matches_object_criteria(
-        object;
-        scale=matcher.scale,
-        kind=matcher.kind,
-        species=matcher.species,
-        id=matcher.id,
-    ) || return false
+    _selector_matches_object_labels(model, matcher, object_id) || return false
+    return _selector_matches_object_topology(model, matcher, object_id;
+        context, default_scope, relation_resolved)
+end
+
+@inline function _selector_matches_object_labels(model::CompositeModel,
+    matcher::CompiledSelectorMatcher, object_id::ObjectId)
+    return _matches_object_criteria(_model_object(model, object_id);
+        scale=matcher.scale, kind=matcher.kind, species=matcher.species, id=matcher.id)
+end
+
+function _selector_matches_object_topology(model::CompositeModel,
+    matcher::CompiledSelectorMatcher, object_id::ObjectId;
+    context=nothing, default_scope=nothing, relation_resolved::Bool=false)
     scope = isnothing(matcher.scope) ? default_scope : matcher.scope
     if isnothing(matcher.relation)
         if scope isa Ancestor &&
@@ -1283,8 +1312,9 @@ function _resolve_object_ids(
         relation_resolved = true
         _relation_object_ids(model, relation, context)
     end
+    matching_matcher = _query_scope_matcher(matcher, scope, subtree_root)
     ids = _matching_selector_ids(
-        model, matcher, candidate_ids, context, default_to_context, default_scope, relation_resolved,
+        model, matching_matcher, candidate_ids, context, default_to_context, default_scope, relation_resolved,
     )
 
     # Cardinality diagnostics may need all available labels in the topology
