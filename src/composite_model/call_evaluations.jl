@@ -248,8 +248,8 @@ call_targets(evaluation::CallEvaluation) = evaluation.targets
     return nothing
 end
 
-@noinline _call_execution_matches(cache::CallContextCache, executions::IdDict{Any,UInt64}) =
-    cache.execution_revision == executions[cache]
+@noinline _call_execution_matches(stamp::Base.RefValue{UInt64},
+    executions::IdDict{Base.RefValue{UInt64},UInt64}) = stamp[] == executions[stamp]
 
 function _validate_call_evaluation(evaluation::CallEvaluation)
     frame = evaluation.frame
@@ -258,8 +258,8 @@ function _validate_call_evaluation(evaluation::CallEvaluation)
     frame.pending && frame.generation == evaluation.generation ||
         throw(ArgumentError("Call evaluation is stale or has already been accepted."))
     _validate_call_model_state(frame, frame.compiled)
-    for cache in keys(frame.executions)
-        _call_execution_matches(cache, frame.executions) ||
+    for stamp in keys(frame.executions)
+        _call_execution_matches(stamp, frame.executions) ||
             throw(ArgumentError("Call evaluation is stale after another execution of its targets."))
     end
     frame.parent === _active_call_evaluation() ||

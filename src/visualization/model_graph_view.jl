@@ -217,7 +217,7 @@ function _model_graph_compiled(
         applications,
         applications_by_id,
         ordered_applications,
-        _applications_by_object(applications),
+        _applications_by_object(applications, model.registry.objects),
         input_bindings,
         call_bindings,
         input_by_target,
@@ -246,59 +246,40 @@ function _model_graph_compiled(
     )
 end
 
-function _model_graph_fallback_application(model, raw_spec, timeline, slot)
-    spec = as_model_spec(raw_spec)
-    selector = applies_to(spec)
-    selector isa AbstractObjectMultiplicity || error(
-        "Model application for process `$(process(spec))` has no valid `ModelSpec(...; on=...)` selector.",
-    )
-    application_id = something(application_name(spec), process(spec))
-    target_matcher = _compile_selector_matcher(model, selector)
-    target_ids = _resolve_object_ids(model, selector, target_matcher)
-    output_names, canonical_output_names = _compiled_output_names(spec)
-    return CompiledModelApplication(
-        CompiledApplicationPlan(
-            slot,
-            application_id,
-            spec,
-            process(spec),
-            application_name(spec),
-            selector,
-            target_matcher,
-            timestep(spec),
-            _model_application_clock(model, spec, target_ids, timeline),
-            _compiled_object_model_overrides(spec, target_ids, application_id),
-            output_names,
-            canonical_output_names,
-        ),
-        target_ids,
-    )
-end
-
 function _model_graph_compile_applications(model, timeline, diagnostics)
-    applications = _model_graph_phase!(diagnostics, :applications, CompiledModelApplication[]) do
-        _compile_model_applications(model, Tuple(model.applications), timeline)
+    preparation = _scenario_preparation(model)
+    if isnothing(preparation.failure)
+        applications = _model_graph_phase!(diagnostics, :applications, CompiledModelApplication[]) do
+            _resolve_application_recipes(model, preparation.authored, timeline)
+        end
+        isempty(applications) || return applications
+        isempty(model.applications) && return applications
     end
-    isempty(applications) || return applications
-    isempty(model.applications) && return applications
 
     recovered = CompiledModelApplication[]
     recovered_ids = Set{Symbol}()
-    for (slot, raw_spec) in pairs(model.applications)
+    for record in preparation.authored
+        if record isa ScenarioPreparationFailure
+            application_ids = isnothing(record.application_id) ? Symbol[] : [record.application_id]
+            push!(diagnostics, _model_graph_diagnostic(
+                record.error, :applications;
+                code=Symbol(record.phase, :_error), application_ids,
+                suggestions=["Fix the authored application declaration."],
+            ))
+            continue
+        end
         try
-            application = _model_graph_fallback_application(model, raw_spec, timeline, slot)
+            application = only(_resolve_application_recipes(model, (record,), timeline))
             application.id in recovered_ids && error(
                 "Duplicate recovered model application id `$(application.id)`.",
             )
             push!(recovered_ids, application.id)
             push!(recovered, application)
         catch err
-            spec = as_model_spec(raw_spec)
-            application_id = something(application_name(spec), process(spec))
             push!(diagnostics, _model_graph_diagnostic(
                 err,
                 :application_recovery;
-                application_ids=[application_id],
+                application_ids=[record.id],
                 suggestions=["Fix the application selector or authored configuration."],
             ))
         end

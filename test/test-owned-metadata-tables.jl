@@ -26,7 +26,7 @@ second_entry(table) = table[2]
     @test Tuple(values(table)) === (left, right)
     @test_throws BoundsError table[0]
     @test_throws BoundsError table[3]
-    @test_throws ErrorException table[:missing]
+    @test_throws KeyError table[:missing]
     left[] = 7
     @test table[:left][] == 7
     @test right[] === 2f0
@@ -84,7 +84,7 @@ end
     @test source === compiled.applications[2]
     @test compiled.applications_by_id[2] === source
     @test compiled.scenario_plan.applications_by_id[:source] === source.plan
-    @test PSE._application_plans(compiled.scenario_plan.input_recipes_by_application, 1) === recipe
+    @test PSE._application_plans(compiled.scenario_plan.input_recipes_by_application, :reader) === recipe
     @test recipe isa PSE.CompiledApplicationInputRecipe
     @test ismutabletype(typeof(recipe))
     @test all(name -> isconst(typeof(recipe), name), fieldnames(typeof(recipe)))

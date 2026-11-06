@@ -377,7 +377,7 @@ end
     scene = cache_scene(Float64)
     run!(scene.model; steps=1, outputs=:none)
     target = only(call_targets(scene.capture[], :middle))
-    cache = PSE.CallContextCache(nothing)
+    cache = PSE.CallContextCache(nothing, Ref(UInt64(0)))
     normal1 = prepare_test_cache(cache, target, target.environment)
     @test cache.default === nothing && cache.transient === normal1
     @test prepare_test_cache(cache, target, target.environment) === normal1

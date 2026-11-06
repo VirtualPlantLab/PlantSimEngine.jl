@@ -76,7 +76,7 @@ end
 function reader_recipe(compiled)
     application = compiled.applications_by_id[:reader]
     recipe = PSE._application_plans(compiled.scenario_plan.input_recipes_by_application,
-        application.slot)
+        application.id)
     return application, recipe
 end
 

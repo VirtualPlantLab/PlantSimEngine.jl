@@ -278,14 +278,15 @@ end
 # A manual target owns its execution shells. Keep the normal typed context and
 # at most one transient specialization; materialized views share this lease.
 mutable struct CallContextCache{C}
+    const execution_stamp::Base.RefValue{UInt64}
     default::C
     transient::Any
     in_use::Bool
-    execution_revision::UInt64
     evaluation::Union{Nothing,CallEvaluationFrame}
 end
 
-CallContextCache(context) = CallContextCache(context, nothing, false, UInt64(0), nothing)
+CallContextCache(context, stamp::Base.RefValue{UInt64}) =
+    CallContextCache(stamp, context, nothing, false, nothing)
 
 function RunContext(
     compiled,
@@ -1233,6 +1234,30 @@ function _compiled_application_execution_group(application, batches, membership)
         end
     end
     return CompiledApplicationExecutionGroup(application, batches, membership)
+end
+
+# Host preparation can declare an exact future batch family without creating
+# an object, status, model invocation, sample, or a fake execution target.
+function _empty_model_execution_group(application, ::Type{B}, cohorts::ExecutionCohortStore) where {B<:CompiledExecutionBatch}
+    isempty(application.target_ids) || throw(ArgumentError("A future group must start with empty membership."))
+    isconcretetype(B) && fieldtype(B, :application) === typeof(application) ||
+        throw(ArgumentError("The batch schema does not match the prepared application."))
+    Rows = fieldtype(B, :targets)
+    Rows <: ExecutionCohortRows || throw(ArgumentError("Prepared batches require canonical cohort rows."))
+    _execution_cohort(cohorts, nothing, application.id, eltype(Rows))
+    membership = _new_execution_cohort_membership(cohorts, nothing, application.id, 0)
+    return CompiledApplicationExecutionGroup(application, B[], membership)
+end
+
+# Same-schema metadata refresh keeps the existing owner, including its formerly
+# empty slot. A genuinely different open schema keeps the newly compiled group.
+_retain_execution_group(::Nothing, current::CompiledApplicationExecutionGroup) = current
+_retain_execution_group(previous::CompiledApplicationExecutionGroup, current::CompiledApplicationExecutionGroup) = current
+function _retain_execution_group(previous::G, current::G) where {G<:CompiledApplicationExecutionGroup}
+    previous.application === current.application || return current
+    previous.batches = current.batches
+    previous.membership = current.membership
+    return previous
 end
 
 mutable struct RuntimeApplicationSchedule
@@ -3693,7 +3718,7 @@ function _new_model_execution_target(
         call_bindings,
         environment_binding,
         context,
-        CallContextCache(context),
+        CallContextCache(context, status_view.execution_stamp),
     )
 end
 
@@ -4598,17 +4623,24 @@ function _refresh_model_execution_group!(
     group_changed = refreshed.membership_changed ||
                     refreshed.targets_constructed > 0 || calls_extended[]
     group = if isempty(assembled.batches)
-        nothing
+        if !isnothing(previous_group) && previous_group.application === application &&
+           previous_group.batches isa AbstractVector
+            empty!(previous_group.batches)
+            previous_group.membership = refreshed.membership
+            previous_group
+        else
+            nothing
+        end
     elseif reused_group
         previous_group.membership = refreshed.membership
-        group_changed && _runtime_performance_count!(
-            performance, :execution_groups_updated_in_place,
-        )
         previous_group
     else
-        _compiled_application_execution_group(
+        _retain_execution_group(previous_group, _compiled_application_execution_group(
             application, assembled.batches, refreshed.membership,
-        )
+        ))
+    end
+    if !isnothing(group) && group === previous_group && group_changed
+        _runtime_performance_count!(performance, :execution_groups_updated_in_place)
     end
     return (
         group=group,
@@ -4632,6 +4664,30 @@ function _changed_execution_target_ids_by_application(changed_execution_target_i
     return changed_by_application
 end
 
+# Prefer the existing authored position without building a Dict of group
+# objects. Reordered application metadata still matches the old owner by id.
+# Only scalar refresh counts leave the concrete group callback, never a group.
+function _with_previous_execution_group(f, slots, application_id::Symbol,
+    preferred_slot::Int, visited::BitVector,
+)
+    for candidate in 0:length(slots)
+        slot = iszero(candidate) ? preferred_slot : candidate
+        (slot < 1 || slot > length(slots) ||
+         (!iszero(candidate) && slot == preferred_slot)) && continue
+        counts = _with_metadata_entry(slots, slot) do group
+            if !isnothing(group) && group.application.id === application_id
+                return f(group)::NTuple{3,Int}
+            end
+            return nothing
+        end
+        if !isnothing(counts)
+            visited[slot] = true
+            return counts
+        end
+    end
+    return f(nothing)::NTuple{3,Int}
+end
+
 function _refresh_model_execution_plan(
     previous::CompiledExecutionPlan,
     compiled::CompiledCompositeModel,
@@ -4643,12 +4699,12 @@ function _refresh_model_execution_plan(
     changed_application_ids=nothing,
     changed_execution_target_ids=compiled.changed_execution_target_ids,
 )
-    manual_application_ids = _manual_call_application_ids(compiled)
     changed_by_application = isnothing(changed_application_ids) ? nothing :
                              _changed_execution_target_ids_by_application(
         changed_execution_target_ids,
     )
-    previous_groups = Dict(group.application.id => group for group in previous.groups)
+    previous_slots = previous.groups_by_application_slot
+    visited_slots = falses(length(previous_slots))
     groups = CompiledApplicationExecutionGroup[]
     batches = AbstractExecutionBatch[]
     sizehint!(groups, length(previous.groups))
@@ -4656,35 +4712,47 @@ function _refresh_model_execution_plan(
     targets_constructed = 0
     batches_constructed = 0
     groups_reused = 0
-    for application in _ordered_model_applications(compiled)
-        application.id in manual_application_ids && continue
-        previous_group = pop!(previous_groups, application.id, nothing)
-        if !isnothing(previous_group) && !isnothing(changed_application_ids) &&
-           !(application.id in changed_application_ids)
-            push!(groups, previous_group)
-            append!(batches, previous_group.batches)
-            groups_reused += 1
-            continue
+    # These are the compiler's existing dependency-ordered root entries;
+    # call-only applications are already excluded by that same schedule.
+    for entry in compiled.scenario_plan.application_schedule.entries
+        counts = _with_metadata_entry(compiled.applications_by_id, entry.application_id) do application
+            _with_previous_execution_group(previous_slots, application.id,
+                application.slot, visited_slots,
+            ) do previous_group
+                if !isnothing(previous_group) && !isnothing(changed_application_ids) &&
+                   !(application.id in changed_application_ids)
+                    push!(groups, previous_group)
+                    append!(batches, previous_group.batches)
+                    return (0, 0, 1)
+                end
+                changed_ids = isnothing(changed_by_application) ? nothing :
+                              get(changed_by_application, application.id, ())
+                refreshed = _refresh_model_execution_group!(
+                    previous_group, previous.cohorts, compiled, env_bindings, application,
+                    temporal_streams, output_retention, constants, performance, changed_ids,
+                )
+                if !isnothing(refreshed.group)
+                    push!(groups, refreshed.group)
+                    append!(batches, refreshed.group.batches)
+                end
+                return (refreshed.targets_constructed, refreshed.batches_constructed,
+                    Int(refreshed.group_reused))
+            end
         end
-        changed_ids = isnothing(changed_by_application) ? nothing :
-                      get(changed_by_application, application.id, ())
-        refreshed = _refresh_model_execution_group!(
-            previous_group, previous.cohorts, compiled, env_bindings, application,
-            temporal_streams, output_retention, constants, performance, changed_ids,
-        )
-        if !isnothing(refreshed.group)
-            push!(groups, refreshed.group)
-            append!(batches, refreshed.group.batches)
-        end
-        targets_constructed += refreshed.targets_constructed
-        batches_constructed += refreshed.batches_constructed
-        groups_reused += refreshed.group_reused
+        targets_constructed += counts[1]
+        batches_constructed += counts[2]
+        groups_reused += counts[3]
     end
     # A removed application (or one now exclusively called) has no scheduled
-    # membership to merge. Retire only its former owners, never scan survivors.
-    for group in values(previous_groups)
-        for object_id in group.membership.object_ids
-            remove_cohort_target!(previous.cohorts, group.application.id, object_id)
+    # membership. Visit each remaining old slot at its existing type boundary.
+    for slot in eachindex(previous_slots)
+        visited_slots[slot] && continue
+        _with_metadata_entry(previous_slots, slot) do group
+            isnothing(group) && return nothing
+            for object_id in group.membership.object_ids
+                remove_cohort_target!(previous.cohorts, group.application.id, object_id)
+            end
+            return nothing
         end
     end
     same_groups = _same_execution_members(previous.groups, groups)
@@ -4868,7 +4936,7 @@ function _model_application_output_variables(
     # variables that may acquire destinations at a later lifecycle barrier.
     plans = compiled.scenario_plan.distributed_output_plans
     if plans isa CompiledDistributedOutputPlans
-        for plan in _application_plans(plans.by_application, application.slot)
+        for plan in _application_plans(plans.by_application, application.id)
             for variable_ in keys(plan.declarations)
                 variable = Symbol(variable_)
                 variable in variables || push!(variables, variable)
@@ -6047,7 +6115,7 @@ function _prepare_targeted_newborn_targets(
     for application in callee_applications
         isempty(application.target_ids) && continue
         recipe = _application_plans(
-            compiled.scenario_plan.input_recipes_by_application, application.slot,
+            compiled.scenario_plan.input_recipes_by_application, application.id,
         )
         _compile_application_consumer_bindings!(
             input_bindings, model, application, recipe,
@@ -6132,10 +6200,14 @@ function _append_targeted_newborn_targets!(
     application = compiled.applications_by_id[partial_application.id]::typeof(partial_application)
     for object_id in partial_application.target_ids
         key = (application.id, object_id)
+        cache = get(targeted_runtime.call_context_caches, key, nothing)::Union{Nothing,CallContextCache}
+        stamp = isnothing(cache) ? Ref(UInt64(0)) :
+                (getfield(cache, :execution_stamp)::Base.RefValue{UInt64})
         status_view = _compile_model_status_view(
             runtime_model(context), partial_application, object_id,
             get(targeted_input_bindings, key, ()), compiled.applications_by_id,
-            targeted_runtime.application_positions, compiled.distributed_outputs,
+            targeted_runtime.application_positions, compiled.distributed_outputs;
+            execution_stamp=stamp,
         )
         outputs = _runtime_model_output_streams(
             status_view.status, application, object_id, context.temporal_streams,
@@ -6143,15 +6215,50 @@ function _append_targeted_newborn_targets!(
         )
         output_targets = _runtime_model_output_targets(compiled, application, object_id)
         environment_binding = _environment_binding_for(environment_bindings, application.id, object_id)
-        cache = get!(targeted_runtime.call_context_caches, key) do
-            CallContextCache(nothing)
+        # Targeted admission has already resolved this callee without nested
+        # calls. The general payload/cache helper accepts the actual tuple;
+        # nested manual newborns retain their existing full-refresh path.
+        call_bindings = ()
+        if isnothing(cache)
+            cache = _newborn_call_context_cache(context, application, object_id,
+                status_view.bound_inputs, output_targets, call_bindings, environment_bindings, stamp)
+            targeted_runtime.call_context_caches[key] = cache
         end
         push!(targets, _targeted_newborn_call_target(
             context, application, object_id, _application_model(application, object_id),
-            status_view, outputs, output_targets, environment_bindings, environment_binding, cache,
+            status_view, outputs, output_targets, call_bindings,
+            environment_bindings, environment_binding, cache,
         ))
     end
     return targets
+end
+
+# Adopt a pre-barrier newborn's logical counter when the ordinary compiler
+# installs its view. This is cold construction over an existing cache directory,
+# never a kernel-time identity lookup or a second target store.
+function _targeted_call_execution_stamp(model::CompositeModel, key)
+    targeted = lifecycle_delta(model).targeted_topology_runtime
+    if targeted isa _TargetedTopologyRuntime
+        cache = get(targeted.call_context_caches, key, nothing)::Union{Nothing,CallContextCache}
+        isnothing(cache) || return getfield(cache, :execution_stamp)::Base.RefValue{UInt64}
+    end
+    return Ref(UInt64(0))
+end
+
+# Build a real context only on the first preparation of this newborn owner.
+# Repeated target retrieval never changes an active default shell or its leases.
+# Call bindings come from resolution, not from the shape of a cached prototype.
+function _newborn_call_context_cache(context::RunContext, application, object_id,
+    bound_inputs, output_targets, call_bindings::Tuple, environment_bindings,
+    stamp::Base.RefValue{UInt64},
+)
+    prepared = _prepare_model_execution_context!(
+        nothing, context.compiled, environment_bindings, application, object_id,
+        bound_inputs, output_targets, call_bindings, context.temporal_streams,
+        context.output_retention, context.time, context.constants,
+        context.publication_allowed, context.environment,
+    )
+    return CallContextCache(prepared, stamp)
 end
 
 # Status views, publication tuples and handles leave heterogeneous assembly at
@@ -6164,20 +6271,21 @@ function _targeted_newborn_call_target(
     status_view::CompiledModelStatusView,
     outputs::Tuple,
     output_targets::NamedTuple,
+    call_bindings::Tuple,
     environment_bindings::CompiledEnvironmentBindings,
     environment_binding,
-    cache::CallContextCache,
-)
+    cache::CallContextCache{RC},
+) where {RC<:RunContext}
     # Keep the targeted runtime's cache and partial binding shell. In
     # particular, do not intern this owner into the post-barrier cohort store.
     execution_target = _compiled_execution_target(
         object_id, model, status_view, status_view.temporal_inputs,
-        status_view.bound_inputs, output_targets, outputs, (),
+        status_view.bound_inputs, output_targets, outputs, call_bindings,
         environment_binding, cache.default, cache,
     )
     return CallTarget(
         execution_target, context.compiled, environment_bindings, application,
-        object_id, (), context.temporal_streams, context.output_retention,
+        object_id, cache.default.calls, context.temporal_streams, context.output_retention,
         context.time, context.constants, context.publication_allowed, context.environment,
     )
 end
@@ -6510,15 +6618,16 @@ end
 end
 
 @inline function _record_call_execution!(cache, ::Nothing)
-    cache.execution_revision += UInt64(1)
+    cache.execution_stamp[] += UInt64(1)
     return nothing
 end
 
 @inline function _record_call_execution!(cache, frame::CallEvaluationFrame)
-    cache.execution_revision += UInt64(1)
+    stamp = cache.execution_stamp
+    stamp[] += UInt64(1)
     ancestor = frame
     while ancestor !== nothing
-        ancestor.executions[cache] = cache.execution_revision
+        ancestor.executions[stamp] = stamp[]
         ancestor = ancestor.parent
     end
     return frame
@@ -6601,9 +6710,19 @@ end
             target.output_targets, target.execution_target.call_bindings, target.temporal_streams, target.output_retention,
             target.time, target.constants, publication_allowed, environment,
         )
-        _run_owned_call_kernel!(
-            target.execution_target, environment_value, context, frame,
-        )
+        # The common context is concrete in this cache owner. Keep its sampled
+        # row unboxed at the kernel call; stale/trial contexts retain the general
+        # path when their descendant tuple or environment type differs.
+        DefaultContext = typeof(cache.default)
+        if context isa DefaultContext
+            _run_owned_call_kernel!(
+                target.execution_target, environment_value, context::DefaultContext, frame,
+            )
+        else
+            _run_owned_call_kernel!(
+                target.execution_target, environment_value, context, frame,
+            )
+        end
     finally
         acquired && (cache.in_use = false)
     end
@@ -7266,11 +7385,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
         if !isnothing(dirty_environment_object_ids)
             changed_execution_application_ids = Set{Symbol}()
             for object_id in dirty_environment_object_ids
-                for application in get(
-                    simulation.compiled.applications_by_object,
-                    object_id,
-                    (),
-                )
+                _foreach_object_application(simulation.compiled, object_id) do application
                     push!(
                         changed_execution_application_ids,
                         application.id,
@@ -7817,7 +7932,7 @@ function _prepare_simulation!(
     # An existing simulation may have refreshed its environment while retaining
     # its schedule. Compare the current base step even after that refresh.
     preparation = _scenario_preparation(model)
-    _authored_application_recipes(preparation)
+    _validate_authored_scenario(preparation)
     prepared = preparation.resolved
     compiled = model.binding_cache
     if !isnothing(prepared) || !isnothing(compiled)
@@ -8150,7 +8265,7 @@ function _model_request_matches_distributed_output(
     return any(
         plan -> request.var in keys(plan.declarations) &&
                 _selector_labels_may_overlap(request.selector, plan.selector),
-        _application_plans(plans.by_application, application.slot),
+        _application_plans(plans.by_application, application.id),
     )
 end
 

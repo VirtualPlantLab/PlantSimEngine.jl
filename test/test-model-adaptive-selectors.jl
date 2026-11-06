@@ -628,7 +628,7 @@ end
         # vector, because writer filtering mutates those returned vectors.
         application = simulation.compiled.applications_by_id[:partition]
         recipe = PlantSimEngine._application_plans(
-            simulation.compiled.scenario_plan.input_recipes_by_application, application.slot)
+            simulation.compiled.scenario_plan.input_recipes_by_application, application.id)
         cache = PlantSimEngine._input_query_cache(model.registry.objects, recipe.query_count)
         routes = Dict(plan.input => (plan, slot) for (plan, slot) in
             zip(recipe.explicit, recipe.query_slots))

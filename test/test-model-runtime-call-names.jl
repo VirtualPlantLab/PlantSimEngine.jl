@@ -34,7 +34,10 @@ function PSE.run!(model::CaptureOwner, status, environment, constants, context)
     return nothing
 end
 
-@noinline cli_name(args::Vector{String}) = Symbol(only(args))
+@noinline function cli_name(args::Vector{String})
+    length(args) == 1 || throw(ArgumentError("Expected exactly one call name, got $(length(args))."))
+    return Symbol(args[1])
+end
 cli_targets(context, args) = call_targets(context, cli_name(args))
 cli_model(context, args) = call_model(context, cli_name(args))
 cli_run(context, args; publish=false, objects=nothing) =
@@ -68,6 +71,8 @@ function manual_fixture()
 end
 
 @testset "runtime Symbol calls keep finite heterogeneous target branches" begin
+    @test_throws ArgumentError cli_name(String[])
+    @test_throws ArgumentError cli_name(["a", "b"])
     fixture = manual_fixture()
     simulation = run!(fixture.model; outputs=:all)
     context = fixture.capture[]

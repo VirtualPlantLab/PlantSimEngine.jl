@@ -310,7 +310,7 @@ function apply_model_graph_edit(
     candidate = _apply_model_graph_edit!(candidate, edit)
     _mark_bindings_dirty!(candidate)
     if !isnothing(preparation) &&
-       _authored_specs_match(preparation.source_specs, candidate.applications)
+       _authored_specs_match(preparation, candidate)
         candidate.scenario_plan_cache = preparation
         _model_owned_scenario_preparation(candidate, preparation).resolved = nothing
     end

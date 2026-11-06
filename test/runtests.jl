@@ -50,6 +50,8 @@ else
         include("test-execution-cohorts.jl")
         include("test-execution-cohort-refresh.jl")
         include("test-model-canonical-cohorts.jl")
+        include("test-model-persistent-empty-groups.jl")
+        include("test-model-slot-group-refresh.jl")
     end
 
     @testset "Organ creation allocations" begin
@@ -80,14 +82,20 @@ else
     @testset "Reusable scenario plans" begin
         include("test-model-prepared-scenario.jl")
         include("test-model-scenario-authoring.jl")
+        include("test-model-authored-call-plans.jl")
         include("test-compilation-metadata.jl")
         include("test-model-input-recipes.jl")
+        include("test-input-default-values.jl")
+        include("test-application-membership-slots.jl")
+        include("test-registered-status-dispatch.jl")
         include("test-owned-metadata-tables.jl")
         include("test-resolved-input-materialization.jl")
+        include("test-input-source-matching.jl")
     end
 
     @testset "Isolated model diagnostics" begin
         include("test-model-diagnostic-isolation.jl")
+        include("test-model-diagnostic-authoring-recovery.jl")
     end
 
     @testset "Public native compilation API" begin
@@ -104,6 +112,9 @@ else
 
     @testset "Selector candidate scope fast path" begin
         include("test-selector-candidate-empty-scope.jl")
+        include("test-selector-query-scope-root.jl")
+        include("test-selector-query-scope-append.jl")
+        include("test-selector-ancestor-index.jl")
     end
 
     @testset "Lifecycle without target additions" begin
@@ -132,6 +143,7 @@ else
 
     @testset "Accepted call evaluations" begin
         include("test-model-call-evaluations.jl")
+        include("test-model-call-execution-identity.jl")
         include("test-call-evaluation-parent-generation.jl")
     end
 
@@ -187,6 +199,8 @@ else
     @testset "Scheduled newborn initializers" begin
         include("test-model-initializers.jl")
         include("test-model-newborn-execution-owner.jl")
+        include("test-model-newborn-context-initializer.jl")
+        include("test-model-newborn-context-nested.jl")
         include("test-model-runtime-call-names.jl")
     end
 

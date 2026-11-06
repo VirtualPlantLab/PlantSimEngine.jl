@@ -44,3 +44,45 @@ function _status_construction_recipe!(cache, existing_names::Tuple, edit_names::
         StatusConstructionRecipe(existing_names, edit_names)
     end
 end
+
+"""An exact reference layout using the canonical StatusConstructionRecipe."""
+struct ExactReferenceFactory{Existing,Edited,Result,R}
+    construction::R
+
+    ExactReferenceFactory{Existing,Edited,Result,R}(construction::R) where {Existing,Edited,Result,R} =
+        new{Existing,Edited,Result,R}(construction)
+end
+
+_status_schema_names(::Type{Nothing}) = ()
+_status_schema_names(::Type{Status{Names,Refs}}) where {Names,Refs} = Names
+_status_schema_references(::Type{Status{Names,Refs}}) where {Names,Refs} = Refs
+_status_schema_values(::Nothing) = ()
+_status_schema_values(status::Status) = refvalues(status)
+
+_selected_status_reference_type(::ExistingStatusReference{I}, existing, edited) where {I} =
+    fieldtype(existing, I)
+_selected_status_reference_type(::EditedStatusReference{I}, existing, edited) where {I} =
+    fieldtype(edited, I)
+
+# Host/schema-time operation: names and exact reference types only, no values,
+# defaults, callback calls or fake Status objects.
+function ExactReferenceFactory(::Type{Existing}, ::Type{Edited}, ::Type{Result}, edit_names::Tuple) where {Existing,Edited<:Tuple,Result<:Status}
+    (Existing === Nothing || Existing <: Status) && isconcretetype(Existing) &&
+        isconcretetype(Edited) && isconcretetype(Result) ||
+        throw(ArgumentError("An exact reference factory requires concrete status/reference schemas."))
+    fieldcount(Edited) == length(edit_names) && all(T -> T <: Ref, fieldtypes(Edited)) ||
+        throw(ArgumentError("Edited reference types do not match their declared field names."))
+    original_refs = Existing === Nothing ? Tuple{} : _status_schema_references(Existing)
+    construction = StatusConstructionRecipe(_status_schema_names(Existing), edit_names)
+    selected_types = map(construction.actions) do action
+        _selected_status_reference_type(action, original_refs, Edited)
+    end
+    _status_schema_names(Result) == typeof(construction).parameters[1] &&
+        Tuple{selected_types...} === _status_schema_references(Result) ||
+        throw(ArgumentError("Reference selections do not produce the admitted status schema."))
+    return ExactReferenceFactory{Existing,Edited,Result,typeof(construction)}(construction)
+end
+
+@inline function _construct_status(factory::ExactReferenceFactory{Existing,Edited,Result}, original::Existing, edited::Edited) where {Existing,Edited,Result}
+    return _construct_status(factory.construction, _status_schema_values(original), edited)::Result
+end

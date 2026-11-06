@@ -625,27 +625,29 @@ end
     end
 end
 
-@testset "execution stamps track mutable cache identities independently" begin
-    left = PSE.CallContextCache(nothing)
-    right = PSE.CallContextCache(nothing)
+@testset "execution stamps track logical cells independently of cache wrappers" begin
+    left_stamp, right_stamp = Ref(UInt64(0)), Ref(UInt64(0))
+    left = PSE.CallContextCache(nothing, left_stamp)
+    right = PSE.CallContextCache(nothing, right_stamp)
+    alias = PSE.CallContextCache(nothing, left_stamp)
     frame = PSE.CallEvaluationFrame()
-    @test frame.executions isa IdDict{Any,UInt64}
-    @test left !== right
+    @test frame.executions isa IdDict{Base.RefValue{UInt64},UInt64}
+    @test left !== right !== alias
     @test left.default === right.default === nothing
     PSE._record_call_execution!(left, frame)
     PSE._record_call_execution!(right, frame)
     @test length(frame.executions) == 2
-    @test frame.executions[left] == frame.executions[right] == UInt64(1)
+    @test frame.executions[left_stamp] == frame.executions[right_stamp] == UInt64(1)
     left.transient = (candidate=:changed,)
     left.in_use = true
-    PSE._record_call_execution!(left, frame)
-    @test frame.executions[left] == UInt64(2)
-    @test frame.executions[right] == UInt64(1)
-    @test PSE._call_execution_matches(left, frame.executions)
-    @test PSE._call_execution_matches(right, frame.executions)
-    left.execution_revision += UInt64(1)
-    @test !PSE._call_execution_matches(left, frame.executions)
-    @test PSE._call_execution_matches(right, frame.executions)
+    PSE._record_call_execution!(alias, frame)
+    @test frame.executions[left_stamp] == UInt64(2)
+    @test frame.executions[right_stamp] == UInt64(1)
+    @test PSE._call_execution_matches(left_stamp, frame.executions)
+    @test PSE._call_execution_matches(right_stamp, frame.executions)
+    PSE._record_call_execution!(alias, nothing)
+    @test !PSE._call_execution_matches(left_stamp, frame.executions)
+    @test PSE._call_execution_matches(right_stamp, frame.executions)
     PSE._clear_call_execution_stamps!(frame)
     @test isempty(frame.executions)
     PSE._clear_call_execution_stamps!(frame)
@@ -662,8 +664,8 @@ end
     pending_left = evaluate_call!(left)
     pending_right = evaluate_call!(right)
     @test length(pending_left.frame.executions) == 1
-    @test haskey(pending_left.frame.executions, left.context_cache)
-    @test !haskey(pending_left.frame.executions, right.context_cache)
+    @test haskey(pending_left.frame.executions, left.context_cache.execution_stamp)
+    @test !haskey(pending_left.frame.executions, right.context_cache.execution_stamp)
     run_call!(right; publish=false)
     @test accept_call!(pending_left) === pending_left
     @test_throws ArgumentError accept_call!(pending_right)
@@ -682,8 +684,8 @@ end
     outer = evaluate_call!(context, :middle)
     leaf = only(call_targets(middle.context_cache.default, :leaf))
     @test length(outer.frame.executions) == 2
-    @test haskey(outer.frame.executions, middle.context_cache)
-    @test haskey(outer.frame.executions, leaf.context_cache)
+    @test haskey(outer.frame.executions, middle.context_cache.execution_stamp)
+    @test haskey(outer.frame.executions, leaf.context_cache.execution_stamp)
     @test isempty(leaf.context_cache.evaluation.executions)
     @test isempty(raw(simulation, :leaf, :leaf, :seen))
     @test accept_call!(outer) === outer

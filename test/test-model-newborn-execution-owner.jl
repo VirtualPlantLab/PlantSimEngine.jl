@@ -73,13 +73,24 @@ end
     @test data.first.status === data.second.status === model_status(model, :born)
     @test data.first.execution_target.status_view.status === data.first.status
     @test data.first.context_cache === data.second.context_cache
-    @test data.first.execution_target.context === nothing
-    @test data.first.context_cache.default === nothing
-    @test data.first.context_cache.execution_revision == 2
+    @test data.first.execution_target.context isa PSE.RunContext
+    @test data.first.context_cache.default === data.first.execution_target.context
+    @test data.second.execution_target.context === data.first.execution_target.context
+    @test data.first.execution_target.context.object_id === ObjectId(:born)
+    @test data.first.execution_target.context.application.id === :newborn_state
+    @test data.first.execution_target.context.bound_inputs === data.first.bound_inputs
+    @test data.first.execution_target.context.calls === data.first.calls
+    @test data.first.context_cache.execution_stamp[] == 2
     @test !data.first.context_cache.in_use
     @test data.lease_checks == [true, true]
     @test length(contexts) == 2
     @test contexts[1] !== contexts[2]
+    @test contexts[1] === data.first.context_cache.default
+    @test contexts[1].time == contexts[2].time == 1.0
+    @test contexts[1].publication_allowed
+    @test !contexts[2].publication_allowed
+    @test contexts[1].environment isa PSE.NoEnvironmentOverride
+    @test contexts[2].environment isa PSE.NoEnvironmentOverride
     @test data.dirty
     @test isnothing(data.prebarrier_location)
     @test !PSE.bindings_dirty(model)
@@ -92,7 +103,7 @@ end
     # stamps after the ordinary lifecycle barrier installs current bindings.
     run_call!(data.first; publish=false)
     @test data.first.time == 1.0
-    @test data.first.context_cache.execution_revision == 3
+    @test data.first.context_cache.execution_stamp[] == 3
     @test model_status(model, :born).calls == 3
     @test outputs(simulation)[(:newborn_state, ObjectId(:born), :calls)] == [(1.0, 2)]
     continue!(simulation)

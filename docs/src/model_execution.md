@@ -69,8 +69,9 @@ other simulations with different choices.
 ## Compilation Before Runtime
 
 `CompositeModel` prepares the application declarations when you construct it:
-application identifiers, selector rules, output-port names, and environment
-hints. It registers the objects you supplied without running their equations.
+application identifiers, selector rules, output-port names, environment hints,
+and declared calls between models. It registers the objects you supplied without
+running their equations.
 
 Starting a simulation resolves those declarations against the current objects
 and environment. This preparation is called **compilation**. It:

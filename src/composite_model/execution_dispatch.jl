@@ -2,29 +2,13 @@ abstract type ExecutionTopology end
 struct DynamicExecution <: ExecutionTopology end
 struct FixedExecution <: ExecutionTopology end
 
-@inline function _run_execution_slot!(groups::AbstractVector, slot::Int, simulation::Simulation, step::Integer)
-    group = groups[slot]
-    isnothing(group) && return false
-    _run_model_execution_group!(group, simulation, step, simulation.performance)
-    return true
-end
-
-# Application slots are part of a closed plan's schema. Both representations
-# enter the same group/batch executor, while this dispatch keeps tuple members
-# concrete when the caller supplies an ordinary runtime slot number.
-@generated function _run_execution_slot!(groups::G, slot::Int, simulation::Simulation, step::Integer) where {G<:Tuple}
-    branches = map(1:fieldcount(G)) do index
-        body = fieldtype(G, index) === Nothing ? :(return false) : quote
-            _run_model_execution_group!(getfield(groups, $index), simulation, step, simulation.performance)
-            return true
-        end
-        :(if slot == $index
-            $body
-        end)
-    end
-    return quote
-        $(branches...)
-        throw(BoundsError(groups, slot))
+# Both container representations enter the same group/batch executor. Scalar
+# metadata dispatch keeps a closed tuple's group concrete inside the callback.
+@inline function _run_execution_slot!(groups::G, slot::Int, simulation::Simulation, step::Integer) where {G<:Union{AbstractVector,Tuple}}
+    return _with_metadata_entry(groups, slot) do group
+        isnothing(group) && return false
+        _run_model_execution_group!(group, simulation, step, simulation.performance)
+        return true
     end
 end
 

@@ -31,6 +31,20 @@ struct ClosedObjectFamilyCatalog{F<:Tuple}
     families::F
 end
 
+# Open registration crosses the ordinary JIT function barrier. Closed
+# registration keeps the operation inside the exact admitted Status branch,
+# rather than first returning a large union from the Object's Any-valued field.
+@inline _with_registered_status(f, ::OpenObjectFamilyCatalog, status) = f(status)
+
+@generated function _with_registered_status(f, ::ClosedObjectFamilyCatalog{F}, status) where {F}
+    schemas = unique(family.parameters[2] for family in fieldtypes(F))
+    branches = [:(status isa $S && return f(status::$S)) for S in schemas]
+    return quote
+        $(branches...)
+        throw(ArgumentError("The status schema is outside the prepared object family catalog."))
+    end
+end
+
 """Canonical object identities and typed status families behind the object dictionary."""
 struct ObjectFamilyStore{I<:ObjectId,C} <: AbstractDict{I,Object}
     catalog::C
@@ -163,9 +177,12 @@ function _store_object_family_row!(store::ObjectFamilyStore{K}, object::Object, 
     return status
 end
 
-function Base.setindex!(store::ObjectFamilyStore, object::Object, id)
+function Base.setindex!(store::ObjectFamilyStore{I}, object::Object, id) where {I<:ObjectId}
     isequal(object.id, id) || throw(ArgumentError("The dictionary key must match the Object identity."))
-    _store_object_family_row!(store, object, object.id, object.status)
+    object.id isa I || throw(ArgumentError("The object identity type is outside the prepared family catalog."))
+    _with_registered_status(store.catalog, object.status) do status
+        _store_object_family_row!(store, object, object.id::I, status)
+    end
     return store
 end
 

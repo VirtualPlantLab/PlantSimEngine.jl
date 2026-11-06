@@ -933,8 +933,9 @@ function _mark_bindings_dirty!(
             :structural
         end
     end
-    delta.structural_kind === :addition ||
-        (delta.targeted_topology_runtime = nothing)
+    # Non-addition events cannot use targeted membership preparation. Keep its
+    # execution stamps reachable until the barrier adopts them into ordinary
+    # views; consuming the structural delta then releases the runtime.
     if !model.bindings_dirty
         model.revision += 1
     end
@@ -1094,10 +1095,13 @@ function _replace_model_object_status!(
         "got `$(typeof(status))`.",
     )
     object.status === status && return status
-    _store_object_family_row!(model.registry.objects, object, object.id, status)
-    setfield!(object, :status, status)
-    _set_status_source_identity!(model, object.id, status)
-    return status
+    store = model.registry.objects
+    return _with_registered_status(store.catalog, status) do admitted
+        _store_object_family_row!(store, object, object.id::keytype(store), admitted)
+        setfield!(object, :status, admitted)
+        _set_status_source_identity!(model, object.id, admitted)
+        return admitted
+    end
 end
 
 function _replace_model_object_status!(model::CompositeModel, object_id, status)
@@ -1337,16 +1341,35 @@ function _register_object_without_lifecycle!(
     if !isnothing(parent_id) && !haskey(registry.objects, parent_id)
         error("No model object with id `$(parent_id.value)`.")
     end
-    source_status = object.status
+    return _register_object_status!(model, object, parent_id, object.status, status_values_materialized)
+end
+
+# The same conversion and ownership operations serve both catalog forms. An
+# unconverted source need not be a canonical family when conversion is active.
+function _register_object_status!(model, object, parent_id, source_status, status_values_materialized)
     _validate_status_source_identity_available!(model, source_status, object.id)
-    object.status = status_values_materialized ?
-                    source_status :
-                    _convert_registered_status(model, object.id, source_status)
-    _validate_status_identity_available!(registry, object.status, object.id)
+    catalog = model.registry.objects.catalog
+    if status_values_materialized || _no_status_conversion(model.status_conversion)
+        return _with_registered_status(catalog, source_status) do status
+            _register_converted_object!(model, object, parent_id, status, status)
+        end
+    end
+    status = _convert_registered_status(model, object.id, source_status)
+    return _with_registered_status(catalog, status) do converted
+        _register_converted_object!(model, object, parent_id, source_status, converted)
+    end
+end
+
+function _register_converted_object!(model, object, parent_id, source_status, status)
+    registry = model.registry
+    _validate_status_identity_available!(registry, status, object.id)
+    object.status = status
     instance = isnothing(parent_id) ? nothing : _instance_for_object(model, parent_id)
     _apply_instance_labels!(object, instance)
     object.parent = parent_id
-    registry.objects[object.id] = object
+    store = registry.objects
+    id = object.id::keytype(store)
+    _store_object_family_row!(store, object, id, status)
     _index_object!(registry, object)
     _set_status_source_identity!(model, object.id, source_status)
     ancestors = isnothing(parent_id) ?
@@ -1750,7 +1773,7 @@ function refresh_bindings!(
         )
     end
     preparation = _scenario_preparation(model; force)
-    _authored_application_recipes(preparation)
+    _validate_authored_scenario(preparation)
     prepared = preparation.resolved
     previous = model.binding_cache
     plan_changed = !isnothing(prepared) && !isnothing(previous) &&

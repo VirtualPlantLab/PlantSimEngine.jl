@@ -19,7 +19,7 @@ const PSE = PlantSimEngine
     @test PSE._status_recipe_set_reference!(edits, :replace, replacement)
     @test PSE._status_recipe_set_reference!(edits, :tail, tail)
     @test !PSE._status_recipe_set_reference!(edits, :tail, tail)
-    constructed = PSE._finish_status_recipe(model, edits)
+    constructed = PSE._finish_canonical_status_recipe(identity, model, edits)
     @test propertynames(constructed) == (:keep, :replace, :tail)
     @test PSE.refvalue(constructed, :keep) === keep
     @test PSE.refvalue(constructed, :replace) === replacement
@@ -27,14 +27,14 @@ const PSE = PlantSimEngine
     @test PSE._status_recipe_reference(edits, :keep) === keep
     @test PSE._status_recipe_reference(edits, :replace) === replacement
     @test_throws KeyError PSE._status_recipe_reference(edits, :absent)
-    @test PSE._finish_status_recipe(model, PSE._CanonicalStatusRecipe(original)) === original
+    @test PSE._finish_canonical_status_recipe(identity, model, PSE._CanonicalStatusRecipe(original)) === original
 
     cache = model.registry.objects.layout_cache
     layout = only(values(cache))
     same_shape = PSE._CanonicalStatusRecipe(Status(keep=8, replace=9.0))
     PSE._status_recipe_set_reference!(same_shape, :replace, Ref(big"10.0"))
     PSE._status_recipe_set_reference!(same_shape, :tail, Ref([11.0f0]))
-    another = PSE._finish_status_recipe(model, same_shape)
+    another = PSE._finish_canonical_status_recipe(identity, model, same_shape)
     @test typeof(another) !== typeof(constructed)
     @test another.replace isa BigFloat
     @test another.tail isa Vector{Float32}
@@ -47,13 +47,13 @@ const PSE = PlantSimEngine
     external = Ref(storage, 1)
     external_edit = PSE._CanonicalStatusRecipe(Status(keep=1))
     PSE._status_recipe_set_reference!(external_edit, :external, external)
-    external_status = PSE._finish_status_recipe(model, external_edit)
+    external_status = PSE._finish_canonical_status_recipe(identity, model, external_edit)
     @test PSE.refvalue(external_status, :external) === external
     storage[1] = 13.0
     @test external_status.external == 13.0
 
-    empty_a = PSE._finish_status_recipe(model, PSE._CanonicalStatusRecipe(nothing))
-    empty_b = PSE._finish_status_recipe(model, PSE._CanonicalStatusRecipe(nothing))
+    empty_a = PSE._finish_canonical_status_recipe(identity, model, PSE._CanonicalStatusRecipe(nothing))
+    empty_b = PSE._finish_canonical_status_recipe(identity, model, PSE._CanonicalStatusRecipe(nothing))
     @test propertynames(empty_a) == ()
     @test getfield(empty_a, :identity) !== getfield(empty_b, :identity)
     @test all(isbits, values(cache))

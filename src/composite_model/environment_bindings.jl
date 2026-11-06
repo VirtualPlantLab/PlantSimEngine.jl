@@ -135,7 +135,7 @@ function _update_model_environment_indices_for_objects!(
 )
     application_ids = Set{Symbol}()
     for object_id in dirty_object_ids
-        for application in get(compiled.applications_by_object, object_id, ())
+        _foreach_object_application(compiled, object_id) do application
             push!(application_ids, application.id)
         end
         for target in get(cached.targets_by_object, object_id, ())
@@ -601,35 +601,36 @@ function _refresh_environment_bindings_for_objects(
     stale_targets = Set{Tuple{Symbol,ObjectId}}()
     replacements = Dict{Tuple{Symbol,ObjectId},CompiledEnvironmentBinding}()
     for object_id in dirty_ids
-        current_applications = get(
-            compiled.applications_by_object,
-            object_id,
-            (),
-        )
+        current_applications = _application_membership_slots(compiled, object_id)
         previous_targets = get(cached.targets_by_object, object_id, ())
         isempty(current_applications) && isempty(previous_targets) && continue
-        current_application_ids = Set(
-            application.id for application in current_applications
-        )
+        current_application_ids = Set{Symbol}()
+        for slot in current_applications
+            _with_metadata_entry(current_applications.applications, slot) do application
+                push!(current_application_ids, application.id)
+            end
+        end
         for target in previous_targets
             target[1] in current_application_ids ||
                 push!(stale_targets, target)
         end
         haskey(model.registry.objects, object_id) || continue
-        for application in current_applications
-            partial_application = CompiledModelApplication(
-                application.plan,
-                ObjectId[object_id],
-            )
-            for binding in _compile_environment_bindings_for_applications(
-                model,
-                (partial_application,),
-                cached.application_plans_by_id,
-            )
-                replacements[(
-                    binding.application_id,
-                    binding.object_id,
-                )] = binding
+        for slot in current_applications
+            _with_metadata_entry(current_applications.applications, slot) do application
+                partial_application = CompiledModelApplication(
+                    application.plan,
+                    ObjectId[object_id],
+                )
+                for binding in _compile_environment_bindings_for_applications(
+                    model,
+                    (partial_application,),
+                    cached.application_plans_by_id,
+                )
+                    replacements[(
+                        binding.application_id,
+                        binding.object_id,
+                    )] = binding
+                end
             end
         end
     end
