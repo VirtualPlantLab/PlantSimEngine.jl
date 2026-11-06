@@ -5,6 +5,10 @@ mutable struct ExecutionCohort{T,I<:ObjectId} <: AbstractExecutionCohort
     application_id::Symbol
     rows::Vector{Union{Nothing,T}}
     indices::Dict{I,Int}
+
+    ExecutionCohort{T,I}(owner, application_id::Symbol, rows::Vector{Union{Nothing,T}},
+        indices::Dict{I,Int}) where {T,I<:ObjectId} =
+        new{T,I}(owner, application_id, rows, indices)
 end
 
 struct ExecutionCohortLocation

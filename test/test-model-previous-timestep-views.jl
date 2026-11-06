@@ -770,6 +770,10 @@ end
     )
     initial_target = only(only(initial_call_view.execution_batches).targets)
     initial_temporal_inputs = initial_target.input_bindings
+    initial_source_streams = only(initial_temporal_inputs).source_streams
+    initial_source_stream = only(initial_source_streams)
+    initial_private_values = initial_target.status.signals
+    initial_context = initial_target.context
     @test final_state(simulation, :scene).signal_total == 1.0
     @test final_state(simulation, :scene).source_count == 1
 
@@ -787,8 +791,15 @@ end
     refreshed_target =
         only(only(refreshed_call_view.execution_batches).targets)
     @test refreshed_call_view !== initial_call_view
-    @test refreshed_target !== initial_target
-    @test refreshed_target.input_bindings !== initial_temporal_inputs
+    # The caller metadata belongs to the refreshed call wrapper. Its callee
+    # owner and private temporal storage extend without replacing their schema.
+    @test refreshed_target === initial_target
+    @test refreshed_target.input_bindings === initial_temporal_inputs
+    @test refreshed_target.context === initial_context
+    @test only(refreshed_target.input_bindings).source_streams === initial_source_streams
+    @test first(initial_source_streams) === initial_source_stream
+    @test length(initial_source_streams) == 2
+    @test refreshed_target.status.signals === initial_private_values
     @test length(refreshed_target.status.signals) == 2
     @test outputs(simulation)[
         (:manual_controller, ObjectId(:scene), :signal_total)

@@ -471,7 +471,9 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
             model,
             applications,
             manual_application_ids,
-            _plans_by_application(applications, input_plans),
+            _compiled_application_input_recipes(
+                _plans_by_application(applications, input_plans),
+            ),
             distributed_outputs,
         )
     end

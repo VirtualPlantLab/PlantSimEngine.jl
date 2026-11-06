@@ -48,8 +48,15 @@ end
 Base.propertynames(application::CompiledModelApplication) =
     (:plan, :target_ids, propertynames(application.plan)...)
 
-"""Immutable authored input declaration for one application."""
-struct CompiledModelInputPlan{SEL,M,OA,PSA,W}
+struct InputRouteTag{INPUT,SOURCE,FROM_STATUS} end
+
+_input_route_input(::InputRouteTag{INPUT}) where {INPUT} = INPUT
+_input_route_source(::InputRouteTag{INPUT,SOURCE}) where {INPUT,SOURCE} = Val(SOURCE)
+_input_route_from_status(::InputRouteTag{INPUT,SOURCE,FROM_STATUS}) where {INPUT,SOURCE,FROM_STATUS} = FROM_STATUS
+
+"""Immutable authored input declaration and reference-access recipe."""
+struct CompiledModelInputPlan{TAG,SEL,M,OA,PSA,W}
+    route::TAG
     slot::Int
     application_slot::Int
     application_id::Symbol
@@ -66,6 +73,54 @@ struct CompiledModelInputPlan{SEL,M,OA,PSA,W}
     breaks_same_step_cycle::Bool
     window::W
 end
+
+"""Prepared application input order and query sharing; no live object state."""
+struct CompiledApplicationInputRecipe{E,G,Q}
+    explicit::E
+    inferred::G
+    query_slots::Q
+    query_count::Int
+end
+
+function _input_query_key(plan::CompiledModelInputPlan)
+    matcher = plan.matcher
+    return (
+        plan.multiplicity,
+        matcher.scope, matcher.relation, matcher.scale, matcher.kind,
+        matcher.species, matcher.id, matcher.defaults_to_context,
+    )
+end
+
+function _compiled_application_input_recipe(plans)
+    explicit = Tuple(plan for plan in plans if plan.origin != :inferred_same_object)
+    inferred_names = Symbol[]
+    inferred = Dict{Symbol,Vector{CompiledModelInputPlan}}()
+    for plan in plans
+        plan.origin == :inferred_same_object || continue
+        if !haskey(inferred, plan.input)
+            push!(inferred_names, plan.input)
+            inferred[plan.input] = CompiledModelInputPlan[]
+        end
+        push!(inferred[plan.input], plan)
+    end
+    groups = Tuple(Tuple(inferred[name]) for name in inferred_names)
+    keys = map(_input_query_key, explicit)
+    counts = Dict{Any,Int}()
+    for key in keys
+        counts[key] = get(counts, key, 0) + 1
+    end
+    shared_slots = Dict{Any,Int}()
+    query_slots = map(keys) do key
+        counts[key] > 1 || return 0
+        get!(shared_slots, key) do
+            length(shared_slots) + 1
+        end
+    end
+    return CompiledApplicationInputRecipe(explicit, groups, query_slots, length(shared_slots))
+end
+
+_compiled_application_input_recipes(plans_by_application) =
+    map(_compiled_application_input_recipe, plans_by_application)
 
 """Immutable authored hard-call declaration for one application."""
 struct CompiledModelCallPlan{NAME,MODE,SEL,M,PCA}
@@ -576,12 +631,13 @@ end
 Immutable application, dependency-declaration, and timeline metadata shared by
 every lifecycle refresh of a compiled scenario.
 """
-struct CompiledScenarioPlan{AP,AI,ATI,IP,IPI,CP,CPI,DOP,CO,MA,AC,AO,OAP,AS,TL}
+struct CompiledScenarioPlan{AP,AI,ATI,IP,IPI,IR,CP,CPI,DOP,CO,MA,AC,AO,OAP,AS,TL}
     applications::AP
     applications_by_id::AI
     application_target_candidates::ATI
     input_plans::IP
     input_plans_by_application::IPI
+    input_recipes_by_application::IR
     call_plans::CP
     call_plans_by_application::CPI
     distributed_output_plans::DOP
@@ -1144,12 +1200,14 @@ function _compiled_scenario_plan(
         application_order,
         manual_application_ids,
     )
+    input_plans_by_application = _plans_by_application(applications, input_plans)
     return CompiledScenarioPlan(
         application_plans,
         application_plans_by_id,
         _application_target_candidate_index(model, application_plans),
         Tuple(input_plans),
-        _plans_by_application(applications, input_plans),
+        input_plans_by_application,
+        _compiled_application_input_recipes(input_plans_by_application),
         Tuple(call_plans),
         _plans_by_application(applications, call_plans),
         distributed_output_plans,
@@ -1166,10 +1224,10 @@ function _compiled_scenario_plan(
     )
 end
 
-struct CompiledModelInputBinding{PL,P,C}
+struct CompiledModelInputBinding{PL,P,C,I<:ObjectId,SI<:AbstractVector{<:ObjectId}}
     plan::PL
-    consumer_id::ObjectId
-    source_ids::Vector{ObjectId}
+    consumer_id::I
+    source_ids::SI
     source_application_ids::Vector{Symbol}
     policy::P
     carrier_hint::Symbol
@@ -1892,7 +1950,7 @@ function _compile_scene(
         model,
         applications,
         scenario_plan.manual_application_ids,
-        scenario_plan.input_plans_by_application,
+        scenario_plan.input_recipes_by_application,
         distributed_outputs,
     )
     many_input_binding_cache =
@@ -2147,12 +2205,12 @@ function _insert_sorted_object_ids!(ids, added_ids)
     return ids
 end
 
-Base.@nospecializeinfer function _compile_added_consumer_bindings!(
+function _compile_added_consumer_bindings!(
     bindings,
     model,
     application,
     consumer_id,
-    input_plans,
+    recipe::CompiledApplicationInputRecipe,
     manual_application_ids,
     applications_by_object,
     applications_by_id,
@@ -2160,88 +2218,50 @@ Base.@nospecializeinfer function _compile_added_consumer_bindings!(
     many_binding_cache=nothing,
     performance=nothing,
 )
-    # Cold assembly must not specialize on each application × input-plan tuple.
-    @nospecialize application input_plans
-    # One consumer's inputs often select the same objects for different
-    # variables/producers. Keep this cache local to this invocation so neither
-    # scene identity nor lifecycle invalidation needs persistent cache state.
-    share_object_queries = count(
-        plan -> plan.origin != :inferred_same_object,
-        input_plans,
-    ) > 1
-    object_query_cache = share_object_queries ? Dict{Any,Vector{ObjectId}}() : nothing
-    for plan in input_plans
-        plan.origin == :inferred_same_object && continue
+    query_cache = _input_query_cache(model.registry.objects, recipe.query_count)
+    foreach(recipe.explicit, recipe.query_slots) do plan, query_slot
         if !isnothing(many_binding_cache)
             shared_binding = _shared_many_input_binding(
-                many_binding_cache,
-                model,
-                plan,
-                consumer_id,
+                many_binding_cache, model, plan, consumer_id,
             )
             if !isnothing(shared_binding)
                 push!(bindings, shared_binding)
-                _runtime_performance_count!(
-                    performance,
-                    :many_input_binding_precompile_reuses,
-                )
-                continue
+                _runtime_performance_count!(performance, :many_input_binding_precompile_reuses)
+                return nothing
             end
         end
-        _push_model_input_binding!(
-            bindings,
-            model,
-            application,
-            consumer_id,
-            plan,
-            applications_by_object,
-            applications_by_id,
-            nothing,
-            distributed_outputs,
-            ; object_query_cache,
+        _resolve_materialize_input_route!(
+            bindings, model, application, consumer_id, plan,
+            applications_by_object, applications_by_id, nothing, distributed_outputs;
+            query_cache, query_slot,
         )
     end
     application.id in manual_application_ids && return bindings
-    processed_inputs = Set{Symbol}()
-    for plan in input_plans
-        plan.origin == :inferred_same_object || continue
-        plan.input in processed_inputs && continue
-        push!(processed_inputs, plan.input)
+    foreach(recipe.inferred) do group
+        plan = first(group)
         matches = CompiledModelInputPlan[
-            candidate for candidate in input_plans
-            if candidate.origin == :inferred_same_object &&
-               candidate.input == plan.input &&
-               _application_writes_object_variable(
-                   distributed_outputs,
-                   applications_by_id[candidate.application],
-                   consumer_id,
-                   candidate.source_var,
-               )
+            candidate for candidate in group
+            if _application_writes_object_variable(
+                distributed_outputs,
+                applications_by_id[candidate.application],
+                consumer_id,
+                candidate.source_var,
+            )
         ]
         matches = _final_inferred_output_plans(
-            distributed_outputs,
-            consumer_id,
-            plan.source_var,
-            matches,
+            distributed_outputs, consumer_id, plan.source_var, matches,
         )
-        isempty(matches) && continue
+        isempty(matches) && return nothing
         if length(matches) > 1
             error(
-                "Input `$(plan.input)` on application `$(application.id)` for object `$(consumer_id.value)` ",
-                "has ambiguous same-object producers: `$([match.application for match in matches])`. ",
+                "Input `$(plan.input)` on application `$(application.id)` for object `$(consumer_id.value)` " *
+                "has ambiguous same-object producers: `$([match.application for match in matches])`. " *
                 "Add `inputs=(:$(plan.input) => One(...),)` to disambiguate."
             )
         end
-        _push_model_input_binding!(
-            bindings,
-            model,
-            application,
-            consumer_id,
-            only(matches),
-            applications_by_object,
-            applications_by_id,
-            ObjectId[consumer_id],
-            distributed_outputs,
+        _resolve_materialize_input_route!(
+            bindings, model, application, consumer_id, only(matches),
+            applications_by_object, applications_by_id, [consumer_id], distributed_outputs,
         )
     end
     return bindings
@@ -2571,7 +2591,7 @@ function _append_added_many_sources!(
         performance,
     ) && return true
 
-    new_carrier = _input_carrier(model, binding.selector, new_source_ids, binding.source_var)
+    new_carrier = _input_carrier(model, binding.selector, new_source_ids, _input_route_source(binding.plan.route))
     isnothing(new_carrier) && return false
     existing_refs = parent(binding.carrier)
     new_refs = parent(new_carrier)
@@ -3836,7 +3856,7 @@ function _extend_compiled_scene(
         end
         application = applications_by_id[binding.application_id]
         replacement = CompiledModelInputBinding[]
-        _push_model_input_binding!(
+        _resolve_materialize_input_route!(
             replacement,
             model,
             application,
@@ -3884,7 +3904,7 @@ function _extend_compiled_scene(
                 application,
                 consumer_id,
                 _application_plans(
-                    compiled.scenario_plan.input_plans_by_application,
+                    compiled.scenario_plan.input_recipes_by_application,
                     application.slot,
                 ),
                 manual_application_ids,
@@ -5132,27 +5152,36 @@ function _dependency_object_ids(
     )
 end
 
-function _cached_dependency_object_ids(
-    cache,
-    model::CompositeModel,
-    selector::AbstractObjectMultiplicity,
-    matcher::CompiledSelectorMatcher,
-    context::ObjectId,
-)
-    isnothing(cache) &&
-        return _dependency_object_ids(model, selector, matcher, context)
-    key = (
-        multiplicity(selector),
-        matcher.scope, matcher.relation, matcher.scale, matcher.kind,
-        matcher.species, matcher.id, matcher.defaults_to_context,
-    )
-    cached_ids = get(cache, key, nothing)
-    isnothing(cached_ids) || return copy(cached_ids)
-    ids = _dependency_object_ids(model, selector, matcher, context)
-    # Writer filtering and lifecycle carriers own mutable vectors. The cache
-    # retains an unfiltered snapshot and never lends it to a binding.
-    cache[key] = copy(ids)
-    return ids
+_input_binding_source_ids(::ObjectFamilyStore, source_ids) = source_ids
+
+function _input_binding_source_ids(::ObjectFamilyStore{I,<:ClosedObjectFamilyCatalog}, source_ids) where {I<:ObjectId}
+    source_ids isa Vector{I} && return source_ids
+    narrowed = Vector{I}(undef, length(source_ids))
+    for index in eachindex(source_ids)
+        source_id = source_ids[index]
+        source_id isa I || throw(ArgumentError("Input source identity is outside the prepared object schema."))
+        narrowed[index] = source_id::I
+    end
+    return narrowed
+end
+
+function _input_query_cache(store::ObjectFamilyStore{I}, count::Int) where {I}
+    iszero(count) && return nothing
+    return fill!(Vector{Union{Nothing,Vector{I}}}(undef, count), nothing)
+end
+
+function _input_route_source_ids(cache, query_slot, model, plan, consumer_id)
+    if !isnothing(cache) && !iszero(query_slot)
+        cached_ids = cache[query_slot]
+        isnothing(cached_ids) || return copy(cached_ids)
+    end
+    source_ids = _input_binding_source_ids(model.registry.objects,
+        _dependency_object_ids(model, plan.selector, plan.matcher, consumer_id))
+    # Each binding still owns mutable IDs; cached queries remain unfiltered.
+    if !isnothing(cache) && !iszero(query_slot)
+        cache[query_slot] = copy(source_ids)
+    end
+    return source_ids
 end
 
 function _carrier_hint(selector::AbstractObjectMultiplicity, policy, window)
@@ -5162,18 +5191,21 @@ function _carrier_hint(selector::AbstractObjectMultiplicity, policy, window)
     return :shared_ref
 end
 
-function _status_ref_or_nothing(status, var::Symbol)
+_input_reference_name(variable::Symbol) = variable
+_input_reference_name(::Val{VARIABLE}) where {VARIABLE} = VARIABLE
+
+function _status_ref_or_nothing(status::S, variable) where {S}
     status isa Status || return nothing
-    var in propertynames(status) || return nothing
-    return refvalue(status, var)
+    name = _input_reference_name(variable)
+    name in propertynames(status) || return nothing
+    return refvalue(status, name)
 end
 
-function _input_carrier(model::CompositeModel, selector::AbstractObjectMultiplicity, source_ids::Vector{ObjectId}, source_var::Symbol)
+function _input_carrier(model::CompositeModel, selector::AbstractObjectMultiplicity, source_ids::AbstractVector{<:ObjectId}, source_var)
     refs = Base.RefValue[]
     selector isa Many && sizehint!(refs, length(source_ids) + 1)
     for source_id in source_ids
-        object = _model_object(model, source_id)
-        source_ref = _status_ref_or_nothing(object.status, source_var)
+        source_ref = _status_ref_or_nothing(model_status(model, source_id), source_var)
         isnothing(source_ref) && return nothing
         push!(refs, source_ref)
     end
@@ -7145,7 +7177,9 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
             "`PreviousTimeStep(:$(input))`."
         )
     end
+    route = InputRouteTag{input,source_var,_selector_from_status(selector)}()
     return CompiledModelInputPlan(
+        route,
         length(plans) + 1,
         application.plan.slot,
         application.id,
@@ -7439,14 +7473,13 @@ function _compile_model_input_bindings(
     model::CompositeModel,
     applications,
     manual_application_ids=Set{Symbol}(),
-    plans_by_application=nothing,
+    input_recipes_by_application=nothing,
     distributed_outputs=NoCompiledDistributedOutputs(),
 )
-    if isnothing(plans_by_application)
-        plans_by_application = _plans_by_application(
-            applications,
-            _compile_model_input_plans(model, applications),
-        )
+    if isnothing(input_recipes_by_application)
+        plans = _compile_model_input_plans(model, applications)
+        input_recipes_by_application = _compiled_application_input_recipes(
+            _plans_by_application(applications, plans))
     end
     bindings = CompiledModelInputBinding[]
     by_object = _applications_by_object(applications)
@@ -7458,7 +7491,7 @@ function _compile_model_input_bindings(
                 model,
                 application,
                 consumer_id,
-                _application_plans(plans_by_application, application.slot),
+                _application_plans(input_recipes_by_application, application.slot),
                 manual_application_ids,
                 by_object,
                 by_id,
@@ -7469,7 +7502,7 @@ function _compile_model_input_bindings(
     return bindings
 end
 
-Base.@nospecializeinfer function _push_model_input_binding!(
+function _resolve_materialize_input_route!(
     bindings,
     model::CompositeModel,
     application::CompiledModelApplication,
@@ -7479,22 +7512,17 @@ Base.@nospecializeinfer function _push_model_input_binding!(
     applications_by_id,
     source_ids_override=nothing,
     distributed_outputs=NoCompiledDistributedOutputs(),
-    ; object_query_cache=nothing,
+    ; query_cache=nothing, query_slot::Int=0,
 )
-    @nospecialize application plan
-    input_sym = plan.input
+    input_sym = _input_route_input(plan.route)
     selector = plan.selector
-    source_var = plan.source_var
+    source_var_tag = _input_route_source(plan.route)
+    source_var = _input_reference_name(source_var_tag)
     process_filter = plan.process
     application_filter = plan.application
     source_ids = isnothing(source_ids_override) ?
-                 _cached_dependency_object_ids(
-        object_query_cache,
-        model,
-        selector,
-        plan.matcher,
-        consumer_id,
-    ) : source_ids_override
+        _input_route_source_ids(query_cache, query_slot, model, plan, consumer_id) :
+        _input_binding_source_ids(model.registry.objects, source_ids_override)
     _filter_many_input_sources_by_writer!(
         source_ids,
         selector,
@@ -7506,7 +7534,7 @@ Base.@nospecializeinfer function _push_model_input_binding!(
         applications_by_object,
     )
     selector isa Many && sizehint!(source_ids, length(source_ids) + 1)
-    source_application_ids = if _selector_from_status(selector)
+    source_application_ids = if _input_route_from_status(plan.route)
         Symbol[]
     else
         _matching_input_source_applications(
@@ -7569,7 +7597,7 @@ Base.@nospecializeinfer function _push_model_input_binding!(
     if selector isa OptionalOne &&
        (!isnothing(process_filter) || !isnothing(application_filter)) &&
        isempty(source_application_ids)
-        source_ids = ObjectId[]
+        source_ids = empty(source_ids)
     end
     policy = _model_selector_policy(selector, applications_by_id, source_application_ids, source_var)
     if policy isa PreviousTimeStep
@@ -7601,7 +7629,7 @@ Base.@nospecializeinfer function _push_model_input_binding!(
             applications_by_id,
         )
     else
-        _input_carrier(model, selector, source_ids, source_var)
+        _input_carrier(model, selector, source_ids, source_var_tag)
     end
     carrier_hint = if isempty(source_ids) && selector isa OptionalOne
         :optional_default
@@ -7722,7 +7750,7 @@ function _matches_input_source_writer(
     local_writer = any(get(applications_by_object, source_id, ())) do application
         isnothing(process_filter) || application.process == process_filter || return false
         isnothing(application_filter) || application.id == application_filter || return false
-        return haskey(_local_output_schema(application.spec), source_var)
+        return source_var in _model_output_names(application)
     end
     local_writer && return true
     return _has_matching_distributed_input_writer(
@@ -7768,7 +7796,7 @@ function _validate_model_input_source!(
     consumer_id::ObjectId,
     input_sym::Symbol,
     source_var::Symbol,
-    source_ids::Vector{ObjectId},
+    source_ids::AbstractVector{<:ObjectId},
     carrier,
     carrier_hint::Symbol,
 )

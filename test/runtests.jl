@@ -80,6 +80,7 @@ else
     @testset "Reusable scenario plans" begin
         include("test-model-prepared-scenario.jl")
         include("test-compilation-metadata.jl")
+        include("test-model-input-recipes.jl")
     end
 
     @testset "Isolated model diagnostics" begin

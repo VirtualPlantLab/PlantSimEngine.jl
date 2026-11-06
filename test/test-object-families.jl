@@ -37,6 +37,51 @@ const PSE = PlantSimEngine
     @test family.rows[location.row].status === supplied
 end
 
+@noinline function escape_registered_status!(sink, model, id, count)
+    for _ in 1:count
+        sink[] = model_status(model, id)
+    end
+    return nothing
+end
+
+registered_status_allocations(sink, model, id, count) =
+    @allocated escape_registered_status!(sink, model, id, count)
+
+@testset "escaping open-family lookups reuse the canonical Status box" begin
+    supplied = Status(value=1f0, items=Float32[2], counter=0, label=:leaf, active=true)
+    object = Object(:leaf; status=supplied)
+    model = CompositeModel(object)
+    sink = Ref{Any}()
+    for _ in 1:2
+        escape_registered_status!(sink, model, object.id, 1000)
+        registered_status_allocations(sink, model, object.id, 1000)
+    end
+    @test registered_status_allocations(sink, model, object.id, 1) == 0
+    @test registered_status_allocations(sink, model, object.id, 1000) == 0
+    @test sink[] === supplied === object.status
+    @test all(index -> PSE.refvalues(sink[])[index] === PSE.refvalues(supplied)[index],
+              eachindex(PSE.refvalues(supplied)))
+    location = model.registry.objects.locations[object.id]
+    family = model.registry.objects.catalog.families[location.family]
+    @test family.rows[location.row].status === sink[]
+    sink[].items[1] = 3f0
+    @test supplied.items === object.status.items
+    @test supplied.items == Float32[3]
+
+    replacement = Status(value=4.0, items=[5.0], counter=1, label=:updated, active=false)
+    PSE._replace_model_object_status!(model, object, replacement)
+    for _ in 1:2
+        escape_registered_status!(sink, model, object.id, 1000)
+        registered_status_allocations(sink, model, object.id, 1000)
+    end
+    @test registered_status_allocations(sink, model, object.id, 1000) == 0
+    @test sink[] === replacement === object.status
+    @test PSE.refvalue(sink[], :items) === PSE.refvalue(replacement, :items)
+    @test object_id(model, replacement) === object.id
+    @test_throws ArgumentError object_id(model, supplied)
+    @test supplied.items == Float32[3]
+end
+
 @testset "status replacement moves family membership and exclusive ownership" begin
     original = Status(value=1f0)
     first = Object(:first; status=original)

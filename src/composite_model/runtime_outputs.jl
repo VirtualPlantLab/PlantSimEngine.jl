@@ -6044,7 +6044,7 @@ function _prepare_targeted_newborn_targets(
                 application,
                 object_id,
                 _application_plans(
-                    compiled.scenario_plan.input_plans_by_application,
+                    compiled.scenario_plan.input_recipes_by_application,
                     application.slot,
                 ),
                 targeted_runtime.manual_application_ids,

@@ -29,6 +29,12 @@ PSE.run!(::PortProbe, status, environment, constants, context) = nothing
         @test !PSE._application_writes_object_variable(
             PSE.NoCompiledDistributedOutputs(), application, ObjectId(:missing), :value)
         @test PSE._model_canonical_output_names(application) === (:value,)
+        for variable in (:value, :scratch)
+            @test PSE._matches_input_source_writer(ObjectId(:leaf), variable,
+                nothing, :probe, simulation.compiled.applications_by_id,
+                simulation.compiled.distributed_outputs,
+                simulation.compiled.applications_by_object)
+        end
     end
     @test declarations[] == prepared_count
 end
@@ -38,22 +44,23 @@ end
         Object(:plant; scale=:Plant),
         Object(:leaf_a; scale=:Leaf, parent=:plant),
         Object(:leaf_b; scale=:Leaf, parent=:plant))
-    cache = Dict{Any,Vector{ObjectId}}()
+    cache = PSE._input_query_cache(model.registry.objects, 2)
     point = One(Ancestor(scale=:Plant); scale=:Plant)
-    matcher = PSE._compile_selector_matcher(model, point)
-    first_ids = PSE._cached_dependency_object_ids(cache, model, point, matcher, ObjectId(:leaf_a))
+    plan = (selector=point, matcher=PSE._compile_selector_matcher(model, point))
+    first_ids = PSE._input_route_source_ids(cache, 1, model, plan, ObjectId(:leaf_a))
     @test first_ids == [ObjectId(:plant)]
     empty!(first_ids)
-    next_ids = PSE._cached_dependency_object_ids(cache, model, point, matcher, ObjectId(:leaf_a))
+    next_ids = PSE._input_route_source_ids(cache, 1, model, plan, ObjectId(:leaf_a))
     @test next_ids == [ObjectId(:plant)]
-    @test next_ids !== only(values(cache))
+    @test next_ids !== cache[1]
     many = Many(SceneScope(); scale=:Leaf)
-    ids = PSE._cached_dependency_object_ids(cache, model, many,
-        PSE._compile_selector_matcher(model, many), ObjectId(:plant))
+    many_plan = (selector=many, matcher=PSE._compile_selector_matcher(model, many))
+    ids = PSE._input_route_source_ids(cache, 2, model, many_plan, ObjectId(:plant))
     @test ids == [ObjectId(:leaf_a), ObjectId(:leaf_b)]
     for selector in (One(SceneScope(); scale=:Leaf), OptionalOne(SceneScope(); scale=:Leaf))
-        @test_throws Exception PSE._cached_dependency_object_ids(cache, model, selector,
-            PSE._compile_selector_matcher(model, selector), ObjectId(:plant))
+        invalid_plan = (selector=selector, matcher=PSE._compile_selector_matcher(model, selector))
+        @test_throws Exception PSE._input_route_source_ids(nothing, 0, model,
+            invalid_plan, ObjectId(:plant))
     end
 end
 

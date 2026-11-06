@@ -7,6 +7,9 @@ end
 
 mutable struct ObjectFamily{I<:ObjectId,S} <: AbstractObjectFamily
     rows::Vector{Union{Nothing,ObjectFamilyRow{I,S}}}
+
+    ObjectFamily{I,S}(rows::Vector{Union{Nothing,ObjectFamilyRow{I,S}}}) where {I<:ObjectId,S} =
+        new{I,S}(rows)
 end
 
 struct ObjectFamilyLocation
@@ -80,8 +83,12 @@ end
     return :(throw(ArgumentError("The object identity/status schema is outside the prepared family catalog.")))
 end
 
-function _object_family_status_at(catalog::OpenObjectFamilyCatalog, location::ObjectFamilyLocation)
-    return _object_family_status_at(catalog.families[location.family], location.row)
+function _object_family_status_at(::OpenObjectFamilyCatalog, location::ObjectFamilyLocation)
+    # The registered facade owns the existing boxed Status; family rows retain
+    # its concrete reference payload. Canonical writes update both together.
+    # Reuse that box across this open dispatch boundary instead of reboxing the
+    # immutable Status. No scientific values or reference carriers are copied.
+    return getfield(location.object, :status)
 end
 
 @inline function _object_family_status_at(family::ObjectFamily{I,S}, row::Int) where {I,S}
