@@ -7816,7 +7816,9 @@ function _prepare_simulation!(
     started_at = initial_composite_started_at
     # An existing simulation may have refreshed its environment while retaining
     # its schedule. Compare the current base step even after that refresh.
-    prepared = model.scenario_plan_cache
+    preparation = _scenario_preparation(model)
+    _authored_application_recipes(preparation)
+    prepared = preparation.resolved
     compiled = model.binding_cache
     if !isnothing(prepared) || !isnothing(compiled)
         previous = isnothing(prepared) ? compiled.scenario_plan : prepared.plan

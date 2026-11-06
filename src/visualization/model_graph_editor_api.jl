@@ -306,8 +306,15 @@ function apply_model_graph_edit(
     preserve=(),
 )
     candidate = _model_graph_deepcopy(model, preserve)
+    preparation = candidate.scenario_plan_cache
     candidate = _apply_model_graph_edit!(candidate, edit)
     _mark_bindings_dirty!(candidate)
+    if !isnothing(preparation) &&
+       _authored_specs_match(preparation.source_specs, candidate.applications)
+        candidate.scenario_plan_cache = preparation
+        _model_owned_scenario_preparation(candidate, preparation).resolved = nothing
+    end
+    _scenario_preparation(candidate)
     return candidate
 end
 
@@ -1052,7 +1059,7 @@ function _model_edit_rebuild_instances(
         for application in model.applications
         if _model_edit_application_id(application) in mounted_ids
     )
-    rebuilt = CompositeModel(
+    rebuilt = _assemble_composite_model(
         (deepcopy(object) for object in model_objects(model))...;
         applications=global_applications,
         instances=instances,
@@ -1157,7 +1164,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetCompositeModel
         application for application in model.applications
         if _model_edit_application_id(application) ∉ mounted_ids
     )
-    return CompositeModel(
+    return _assemble_composite_model(
         (deepcopy(object) for object in model_objects(model))...;
         applications=global_applications,
         instances=Tuple(_model_edit_normalize_instance(instance) for instance in model.instances),

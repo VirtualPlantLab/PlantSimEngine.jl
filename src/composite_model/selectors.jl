@@ -690,13 +690,10 @@ _compile_selector_scope(model::CompositeModel, scope::Scope) =
 _compile_selector_relation(::Nothing) = nothing
 _compile_selector_relation(relation::Symbol) = Val(relation)
 
-function _compile_selector_matcher(
-    model::CompositeModel,
-    selector::AbstractObjectMultiplicity,
-)
+function _authored_selector_matcher(selector::AbstractObjectMultiplicity)
     criteria_ = criteria(selector)
     relation = _criteria_value(criteria_, :relation, Relation)
-    scope = _compile_selector_scope(model, _criteria_scope(criteria_))
+    scope = _criteria_scope(criteria_)
     scale = _criteria_value(criteria_, :scale)
     kind = _criteria_value(criteria_, :kind)
     species = _criteria_value(criteria_, :species)
@@ -717,6 +714,17 @@ function _compile_selector_matcher(
         defaults_to_context,
     )
 end
+
+function _resolve_selector_matcher(model::CompositeModel, matcher::CompiledSelectorMatcher)
+    return CompiledSelectorMatcher(
+        _compile_selector_scope(model, matcher.scope), matcher.relation,
+        matcher.scale, matcher.kind, matcher.species, matcher.id,
+        matcher.defaults_to_context,
+    )
+end
+
+_compile_selector_matcher(model::CompositeModel, selector::AbstractObjectMultiplicity) =
+    _resolve_selector_matcher(model, _authored_selector_matcher(selector))
 
 function _scope_object_ids(model::CompositeModel, scope, context)
     if isnothing(scope) || scope isa SceneScope

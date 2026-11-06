@@ -555,6 +555,30 @@ function CompositeModel(
     _status_values_materialized::Bool=false,
     _status_conversion_records=nothing,
 )
+    model = _assemble_composite_model(
+        items...;
+        applications, instances, environment, source_adapter,
+        type_promotion, status_transform, _status_conversion,
+        _status_values_materialized, _status_conversion_records,
+    )
+    _scenario_preparation(model)
+    return model
+end
+
+# Graph-editor transactions also use this assembler, then finalize authored
+# preparation once after their last configuration mutation.
+function _assemble_composite_model(
+    items::Union{Object,ObjectInstance}...;
+    applications=(),
+    instances=(),
+    environment=nothing,
+    source_adapter=nothing,
+    type_promotion=nothing,
+    status_transform=nothing,
+    _status_conversion=nothing,
+    _status_values_materialized::Bool=false,
+    _status_conversion_records=nothing,
+)
     objects, mounted_instances = _collect_model_items(items, instances)
     instance_ids = _prepare_object_instances!(objects, mounted_instances)
     mounted_applications = _mount_object_instance_applications(mounted_instances, instance_ids)
@@ -597,11 +621,12 @@ function CompositeModel(
         0,
         0,
     )
-    return _register_model_objects!(
+    _register_model_objects!(
         model,
         objects;
         status_values_materialized=_status_values_materialized,
     )
+    return model
 end
 
 """
@@ -886,9 +911,13 @@ function _mark_bindings_dirty!(
     kind in (:addition, :structural, :full) || error(
         "Unsupported binding dirty kind `$(kind)`.",
     )
-    model.scenario_plan_cache = nothing
-    delta = model.lifecycle_delta
     ids = _lifecycle_object_ids(object_ids)
+    if isnothing(ids) || kind === :full
+        model.scenario_plan_cache = nothing
+    elseif !isnothing(model.scenario_plan_cache)
+        _model_owned_scenario_preparation(model, model.scenario_plan_cache).resolved = nothing
+    end
+    delta = model.lifecycle_delta
     if isnothing(ids)
         model.binding_cache = nothing
         delta.structural_kind = :full
@@ -1720,11 +1749,10 @@ function refresh_bindings!(
             performance=performance,
         )
     end
-    prepared = model.scenario_plan_cache
+    preparation = _scenario_preparation(model; force)
+    _authored_application_recipes(preparation)
+    prepared = preparation.resolved
     previous = model.binding_cache
-    if force
-        prepared = model.scenario_plan_cache = nothing
-    end
     plan_changed = !isnothing(prepared) && !isnothing(previous) &&
                    prepared.plan !== previous.scenario_plan
     if force || model.bindings_dirty || isnothing(previous) || plan_changed

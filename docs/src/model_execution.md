@@ -68,8 +68,12 @@ other simulations with different choices.
 
 ## Compilation Before Runtime
 
-Before the first time step, PlantSimEngine prepares the simulation. This
-preparation is called **compilation**. It:
+`CompositeModel` prepares the application declarations when you construct it:
+application identifiers, selector rules, output-port names, and environment
+hints. It registers the objects you supplied without running their equations.
+
+Starting a simulation resolves those declarations against the current objects
+and environment. This preparation is called **compilation**. It:
 
 1. finds the objects selected by each application's `on` rule;
 2. finds where each input value will come from;
@@ -84,12 +88,40 @@ preparation is called **compilation**. It:
 8. groups objects with matching model, status, and environment types so Julia
    can run them efficiently.
 
-The scenario plan records the selected objects, connections, and execution
-order. PlantSimEngine can reuse it while those declarations and the topology
-still match. Live status references and time histories belong to the
-simulation. When a model creates or removes an object during a run,
-PlantSimEngine refreshes the affected connections before later applications
-use them. Use `continue!` or `step!` to advance with the same history.
+The model reuses its application declarations and dependency metadata. Target
+membership, reference carriers, clocks, and sampling handles are resolved from
+the real objects and environment. You can register objects or change the
+weather duration before the first run; preparation uses their current values.
+Run length, requested outputs, and temporal storage are supplied for each
+simulation.
+
+Canonical object statuses belong to the model's registry. A `Simulation` uses
+those live references and keeps its own progress and output history. `run!`
+starts a new timeline from the model's current state. For independent repeats,
+construct a fresh model or call `deepcopy(initial_model)` before the first run. Use
+`continue!` or `step!` to advance the same timeline.
+
+When a model creates, removes, or reparents an object, the same preparation
+operators refresh the affected membership and connections before later
+applications use them. Unaffected targets, references, and compatible execution
+batches are retained.
+
+### Declaration methods describe the model
+
+Treat `inputs_`, `outputs_`, environment declarations, `dep`, `timespec`,
+`environment_hint`, and variable contracts as descriptions derived from model
+parameters. PlantSimEngine may query them during construction, preparation, or
+inspection. Do not draw random numbers, advance a scientific state, or depend
+on their call count. Put those operations in `run!` or an explicit real-object
+initializer. Creating a fresh mutable default, such as an empty vector, is
+supported; object preparation keeps defaults private to each object.
+
+Keep declaration names and layouts stable while a prepared model is in use.
+Graph-editor configuration changes prepare the declarations again. When redefining
+layout methods interactively, explicitly refresh with
+`PlantSimEngine.Advanced.refresh_bindings!(model; force=true)` before starting a
+new simulation. Environment changes resolve clocks and bindings while retaining
+unchanged application declarations.
 
 Useful inspection helpers:
 

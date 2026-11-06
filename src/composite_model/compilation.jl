@@ -650,6 +650,135 @@ struct CompiledScenarioPlan{AP,AI,ATI,IP,IPI,IR,CP,CPI,DOP,CO,MA,AC,AO,OAP,AS,TL
     timeline::TL
 end
 
+# Authoring records contain declarations, never current target identities,
+# status values, resolved overrides, clocks, or simulation-owned storage.
+struct AuthoredApplicationRecipe{S,M,H,ON,CN}
+    slot::Int
+    id::Symbol
+    spec::S
+    process::Symbol
+    name::Union{Nothing,Symbol}
+    target_matcher::M
+    environment_hint::H
+    output_names::ON
+    canonical_output_names::CN
+end
+
+struct ScenarioPreparationFailure{E,B}
+    phase::Symbol
+    application_id::Union{Nothing,Symbol}
+    error::E
+    backtrace::B
+end
+
+# Exceptions and interpreter frames are diagnostic metadata, and may reference
+# Modules or methods that cannot be deep-copied. Preserve the original exception
+# for rethrowing; give the copied model a separate trace vector. Scientific
+# models, statuses and defaults are copied through their ordinary owners.
+function Base.deepcopy_internal(failure::ScenarioPreparationFailure, stack::IdDict)
+    return get!(stack, failure) do
+        ScenarioPreparationFailure(failure.phase, failure.application_id,
+            failure.error, copy(failure.backtrace))
+    end
+end
+
+mutable struct ScenarioPreparation{M,S,A,F}
+    const owner::M
+    const source_specs::S
+    const authored::A
+    const failure::F
+    resolved::Any
+end
+
+function _authored_specs_match(source_specs, specs)
+    length(source_specs) == length(specs) || return false
+    return all(pair -> pair[1] === pair[2], zip(source_specs, specs))
+end
+
+function _prepare_authored_scenario(model::CompositeModel, raw_specs)
+    source_specs = Tuple(raw_specs)
+    authored = Any[]
+    phase = :model_specs
+    application_id = nothing
+    try
+        specs = map(as_model_spec, source_specs)
+        phase = :application_identifiers
+        counts = Dict{Symbol,Int}()
+        for spec in specs
+            proc = process(spec)
+            counts[proc] = get(counts, proc, 0) + 1
+        end
+        ids = Set{Symbol}()
+        for (slot, spec) in pairs(specs)
+            proc = process(spec)
+            name = application_name(spec)
+            application_id = isnothing(name) ? proc : name
+            selector = applies_to(spec)
+            phase = :application_selector
+            isnothing(selector) && error(
+                "Model application for process `$(proc)` has no `ModelSpec(...; on=...)` selector.",
+            )
+            selector isa AbstractObjectMultiplicity || error(
+                "`ModelSpec(...; on=...)` for process `$(proc)` must use an object selector such as `Many(scale=:Leaf)`.",
+            )
+            phase = :application_identifiers
+            isnothing(name) && counts[proc] > 1 && error(
+                "Composite model contains $(counts[proc]) unnamed applications for process `$(proc)`. " *
+                "Give every repeated application a unique name with `ModelSpec(model; name=:application_name)`.",
+            )
+            application_id in ids && error("Duplicate compiled model application id `$(application_id)`.")
+            push!(ids, application_id)
+            phase = :application_selector
+            matcher = _authored_selector_matcher(selector)
+            phase = :environment_hint
+            hint = environment_hint(model_(spec))
+            phase = :output_ports
+            output_names, canonical_output_names = _compiled_output_names(spec)
+            push!(authored, AuthoredApplicationRecipe(
+                slot, application_id, spec, proc, name, matcher, hint,
+                output_names, canonical_output_names,
+            ))
+        end
+        return ScenarioPreparation(model, source_specs, Tuple(authored), nothing, nothing)
+    catch err
+        err isa InterruptException && rethrow()
+        failure = ScenarioPreparationFailure(phase, application_id, err, catch_backtrace())
+        return ScenarioPreparation(model, source_specs, Tuple(authored), failure, nothing)
+    end
+end
+
+function _model_owned_scenario_preparation(model::CompositeModel, preparation::ScenarioPreparation)
+    preparation.owner === model && return preparation
+    # Internal reconstruction can share authored metadata, never the mutable
+    # resolved target snapshot. This check is O(1) on lifecycle invalidation.
+    owned = ScenarioPreparation(model, preparation.source_specs,
+        preparation.authored, preparation.failure, nothing)
+    model.scenario_plan_cache = owned
+    return owned
+end
+
+function _scenario_preparation(model::CompositeModel; force::Bool=false)
+    preparation = model.scenario_plan_cache
+    if force || isnothing(preparation) ||
+       !_authored_specs_match(preparation.source_specs, model.applications)
+        preparation = _prepare_authored_scenario(model, model.applications)
+        model.scenario_plan_cache = preparation
+    end
+    return _model_owned_scenario_preparation(model, preparation)
+end
+
+function _authored_application_recipes(preparation::ScenarioPreparation)
+    isnothing(preparation.failure) || throw(preparation.failure.error)
+    return preparation.authored
+end
+
+function _authored_application_recipes(model::CompositeModel, raw_specs)
+    if _authored_specs_match(model.applications, raw_specs)
+        return _authored_application_recipes(_scenario_preparation(model))
+    end
+    return _authored_application_recipes(_prepare_authored_scenario(model, raw_specs))
+end
+
 # The snapshot owns its target lists. Runtime application membership can
 # change during growth, so each binding compilation takes a private copy.
 struct PreparedScenario{P}
@@ -1895,8 +2024,12 @@ function _prepare_scenario_plan(
     model::CompositeModel, timeline;
     force::Bool=false, performance=nothing,
 )
+    # Snapshot forcing resolves membership and cadence again. Explicit
+    # refresh_bindings!(force=true) owns the separate authored-metadata refresh.
+    preparation = _scenario_preparation(model)
+    _authored_application_recipes(preparation)
     if !force
-        prepared = model.scenario_plan_cache
+        prepared = preparation.resolved
         if !isnothing(prepared) && prepared.plan.timeline.base_step_seconds == timeline.base_step_seconds
             return prepared
         end
@@ -1904,7 +2037,8 @@ function _prepare_scenario_plan(
         if !isnothing(compiled) && compiled.scenario_plan.timeline.base_step_seconds == timeline.base_step_seconds
             prepared = PreparedScenario(compiled.scenario_plan,
                 Vector{ObjectId}[copy(app.target_ids) for app in compiled.applications])
-            return model.scenario_plan_cache = prepared
+            preparation.resolved = prepared
+            return prepared
         end
     end
     plan, applications = _build_scenario_plan(model, model.applications, timeline; performance)
@@ -1914,7 +2048,8 @@ function _prepare_scenario_plan(
     if !force && model.bindings_dirty && !isnothing(model.binding_cache)
         return prepared
     end
-    return model.scenario_plan_cache = prepared
+    preparation.resolved = prepared
+    return prepared
 end
 
 function _compile_scene(
@@ -4573,74 +4708,37 @@ function explain_initialization(model::CompositeModel)
 end
 
 function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
-    specs = [as_model_spec(raw_spec) for raw_spec in raw_specs]
-    process_counts = Dict{Symbol,Int}()
-    for spec in specs
-        proc = process(spec)
-        process_counts[proc] = get(process_counts, proc, 0) + 1
-    end
-    ids = Set{Symbol}()
+    recipes = _authored_application_recipes(model, raw_specs)
+    return _resolve_application_recipes(model, recipes, timeline)
+end
+
+function _resolve_application_recipes(model::CompositeModel, recipes::Tuple, timeline)
     applications = CompiledModelApplication[]
-    for (slot, spec) in pairs(specs)
-        selector = applies_to(spec)
-        isnothing(selector) && error(
-            "Model application for process `$(process(spec))` has no `ModelSpec(...; on=...)` selector."
-        )
-        selector isa AbstractObjectMultiplicity || error(
-            "`ModelSpec(...; on=...)` for process `$(process(spec))` must use an object selector such as `Many(scale=:Leaf)`."
-        )
-        proc = process(spec)
-        name = application_name(spec)
-        if isnothing(name) && process_counts[proc] > 1
-            error(
-                "Composite model contains $(process_counts[proc]) unnamed applications for process `$(proc)`. ",
-                "Give every repeated application a unique name with `ModelSpec(model; name=:application_name)`.",
-            )
-        end
-        app_id = isnothing(name) ? proc : name
-        app_id in ids && error("Duplicate compiled model application id `$(app_id)`.")
-        push!(ids, app_id)
-        target_matcher = _compile_selector_matcher(model, selector)
+    for recipe in recipes
+        target_matcher = _resolve_selector_matcher(model, recipe.target_matcher)
+        selector = applies_to(recipe.spec)
         target_ids = _resolve_object_ids(model, selector, target_matcher)
         sizehint!(target_ids, length(target_ids) + 1)
         spec = _model_spec_with_environment_hints(
-            model,
-            spec,
-            _model_application_hint_scale(model, target_ids),
+            model, recipe.spec, _model_application_hint_scale(model, target_ids),
+            recipe.environment_hint,
         )
-        model_overrides = _compiled_object_model_overrides(spec, target_ids, app_id)
-        output_names, canonical_output_names = _compiled_output_names(spec)
-        push!(
-            applications,
-            CompiledModelApplication(
-                CompiledApplicationPlan(
-                    slot,
-                    app_id,
-                    spec,
-                    proc,
-                    name,
-                    selector,
-                    target_matcher,
-                    timestep(spec),
-                    _model_application_clock(
-                        model,
-                        spec,
-                        target_ids,
-                        timeline,
-                    ),
-                    model_overrides,
-                    output_names,
-                    canonical_output_names,
-                ),
-                target_ids,
+        model_overrides = _compiled_object_model_overrides(spec, target_ids, recipe.id)
+        push!(applications, CompiledModelApplication(
+            CompiledApplicationPlan(
+                recipe.slot, recipe.id, spec, recipe.process, recipe.name,
+                selector, target_matcher, timestep(spec),
+                _model_application_clock(model, spec, target_ids, timeline),
+                model_overrides, recipe.output_names, recipe.canonical_output_names,
             ),
-        )
+            target_ids,
+        ))
     end
     return applications
 end
 
-function _model_spec_with_environment_hints(model::CompositeModel, spec, scale::Symbol)
-    hint = _normalize_environment_hint(scale, process(spec), environment_hint(model_(spec)))
+function _model_spec_with_environment_hints(model::CompositeModel, spec, scale::Symbol, authored_hint)
+    hint = _normalize_environment_hint(scale, process(spec), authored_hint)
 
     current_bindings = environment_bindings(spec)
     has_explicit_bindings = !(current_bindings isa NamedTuple && isempty(keys(current_bindings)))

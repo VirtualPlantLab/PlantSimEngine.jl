@@ -79,6 +79,7 @@ else
 
     @testset "Reusable scenario plans" begin
         include("test-model-prepared-scenario.jl")
+        include("test-model-scenario-authoring.jl")
         include("test-compilation-metadata.jl")
         include("test-model-input-recipes.jl")
         include("test-resolved-input-materialization.jl")
