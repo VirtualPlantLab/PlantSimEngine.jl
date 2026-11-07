@@ -1,5 +1,6 @@
 module EnvironmentBindingsIdentityChecks
 using PlantSimEngine
+using Serialization
 using Test
 const PSE = PlantSimEngine
 const EA = PSE.EnvironmentAPI
@@ -73,6 +74,72 @@ function fixture(::Type{T}) where {T}
                  if batch.application.id == :scheduled_probe)
     kept = only(target for target in batch.targets if target.object_id == ObjectId(:scheduled_keep))
     return (; model, simulation, capture, backend, batch, kept)
+end
+
+function checkpoint_copy(simulation)
+    buffer = IOBuffer()
+    serialize(buffer, simulation)
+    seekstart(buffer)
+    return deserialize(buffer)
+end
+
+@testset "checkpointed environment owners preserve application identity" begin
+    for copy_simulation in (deepcopy, checkpoint_copy)
+        data = fixture(Float32)
+        simulation = data.simulation
+        original_context = data.capture[]
+        original_targets = only(original_context.calls)
+        PSE._materialize_call_execution_batches!(original_targets)
+        @test PSE._call_targets_preparation_is_current(original_targets,
+            simulation.compiled, simulation.environment_bindings,
+            simulation.temporal_streams, simulation.output_retention, simulation.constants)
+
+        restored = copy_simulation(simulation)
+        environment_bindings = restored.environment_bindings
+        owner = only(group for group in restored.execution_plan.groups
+            if group.application.id === :owner)
+        context = only(only(owner.batches).targets).context
+        targets = only(context.calls)
+        cached_batches = PSE._cached_call_execution_batches(targets)
+        @test !isnothing(cached_batches)
+
+        # Inspect the restored graph before an accessor can refresh its owners.
+        @test PSE._environment_bindings_match_compiled(environment_bindings, restored.compiled)
+        @test !PSE._environment_bindings_match_compiled(environment_bindings, simulation.compiled)
+        @test PSE._call_targets_preparation_is_current(targets,
+            restored.compiled, environment_bindings, restored.temporal_streams,
+            restored.output_retention, restored.constants)
+
+        # Equal application records in another vector are a different generation.
+        applications = restored.compiled.applications
+        restored.compiled.applications = copy(applications)
+        @test !PSE._environment_bindings_match_compiled(environment_bindings, restored.compiled)
+        restored.compiled.applications = applications
+        @test PSE._environment_bindings_match_compiled(environment_bindings, restored.compiled)
+
+        backend = first(environment_bindings.bindings).backend
+        samples = backend.samples
+        @test PSE.Advanced.refresh_environment_bindings!(restored.model, restored.compiled) ===
+              environment_bindings
+        @test PSE._cached_call_execution_batches(targets) === cached_batches
+        @test backend.samples == samples
+        @test PSE._call_targets_preparation_is_current(targets,
+            restored.compiled, environment_bindings, restored.temporal_streams,
+            restored.output_retention, restored.constants)
+
+        # Reuse the restored Many preparation, then advance the ordinary scheduler.
+        backend.values[:a] = data.backend.values[:a] = 13.0f0
+        backend.values[:b] = data.backend.values[:b] = 23.0f0
+        run_call!(context, :leaves; publish=false)
+        run_call!(original_context, :leaves; publish=false)
+        @test model_status(restored.model, :manual).seen === 13.0f0
+        @test model_status(restored.model, :manual).calls == 1
+        continue!(restored; steps=1)
+        continue!(simulation; steps=1)
+        @test final_state(restored, Many()) == final_state(simulation, Many())
+        @test isequal(collect_outputs(restored), collect_outputs(simulation))
+        @test backend.samples == data.backend.samples
+    end
 end
 
 @testset "clean and dirty environment shells preserve live backend and trial sampling" begin
