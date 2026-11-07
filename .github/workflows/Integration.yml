@@ -101,6 +101,10 @@ jobs:
               "PlantSimEngine resolved to $(pse.source), expected $(realpath(pwd()))",
           )
           @info "Verified local PlantSimEngine test source" path=pse.source
+      - name: Test the JET analysis failure guard
+        if: ${{ matrix.package.name == 'XPalm' && !matrix.test_args }}
+        shell: julia --color=yes {0}
+        run: include(joinpath(pwd(), ".github", "scripts", "test_require_complete_jet.jl"))
       - name: Run the downstream tests
         env:
           DOWNSTREAM_PACKAGE: ${{ matrix.package.name }}
@@ -138,7 +142,11 @@ jobs:
 
           Pkg.status()
           test_args = isempty(ENV["DOWNSTREAM_TEST_ARGS"]) ? String[] : [ENV["DOWNSTREAM_TEST_ARGS"]]
-          Pkg.test(; test_args)
+          julia_args = String[]
+          if ENV["DOWNSTREAM_PACKAGE"] == "XPalm" && isempty(test_args)
+              push!(julia_args, "--load=" * joinpath(pwd(), ".github", "scripts", "require_complete_jet.jl"))
+          end
+          Pkg.test(; test_args, julia_args)
       - name: Only succeed if the checks pass on the dependencies' main/master branches
         if: ${{ matrix.package.branch != matrix.package.default }}
         run: |
