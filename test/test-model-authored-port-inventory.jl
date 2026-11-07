@@ -460,4 +460,50 @@ PSE.run!(::NativeMetadataProbe, status, environment, constants, context) = (stat
     end
 end
 
+module CapturedPreparationErrorIdentityChecks
+using PlantSimEngine, Test
+const PSE = PlantSimEngine
+
+mutable struct TaggedHookError <: Exception
+    marker::Symbol
+end
+Base.showerror(io::IO, error::TaggedHookError) = print(io, "saved hook error: ", error.marker)
+
+@testset "saved declaration errors keep identity and original traces" begin
+    for error in (ErrorException("saved declaration"),
+        MethodError(identity, (1, 2)), TaggedHookError(:original))
+        calls = Ref(0)
+        failure = PSE._capture_authored_metadata(:input_ports, :identity) do
+            calls[] += 1
+            throw(error)
+        end
+        original_backtrace = failure.backtrace
+        original_frames = copy(original_backtrace)
+        message = sprint(showerror, error)
+        @test calls[] == 1
+        @test !isempty(original_backtrace)
+        for reader in (PSE._authored_port_names, PSE._authored_metadata_value), _ in 1:2
+            caught = try
+                reader(failure)
+                nothing
+            catch exception
+                exception
+            end
+            @test caught === error
+            @test sprint(showerror, caught) == message
+            @test failure.error === error
+            @test failure.backtrace === original_backtrace
+            @test failure.backtrace == original_frames
+            @test (failure.phase, failure.application_id) == (:input_ports, :identity)
+            @test calls[] == 1
+        end
+        copied = deepcopy(failure)
+        @test copied.error === error
+        @test copied.backtrace !== original_backtrace
+        @test copied.backtrace == original_frames
+        @test calls[] == 1
+    end
+end
+end
+
 end

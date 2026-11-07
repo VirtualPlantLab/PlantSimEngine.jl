@@ -14,10 +14,16 @@ function Base.deepcopy_internal(failure::ScenarioPreparationFailure, stack::IdDi
     end
 end
 
+# Diagnostic failures retain their original payload; only the cold throw
+# operand crosses the inference boundary.
+Base.@noinline Base.@nospecializeinfer function _throw_preparation_error(@nospecialize(exception))
+    throw(exception)
+end
+
 struct AuthoredPortNames{NAMES} end
 AuthoredPortNames(names::Tuple{Vararg{Symbol}}) = AuthoredPortNames{names}()
 _authored_port_names(::AuthoredPortNames{NAMES}) where {NAMES} = NAMES
-_authored_port_names(failure::ScenarioPreparationFailure) = throw(failure.error)
+_authored_port_names(failure::ScenarioPreparationFailure) = _throw_preparation_error(failure.error)
 
 struct AuthoredOutputPorts{ALL,LOCAL,DISTRIBUTED,CANONICAL} end
 function AuthoredOutputPorts(all_names, local_names, distributed_names, canonical_names)
@@ -55,7 +61,7 @@ Base.propertynames(ports::AuthoredPortInventory) =
     (fieldnames(typeof(ports))..., :input_names, :environment_input_names, :environment_output_names)
 
 _authored_metadata_value(value) = value
-_authored_metadata_value(failure::ScenarioPreparationFailure) = throw(failure.error)
+_authored_metadata_value(failure::ScenarioPreparationFailure) = _throw_preparation_error(failure.error)
 
 function _capture_authored_metadata(operation, phase::Symbol, application_id::Union{Nothing,Symbol})
     try
