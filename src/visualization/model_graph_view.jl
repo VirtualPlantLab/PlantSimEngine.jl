@@ -342,6 +342,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         _validate_model_environment_inputs!(
             environment_bindings,
             Dict(application.id => application for application in applications),
+            keytype(model.registry.objects),
         )
     end
 

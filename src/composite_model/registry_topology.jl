@@ -889,7 +889,12 @@ function _mark_environment_bindings_dirty!(
     delta.mutation_generation += UInt64(1)
     ids = _lifecycle_object_ids(object_ids)
     if isnothing(ids) || isnothing(model.environment_binding_cache)
-        model.environment_binding_cache = nothing
+        cached = model.environment_binding_cache
+        # Retain a closed owner's fixed policy while dirty; full_environment
+        # still forces every handle to be rebuilt before the next execution.
+        closed = cached isa CompiledEnvironmentBindings &&
+                 getfield(cached, :application_plan_schema) isa CompiledMetadataTable
+        model.environment_binding_cache = closed ? cached : nothing
         delta.full_environment = true
     elseif !delta.full_environment
         union!(delta.environment_dirty_ids, ids)

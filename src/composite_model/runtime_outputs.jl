@@ -5777,9 +5777,12 @@ function _targeted_call_environment_bindings(
     partial = _compile_environment_bindings_for_applications(
         model,
         applications,
-        cached.application_plans_by_id,
+        cached.application_plans_by_id;
+        plan_schema=cached.application_plan_schema,
     )
-    _validate_model_environment_inputs!(partial, applications_by_id)
+    _validate_model_environment_inputs!(partial, applications_by_id,
+        keytype(model.registry.objects);
+        plan_schema=cached.application_plan_schema)
     by_target = _index_environment_bindings(partial, keytype(model.registry.objects))
     return _compiled_environment_bindings(
         model,
@@ -5788,7 +5791,8 @@ function _targeted_call_environment_bindings(
         cached.application_plans_by_id,
         partial,
         by_target,
-        cached.sample_cache,
+        cached.sample_cache;
+        plan_schema=cached.application_plan_schema,
     )
 end
 
@@ -7822,6 +7826,7 @@ function _prepare_simulation!(
     constants,
     outputs,
     performance::Bool=false,
+    environment_plan_schema=nothing,
 )
     performance_counters = performance ? RuntimePerformanceCounters() : nothing
     initial_composite_started_at =
@@ -7891,7 +7896,9 @@ function _prepare_simulation!(
         length(compiled.call_bindings),
     )
     started_at = _runtime_performance_start(performance_counters)
-    env_bindings = refresh_environment_bindings!(model, compiled)
+    cached_environment = getfield(model, :environment_binding_cache)::Union{Nothing,CompiledEnvironmentBindings}
+    plan_schema = _preparation_environment_plan_schema(environment_plan_schema, cached_environment)
+    env_bindings = _refresh_environment_bindings!(model, compiled, cached_environment; plan_schema)
     _runtime_performance_finish!(
         performance_counters,
         :initial_environment_compile,

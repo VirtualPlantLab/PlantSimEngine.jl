@@ -53,7 +53,7 @@ function PSE.run!(::Leaf, status, environment, constants, context)
     return nothing
 end
 
-function fixture(::Type{T}) where {T}
+function fixture(::Type{T}; steps=1, environment_plan_schema=nothing) where {T}
     capture = Ref{Any}()
     backend = Backend(Dict(:a => T(10), :b => T(20)), 0)
     model = CompositeModel(
@@ -69,11 +69,23 @@ function fixture(::Type{T}) where {T}
             ModelSpec(Leaf(zero(T)); name=:manual_probe, on=Many(kind=:manual),
                 environment=Environment(provider=:shell_probe)),
         ), environment=backend)
-    simulation = run!(model; steps=1, outputs=:all)
+    simulation = if isnothing(environment_plan_schema)
+        run!(model; steps, outputs=:all)
+    else
+        prepared = PSE._prepare_simulation!(model; steps, outputs=:all,
+            constants=PSE.Constants(), environment_plan_schema)
+        PSE._continue_scene!(prepared, steps)
+    end
     batch = only(batch for batch in simulation.execution_plan.batches
                  if batch.application.id == :scheduled_probe)
     kept = only(target for target in batch.targets if target.object_id == ObjectId(:scheduled_keep))
     return (; model, simulation, capture, backend, batch, kept)
+end
+
+function fixture_plan_schema(::Type{T}) where {T}
+    initial = fixture(T; steps=0)
+    return PSE._environment_plan_schema_from_types(
+        typeof(plan) for plan in initial.simulation.environment_bindings.application_plans)
 end
 
 function checkpoint_copy(simulation)
@@ -84,8 +96,8 @@ function checkpoint_copy(simulation)
 end
 
 @testset "checkpointed environment owners preserve application identity" begin
-    for copy_simulation in (deepcopy, checkpoint_copy)
-        data = fixture(Float32)
+    for schema in (nothing, fixture_plan_schema(Float32)), copy_simulation in (deepcopy, checkpoint_copy)
+        data = fixture(Float32; environment_plan_schema=schema)
         simulation = data.simulation
         original_context = data.capture[]
         original_targets = only(original_context.calls)
@@ -100,6 +112,10 @@ end
             if group.application.id === :owner)
         context = only(only(owner.batches).targets).context
         targets = only(context.calls)
+        @test typeof(environment_bindings.application_plan_schema) ===
+            typeof(simulation.environment_bindings.application_plan_schema)
+        @test context.environment_bindings.application_plan_schema ===
+            environment_bindings.application_plan_schema
         cached_batches = PSE._cached_call_execution_batches(targets)
         @test !isnothing(cached_batches)
 
@@ -268,56 +284,61 @@ end
 end
 
 @testset "the typed boundary selects the current model cache after public refresh" begin
-    data = fixture(Float32)
-    simulation = data.simulation
-    prepared = simulation.environment_bindings
-    @test PSE._current_environment_binding_owner(data.model, prepared) === prepared
+    for schema in (nothing, fixture_plan_schema(Float32))
+        data = fixture(Float32; environment_plan_schema=schema)
+        simulation = data.simulation
+        prepared = simulation.environment_bindings
+        @test PSE._current_environment_binding_owner(data.model, prepared) === prepared
 
-    move_object!(data.model, :scheduled_move, (cell=:b,))
-    partial = PSE.Advanced.refresh_environment_bindings!(data.model, simulation.compiled)
-    current = PSE._current_environment_binding_owner(data.model, prepared)
-    is_current_partial = current === partial && current !== prepared
-    @test is_current_partial
-    @test current.by_target[(:scheduled_probe, ObjectId(:scheduled_move))].handle.cell === :b
-    @test all(binding -> binding.backend === data.backend, current.bindings)
-    samples = data.backend.samples
-    clean = PSE._refresh_environment_bindings!(data.model, simulation.compiled, current)
-    same_clean = clean === partial
-    @test same_clean
-    @test data.backend.samples == samples
+        move_object!(data.model, :scheduled_move, (cell=:b,))
+        partial = PSE.Advanced.refresh_environment_bindings!(data.model, simulation.compiled)
+        current = PSE._current_environment_binding_owner(data.model, prepared)
+        is_current_partial = current === partial && current !== prepared
+        @test is_current_partial
+        @test current.by_target[(:scheduled_probe, ObjectId(:scheduled_move))].handle.cell === :b
+        @test all(binding -> binding.backend === data.backend, current.bindings)
+        samples = data.backend.samples
+        clean = PSE._refresh_environment_bindings!(data.model, simulation.compiled, current)
+        same_clean = clean === partial
+        @test same_clean
+        @test data.backend.samples == samples
 
-    mark_environment_binding_dirty!(data.model)
-    @test isnothing(PSE._current_environment_binding_owner(data.model, prepared))
-    full = PSE.Advanced.refresh_environment_bindings!(data.model, simulation.compiled)
-    current = PSE._current_environment_binding_owner(data.model, prepared)
-    is_current_full = current === full && current !== partial
-    @test is_current_full
-    same_schema = typeof(full) === typeof(prepared)
-    @test same_schema
-    @test current.by_target[(:scheduled_probe, ObjectId(:scheduled_move))].handle.cell === :b
+        mark_environment_binding_dirty!(data.model)
+        @test isnothing(schema) ?
+            isnothing(PSE._current_environment_binding_owner(data.model, prepared)) :
+            PSE._current_environment_binding_owner(data.model, prepared) === partial
+        full = PSE.Advanced.refresh_environment_bindings!(data.model, simulation.compiled)
+        current = PSE._current_environment_binding_owner(data.model, prepared)
+        is_current_full = current === full && current !== partial
+        @test is_current_full
+        same_schema = typeof(full) === typeof(prepared)
+        @test same_schema
+        @test current.by_target[(:scheduled_probe, ObjectId(:scheduled_move))].handle.cell === :b
 
-    # Advanced compilation may replace model metadata before this Simulation
-    # resumes. The current cache remains authoritative even for another set of
-    # applications; the common refresh algorithm reconciles it when requested.
-    alternate_compiled = PSE.Advanced.compile_composite_model(data.model, (
-        ModelSpec(Leaf(0.0f0); name=:scheduled_probe, on=Many(kind=:scheduled),
-            environment=Environment(provider=:shell_probe)),
-    ))
-    alternate = PSE.Advanced.refresh_environment_bindings!(data.model, alternate_compiled)
-    current = PSE._current_environment_binding_owner(data.model, prepared)
-    is_current_alternate = current === alternate && current !== full
-    @test is_current_alternate
-    @test length(current.bindings) == 2
-    @test current.compiled_applications === alternate_compiled.applications
-    samples = data.backend.samples
-    restored = PSE._refresh_environment_bindings!(data.model, simulation.compiled, current)
-    is_restored = restored === PSE.compiled_environment_bindings(data.model)
-    @test is_restored
-    @test restored.compiled_applications === simulation.compiled.applications
-    @test length(restored.bindings) == 4
-    @test all(binding -> binding.backend === data.backend, restored.bindings)
-    @test restored.by_target[(:scheduled_probe, ObjectId(:scheduled_move))].handle.cell === :b
-    @test data.backend.samples == samples
+        # Advanced compilation may replace model metadata before this Simulation
+        # resumes. The current cache remains authoritative even for another set of
+        # applications; the common refresh algorithm reconciles it when requested.
+        alternate_compiled = PSE.Advanced.compile_composite_model(data.model, (
+            ModelSpec(Leaf(0.0f0); name=:scheduled_probe, on=Many(kind=:scheduled),
+                environment=Environment(provider=:shell_probe)),
+        ))
+        alternate = PSE.Advanced.refresh_environment_bindings!(data.model, alternate_compiled)
+        current = PSE._current_environment_binding_owner(data.model, prepared)
+        is_current_alternate = current === alternate && current !== full
+        @test is_current_alternate
+        @test length(current.bindings) == 2
+        @test current.compiled_applications === alternate_compiled.applications
+        @test current.application_plan_schema === schema
+        samples = data.backend.samples
+        restored = PSE._refresh_environment_bindings!(data.model, simulation.compiled, current)
+        is_restored = restored === PSE.compiled_environment_bindings(data.model)
+        @test is_restored
+        @test restored.compiled_applications === simulation.compiled.applications
+        @test length(restored.bindings) == 4
+        @test all(binding -> binding.backend === data.backend, restored.bindings)
+        @test restored.by_target[(:scheduled_probe, ObjectId(:scheduled_move))].handle.cell === :b
+        @test data.backend.samples == samples
+    end
 end
 
 @testset "a public refresh cannot hide stale runtime geometry bindings" begin
@@ -383,48 +404,51 @@ end
 end
 
 @testset "a pending move reconciles an authoritative Advanced subset cache" begin
-    data = fixture(Float32)
-    simulation = data.simulation
-    alternate_compiled = PSE.Advanced.compile_composite_model(data.model, (
-        ModelSpec(Leaf(0.0f0); name=:manual_probe, on=Many(kind=:manual),
-            environment=Environment(provider=:shell_probe)),
-    ))
-    alternate = PSE.Advanced.refresh_environment_bindings!(data.model, alternate_compiled)
-    @test length(alternate.bindings) == 1
-    @test !haskey(alternate.application_plans_by_id, :scheduled_probe)
-    move_object!(data.model, :scheduled_move, (cell=:b,))
-    samples = data.backend.samples
-    PSE._refresh_simulation_runtime!(simulation)
-    @test data.backend.samples == samples
-    uses_current = simulation.environment_bindings === PSE.compiled_environment_bindings(data.model)
-    @test uses_current
-    @test simulation.environment_bindings.compiled_applications === simulation.compiled.applications
-    @test length(simulation.environment_bindings.bindings) == 4
-    handles_current = all(batch -> all(target ->
-        target.environment_binding.handle === simulation.environment_bindings.by_target[
-            (batch.application.id, target.object_id)].handle, batch.targets),
-        simulation.execution_plan.batches)
-    @test handles_current
-    scheduled = only(batch for batch in simulation.execution_plan.batches
-        if batch.application.id === :scheduled_probe)
-    target = only(target for target in scheduled.targets
-        if target.object_id === ObjectId(:scheduled_move))
-    @test target.environment_binding.handle.cell === :b
-    @test target.environment_binding.backend === data.backend
-    @test model_status(data.model, :scheduled_move).calls == 1
-    continue!(simulation)
-    @test model_status(data.model, :scheduled_move).seen === 20.0f0
-    @test model_status(data.model, :scheduled_move).calls == 2
-    @test model_status(data.model, :manual).calls == 0
-    @test outputs(simulation)[(:scheduled_probe, ObjectId(:scheduled_move), :seen)] ==
-        [(1.0, 10.0f0), (2.0, 20.0f0)]
-    selected = only(call_targets(data.capture[], :leaves))
-    run_call!(selected; publish=false)
-    @test selected.status.seen === 10.0f0
-    @test selected.environment_binding.backend === data.backend
-    manual_handle_current = selected.environment_binding.handle ===
-        simulation.environment_bindings.by_target[(:manual_probe, ObjectId(:manual))].handle
-    @test manual_handle_current
+    for schema in (nothing, fixture_plan_schema(Float32))
+        data = fixture(Float32; environment_plan_schema=schema)
+        simulation = data.simulation
+        alternate_compiled = PSE.Advanced.compile_composite_model(data.model, (
+            ModelSpec(Leaf(0.0f0); name=:manual_probe, on=Many(kind=:manual),
+                environment=Environment(provider=:shell_probe)),
+        ))
+        alternate = PSE.Advanced.refresh_environment_bindings!(data.model, alternate_compiled)
+        @test alternate.application_plan_schema === schema
+        @test length(alternate.bindings) == 1
+        @test !haskey(alternate.application_plans_by_id, :scheduled_probe)
+        move_object!(data.model, :scheduled_move, (cell=:b,))
+        samples = data.backend.samples
+        PSE._refresh_simulation_runtime!(simulation)
+        @test data.backend.samples == samples
+        uses_current = simulation.environment_bindings === PSE.compiled_environment_bindings(data.model)
+        @test uses_current
+        @test simulation.environment_bindings.compiled_applications === simulation.compiled.applications
+        @test length(simulation.environment_bindings.bindings) == 4
+        handles_current = all(batch -> all(target ->
+            target.environment_binding.handle === simulation.environment_bindings.by_target[
+                (batch.application.id, target.object_id)].handle, batch.targets),
+            simulation.execution_plan.batches)
+        @test handles_current
+        scheduled = only(batch for batch in simulation.execution_plan.batches
+            if batch.application.id === :scheduled_probe)
+        target = only(target for target in scheduled.targets
+            if target.object_id === ObjectId(:scheduled_move))
+        @test target.environment_binding.handle.cell === :b
+        @test target.environment_binding.backend === data.backend
+        @test model_status(data.model, :scheduled_move).calls == 1
+        continue!(simulation)
+        @test model_status(data.model, :scheduled_move).seen === 20.0f0
+        @test model_status(data.model, :scheduled_move).calls == 2
+        @test model_status(data.model, :manual).calls == 0
+        @test outputs(simulation)[(:scheduled_probe, ObjectId(:scheduled_move), :seen)] ==
+            [(1.0, 10.0f0), (2.0, 20.0f0)]
+        selected = only(call_targets(data.capture[], :leaves))
+        run_call!(selected; publish=false)
+        @test selected.status.seen === 10.0f0
+        @test selected.environment_binding.backend === data.backend
+        manual_handle_current = selected.environment_binding.handle ===
+            simulation.environment_bindings.by_target[(:manual_probe, ObjectId(:manual))].handle
+        @test manual_handle_current
+    end
 end
 @testset "retained manual targets use the current public environment owner" begin
     for force in (false, true)
@@ -497,7 +521,7 @@ end
     tables = (simulation.compiled.applications_by_id,
         Dict(application.id => application for application in simulation.compiled.applications))
     for table in tables
-        @test PSE._validate_model_environment_inputs!(bindings, table) === nothing
+        @test PSE._validate_model_environment_inputs!(bindings, table, keytype(model.registry.objects)) === nothing
         @test backend.inventory_reads == 0
     end
 end
@@ -533,7 +557,7 @@ end
         end
         for table in tables
             failure = try
-                PSE._validate_model_environment_inputs!(bindings, table)
+                PSE._validate_model_environment_inputs!(bindings, table, keytype(model.registry.objects))
                 nothing
             catch exception
                 exception
@@ -549,6 +573,183 @@ end
         end
         @test messages[1] == messages[2]
         @test backend.samples == 0
+    end
+end
+
+# These counters distinguish preparation policy changes from provider work.
+mutable struct PlanPolicyBackend{T} <: EA.AbstractEnvironmentBackend
+    values::NamedTuple{(:T, :U),Tuple{T,T}}
+    binds::Int
+    samples::Int
+end
+mutable struct PlanPolicySource{B}
+    backend::B
+    normalizations::Int
+end
+function EA.environment_backend(source::PlanPolicySource)
+    source.normalizations += 1
+    return source.backend
+end
+EA.base_step_seconds(::PlanPolicyBackend) = 3600.0
+EA.get_nsteps(::PlanPolicyBackend) = 8
+EA.environment_variables(::PlanPolicyBackend) = Set((:T, :U))
+function EA.bind_environment(backend::PlanPolicyBackend, object::Object, context, config)
+    backend.binds += 1
+    return Handle(isnothing(geometry(object)) ? :a : geometry(object).cell)
+end
+function EA.sample(backend::PlanPolicyBackend, handle, variable::Symbol, time)
+    backend.samples += 1
+    return getproperty(backend.values, variable)
+end
+struct PlanPolicyProbe{V,T} <: AbstractEnvironment_Shell_LeafModel
+    initial::T
+end
+PSE.inputs_(::PlanPolicyProbe) = NamedTuple()
+PSE.outputs_(model::PlanPolicyProbe) = (seen=model.initial, calls=0)
+PSE.environment_inputs_(model::PlanPolicyProbe{V}) where {V} =
+    NamedTuple{(V,)}((model.initial,))
+function PSE.run!(::PlanPolicyProbe{V}, status, environment, constants, context) where {V}
+    status.seen = getproperty(environment, V)
+    status.calls += 1
+    return nothing
+end
+
+policy_spec(variable; active=true) = ModelSpec(PlanPolicyProbe{variable,Float32}(0f0);
+    name=:policy_probe, on=Many(kind=active ? :active : :absent))
+function policy_model(variable=:T; active=true)
+    backend = PlanPolicyBackend((T=10f0, U=20f0), 0, 0)
+    source = PlanPolicySource(backend, 0)
+    model = CompositeModel(Object(:leaf; scale=:Leaf, kind=:active, geometry=(cell=:a,)),
+        Object(1; scale=:Leaf, kind=:active, geometry=(cell=:a,));
+        applications=(policy_spec(variable; active),), environment=source)
+    return (; model, source, backend)
+end
+function prepare_policy(data; schema=nothing)
+    return PSE._prepare_simulation!(data.model; steps=0, outputs=:all,
+        constants=PSE.Constants(), environment_plan_schema=schema)
+end
+policy_counts(data) = (data.source.normalizations, data.backend.binds, data.backend.samples)
+policy_types(simulation) = [typeof(plan) for plan in simulation.environment_bindings.application_plans]
+
+@testset "fixed environment policies admit plans before any initial bind" begin
+    initial = policy_model(:T)
+    first_simulation = prepare_policy(initial; schema=Val(:collect))
+    first_types = policy_types(first_simulation)
+    initial_schema = PSE._environment_plan_schema_from_types(first_types)
+    @test first_simulation.environment_bindings.application_plan_schema === nothing
+    for active in (false, true)
+        missing = policy_model(:U; active)
+        @test_throws "policy_probe` is outside its prepared family schema" prepare_policy(missing; schema=initial_schema)
+        @test missing.backend.binds == 0
+        @test missing.backend.samples == 0
+    end
+    ordinary = policy_model(:T)
+    control = prepare_policy(ordinary)
+    fixed = policy_model(:T)
+    compiled = prepare_policy(fixed; schema=initial_schema)
+    @test policy_counts(fixed) == policy_counts(ordinary)
+    @test fixed.backend.binds == 2
+    @test compiled.environment_bindings.application_plan_schema === initial_schema
+    @test map(binding -> binding.object_id, compiled.environment_bindings.bindings) ==
+        map(binding -> binding.object_id, control.environment_bindings.bindings)
+    @test Set(binding.object_id for binding in compiled.environment_bindings.bindings) ==
+        Set((ObjectId(:leaf), ObjectId(1)))
+    @test all(binding -> binding.backend === fixed.backend, compiled.environment_bindings.bindings)
+    step!(compiled)
+    step!(control)
+    @test final_state(compiled, Many()) == final_state(control, Many())
+    @test isequal(collect_outputs(compiled), collect_outputs(control))
+    @test policy_counts(fixed) == policy_counts(ordinary)
+end
+
+@testset "zero-target plans and observed future families obey the fixed union" begin
+    a = policy_model(:T; active=false)
+    simulation = prepare_policy(a; schema=Val(:collect))
+    first_types = policy_types(simulation)
+    first_schema = PSE._environment_plan_schema_from_types(first_types)
+    alternate = PSE.Advanced.compile_composite_model(a.model, (policy_spec(:U; active=false),))
+    future = PSE.Advanced.refresh_environment_bindings!(a.model, alternate; force=true)
+    @test isempty(future.bindings)
+    @test future.application_plan_schema === nothing
+    future_types = [typeof(plan) for plan in future.application_plans]
+    @test first_types != future_types
+    b = policy_model(:T; active=false)
+    fixed = prepare_policy(b; schema=first_schema)
+    alternate_b = PSE.Advanced.compile_composite_model(b.model, (policy_spec(:U; active=false),))
+    @test_throws "policy_probe` is outside its prepared family schema" PSE.Advanced.refresh_environment_bindings!(b.model, alternate_b)
+    @test b.backend.binds == 0
+    union_schema = PSE._environment_plan_schema_from_types(vcat(first_types, future_types))
+    c = policy_model(:T; active=false)
+    admitted = prepare_policy(c; schema=union_schema)
+    E = typeof(admitted.environment_bindings)
+    alternate_c = PSE.Advanced.compile_composite_model(c.model, (policy_spec(:U; active=false),))
+    current = PSE.Advanced.refresh_environment_bindings!(c.model, alternate_c; force=true)
+    @test typeof(current) === E
+    @test current.application_plan_schema === union_schema
+    @test only(typeof.(current.application_plans)) in future_types
+    @test only(policy_types(admitted)) in first_types
+    @test c.backend.binds == c.backend.samples == 0
+end
+
+@testset "collection can reopen clean and dirty fixed environment owners" begin
+    observed = prepare_policy(policy_model())
+    schema = PSE._environment_plan_schema_from_types(policy_types(observed))
+    for dirty in (false, true)
+        data = policy_model()
+        simulation = prepare_policy(data; schema)
+        owner = simulation.environment_bindings
+        if dirty
+            mark_environment_binding_dirty!(data.model)
+            @test data.model.environment_binding_cache === owner
+            @test PSE.lifecycle_delta(data.model).full_environment
+        end
+        before = policy_counts(data)
+        current = PSE._refresh_environment_bindings!(data.model, simulation.compiled, owner;
+            plan_schema=nothing)
+        delta = policy_counts(data) .- before
+        @test current.application_plan_schema === nothing
+        @test current.application_plans === owner.application_plans || dirty
+        @test current.bindings === owner.bindings || dirty
+        @test data.backend.binds == before[2] + (dirty ? 2 : 0)
+        if !dirty
+            @test delta == (0, 0, 0)
+            @test current.by_target === owner.by_target
+            @test current.sample_cache === owner.sample_cache
+        end
+        # A new host collection ignores an older fixed policy, including a stale
+        # alternate whose newly normalized family was not in that old schema.
+        data = policy_model()
+        previous = prepare_policy(data; schema)
+        dirty && mark_environment_binding_dirty!(data.model)
+        collected = prepare_policy(data; schema=Val(:collect))
+        @test collected.environment_bindings.application_plan_schema === nothing
+        alternate = PSE.Advanced.compile_composite_model(data.model, (policy_spec(:U),))
+        refreshed = PSE.Advanced.refresh_environment_bindings!(data.model, alternate)
+        @test refreshed.application_plan_schema === nothing
+        @test only(refreshed.application_plans).compiled_sampling_rules !=
+            only(previous.environment_bindings.application_plans).compiled_sampling_rules
+    end
+end
+
+@testset "dirty fixed policies survive checkpoints and rebuild handles" begin
+    schema = fixture_plan_schema(Float32)
+    for copy_simulation in (deepcopy, checkpoint_copy)
+        data = fixture(Float32; environment_plan_schema=schema)
+        move_object!(data.model, :scheduled_move, (cell=:b,))
+        mark_environment_binding_dirty!(data.model)
+        restored = copy_simulation(data.simulation)
+        retained = restored.environment_bindings
+        @test restored.model.environment_binding_cache === retained
+        S = typeof(retained.application_plan_schema)
+        current = PSE.Advanced.refresh_environment_bindings!(restored.model, restored.compiled)
+        @test current !== retained
+        @test typeof(current.application_plan_schema) === S
+        @test current.application_plan_schema === retained.application_plan_schema
+        moved = current.by_target[(:scheduled_probe, ObjectId(:scheduled_move))]
+        @test moved.handle.cell === :b
+        @test moved.handle !== retained.by_target[(:scheduled_probe, ObjectId(:scheduled_move))].handle
+        step!(restored)
+        @test model_status(restored.model, :scheduled_move).seen === 20f0
     end
 end
 

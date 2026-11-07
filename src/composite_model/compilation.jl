@@ -1800,10 +1800,12 @@ Base.propertynames(binding::CompiledEnvironmentBinding) = (
 
 # Share one heap identity across typed simulation fields and context caches.
 # Providers and cache contents keep their existing live sampling semantics.
-mutable struct CompiledEnvironmentBindings{SC,AP,API,B,I,PI,OI,C}
+mutable struct CompiledEnvironmentBindings{SC,AP,API,B,I,PI,OI,C,S}
     const model::SC
     const application_plans::AP
     const application_plans_by_id::API
+    # nothing is the stable open policy; closed metadata holds only Val{PlanType}.
+    const application_plan_schema::S
     const bindings::B
     const by_target::I
     const positions_by_target::PI
