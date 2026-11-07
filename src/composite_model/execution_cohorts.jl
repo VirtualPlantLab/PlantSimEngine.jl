@@ -162,15 +162,15 @@ function _check_execution_cohort_location(location, owner, application_id, objec
     return nothing
 end
 
-@inline _with_execution_cohort_location(f, schema::ExecutionCohortSchema, store::ExecutionCohortStore, ::Nothing, owner, application_id, object_id) = f(nothing)
-@inline function _with_execution_cohort_location(f, ::OpenExecutionCohortSchema, store::ExecutionCohortStore, location::ExecutionCohortLocation, owner, application_id, object_id)
+@inline _with_execution_cohort_location(f::F, schema::ExecutionCohortSchema, store::ExecutionCohortStore, ::Nothing, owner, application_id, object_id) where {F} = f(nothing)
+@inline function _with_execution_cohort_location(f::F, ::OpenExecutionCohortSchema, store::ExecutionCohortStore, location::ExecutionCohortLocation, owner, application_id, object_id) where {F}
     _check_execution_cohort_location(location, owner, application_id, object_id)
     return f(location)
 end
 
 # Select the actual cohort before invoking the operation. An assertion after a
 # dynamic read/clear would leave the abstract operation reachable by JuliaC.
-@generated function _with_execution_cohort_location(f, schema::ClosedExecutionCohortSchema{T}, store::S, location::ExecutionCohortLocation, owner, application_id, object_id) where {T,S<:ExecutionCohortStore}
+@generated function _with_execution_cohort_location(f::F, schema::ClosedExecutionCohortSchema{T}, store::S, location::ExecutionCohortLocation, owner, application_id, object_id) where {F,T,S<:ExecutionCohortStore}
     branches = Expr[]
     O = _execution_store_owner_type(S)
     for Target in fieldtypes(T)
