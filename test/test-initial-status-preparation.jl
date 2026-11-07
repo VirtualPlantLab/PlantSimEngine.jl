@@ -374,10 +374,12 @@ end
 @testset "runtime output assembly preserves ordered stream and status references" begin
     object_id = ObjectId(:target)
     status = Status(first=7.0, second=Float32[2, 3])
-    application = (
-        id=:probe,
-        spec=ModelSpec(InitialStatusPreparationProbe(NamedTuple(), (first=0.0, second=Float32[]))),
-    )
+    model = CompositeModel(Object(object_id; status); applications=(
+        ModelSpec(InitialStatusPreparationProbe(NamedTuple(), (first=0.0, second=Float32[]));
+            name=:probe, on=One(id=object_id)),
+    ))
+    application = only(Advanced.refresh_bindings!(model).applications)
+    @test model_status(model, object_id) === status
     retention = PlantSimEngine.OutputRetentionPlan(
         false,
         Set([(:probe, :second)]),

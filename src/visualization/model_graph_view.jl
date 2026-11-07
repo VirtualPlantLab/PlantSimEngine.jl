@@ -795,6 +795,23 @@ function _model_graph_model_parameters(model)
     return parameters
 end
 
+# Failed declaration hooks are already represented in the compilation report.
+# Successful value inspection stays fresh; failed hooks must not be replayed.
+_model_graph_name_result(::ScenarioPreparationFailure) = ()
+_model_graph_name_result(result::AuthoredPortNames) = _authored_port_names(result)
+function _model_graph_input_schema(application)
+    _application_ports(application).inputs isa ScenarioPreparationFailure && return NamedTuple()
+    return _model_input_schema(application)
+end
+function _model_graph_environment_input_schema(application)
+    _application_ports(application).environment_inputs isa ScenarioPreparationFailure && return NamedTuple()
+    return _model_environment_input_schema(application)
+end
+function _model_graph_environment_output_schema(application)
+    _application_ports(application).environment_outputs isa ScenarioPreparationFailure && return NamedTuple()
+    return _model_environment_output_schema(application)
+end
+
 function _model_graph_port(application, role::Symbol, variable, declaration)
     name = Symbol(variable)
     is_input = role == :input
@@ -818,9 +835,10 @@ function _model_graph_port(application, role::Symbol, variable, declaration)
     return port
 end
 
-function _model_graph_output_destinations(spec)
+function _model_graph_output_destinations(application)
+    spec = application.spec
     resolved = try
-        _output_destination_layout(spec, _distributed_output_names(spec))
+        _output_destination_layout(spec, _model_distributed_output_names(application))
     catch
         # Invalid declarations remain editable; compilation reports the error.
         nothing
@@ -878,10 +896,10 @@ function _model_graph_application_dict(
 )
     process_model = _application_default_model(application)
     spec = application.spec
-    inputs = _input_schema(application.spec)
+    inputs = _model_graph_input_schema(application)
     outputs = _output_schema(application.spec)
-    environment_inputs = environment_inputs_(application.spec)
-    environment_outputs = environment_outputs_(application.spec)
+    environment_inputs = _model_graph_environment_input_schema(application)
+    environment_outputs = _model_graph_environment_output_schema(application)
     target_objects = [_model_object(composite_model, id) for id in application.target_ids]
     environment = environment_config(spec)
     environment_payload = environment isa EnvironmentConfig ? environment.config : environment
@@ -944,7 +962,7 @@ function _model_graph_application_dict(
         "environmentBindings" => _model_graph_json_value(environment_bindings(spec)),
         "environmentWindow" => _model_graph_period_dict(environment_window(spec)),
         "outputRouting" => _model_graph_json_value(output_routing(spec)),
-        "outputsTo" => _model_graph_output_destinations(spec),
+        "outputsTo" => _model_graph_output_destinations(application),
         "updates" => Dict{String,Any}[
             Dict(
                 "variables" => collect(string.(_update_variables(update))),
@@ -1413,10 +1431,12 @@ function _model_graph_environment_edges(report, level, environment_catalog)
     end
     if isempty(environment_bindings)
         for application in report.applications
-            required_inputs = Symbol.(keys(environment_inputs_(application.spec)))
-            produced_outputs = Symbol.(keys(environment_outputs_(application.spec)))
+            ports = _application_ports(application)
+            required_inputs = _model_graph_name_result(ports.environment_inputs)
+            produced_outputs = _model_graph_name_result(ports.environment_outputs)
             isempty(required_inputs) && isempty(produced_outputs) && continue
-            sampling_rules = Tuple(_environment_sampling_rules(application.spec))
+            bindings, environment_sources = _environment_sampling_configuration(application.spec)
+            sampling_rules = Tuple(_environment_sampling_rules(bindings, environment_sources, required_inputs))
             source_inputs = _environment_source_variable_names(sampling_rules)
             config = environment_config(application.spec)
             backend = _environment_backend_from_config(report.model, config)
@@ -1586,10 +1606,10 @@ function _model_graph_initialization(report)
 
     rows = Dict{String,Any}[]
     for application in report.applications
-        model_inputs = _input_schema(application.spec)
+        model_inputs = _model_graph_input_schema(application)
         model_outputs = _local_output_schema(application.spec)
-        model_environment_inputs = environment_inputs_(application.spec)
-        model_environment_outputs = environment_outputs_(application.spec)
+        model_environment_inputs = _model_graph_environment_input_schema(application)
+        model_environment_outputs = _model_graph_environment_output_schema(application)
         source_overrides = _environment_source_overrides(application.spec)
         for object_id in application.target_ids
             object = _model_object(report.model, object_id)

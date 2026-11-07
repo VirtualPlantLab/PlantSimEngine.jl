@@ -199,18 +199,15 @@ function _compile_environment_application_plans(
     for application in applications
         config = environment_config(application.spec)
         backend = _environment_backend_from_config(model, config)
-        sampling_rules = Tuple(_environment_sampling_rules(application.spec))
+        bindings, environment_sources = _environment_sampling_configuration(application.spec)
+        required_inputs = _model_environment_input_names(application)
+        sampling_rules = Tuple(_environment_sampling_rules(bindings, environment_sources, required_inputs))
         compiled_sampling_rules = Tuple(
             CompiledEnvironmentSamplingRule(target, source)
             for (target, source) in sampling_rules
         )
-        required_inputs = _environment_variable_names(
-            environment_inputs_(application.spec),
-        )
         source_inputs = _environment_source_variable_names(sampling_rules)
-        produced_outputs = _environment_variable_names(
-            environment_outputs_(application.spec),
-        )
+        produced_outputs = _model_environment_output_names(application)
         sampler = nothing
         prepared_source = nothing
         if prepare_runtime && backend isa GlobalConstant
@@ -222,10 +219,8 @@ function _compile_environment_application_plans(
                 _prepare_global_environment(source)
             end
         end
-        bindings = environment_bindings(application.spec)
-        has_bindings = bindings isa NamedTuple && !isempty(keys(bindings))
-        has_source_overrides =
-            !isempty(keys(_environment_source_overrides(application.spec)))
+        has_bindings = !isempty(keys(bindings))
+        has_source_overrides = !isempty(keys(environment_sources))
         uses_raw_global_source = backend isa GlobalConstant &&
                                  isnothing(sampler) &&
                                  !has_bindings && !has_source_overrides

@@ -2,7 +2,7 @@
 Immutable scenario-level metadata for one model application. Runtime object
 membership is stored separately in [`CompiledModelApplication`](@ref).
 """
-struct CompiledApplicationPlan{S,AT,TM,TS,CL,MO,ON,CN,CP}
+struct CompiledApplicationPlan{S,AT,TM,TS,CL,MO,P,CP}
     slot::Int
     id::Symbol
     spec::S
@@ -13,8 +13,7 @@ struct CompiledApplicationPlan{S,AT,TM,TS,CL,MO,ON,CN,CP}
     timestep::TS
     clock::CL
     model_overrides::MO
-    output_names::ON
-    canonical_output_names::CN
+    ports::P
     call_plans::CP
 end
 
@@ -659,7 +658,7 @@ end
 
 # Authoring records contain declarations, never current target identities,
 # status values, resolved overrides, clocks, or simulation-owned storage.
-struct AuthoredApplicationRecipe{S,M,H,ON,CN,CP}
+struct AuthoredApplicationRecipe{S,M,H,P,CP}
     slot::Int
     id::Symbol
     spec::S
@@ -667,33 +666,14 @@ struct AuthoredApplicationRecipe{S,M,H,ON,CN,CP}
     name::Union{Nothing,Symbol}
     target_matcher::M
     environment_hint::H
-    output_names::ON
-    canonical_output_names::CN
+    ports::P
     call_plans::CP
 end
 
 function _application_recipe_with_calls(recipe::AuthoredApplicationRecipe, call_plans::Tuple)
     return AuthoredApplicationRecipe(recipe.slot, recipe.id, recipe.spec,
         recipe.process, recipe.name, recipe.target_matcher, recipe.environment_hint,
-        recipe.output_names, recipe.canonical_output_names, call_plans)
-end
-
-struct ScenarioPreparationFailure{E,B}
-    phase::Symbol
-    application_id::Union{Nothing,Symbol}
-    error::E
-    backtrace::B
-end
-
-# Exceptions and interpreter frames are diagnostic metadata, and may reference
-# Modules or methods that cannot be deep-copied. Preserve the original exception
-# for rethrowing; give the copied model a separate trace vector. Scientific
-# models, statuses and defaults are copied through their ordinary owners.
-function Base.deepcopy_internal(failure::ScenarioPreparationFailure, stack::IdDict)
-    return get!(stack, failure) do
-        ScenarioPreparationFailure(failure.phase, failure.application_id,
-            failure.error, copy(failure.backtrace))
-    end
+        recipe.ports, call_plans)
 end
 
 mutable struct ScenarioPreparation{M,S,A,F}
@@ -799,10 +779,10 @@ function _prepare_authored_scenario(model::CompositeModel, raw_specs)
             phase = :environment_hint
             hint = environment_hint(model_(spec))
             phase = :output_ports
-            output_names, canonical_output_names = _compiled_output_names(spec)
+            ports = _prepare_authored_ports(spec, application_id)
             push!(authored, AuthoredApplicationRecipe(
                 slot, application_id, spec, proc, name, matcher, hint,
-                output_names, canonical_output_names, (),
+                ports, (),
             ))
         catch err
             err isa InterruptException && rethrow()
@@ -1044,7 +1024,7 @@ function _validate_initializer_call_plans!(
             "Targeted newborn initialization supports canonical local outputs only.",
         )
         stream_only = Symbol[
-            Symbol(variable) for variable in keys(_local_output_schema(callee.spec))
+            variable for variable in _model_output_names(callee)
             if _publish_mode_for_output(callee.spec, Symbol(variable)) === :stream_only
         ]
         isempty(stream_only) || error(
@@ -4788,9 +4768,9 @@ function explain_initialization(model::CompositeModel)
     rows = NamedTuple[]
     for application in compiled.applications
         model_outputs = _local_output_schema(application.spec)
-        environment_model_outputs = environment_outputs_(application.spec)
-        model_inputs = _input_schema(application.spec)
-        environment_inputs = environment_inputs_(application.spec)
+        environment_model_outputs = _model_environment_output_schema(application)
+        model_inputs = _model_input_schema(application)
+        environment_inputs = _model_environment_input_schema(application)
         generated = Set(Symbol.(keys(model_outputs)))
         for object_id in application.target_ids
             for variable in sort!(collect(generated); by=string)
@@ -4916,7 +4896,7 @@ function explain_initialization(model::CompositeModel)
                            nothing,
                 ))
             end
-            for variable in sort!(Symbol.(collect(keys(environment_inputs_(application.spec)))); by=string)
+            for variable in sort!(collect(_model_environment_input_names(application)); by=string)
                 environment_binding = get(
                     environment_bindings,
                     (application.id, object_id),
@@ -4980,7 +4960,8 @@ function _resolve_application_recipes(
         sizehint!(target_ids, length(target_ids) + 1)
         spec = _model_spec_with_environment_hints(
             model, recipe.spec, _model_application_hint_scale(model, target_ids),
-            recipe.environment_hint; on_error=on_environment_error,
+            recipe.environment_hint, recipe.ports.environment_inputs;
+            on_error=on_environment_error,
         )
         model_overrides = _compiled_object_model_overrides(spec, target_ids, recipe.id)
         push!(applications, CompiledModelApplication(
@@ -4988,8 +4969,7 @@ function _resolve_application_recipes(
                 recipe.slot, recipe.id, spec, recipe.process, recipe.name,
                 selector, target_matcher, timestep(spec),
                 _model_application_clock(model, spec, target_ids, timeline),
-                model_overrides, recipe.output_names, recipe.canonical_output_names,
-                recipe.call_plans,
+                model_overrides, recipe.ports, recipe.call_plans,
             ),
             target_ids,
         ))
@@ -4998,14 +4978,17 @@ function _resolve_application_recipes(
 end
 
 function _model_spec_with_environment_hints(
-    model::CompositeModel, spec, scale::Symbol, authored_hint; on_error=nothing,
+    model::CompositeModel, spec, scale::Symbol, authored_hint, environment_input_names;
+    on_error=nothing,
 )
     hint = _normalize_environment_hint(scale, process(spec), authored_hint)
 
     current_bindings = environment_bindings(spec)
     has_explicit_bindings = !(current_bindings isa NamedTuple && isempty(keys(current_bindings)))
     new_bindings = has_explicit_bindings || isnothing(hint.bindings) ? current_bindings : hint.bindings
-    new_bindings = _model_environment_bindings_with_environment_sources(spec, new_bindings; on_error)
+    new_bindings = _model_environment_bindings_with_environment_sources(
+        spec, new_bindings, environment_input_names; on_error,
+    )
     # Only the diagnostic consumer records a rejected configuration and keeps
     # its actual authored spec visible. Strict compilation throws below.
     isnothing(new_bindings) && return spec
@@ -5021,12 +5004,14 @@ function _model_spec_with_environment_hints(
     )
 end
 
-function _model_environment_bindings_with_environment_sources(spec, bindings; on_error=nothing)
+function _model_environment_bindings_with_environment_sources(
+    spec, bindings, environment_input_names; on_error=nothing,
+)
     sources = _environment_source_overrides(spec)
     isempty(keys(sources)) && return bindings
 
     bindings = bindings isa NamedTuple ? bindings : NamedTuple()
-    model_inputs = Set(Symbol.(keys(environment_inputs_(spec))))
+    model_inputs = Set(_authored_port_names(environment_input_names))
     unknown = Symbol[target for target in keys(sources) if !(Symbol(target) in model_inputs)]
     if !isempty(unknown)
         message = string(
@@ -5082,21 +5067,27 @@ function _application_model(application::CompiledModelApplication, object_id::Ob
     )
 end
 
-function _compiled_output_names(spec)
-    # Port names belong to the immutable application schema. Reading a model's
-    # declarations again during growth can allocate fresh default arrays even
-    # though writer matching needs only their names.
-    names = Tuple(Symbol(var) for var in keys(_local_output_schema(spec)))
-    canonical = Tuple(variable for variable in names
-        if _publish_mode_for_output(spec, variable) === :canonical)
-    return names, canonical
+_application_ports(application::CompiledModelApplication) = getfield(application, :plan).ports
+_model_output_names(application::CompiledModelApplication) = _application_ports(application).outputs.local_names
+_model_canonical_output_names(application::CompiledModelApplication) = _application_ports(application).outputs.canonical_names
+_model_distributed_output_names(application::CompiledModelApplication) = _application_ports(application).outputs.distributed_names
+_model_environment_input_names(application::CompiledModelApplication) = _application_ports(application).environment_input_names
+_model_environment_output_names(application::CompiledModelApplication) = _application_ports(application).environment_output_names
+
+# Real-value initialization/inspection stays fresh; a hook already rejected at
+# authoring must instead rethrow its captured failure without being replayed.
+function _model_input_schema(application::CompiledModelApplication)
+    _model_input_names(application)
+    return _input_schema(application.spec)
 end
-
-_model_output_names(application::CompiledModelApplication) =
-    getfield(application, :plan).output_names
-
-_model_canonical_output_names(application::CompiledModelApplication) =
-    getfield(application, :plan).canonical_output_names
+function _model_environment_input_schema(application::CompiledModelApplication)
+    _model_environment_input_names(application)
+    return environment_inputs_(application.spec)
+end
+function _model_environment_output_schema(application::CompiledModelApplication)
+    _model_environment_output_names(application)
+    return environment_outputs_(application.spec)
+end
 
 function _model_writer_groups(applications, skipped_application_ids=Set{Symbol}())
     groups = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Int,Any}}}()
@@ -6775,7 +6766,7 @@ function _prepare_model_input_defaults!(
     performance=nothing,
 )
     for application in applications
-        schema = _input_schema(application.spec)
+        schema = _model_input_schema(application)
         defaults = _input_default_values(schema)
         for object_id in application.target_ids
             status = _ensure_model_object_status!(model, object_id)
@@ -6908,7 +6899,7 @@ function _prepare_model_input_statuses_batched!(
     default_status_updates = Dict{Tuple{ObjectId,Symbol},Bool}()
     input_default_rewrites_avoided = 0
     for application in applications
-        schema = _input_schema(application.spec)
+        schema = _model_input_schema(application)
         defaults = _input_default_values(schema)
         for object_id in application.target_ids
             preparation = _status_preparation_for_object!(
@@ -7203,7 +7194,7 @@ function _validate_temporal_input_output_overlap!(
     temporal_bindings,
 )
     isempty(temporal_bindings) && return nothing
-    output_names = Set(Symbol.(keys(_local_output_schema(application.spec))))
+    output_names = Set(_model_output_names(application))
     for binding in temporal_bindings
         binding.input in output_names || continue
         error(
@@ -7669,7 +7660,7 @@ Base.@nospecializeinfer function _input_plan_variable_contracts!(
     application_id = application.id
     schema = get(contracts_by_application, application_id, nothing)
     isnothing(schema) || return schema
-    schema = _variable_contract_schema(application.spec)
+    schema = _authored_metadata_value(_application_ports(application).contracts)
     contracts_by_application[application_id] = schema
     return schema
 end
@@ -7766,10 +7757,8 @@ function _compile_model_input_plans(
     applications_by_id = Dict(
         application.id => application for application in applications
     )
-    # Output declarations can allocate fresh default arrays even when only
-    # their names are needed. Snapshot names for this planning pass only:
-    # neither declaration values nor runtime reference carriers are retained.
-    # Application IDs also support filtered lists with non-contiguous slots.
+    # The author owns value-free names; IDs also support diagnostic subsets
+    # with non-contiguous application slots.
     local_output_names = Dict(
         application.id => _model_output_names(application)
         for application in applications
@@ -7789,11 +7778,8 @@ function _compile_model_input_plans(
             if _publish_mode_for_output(application.spec, variable) == :canonical
         ] for application in applications
     )
-    # Contract-name validation reads full declarations, which may allocate
-    # array defaults. Validate each exact application once in this pass and
-    # reuse only its contract metadata for every producer/consumer comparison.
-    # Fill lazily to preserve declaration/endpoint error ordering. Do not retain
-    # initialization values or cache across compilations.
+    # Read saved pure contracts lazily at the existing endpoint positions.
+    # This preserves route/error ordering without replaying declaration hooks.
     variable_contracts_by_application = Dict{Symbol,NamedTuple}()
     for application in applications
         _input_plan_variable_contracts!(variable_contracts_by_application, application)
@@ -7919,7 +7905,7 @@ function _compile_model_output_destination_plans(
 )
     plans = CompiledModelOutputDestinationPlan[]
     for application in applications
-        distributed_names = _distributed_output_names(application.spec)
+        distributed_names = _model_distributed_output_names(application)
         destinations = _output_destination_layout(application.spec, distributed_names)
         if !isnothing(application.model_overrides)
             for replacement in values(application.model_overrides)
@@ -7982,7 +7968,7 @@ end
 function _application_declares_output_name(application, variable::Symbol)
     variable in _model_output_names(application) && return true
     destinations = _output_destination_layout(
-        application.spec, _distributed_output_names(application.spec),
+        application.spec, _model_distributed_output_names(application),
     )
     return any(
         destination -> variable in destination.variable_names,
@@ -8385,9 +8371,7 @@ function _has_matching_distributed_input_writer(
     end
 end
 
-function _model_input_names(application::CompiledModelApplication)
-    return Symbol[Symbol(var) for var in keys(_input_schema(application.spec))]
-end
+_model_input_names(application::CompiledModelApplication) = _application_ports(application).input_names
 
 function _validate_model_input_source!(
     model::CompositeModel,
@@ -8444,7 +8428,7 @@ function _validate_model_required_inputs!(model::CompositeModel, applications, i
     bound = _bound_model_inputs(input_bindings)
     missing = NamedTuple[]
     for application in applications
-        schema = _input_schema(application.spec)
+        schema = _model_input_schema(application)
         for object_id in application.target_ids
             for (input_, declaration) in pairs(schema)
                 declaration isa Required || continue
@@ -8925,12 +8909,12 @@ function explain_applications(compiled::CompiledCompositeModel)
                 if !isnothing(_model_object(compiled.model, id).scale)
             ]); by=string),
             applies_to=application.applies_to,
-            inputs=Tuple(Symbol.(keys(_input_schema(application.spec)))),
-            outputs=Tuple(Symbol.(keys(_output_schema(application.spec)))),
-            local_outputs=Tuple(Symbol.(keys(_local_output_schema(application.spec)))),
-            distributed_outputs=Tuple(Symbol.(keys(_distributed_output_schema(application.spec)))),
-            environment_inputs=Tuple(Symbol.(keys(environment_inputs_(application.spec)))),
-            environment_outputs=Tuple(Symbol.(keys(environment_outputs_(application.spec)))),
+            inputs=_model_input_names(application),
+            outputs=_application_ports(application).outputs.all_names,
+            local_outputs=_model_output_names(application),
+            distributed_outputs=_model_distributed_output_names(application),
+            environment_inputs=_model_environment_input_names(application),
+            environment_outputs=_model_environment_output_names(application),
             timestep=application.timestep,
             clock=application.clock,
             model_type=typeof(_application_default_model(application)),

@@ -356,12 +356,15 @@ function sample_environment(backend::GlobalConstant, handle, state, time, variab
     return _environment_row_at_step(state, Int(round(time)))
 end
 
-function _environment_sampling_rules(model_spec::ModelSpec)
+function _environment_sampling_configuration(model_spec::ModelSpec)
     bindings = environment_bindings(model_spec)
     bindings = bindings isa NamedTuple ? bindings : NamedTuple()
-    environment_sources = _environment_source_overrides(model_spec)
+    return bindings, _environment_source_overrides(model_spec)
+end
+
+function _environment_sampling_rules(bindings, environment_sources, input_names)
     rules = Pair{Symbol,Symbol}[]
-    for target in keys(environment_inputs_(model_spec))
+    for target in input_names
         source = target
         if haskey(bindings, target)
             rule = bindings[target]
@@ -390,12 +393,12 @@ function _environment_source_overrides(model_spec::ModelSpec)
 end
 
 function PreparedEnvironmentInputs(model_spec::ModelSpec)
-    rules = _environment_sampling_rules(model_spec)
+    bindings, environment_sources = _environment_sampling_configuration(model_spec)
+    input_names = _environment_variable_names(environment_inputs_(model_spec))
+    rules = _environment_sampling_rules(bindings, environment_sources, input_names)
     targets = Tuple(first(rule) for rule in rules)
     sources = Tuple(last(rule) for rule in rules)
-    bindings = environment_bindings(model_spec)
-    raw_global_source = !(bindings isa NamedTuple && !isempty(keys(bindings))) &&
-                        isempty(keys(_environment_source_overrides(model_spec)))
+    raw_global_source = isempty(keys(bindings)) && isempty(keys(environment_sources))
     return PreparedEnvironmentInputs(targets, sources; raw_global_source)
 end
 

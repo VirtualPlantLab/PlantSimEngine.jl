@@ -36,7 +36,7 @@ function _check_scenario(model, plan)
     end
     for application in plan.applications
         spec = application.spec
-        isempty(PSE.environment_outputs_(spec)) ||
+        isempty(application.ports.environment_output_names) ||
             _unsupported(application.id, "environment outputs are unsupported")
         backend = PSE._environment_backend_from_config(model, PSE.environment_config(spec))
         _is_constant_environment(backend) ||

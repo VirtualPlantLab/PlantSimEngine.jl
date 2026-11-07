@@ -53,8 +53,8 @@ end
     @test preparation.authored isa Tuple
     recipe = only(preparation.authored)
     @test recipe isa PSE.AuthoredApplicationRecipe
-    @test recipe.output_names == (:value, :scratch, :visits)
-    @test recipe.canonical_output_names == recipe.output_names
+    @test recipe.ports.outputs.local_names == (:value, :scratch, :visits)
+    @test recipe.ports.outputs.canonical_names == recipe.ports.outputs.local_names
     @test recipe.spec === only(model.applications)
     @test declarations[] == hints[] == 1
     @test conversions == [:seed]

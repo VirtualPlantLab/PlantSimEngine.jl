@@ -189,10 +189,11 @@ end
             environment=Environment(sources=(T=:temperature,))),
         ModelSpec(Good{:later}(); name=:later, on=One(id=:root)),
     ))
-    for expected_reads in 1:2
+    @test failed_environment_port_reads[] == 1
+    for _ in 1:2
         report = PSE.compile_model_report(model)
         @test [application.id for application in report.applications] == [:later]
-        @test failed_environment_port_reads[] == expected_reads
+        @test failed_environment_port_reads[] == 1
         @test any(diagnostic -> diagnostic.application_ids == [:failed] &&
             occursin("opaque declaration failed once", diagnostic.message),
             report.diagnostics)

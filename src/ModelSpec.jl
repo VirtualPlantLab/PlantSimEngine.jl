@@ -540,8 +540,7 @@ variable_contracts_(m::ModelSpec) = variable_contracts_(model_(m))
 _declared_contract_variable_names(spec::ModelSpec) =
     _declared_contract_variable_names(model_(spec))
 
-function _validate_variable_contract_names(spec::ModelSpec, schema)
-    declared = _declared_contract_variable_names(spec)
+function _validate_variable_contract_names(spec::ModelSpec, schema, declared)
     unknown = sort!(
         Symbol[name for name in keys(schema) if Symbol(name) ∉ declared];
         by=string,

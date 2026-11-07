@@ -170,7 +170,7 @@ end
         environment=(air=17f0, explicit_air=23f0, duration=Hour(1)))
     forbidden[] = true
     hint = (bindings=(T=(source=:air, reducer=MeanWeighted()),), window=TestWindow)
-    resolved = PSE._model_spec_with_environment_hints(model, spec, :Leaf, hint)
+    resolved = PSE._model_spec_with_environment_hints(model, spec, :Leaf, hint, PSE.AuthoredPortNames((:T,)))
     @test calls[] == 1
     @test resolved.environment_bindings.T.source === :explicit_air
     @test resolved.environment_window isa TestWindow
@@ -182,16 +182,16 @@ end
     explicit = ModelSpec(source; environment_bindings=(T=(source=:chosen,),),
         environment_window=explicit_window)
     forbidden[] = true
-    resolved = PSE._model_spec_with_environment_hints(model, explicit, :Leaf, hint)
+    resolved = PSE._model_spec_with_environment_hints(model, explicit, :Leaf, hint, PSE.AuthoredPortNames((:T,)))
     @test resolved.environment_bindings.T.source === :chosen
     @test resolved.environment_window === explicit_window
     @test calls[] == 2
 
     invalid = ModelSpec(Leaf(); environment=Environment(sources=(unknown=:air,)))
     @test_throws "unknown model-facing environment input" PSE._model_spec_with_environment_hints(
-        model, invalid, :Leaf, nothing)
+        model, invalid, :Leaf, nothing, PSE.AuthoredPortNames(()))
     errors = Any[]
-    diagnostic = PSE._model_spec_with_environment_hints(model, invalid, :Leaf, nothing;
+    diagnostic = PSE._model_spec_with_environment_hints(model, invalid, :Leaf, nothing, PSE.AuthoredPortNames(());
         on_error=error -> push!(errors, error))
     @test diagnostic === invalid
     @test length(errors) == 1

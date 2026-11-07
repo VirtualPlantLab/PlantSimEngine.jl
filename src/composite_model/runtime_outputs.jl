@@ -1808,7 +1808,7 @@ function _model_output_object_ids(
         (application.id, variable),
         nothing,
     )
-    variable in keys(_local_output_schema(application.spec)) ||
+    variable in _model_output_names(application) ||
         return isnothing(destination_ids) ? ObjectId[] : destination_ids
     isnothing(destination_ids) && return application.target_ids
     object_ids = copy(application.target_ids)
@@ -1832,7 +1832,7 @@ function _model_output_reference(
     object_id::ObjectId,
     variable::Symbol,
 )
-    if variable in keys(_local_output_schema(application.spec)) &&
+    if variable in _model_output_names(application) &&
        haskey(
            compiled.status_views_by_target,
            (application.id, object_id),
@@ -1919,7 +1919,7 @@ function _initialize_changed_model_output_streams!(
         )
         isempty(variables) && continue
         _compiled_application_by_id(compiled, application_id) do application
-            model_outputs = keys(_local_output_schema(application.spec))
+            model_outputs = _model_output_names(application)
             if haskey(compiled.status_views_by_target, (application_id, object_id))
                 for variable in variables
                     variable in model_outputs || continue
@@ -3175,7 +3175,7 @@ Base.@nospecializeinfer function _runtime_model_output_streams(
     isempty(variables) && return ()
     # Assemble once without specializing a generator on the entire model/status.
     # The returned tuple still has concrete stream and reference types.
-    declared_outputs = keys(_local_output_schema(application.spec))
+    declared_outputs = _model_output_names(application)
     runtime_streams = RuntimeOutputStream[]
     for variable in variables
         variable in declared_outputs || continue
@@ -3779,7 +3779,7 @@ function _model_execution_outputs_match(
         nothing,
     )
     for variable in variables
-        variable in keys(_local_output_schema(application.spec)) || continue
+        variable in _model_output_names(application) || continue
         output_index += 1
         output_index <= length(runtime_outputs) || return false
         output = runtime_outputs[output_index]
@@ -4698,7 +4698,7 @@ function _model_application_output_variables(
     application,
     ::NoCompiledDistributedOutputs,
 )
-    return Tuple(Symbol(variable) for variable in keys(_local_output_schema(application.spec)))
+    return _model_output_names(application)
 end
 
 function _model_application_output_variables(
@@ -4706,7 +4706,7 @@ function _model_application_output_variables(
     application,
     distributed_outputs::CompiledDistributedOutputs,
 )
-    variables = Symbol[Symbol(variable) for variable in keys(_local_output_schema(application.spec))]
+    variables = Symbol[Symbol(variable) for variable in _model_output_names(application)]
     for ((application_id, variable), destination_ids) in
         distributed_outputs.destination_ids_by_application_variable
         application_id == application.id || continue
@@ -6222,7 +6222,7 @@ function _environment_binding_for_current_context(context::RunContext)
 end
 
 function _validate_environment_commit(context::RunContext, state)
-    declared = Symbol.(collect(keys(environment_outputs_(context.application.spec))))
+    declared = _model_environment_output_names(context.application)
     isempty(declared) && error(
         "Application `$(context.application.id)` cannot commit environment state because ",
         "its model declares no `environment_outputs_` variables.",
@@ -7992,7 +7992,7 @@ function _model_request_application(model::CompositeModel, compiled::CompiledCom
             application.id == request.application ||
             application.name == request.application ||
             continue
-        local_output = request.var in keys(_local_output_schema(application.spec))
+        local_output = request.var in _model_output_names(application)
         local_match = local_output && (
             any(id -> id in requested_ids, application.target_ids) ||
             (!isnothing(declared_scale) &&

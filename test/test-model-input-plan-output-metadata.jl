@@ -106,19 +106,18 @@ plan_signature(plans) = [(plan.application_id, plan.input, plan.origin,
         @test length(plans) == count
         @test all(plan -> plan.potential_source_application_ids == (:source,), plans)
         @test all(plan -> plan.origin == (explicit ? :model_spec : :inferred_same_object), plans)
-        # Names already belong to the prepared application. Only contract
-        # validation reads declarations again, once per application; every real
-        # binding still compares the validated endpoint contracts.
-        @test queries.source == 1
-        @test all(==(1), queries.readers)
-        @test queries.source_contracts == 1
-        @test all(==(1), queries.reader_contracts)
+        # The constructor owns names and validated pure contracts. This
+        # planning pass still compares endpoints but replays no declaration.
+        @test queries.source == 0
+        @test all(iszero, queries.readers)
+        @test queries.source_contracts == 0
+        @test all(iszero, queries.reader_contracts)
         repeated, fresh_queries = planner_pass(data, applications, destinations)
         @test plan_signature(repeated) == plan_signature(plans)
-        @test fresh_queries.source == 1
-        @test all(==(1), fresh_queries.readers)
-        @test fresh_queries.source_contracts == 1
-        @test all(==(1), fresh_queries.reader_contracts)
+        @test fresh_queries.source == 0
+        @test all(iszero, fresh_queries.readers)
+        @test fresh_queries.source_contracts == 0
+        @test all(iszero, fresh_queries.reader_contracts)
 
         simulation = run!(data.model; steps=1, outputs=:all)
         for index in 1:count
@@ -139,11 +138,11 @@ end
     @test getproperty.(selected, :slot) == [1, 9]
     plans, queries = planner_pass(data, selected, PSE.NoCompiledDistributedOutputPlans())
     @test plan_signature(plans) == [(:reader_8, :signal, :inferred_same_object, (:source,))]
-    @test queries.source <= 3
-    @test queries.readers[end] <= 3
+    @test queries.source == 0
+    @test queries.readers[end] == 0
     @test all(iszero, queries.readers[1:end-1])
-    @test queries.source_contracts == 1
-    @test queries.reader_contracts[end] == 1
+    @test queries.source_contracts == 0
+    @test queries.reader_contracts[end] == 0
     @test all(iszero, queries.reader_contracts[1:end-1])
 end
 
@@ -393,7 +392,7 @@ end
         @test final_state(first).observed === T(4)
         @test data.source.queries[] == data.reader.queries[] == 1
 
-        # A compile-local snapshot must not survive a forced compile of the
+        # An authored snapshot must not survive an explicit author refresh of the
         # same model/application instances, including a failed compile.
         data.source.contracts[] = (signal=VariableContract(unit=:changed_signal),)
         @test_throws "Incompatible variable contracts" Advanced.refresh_bindings!(data.model; force=true)
@@ -417,8 +416,9 @@ end
             data.model.applications...,
             ModelSpec(later; name=:later_invalid, on=Many(scale=:Other)),
         ), environment=(duration=Hour(1),))
+        @test later.queries[] == 1 # constructor captures later results for diagnostics
         @test_throws "Incompatible variable contracts" Advanced.refresh_bindings!(model)
-        @test later.queries[] == 0
+        @test later.queries[] == 1 # earlier endpoint error still wins without replay
     end
 end
 
