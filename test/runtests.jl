@@ -294,6 +294,7 @@ else
         include("test-model-environment-sampling.jl")
         include("test-model-execution-batch-times.jl")
         include("test-model-environment-binding-identity.jl")
+        include("test-model-environment-index-identities.jl")
         include("test-model-global-environment-sample-schema.jl")
     end
 

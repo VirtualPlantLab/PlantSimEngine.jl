@@ -376,11 +376,12 @@ function _compiled_environment_bindings(
     bindings,
     by_target,
     sample_cache=Dict{Tuple{Symbol,Int},Any}(),
-    positions_by_target=Dict{Tuple{Symbol,ObjectId},Int}(
-        (binding.application_id, binding.object_id) => index
-        for (index, binding) in pairs(bindings)
+    positions_by_target=_index_environment_binding_positions(
+        bindings, keytype(model.registry.objects),
     ),
-    targets_by_object=_index_environment_targets_by_object(bindings),
+    targets_by_object=_index_environment_targets_by_object(
+        bindings, keytype(model.registry.objects),
+    ),
 )
     return CompiledEnvironmentBindings(
         model,
@@ -397,25 +398,42 @@ function _compiled_environment_bindings(
     )
 end
 
-function _index_environment_targets_by_object(bindings)
-    targets_by_object = Dict{ObjectId,Vector{Tuple{Symbol,ObjectId}}}()
+# The binding vector may contain several concrete handle/plan families. These
+# indexes need only the fixed metadata fields, never a sampled environment.
+@inline function _environment_binding_target_key(binding::CompiledEnvironmentBinding,
+    ::Type{I},
+) where {I<:ObjectId}
+    plan = getfield(binding, :plan)::CompiledEnvironmentApplicationPlan
+    return (getfield(plan, :application_id), getfield(binding, :object_id)::I)
+end
+
+function _index_environment_binding_positions(bindings, ::Type{I}) where {I<:ObjectId}
+    return Dict{Tuple{Symbol,I},Int}(
+        _environment_binding_target_key(binding, I) => index
+        for (index, binding) in pairs(bindings)
+    )
+end
+
+function _index_environment_targets_by_object(bindings, ::Type{I}) where {I<:ObjectId}
+    targets_by_object = Dict{I,Vector{Tuple{Symbol,I}}}()
     for binding in bindings
+        target = _environment_binding_target_key(binding, I)
         push!(
-            get!(targets_by_object, binding.object_id) do
-                Tuple{Symbol,ObjectId}[]
+            get!(targets_by_object, target[2]) do
+                Tuple{Symbol,I}[]
             end,
-            (binding.application_id, binding.object_id),
+            target,
         )
     end
     return targets_by_object
 end
 
-function _index_environment_bindings(bindings)
+function _index_environment_bindings(bindings, ::Type{I}) where {I<:ObjectId}
     # An initially empty application can acquire targets with another schema
     # during growth. Keep this lifecycle index value-widened; concrete handles
     # and sampling plans remain in the typed execution targets.
-    by_target = Dict{Tuple{Symbol,ObjectId},CompiledEnvironmentBinding}(
-        (binding.application_id, binding.object_id) => binding
+    by_target = Dict{Tuple{Symbol,I},CompiledEnvironmentBinding}(
+        _environment_binding_target_key(binding, I) => binding
         for binding in bindings
     )
     length(by_target) == length(bindings) || error(
@@ -434,7 +452,7 @@ function compile_environment_bindings(model::CompositeModel, compiled::CompiledC
         application_plans_by_id,
     )
     _validate_model_environment_inputs!(bindings, compiled.applications_by_id)
-    by_target = _index_environment_bindings(bindings)
+    by_target = _index_environment_bindings(bindings, keytype(model.registry.objects))
     return _compiled_environment_bindings(
         model,
         compiled,
@@ -567,7 +585,7 @@ function _reconcile_environment_binding_metadata(
         cached.targets_by_object,
     )
     _validate_model_environment_inputs!(bindings, compiled.applications_by_id)
-    by_target = _index_environment_bindings(bindings)
+    by_target = _index_environment_bindings(bindings, keytype(model.registry.objects))
     return _compiled_environment_bindings(
         model,
         compiled,

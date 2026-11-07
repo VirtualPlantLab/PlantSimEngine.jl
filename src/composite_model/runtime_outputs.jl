@@ -5741,10 +5741,7 @@ function _targeted_call_environment_bindings(
         cached.application_plans_by_id,
     )
     _validate_model_environment_inputs!(partial, applications_by_id)
-    by_target = Dict(
-        (binding.application_id, binding.object_id) => binding
-        for binding in partial
-    )
+    by_target = _index_environment_bindings(partial, keytype(model.registry.objects))
     return _compiled_environment_bindings(
         model,
         compiled,
