@@ -1209,8 +1209,8 @@ mutable struct RuntimeApplicationSchedule{P}
     last_step::Int
 end
 
-struct CompiledExecutionPlan{G,B,I,S,TP}
-    cohorts::ExecutionCohortStore
+struct CompiledExecutionPlan{G,B,I,S,TP,C<:ExecutionCohortStore}
+    cohorts::C
     topology::TP
     groups::G
     batches::B

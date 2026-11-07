@@ -60,11 +60,15 @@ function fixture(closed)
     return (;model,capture)
 end
 
+@noinline plan_cohorts(plan) = plan.cohorts
+
 function check_store(simulation, closed)
     store = simulation.temporal_streams.cohorts
     I = closed ? Union{ObjectId{Int},ObjectId{Symbol}} : ObjectId
     O = closed ? Union{Nothing,Tuple{Symbol,I,Symbol,Symbol}} : Any
     @test typeof(store) === PSE.ExecutionCohortStore{I,O}
+    @test fieldtype(typeof(simulation.execution_plan), :cohorts) === typeof(store)
+    @test (@inferred plan_cohorts(simulation.execution_plan)) === store
     @test fieldtype(typeof(simulation.temporal_streams), :cohorts) === typeof(store)
     @test keytype(store.cohorts) === Tuple{O,Symbol,DataType}
     @test keytype(store.locations) === Tuple{O,Symbol,I}
@@ -182,6 +186,99 @@ end
     @test PSE.cohort_location(open, :leaf, ObjectId(1); owner=1.0) ===
           PSE.cohort_location(open, :leaf, ObjectId(1); owner=1)
     @test original[1] === first
+end
+
+@testset "fixed and dynamic plans share their existing concrete store" begin
+    for closed in (false,true)
+        data = fixture(closed)
+        simulation = run!(data.model; steps=0, outputs=:all)
+        original = simulation.execution_plan
+        store = check_store(simulation, closed)
+        batch = only(only(original.groups).batches)
+        target = only(batch.targets)
+        reference = PSE.refvalue(model_status(data.model, 1), :value)
+        fixed = PSE._fixed_execution_plan(original)
+        @test fixed.topology isa PSE.FixedExecution
+        @test fixed.cohorts === original.cohorts === store
+        @test fieldtype(typeof(fixed), :cohorts) === typeof(store)
+        @test only(only(fixed.groups).batches) === batch
+        @test only(only(only(fixed.groups).batches).targets) === target
+        fixed_simulation = PSE._simulation_with_execution_plan(simulation, fixed)
+        @test fixed_simulation.temporal_streams === simulation.temporal_streams
+        step!(fixed_simulation)
+        @test model_status(data.model, 1).value === 2.0f0
+        @test PSE.refvalue(model_status(data.model, 1), :value) === reference
+        check_store(fixed_simulation, closed)
+
+        # Rebuild only container/topology metadata with the same canonical
+        # constructor. The timeline, schedule, payloads and refs are retained.
+        dynamic = PSE.CompiledExecutionPlan(fixed.cohorts,PSE.DynamicExecution(),
+            typeof(original.groups)(collect(fixed.groups)),typeof(original.batches)(collect(fixed.batches)),
+            typeof(original.groups_by_application_slot)(collect(fixed.groups_by_application_slot)),
+            fixed.schedule,fixed.model_revision,fixed.environment_revision)
+        dynamic_simulation = PSE._simulation_with_execution_plan(fixed_simulation, dynamic)
+        @test dynamic.cohorts === store
+        @test fieldtype(typeof(dynamic), :cohorts) === typeof(store)
+        @test dynamic.schedule === fixed.schedule
+        register_object!(data.model, Object(:later;scale=:Leaf,parent=:root,
+            status=Status(value=0.0f0)))
+        step!(dynamic_simulation)
+        @test model_status(data.model, 1).value === 4.0f0
+        @test model_status(data.model, :later).value === 2.0f0
+        @test PSE.refvalue(model_status(data.model, 1), :value) === reference
+        check_store(dynamic_simulation, closed)
+        remove_object!(data.model, 1)
+        step!(dynamic_simulation)
+        @test model_status(data.model, :later).value === 4.0f0
+        @test model_status(data.model, :root).ticks == 3
+        @test outputs(dynamic_simulation)[(:leaf,ObjectId(1),:value)] == [(1.0,2.0f0),(2.0,4.0f0)]
+        @test outputs(dynamic_simulation)[(:leaf,ObjectId(:later),:value)] == [(2.0,2.0f0),(3.0,4.0f0)]
+        check_store(dynamic_simulation, closed)
+    end
+end
+
+@testset "fixed plans still reject topology edits before execution" begin
+    for closed in (false,true)
+        data = fixture(closed)
+        simulation = run!(data.model;steps=0,outputs=:none)
+        fixed = PSE._fixed_execution_plan(simulation.execution_plan)
+        simulation = PSE._simulation_with_execution_plan(simulation, fixed)
+        newborn = register_object!(data.model,Object(:later;scale=:Leaf,parent=:root,
+            status=Status(value=7.0f0)))
+        @test_throws "topology and bindings must stay fixed" step!(simulation)
+        @test model_status(data.model, :root).ticks == 0
+        @test model_status(data.model, 1).value === 0.0f0
+        @test newborn.status.value === 7.0f0
+        check_store(simulation, closed)
+    end
+end
+
+@testset "open refresh retires an unvisited scheduled owner through the same store" begin
+    for closed in (false,true)
+        data = fixture(closed)
+        simulation = run!(data.model;steps=0,outputs=:none)
+        previous = simulation.execution_plan
+        store = check_store(simulation, closed)
+        location = PSE.cohort_location(store,:controller,ObjectId(:root))
+        target = location.cohort.rows[location.row]
+        reference = PSE.refvalue(model_status(data.model, 1), :value)
+        # A changed authored CS needs a fresh Simulation at the outer boundary.
+        # This host diagnostic exercises the canonical plan-refresh worker only.
+        deleteat!(data.model.applications, 1)
+        current = PSE.Advanced.refresh_bindings!(data.model;force=true)
+        environment = PSE.refresh_environment_bindings!(data.model,current)
+        refreshed = PSE._refresh_model_execution_plan(previous,current,environment,
+            simulation.temporal_streams,simulation.output_retention,simulation.constants)
+        @test refreshed.plan.cohorts === store
+        @test fieldtype(typeof(refreshed.plan), :cohorts) === typeof(store)
+        @test (@inferred plan_cohorts(refreshed.plan)) === store
+        @test only(refreshed.plan.groups).application.id === :leaf
+        @test isnothing(PSE.cohort_location(store,:controller,ObjectId(:root)))
+        @test isnothing(location.cohort.rows[location.row])
+        @test target.status_view.status.ticks == 0
+        @test model_status(data.model, 1).value === 0.0f0
+        @test PSE.refvalue(model_status(data.model, 1), :value) === reference
+    end
 end
 
 end
