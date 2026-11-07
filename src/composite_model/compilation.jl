@@ -1550,7 +1550,7 @@ function _compiled_scenario_plan(
     )
 end
 
-struct CompiledModelInputBinding{PL,P,C,I<:ObjectId,SI<:AbstractVector{<:ObjectId}}
+struct CompiledModelInputBinding{PL<:CompiledModelInputPlan,P,C,I<:ObjectId,SI<:AbstractVector{<:ObjectId}}
     plan::PL
     consumer_id::I
     source_ids::SI
@@ -1626,7 +1626,7 @@ mutable struct CompiledModelStatusView{S,C,T,P,BI}
     const bound_inputs::BI
 end
 
-struct CompiledModelCallBinding{P,I<:ObjectId,J<:ObjectId}
+struct CompiledModelCallBinding{P<:CompiledModelCallPlan,I<:ObjectId,J<:ObjectId}
     plan::P
     consumer_id::I
     callee_object_ids::Vector{J}
@@ -1648,7 +1648,7 @@ function CompiledModelCallBinding(
     consumer_id::I,
     callee_object_ids::Vector{J},
     callee_application_ids::Vector{Symbol},
-) where {P,I<:ObjectId,J<:ObjectId}
+) where {P<:CompiledModelCallPlan,I<:ObjectId,J<:ObjectId}
     return CompiledModelCallBinding{P,I,J}(
         plan,
         consumer_id,

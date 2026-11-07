@@ -494,4 +494,56 @@ end
     end
 end
 
+# These readers deliberately accept containers with erased concrete binding
+# parameters. Primitive declaration metadata must keep its semantic types.
+function input_binding_metadata(bindings::Vector{PSE.CompiledModelInputBinding})
+    binding = first(bindings)
+    return (binding.application_id, binding.input, binding.source_var,
+        binding.multiplicity, binding.slot, binding.application_slot,
+        binding.breaks_same_step_cycle)
+end
+
+function call_binding_metadata(bindings::Vector{PSE.CompiledModelCallBinding})
+    binding = first(bindings)
+    return (binding.application_id, binding.call, binding.multiplicity,
+        binding.slot, binding.application_slot)
+end
+
+@testset "binding metadata stays inferred through abstract binding containers" begin
+    for closed in (false, true)
+        calls = call_fixture(closed).simulation.compiled.call_bindings
+        erased_calls = PSE.CompiledModelCallBinding[calls...]
+        @test eltype(erased_calls) === PSE.CompiledModelCallBinding
+        expected_call = first(calls)
+        @test (@inferred call_binding_metadata(erased_calls)) ==
+            (expected_call.application_id, expected_call.call,
+                expected_call.multiplicity, expected_call.slot,
+                expected_call.application_slot)
+        @test first(erased_calls).plan === expected_call.plan
+        @test first(erased_calls).callee_object_ids === expected_call.callee_object_ids
+
+        model = CompositeModel(
+            Object(:root; scale=:Plant,
+                status=Status(single=0f0, values=Float64[], total=0.0)),
+            Object(1; scale=:Leaf, parent=:root, status=Status(x=3f0));
+            applications=(ModelSpec(Reader(); name=:reader, on=One(id=:root),
+                inputs=(single=One(id=1, within=Subtree(), var=:x,
+                    from_status=true),)),))
+        closed && (model = close_registry(model))
+        simulation = run!(model; steps=0, outputs=:none)
+        bindings = simulation.compiled.input_bindings
+        erased_inputs = PSE.CompiledModelInputBinding[bindings...]
+        @test length(erased_inputs) == 1
+        @test eltype(erased_inputs) === PSE.CompiledModelInputBinding
+        expected_input = only(bindings)
+        @test (@inferred input_binding_metadata(erased_inputs)) ==
+            (expected_input.application_id, expected_input.input,
+                expected_input.source_var, expected_input.multiplicity,
+                expected_input.slot, expected_input.application_slot,
+                expected_input.breaks_same_step_cycle)
+        @test only(erased_inputs).plan === expected_input.plan
+        @test only(erased_inputs).carrier === PSE.refvalue(model_status(model, 1), :x)
+    end
+end
+
 end
