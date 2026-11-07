@@ -131,7 +131,7 @@ end
 
 @testset "temporal stream extension retains validation atomicity and live owners" begin
     source_runs, reader_runs = Ref(0), Ref(0)
-    model = CompositeModel(Object(0; scale=:Scene),
+    model = CompositeModel(Object(0; scale=:Scene, status=Status(lag_a=Float32[], lag_z=Float64[])),
         Object(1; scale=:Leaf, parent=0, status=Status(a=1f0, z=10.0));
         applications=(
             ModelSpec(Reader(reader_runs); name=:reader, on=One(id=0), inputs=(
