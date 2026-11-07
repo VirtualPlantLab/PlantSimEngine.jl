@@ -593,7 +593,7 @@ struct CallTargetsPreparation{CS,EB,TS,OR,C}
     constants::C
     model_revision::Int
     environment_revision::Int
-    applications_identity::UInt
+    compiled_applications::Vector{CompiledModelApplication}
     membership_reference::Base.RefValue{UInt64}
     membership_generation::UInt64
 end
@@ -604,7 +604,7 @@ function _call_targets_preparation(
     return CallTargetsPreparation(
         compiled, environment_bindings, temporal_streams, output_retention, constants,
         compiled.revision, environment_bindings.environment_revision,
-        environment_bindings.applications_identity,
+        environment_bindings.compiled_applications,
         getfield(binding, :membership_generation),
         _compiled_call_membership_generation(binding),
     )
@@ -709,7 +709,7 @@ end
            prepared.constants === constants &&
            prepared.model_revision == compiled.revision &&
            prepared.environment_revision == environment_bindings.environment_revision &&
-           prepared.applications_identity == environment_bindings.applications_identity &&
+           prepared.compiled_applications === environment_bindings.compiled_applications &&
            prepared.membership_reference === getfield(targets.binding, :membership_generation) &&
            prepared.membership_generation == _compiled_call_membership_generation(targets.binding)
 end
@@ -774,8 +774,7 @@ end
 )
     return environment_bindings isa CompiledEnvironmentBindings &&
            environment_bindings.model_revision == compiled.revision &&
-           environment_bindings.applications_identity ==
-           objectid(compiled.applications)
+           environment_bindings.compiled_applications === compiled.applications
 end
 
 function _prebarrier_environment_bindings(

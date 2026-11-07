@@ -106,6 +106,9 @@ end
         # Inspect the restored graph before an accessor can refresh its owners.
         @test PSE._environment_bindings_match_compiled(environment_bindings, restored.compiled)
         @test !PSE._environment_bindings_match_compiled(environment_bindings, simulation.compiled)
+        @test environment_bindings.compiled_applications === restored.compiled.applications
+        @test environment_bindings.compiled_applications !== simulation.compiled.applications
+        @test targets.preparation.compiled_applications === restored.compiled.applications
         @test PSE._call_targets_preparation_is_current(targets,
             restored.compiled, environment_bindings, restored.temporal_streams,
             restored.output_retention, restored.constants)
@@ -305,12 +308,12 @@ end
     is_current_alternate = current === alternate && current !== full
     @test is_current_alternate
     @test length(current.bindings) == 2
-    @test current.applications_identity == objectid(alternate_compiled.applications)
+    @test current.compiled_applications === alternate_compiled.applications
     samples = data.backend.samples
     restored = PSE._refresh_environment_bindings!(data.model, simulation.compiled, current)
     is_restored = restored === PSE.compiled_environment_bindings(data.model)
     @test is_restored
-    @test restored.applications_identity == objectid(simulation.compiled.applications)
+    @test restored.compiled_applications === simulation.compiled.applications
     @test length(restored.bindings) == 4
     @test all(binding -> binding.backend === data.backend, restored.bindings)
     @test restored.by_target[(:scheduled_probe, ObjectId(:scheduled_move))].handle.cell === :b
@@ -395,7 +398,7 @@ end
     @test data.backend.samples == samples
     uses_current = simulation.environment_bindings === PSE.compiled_environment_bindings(data.model)
     @test uses_current
-    @test simulation.environment_bindings.applications_identity == objectid(simulation.compiled.applications)
+    @test simulation.environment_bindings.compiled_applications === simulation.compiled.applications
     @test length(simulation.environment_bindings.bindings) == 4
     handles_current = all(batch -> all(target ->
         target.environment_binding.handle === simulation.environment_bindings.by_target[

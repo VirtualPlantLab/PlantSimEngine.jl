@@ -1809,7 +1809,7 @@ mutable struct CompiledEnvironmentBindings{SC,AP,API,B,I,PI,OI,C}
     const sample_cache::C
     const model_revision::Int
     const environment_revision::Int
-    const applications_identity::UInt
+    const compiled_applications::Vector{CompiledModelApplication}
 end
 
 # Keep a stable heap identity at dynamic execution-batch boundaries. The

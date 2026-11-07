@@ -394,7 +394,7 @@ function _compiled_environment_bindings(
         sample_cache,
         model.revision,
         model.environment_revision,
-        objectid(compiled.applications),
+        compiled.applications,
     )
 end
 
@@ -754,7 +754,7 @@ function _refresh_environment_bindings!(model::CompositeModel, compiled,
             # A public Advanced refresh may have prepared another application
             # set. Reconcile that current owner before using its plans for a
             # partial event in this compiled scene.
-            partial_owner = cached.applications_identity == objectid(compiled.applications) ?
+            partial_owner = cached.compiled_applications === compiled.applications ?
                             cached : _reconcile_environment_binding_metadata(model, compiled, cached)
             if isnothing(partial_owner)
                 compile_environment_bindings(model, compiled)
@@ -776,7 +776,7 @@ function _refresh_environment_bindings!(model::CompositeModel, compiled,
         return refreshed
     elseif cached.model_revision == compiled.revision &&
            cached.environment_revision == model.environment_revision &&
-           cached.applications_identity == objectid(compiled.applications)
+           cached.compiled_applications === compiled.applications
         return cached
     else
         reconciled = _reconcile_environment_binding_metadata(model, compiled, cached)
