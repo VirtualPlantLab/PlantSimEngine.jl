@@ -57,6 +57,12 @@ end
     @test !first.publication_allowed
     @test first.environment isa PSE.NoEnvironmentOverride
     @test first.calls === ()
+    schema = PSE._context_call_schema(first)
+    @test schema isa PSE.PreparedContextCallSchema{Tuple{}}
+    @test isempty(PSE._execution_append_intent_buffer(schema))
+    @test isempty(PSE._execution_binding_intent_buffer(schema))
+    @test eltype(PSE._execution_append_intent_buffer(schema)) === Union{}
+    @test eltype(PSE._execution_binding_intent_buffer(schema)) === Union{}
     @test isempty(get(outputs(simulation),(:leaf,ObjectId(:born),:draw),[]))
 
     continue!(simulation; steps=1)

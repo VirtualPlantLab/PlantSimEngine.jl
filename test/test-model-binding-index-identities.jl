@@ -239,4 +239,34 @@ end
     check_indexes(model, simulation)
 end
 
+@testset "cold Many excludes pending births with mixed registry identities" begin
+    for closed in (false, true)
+        data = call_fixture(closed)
+        model, simulation = data.model, data.simulation
+        binding = only(binding for binding in simulation.compiled.call_bindings
+            if binding.call === :many)
+        references = Dict(id => PSE.refvalue(model_status(model, id), :x)
+            for id in (1, :leaf))
+        register_object!(model, Object(2; scale=:Leaf, parent=:root,
+            status=Status(x=7f0)))
+        register_object!(model, Object(:new_leaf; scale=:Leaf, parent=:root,
+            status=Status(x=9f0)))
+
+        ids, applications = PSE._resolved_compiled_call_membership(
+            simulation.compiled, binding)
+        @test ids == [ObjectId(1), ObjectId(:leaf)]
+        @test applications == [:leaf]
+        @test !PSE._compiled_call_membership_is_observed(binding)
+        step!(simulation)
+        run_call!(data.capture[], :many; publish=true)
+        @test [target.object_id for target in call_targets(data.capture[], :many)] ==
+            [ObjectId(1), ObjectId(2), ObjectId(:leaf), ObjectId(:new_leaf)]
+        @test model_status(model, 2).x === 8f0
+        @test model_status(model, :new_leaf).x === 10f0
+        @test all(PSE.refvalue(model_status(model, id), :x) === ref
+            for (id, ref) in references)
+        check_indexes(model, simulation)
+    end
+end
+
 end

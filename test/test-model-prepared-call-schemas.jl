@@ -317,4 +317,45 @@ end
     assert_prepared_tree(prepared)
 end
 
+@testset "an empty call layout is finite and declaration changes start a new timeline" begin
+    data = fixture()
+    model = data.model
+    original = model.applications[1]
+    model.applications[1] = ModelSpec(PSE.model_(original);
+        name=:root, on=One(id=:root))
+    Advanced.refresh_bindings!(model; force=true)
+    previous = run!(model; steps=1, outputs=:all)
+    target = only(target for group in previous.execution_plan.groups
+        for batch in group.batches for target in batch.targets
+        if batch.application.id === :root)
+    @test target.context.calls === ()
+    schema = PSE._context_call_schema(target.context)
+    @test schema isa PSE.PreparedContextCallSchema{Tuple{}}
+    @test eltype(PSE._execution_append_intent_buffer(schema)) === Union{}
+    @test eltype(PSE._execution_binding_intent_buffer(schema)) === Union{}
+    @test PSE._context_call_schema(nothing) isa PSE.OpenContextCallSchema
+    cells, state, random_state = status_cells(model), scientific_state(model), rng_probe(data.rng)
+    previous_history = history(previous)
+
+    model.applications[1] = original
+    current = Advanced.refresh_bindings!(model; force=true)
+    bindings = current.call_bindings_by_target[(:root, ObjectId(:root))]
+    @test length(bindings) == 1
+    @test isnothing(PSE._admitted_current_execution_call_bindings(schema, target, bindings))
+    # Changing declaration layouts uses a fresh timeline, as documented.
+    fresh = run!(model; steps=0, outputs=:all)
+    @test fresh.compiled === current
+    @test current_step(fresh) == 0
+    @test scientific_state(model) == state
+    @test rng_probe(data.rng) == random_state
+    @test history(previous) == previous_history
+    assert_same_cells(model, cells)
+    step!(fresh)
+    run_call!(data.capture[], :middle; publish=true)
+    @test length(call_targets(data.capture[], :middle)) == 2
+    @test all(model_status(model, id).visits == 2
+        for id in (:middle_a, :middle_b, :leaf_a, :leaf_b))
+    assert_same_cells(model, cells)
+end
+
 end # module ColdCallSchemaActivationChecks

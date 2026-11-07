@@ -126,7 +126,7 @@ end
 
 @inline _context_call_schema(::Nothing) = OpenContextCallSchema()
 @generated function _context_call_schema(context::RunContext{CS,A,C}) where {CS,A,C}
-    closed = any(fieldtype(CT, :batch_schema) <: PreparedExecutionBatchSchema for CT in fieldtypes(C))
+    closed = isempty(fieldtypes(C)) || any(fieldtype(CT, :batch_schema) <: PreparedExecutionBatchSchema for CT in fieldtypes(C))
     return closed ? :(PreparedContextCallSchema{$C}()) : :(OpenContextCallSchema())
 end
 

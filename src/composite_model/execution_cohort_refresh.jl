@@ -119,12 +119,14 @@ function _delete_execution_membership_row!(membership, position)
         deleteat!(runs, run_index)
         deleteat!(starts, run_index)
         if run_index > 1 && run_index <= length(runs)
-            merged = _with_execution_membership_run(membership, run_index - 1) do left
-                _with_execution_membership_run(membership, run_index) do right
-                    left.cohort === right.cohort || return false
-                    append!(left.indices, right.indices)
-                    return true
-                end
+            left_index = run_index - 1
+            left_indices = _with_execution_membership_run(membership, left_index) do left
+                left.indices
+            end
+            merged = _with_execution_membership_run(membership, run_index) do right
+                membership.runs[left_index].cohort === right.cohort || return false
+                append!(left_indices, right.indices)
+                return true
             end
             if merged
                 deleteat!(runs, run_index)

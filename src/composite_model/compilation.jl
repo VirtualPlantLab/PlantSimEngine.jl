@@ -8700,7 +8700,7 @@ function _resolved_compiled_call_membership(
         # A newborn has no compiled application/status/environment target until
         # the safe refresh barrier. Keep it out of a first complete view so the
         # observed binding's normal addition delta can append it exactly once.
-        pending_added_ids = Set(snapshot.id for snapshot in lifecycle_delta(model).added)
+        pending_added_ids = Set{keytype(model.registry.objects)}(snapshot.id for snapshot in lifecycle_delta(model).added)
         filter!(object_id -> object_id ∉ pending_added_ids, object_ids)
     end
     application_ids = Symbol[]
