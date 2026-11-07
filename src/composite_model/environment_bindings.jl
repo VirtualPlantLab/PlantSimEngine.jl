@@ -11,9 +11,11 @@ function _environment_backend_from_config(model::CompositeModel, config)
     return environment_backend(model.environment)
 end
 
-function _object_environment_context(application::CompiledModelApplication, object::Object)
+function _object_environment_context(
+    application::CompiledModelApplication, object::Object, object_id::ObjectId,
+)
     scale = isnothing(object.scale) ? :Default : object.scale
-    return EnvironmentContext(application.id, object.id, scale, application.process)
+    return EnvironmentContext(application.id, object_id, scale, application.process)
 end
 
 """
@@ -259,7 +261,7 @@ function _compile_environment_bindings_for_applications(
         plan = plans_by_id[application.id]
         for object_id in application.target_ids
             object = _model_object(model, object_id)
-            context = _object_environment_context(application, object)
+            context = _object_environment_context(application, object, object_id)
             binding_object, geometry_source_object_id, geometry_source =
                 _environment_binding_object(model, object)
             handle = bind_environment(
@@ -536,7 +538,7 @@ function _reconcile_environment_binding_metadata(
             old = get(cached.by_target, key, nothing)::Union{Nothing,CompiledEnvironmentBinding}
             isnothing(old) && return nothing
             object = _model_object(model, object_id)
-            context = _object_environment_context(application, object)
+            context = _object_environment_context(application, object, object_id)
             _, geometry_source_object_id, geometry_source =
                 _environment_binding_object(model, object)
             _same_environment_backend(old.backend, plan.backend) || return nothing

@@ -460,6 +460,13 @@ end
             @test length(bindings) == 2 # The canonical application also owns :outside.
             @test all(binding.plan === simulation.environment_bindings.application_plans_by_id[:leaf]
                 for binding in bindings)
+            for binding in bindings
+                canonical = model_object(model, binding.object_id)
+                @test binding.context.object_id === canonical.id
+                @test typeof(binding.context) === PSE.EnvironmentContext{typeof(canonical.id)}
+                @test (binding.context.application, binding.context.scale, binding.context.process) ===
+                      (:leaf, :Leaf, PSE.process(Leaf()))
+            end
         end
         empty_ids = PSE._application_target_ids(model, ObjectId[])
         @test eltype(empty_ids) === I && isempty(empty_ids)
