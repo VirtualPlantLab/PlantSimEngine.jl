@@ -297,46 +297,36 @@ function _compile_environment_bindings(
 end
 
 function _validate_model_environment_inputs!(bindings, applications_by_id)
-    missing_rows = NamedTuple[]
+    missing_details = String[]
     for binding in bindings
+        plan = getfield(binding, :plan)::CompiledEnvironmentApplicationPlan
+        application_id = getfield(plan, :application_id)
+        no_inputs = _with_metadata_entry(applications_by_id, application_id) do application
+            isempty(_model_environment_input_names(application))
+        end
+        no_inputs && continue
         available = environment_variables(binding.backend)
         isnothing(available) && continue
         application = applications_by_id[binding.application_id]
         for (target, source) in binding.sampling_rules
             source in available && continue
-            push!(
-                missing_rows,
-                (
-                    application_id=binding.application_id,
-                    object_id=binding.object_id.value,
-                    process=application.process,
-                    target=target,
-                    source=source,
-                    available=Tuple(sort!(collect(available); by=string)),
-                ),
-            )
+            push!(missing_details, string(
+                binding.application_id,
+                "/",
+                binding.object_id.value,
+                " (",
+                application.process,
+                ") needs `",
+                target,
+                "` from source `",
+                source,
+                "`; available=",
+                Tuple(sort!(collect(available); by=string)),
+            ))
         end
     end
-    isempty(missing_rows) && return nothing
-    details = join(
-        [
-            string(
-                row.application_id,
-                "/",
-                row.object_id,
-                " (",
-                row.process,
-                ") needs `",
-                row.target,
-                "` from source `",
-                row.source,
-                "`; available=",
-                row.available,
-            )
-            for row in missing_rows
-        ],
-        "; ",
-    )
+    isempty(missing_details) && return nothing
+    details = join(missing_details, "; ")
     error("Composite model environment is missing required source inputs: ", details)
 end
 

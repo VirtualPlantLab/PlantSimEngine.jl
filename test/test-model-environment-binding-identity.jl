@@ -476,4 +476,80 @@ end
         PSE.CompiledEnvironmentBinding[first_binding, first_binding], I)
 end
 
+mutable struct PortlessValidationBackend <: EA.AbstractEnvironmentBackend
+    inventory_reads::Int
+end
+EA.base_step_seconds(::PortlessValidationBackend) = 3600.0
+EA.get_nsteps(::PortlessValidationBackend) = 8
+function EA.environment_variables(backend::PortlessValidationBackend)
+    backend.inventory_reads += 1
+    return Set((:unused,))
+end
+
+@testset "portless applications do not query backend inventories" begin
+    backend = PortlessValidationBackend(0)
+    model = CompositeModel(Object(:scene; scale=:Scene);
+        applications=(ModelSpec(Owner(Ref{Any}()); name=:owner, on=One(id=:scene)),),
+        environment=backend)
+    simulation = run!(model; steps=0, outputs=:none)
+    @test backend.inventory_reads == 0
+    bindings = simulation.environment_bindings.bindings
+    tables = (simulation.compiled.applications_by_id,
+        Dict(application.id => application for application in simulation.compiled.applications))
+    for table in tables
+        @test PSE._validate_model_environment_inputs!(bindings, table) === nothing
+        @test backend.inventory_reads == 0
+    end
+end
+
+@testset "environment validation preserves all missing local and spatial sources" begin
+    backend = Backend(Dict(:a=>10f0, :b=>20f0), 0)
+    for local_backend in (false, true)
+        config = local_backend ?
+            Environment(backend=(other=3f0,), sources=(T=:missing,)) :
+            Environment(provider=:shell_probe, sources=(T=:missing,))
+        model = CompositeModel(
+            Object(:one; scale=:Leaf, geometry=(cell=:a,)),
+            Object(:two; scale=:Leaf, geometry=(cell=:b,));
+            applications=(ModelSpec(Leaf(0f0); name=:leaf, on=Many(scale=:Leaf),
+                environment=config),), environment=backend)
+        compiled = PSE.Advanced.refresh_bindings!(model)
+        _, plans = PSE._compile_environment_application_plans(model, compiled.applications)
+        bindings = PSE._compile_environment_bindings_for_applications(
+            model, compiled.applications, plans)
+        tables = (compiled.applications_by_id,
+            Dict(application.id => application for application in compiled.applications))
+        messages = String[]
+        expected = if local_backend
+            "Composite model environment is missing required source inputs: leaf/one " *
+            "(environment_shell_leaf) needs `T` from source `missing`; " *
+            "available=(:other,); leaf/two (environment_shell_leaf) needs `T` from source" *
+            " `missing`; available=(:other,)"
+        else
+            "Composite model environment is missing required source inputs: leaf/one " *
+            "(environment_shell_leaf) needs `T` from source `missing`; available=(:T,); " *
+            "leaf/two (environment_shell_leaf) needs `T` from source `missing`; " *
+            "available=(:T,)"
+        end
+        for table in tables
+            failure = try
+                PSE._validate_model_environment_inputs!(bindings, table)
+                nothing
+            catch exception
+                exception
+            end
+            @test failure isa ErrorException
+            message = sprint(showerror, failure)
+            @test message == expected
+            @test occursin("leaf/one", message) && occursin("leaf/two", message)
+            @test occursin("needs `T` from source `missing`", message)
+            @test occursin("available=", message)
+            @test occursin(local_backend ? "other" : "T", message)
+            push!(messages, message)
+        end
+        @test messages[1] == messages[2]
+        @test backend.samples == 0
+    end
+end
+
 end
