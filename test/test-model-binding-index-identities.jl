@@ -124,7 +124,7 @@ end
         if many.execution_batches isa PSE.LazyCallExecutionBatches
             @test isnothing(many.execution_batches.batches)
         end
-        @test !many.binding.membership_observed[]
+        @test !PSE._compiled_call_membership_is_observed(many.binding)
         @test only(one).object_id === ObjectId(1)
         first_ref = PSE.refvalue(model_status(model, 1), :x)
         step!(simulation)
@@ -133,7 +133,7 @@ end
         @test model_status(model, 1).x === 5f0
         @test model_status(model, :leaf).x === 6f0
         @test model_status(model, :outside).x === 100f0
-        @test call_targets(data.capture[], :many).binding.membership_observed[]
+        @test PSE._compiled_call_membership_is_observed(call_targets(data.capture[], :many).binding)
         check_indexes(model, simulation)
 
         register_object!(model, Object(2; scale=:Leaf, parent=:root, status=Status(x=7f0)))

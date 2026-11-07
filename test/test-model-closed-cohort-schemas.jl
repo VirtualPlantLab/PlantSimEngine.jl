@@ -203,9 +203,9 @@ PSE.run!(::Leaf, status, environment, constants, context) = (status.leaf_visits 
     batches = capture[].calls[1].execution_batches
     schema = PSE._execution_cohort_schema(batches)
     @test schema isa PSE.ClosedExecutionCohortSchema
-    @test fieldtype(typeof(only(batches).targets), :store) === PSE.ExecutionCohortStore
-    @test fieldtype(typeof(simulation.temporal_streams), :cohorts) === PSE.ExecutionCohortStore
-    @test typeof(simulation.temporal_streams.cohorts) === PSE.ExecutionCohortStore
+    @test fieldtype(typeof(only(batches).targets), :store) === PSE.ExecutionCohortStore{ObjectId,Any}
+    @test fieldtype(typeof(simulation.temporal_streams), :cohorts) === PSE.ExecutionCohortStore{ObjectId,Any}
+    @test typeof(simulation.temporal_streams.cohorts) === PSE.ExecutionCohortStore{ObjectId,Any}
     owner = PSE._execution_call_owner(capture[].calls[1].binding)
     location = PSE.cohort_location(simulation.temporal_streams.cohorts,:middle,
         ObjectId(:plant);owner)
