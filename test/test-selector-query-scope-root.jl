@@ -136,4 +136,30 @@ end
           sorted_ids(:plant_a_leaf_1)
 end
 
+@testset "Self retains current identity inference, references and errors" begin
+    for raw_ids in ((1, 2), (:one, :two), (1, :leaf))
+        model = CompositeModel((Object(id; name="same",
+            status=Status(value=Float32(index)))
+            for (index, id) in enumerate(raw_ids))...)
+        order = object_ids(model)
+        references = Dict(id => PSE.refvalue(model_status(model, id), :value)
+            for id in order)
+        selector = One(within=Self())
+        for id in order
+            scoped = PSE._scope_object_ids(model, Self(), id)
+            @test (@inferred only(scoped)) === id
+            @test resolve_object_ids(model, selector; context=id) == [id]
+            @test resolve_object_ids(model, selector; context=model_object(model, id)) == [id]
+        end
+        @test_throws "current object context" resolve_object_ids(model, selector)
+        for missing in (ObjectId(999), ObjectId(:missing), ObjectId(1.25))
+            @test_throws "No model object with id" resolve_object_ids(model, selector;
+                context=missing)
+        end
+        @test object_ids(model) == order
+        @test all(PSE.refvalue(model_status(model, id), :value) === reference
+            for (id, reference) in references)
+    end
+end
+
 end

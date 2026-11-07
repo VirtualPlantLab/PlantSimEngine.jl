@@ -801,7 +801,8 @@ function _synchronize_tracked_call_targets!(targets::CallTargets{CS,EB}) where {
     end
     candidate_environment = topology_dirty ?
         _prebarrier_environment_bindings(model,current_compiled,targets.environment_bindings) :
-        refresh_environment_bindings!(model,current_compiled)
+        _refresh_environment_bindings!(model,current_compiled,
+            _current_environment_binding_owner(model,targets.environment_bindings))
     if isnothing(candidate_environment)
         current_compiled = targets.compiled
         current_environment_bindings = targets.environment_bindings

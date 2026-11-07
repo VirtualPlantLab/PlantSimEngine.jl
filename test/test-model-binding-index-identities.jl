@@ -269,4 +269,51 @@ end
     end
 end
 
+@testset "selector results preserve the registry identity family" begin
+    for closed in (false, true)
+        data = call_fixture(closed)
+        model, simulation = data.model, data.simulation
+        I = keytype(model.registry.objects)
+        references = Dict(id => PSE.refvalue(model_status(model, id), :x)
+            for id in (1, :leaf))
+        matcher = PSE._compile_selector_matcher(model, Many())
+        candidates = (ObjectId(1), ObjectId(1.25), ObjectId(:leaf))
+        ids = PSE._matching_selector_ids(model, matcher, candidates,
+            nothing, false, nothing, false)
+        @test eltype(ids) === I
+        @test ids == [ObjectId(1), ObjectId(:leaf)]
+        selected = resolve_object_ids(model, Many(Subtree(); scale=:Leaf); context=:root)
+        @test eltype(selected) === I
+        @test selected == ids
+        self = resolve_object_ids(model, One(within=Self()); context=:root)
+        @test eltype(self) === I
+        @test only(self) === ObjectId(:root)
+        missing = resolve_object_ids(model, Many(id=1.25))
+        @test isempty(missing) && eltype(missing) === I
+        @test_throws "No model object with id" resolve_object_ids(model,
+            One(within=Self()); context=ObjectId(1.25))
+        @test all(PSE.refvalue(model_status(model, id), :x) === reference
+            for (id, reference) in references)
+        check_indexes(model, simulation)
+    end
+end
+
+@testset "selector diagnostics preserve available labels and suggestions" begin
+    ordinary = call_fixture(false).model
+    closed = call_fixture(true).model
+    message(model, selector) = try
+        resolve_object_ids(model, selector)
+        ""
+    catch error
+        sprint(showerror, error)
+    end
+    for selector in (One(scale=:Leaf), One(scale=:Leef))
+        expected = message(ordinary, selector)
+        @test occursin("Expected exactly one object", expected)
+        @test occursin("available=", expected) && occursin("suggestions=", expected)
+        @test message(closed, selector) == expected
+    end
+    @test occursin("suggestions=(scale = [:Leaf]", message(closed, One(scale=:Leef)))
+end
+
 end

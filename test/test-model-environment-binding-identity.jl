@@ -426,4 +426,32 @@ end
         simulation.environment_bindings.by_target[(:manual_probe, ObjectId(:manual))].handle
     @test manual_handle_current
 end
+@testset "retained manual targets use the current public environment owner" begin
+    for force in (false, true)
+        data = fixture(Float32)
+        targets = call_targets(data.capture[], :leaves)
+        PSE._materialize_call_execution_batches!(targets)
+        previous = targets.environment_bindings
+        status = model_status(data.model, :manual)
+        reference = PSE.refvalue(status, :seen)
+        move_object!(data.model, :manual, (cell=:b,))
+        current = PSE.Advanced.refresh_environment_bindings!(data.model,
+            data.simulation.compiled; force)
+        @test current !== previous
+        @test getfield(targets, :environment_bindings) === previous
+        @test !PSE.bindings_dirty(data.model) && !PSE.environment_bindings_dirty(data.model)
+        samples = data.backend.samples
+        PSE._synchronize_tracked_call_targets!(targets)
+        @test targets.environment_bindings === current
+        @test data.backend.samples == samples
+        target = only(targets)
+        @test target.environment_binding.backend === data.backend
+        @test target.environment_binding.handle.cell === :b
+        run_call!(target; publish=false)
+        @test status.seen === 20f0 && status.calls == 1
+        @test data.backend.samples == samples + 1
+        @test PSE.refvalue(status, :seen) === reference
+    end
+end
+
 end

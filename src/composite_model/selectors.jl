@@ -744,7 +744,7 @@ function _scope_object_ids(model::CompositeModel, scope, context)
     current_id = _object_id_from_context(context)
     if scope isa Self
         isnothing(current_id) && error("`Self()` selectors require a current object context.")
-        return ObjectId[current_id]
+        return [current_id]
     elseif scope isa Subtree
         isnothing(current_id) && error("`Subtree()` selectors require a current object context.")
         return _descendant_ids(model, current_id)
@@ -1022,7 +1022,7 @@ function _available_selector_labels(model::CompositeModel, candidate_ids)
     scales = Symbol[]
     kinds = Symbol[]
     species = Symbol[]
-    ids = ObjectId[]
+    ids = Vector{keytype(model.registry.objects)}()
     for object in objects
         isnothing(object.scale) || push!(scales, object.scale)
         isnothing(object.kind) || push!(kinds, object.kind)
@@ -1221,7 +1221,7 @@ function _matching_selector_ids(
     # The adaptive candidate source may be a local vector, an index iterator,
     # or registry keys. Specialize this loop at that boundary, rather than
     # dispatching dynamically for every object in a heterogeneous query.
-    ids = ObjectId[]
+    ids = Vector{keytype(model.registry.objects)}()
     for id in candidates
         haskey(model.registry.objects, id) || continue
         _selector_matches_object_id(
