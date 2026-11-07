@@ -184,6 +184,7 @@ end
         end)
     end
     return quote
+        $(Expr(:meta, :inline))
         $(branches...)
         throw(ArgumentError("The existing execution payload is outside its prepared application schema."))
     end
