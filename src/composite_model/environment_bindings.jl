@@ -429,13 +429,14 @@ function _index_environment_targets_by_object(bindings, ::Type{I}) where {I<:Obj
 end
 
 function _index_environment_bindings(bindings, ::Type{I}) where {I<:ObjectId}
-    # An initially empty application can acquire targets with another schema
-    # during growth. Keep this lifecycle index value-widened; concrete handles
-    # and sampling plans remain in the typed execution targets.
-    by_target = Dict{Tuple{Symbol,I},CompiledEnvironmentBinding}(
-        _environment_binding_target_key(binding, I) => binding
-        for binding in bindings
-    )
+    # Keep lifecycle indexing open to future binding families; reads validate the
+    # CompiledEnvironmentBinding domain. Execution targets retain concrete
+    # handles and sampling plans.
+    by_target = Dict{Tuple{Symbol,I},Any}()
+    sizehint!(by_target, length(bindings))
+    for binding in bindings
+        by_target[_environment_binding_target_key(binding, I)] = binding
+    end
     length(by_target) == length(bindings) || error(
         "Environment binding compilation produced duplicate `(application_id, object_id)` targets.",
     )
@@ -542,7 +543,7 @@ function _reconcile_environment_binding_metadata(
         plan = application_plans_by_id[application.id]
         for object_id in application.target_ids
             key = (application.id, object_id)
-            old = get(cached.by_target, key, nothing)
+            old = get(cached.by_target, key, nothing)::Union{Nothing,CompiledEnvironmentBinding}
             isnothing(old) && return nothing
             object = _model_object(model, object_id)
             context = _object_environment_context(application, object)

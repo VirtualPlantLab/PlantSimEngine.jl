@@ -454,4 +454,26 @@ end
     end
 end
 
+@testset "cold environment indexes preserve distinct binding families" begin
+    left = fixture(Float32).simulation.environment_bindings
+    right = fixture(Float64).simulation.environment_bindings
+    first_binding = only(binding for binding in left.bindings
+                         if binding.object_id == ObjectId(:scheduled_keep))
+    later_binding = only(binding for binding in right.bindings
+                         if binding.object_id == ObjectId(:manual))
+    @test typeof(first_binding) !== typeof(later_binding)
+    bindings = PSE.CompiledEnvironmentBinding[first_binding, later_binding]
+    I = typeof(ObjectId(:scheduled_keep))
+    index = PSE._index_environment_bindings(bindings, I)
+    @test length(index) == 2
+    for binding in bindings
+        @test index[PSE._environment_binding_target_key(binding, I)] === binding
+    end
+    empty_index = PSE._index_environment_bindings(PSE.CompiledEnvironmentBinding[], I)
+    @test isempty(empty_index)
+    @test typeof(empty_index) === typeof(index)
+    @test_throws ErrorException PSE._index_environment_bindings(
+        PSE.CompiledEnvironmentBinding[first_binding, first_binding], I)
+end
+
 end

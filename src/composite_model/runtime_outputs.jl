@@ -1668,7 +1668,7 @@ _compiled_application_by_id(compiled::CompiledCompositeModel, id::Symbol) =
     _compiled_application_by_id(identity, compiled, id)
 
 function _environment_binding_for(env_bindings::CompiledEnvironmentBindings, application_id::Symbol, object_id::ObjectId)
-    return get(env_bindings.by_target, (application_id, object_id), nothing)
+    return get(env_bindings.by_target, (application_id, object_id), nothing)::Union{Nothing,CompiledEnvironmentBinding}
 end
 
 function _model_object_status(model::CompositeModel, object_id::ObjectId)
