@@ -8671,10 +8671,12 @@ end
 
 function _matching_callee_applications(applications, object_id::ObjectId, proc, application_name_filter)
     matches = Symbol[]
-    for application in get(applications, object_id, Any[])
-        isnothing(proc) || application.process == proc || continue
-        isnothing(application_name_filter) || application.id == application_name_filter || continue
-        push!(matches, application.id)
+    for entry in get(applications, object_id, Any[])
+        application = entry::CompiledModelApplication
+        plan = getfield(application, :plan)::CompiledApplicationPlan
+        isnothing(proc) || getfield(plan, :process) == proc || continue
+        isnothing(application_name_filter) || getfield(plan, :id) == application_name_filter || continue
+        push!(matches, getfield(plan, :id))
     end
     return matches
 end

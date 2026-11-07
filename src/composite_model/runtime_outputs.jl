@@ -3403,38 +3403,43 @@ function _new_model_execution_target(
         temporal_streams=temporal_streams,
         output_retention=output_retention, constants=constants,
         environment=_NO_ENVIRONMENT_OVERRIDE)
-    return _with_execution_target_type(target_schema, application, status_view, fields, owners) do Target, actual_application, actual, owner, call_schema
-        input_bindings = isnothing(Target) ?
-            _runtime_model_temporal_inputs(actual.status_view.temporal_inputs, owner.temporal_streams) :
-            _prepared_runtime_temporal_inputs(fieldtype(Target,:input_bindings),
-                actual.status_view.temporal_inputs,owner.temporal_streams)
-        output_bindings = if isnothing(Target)
-            local_outputs = _runtime_model_output_streams(actual.status_view.status,
-                actual_application,actual.object_id,owner.temporal_streams,owner.output_retention)
-            distributed_outputs = _runtime_model_distributed_output_streams(owner.compiled,
-                actual_application,actual.object_id,owner.temporal_streams,owner.output_retention)
-            (local_outputs...,distributed_outputs...)
-        else
-            _prepared_runtime_outputs(fieldtype(Target,:output_bindings),actual.status_view,
-                actual.output_targets,actual_application,actual.object_id,owner.compiled,
-                owner.temporal_streams,owner.output_retention,false)
-        end
-        context = if isnothing(owner.temporal_streams) && isempty(actual.output_targets)
-            nothing
-        else
-            _prepare_model_execution_context!(nothing, owner.compiled, owner.environment_bindings,
-                actual_application, actual.object_id, actual.bound_inputs,
-                actual.output_targets, actual.call_bindings, owner.temporal_streams,
-                owner.output_retention, 0.0, owner.constants, true, owner.environment;
-                call_schema)
-        end
-        target = _compiled_execution_target(actual.object_id, actual.model,
-            actual.status_view, input_bindings, actual.bound_inputs,
-            actual.output_targets, output_bindings, actual.call_bindings,
-            actual.environment_binding, context,
-            CallContextCache(context, actual.status_view.execution_stamp))
-        return isnothing(Target) ? target : target::Target
+    return _with_execution_target_type(_new_model_execution_target, target_schema,
+        application, status_view, fields, owners)
+end
+
+function _new_model_execution_target(::Val{Target}, actual_application, actual, owner,
+    call_schema,
+) where {Target}
+    input_bindings = isnothing(Target) ?
+        _runtime_model_temporal_inputs(actual.status_view.temporal_inputs, owner.temporal_streams) :
+        _prepared_runtime_temporal_inputs(fieldtype(Target,:input_bindings),
+            actual.status_view.temporal_inputs,owner.temporal_streams)
+    output_bindings = if isnothing(Target)
+        local_outputs = _runtime_model_output_streams(actual.status_view.status,
+            actual_application,actual.object_id,owner.temporal_streams,owner.output_retention)
+        distributed_outputs = _runtime_model_distributed_output_streams(owner.compiled,
+            actual_application,actual.object_id,owner.temporal_streams,owner.output_retention)
+        (local_outputs...,distributed_outputs...)
+    else
+        _prepared_runtime_outputs(fieldtype(Target,:output_bindings),actual.status_view,
+            actual.output_targets,actual_application,actual.object_id,owner.compiled,
+            owner.temporal_streams,owner.output_retention,false)
     end
+    context = if isnothing(owner.temporal_streams) && isempty(actual.output_targets)
+        nothing
+    else
+        _prepare_model_execution_context!(nothing, owner.compiled, owner.environment_bindings,
+            actual_application, actual.object_id, actual.bound_inputs,
+            actual.output_targets, actual.call_bindings, owner.temporal_streams,
+            owner.output_retention, 0.0, owner.constants, true, owner.environment;
+            call_schema)
+    end
+    target = _compiled_execution_target(actual.object_id, actual.model,
+        actual.status_view, input_bindings, actual.bound_inputs,
+        actual.output_targets, output_bindings, actual.call_bindings,
+        actual.environment_binding, context,
+        CallContextCache(context, actual.status_view.execution_stamp))
+    return isnothing(Target) ? target : target::Target
 end
 
 function _compiled_model_execution_environment_provider(
@@ -6047,38 +6052,45 @@ function _append_targeted_newborn_targets!(
                 temporal_streams=context.temporal_streams,
                 output_retention=context.output_retention,constants=context.constants,
                 environment=context.environment)
-            _with_execution_target_type(admission,application,status_view,fields,owners) do Target,actual_application,actual,owner,call_schema
-                outputs = isnothing(Target) ?
-                    _runtime_model_output_streams(actual.status_view.status,actual_application,
-                        actual.object_id,owner.temporal_streams,owner.output_retention,true) :
-                    _prepared_runtime_outputs(fieldtype(Target,:output_bindings),
-                        actual.status_view,actual.output_targets,actual_application,
-                        actual.object_id,owner.compiled,owner.temporal_streams,
-                        owner.output_retention,true)
-                # Narrow a retained cache before use; no new owner is published
-                # until all real fields have passed the same target admission.
-                prepared_cache = _admit_newborn_context_cache(Target,cache)
-                if isnothing(prepared_cache)
-                    prepared_cache = _newborn_call_context_cache(context,actual_application,
-                        actual.object_id,actual.bound_inputs,actual.output_targets,
-                        actual.call_bindings,owner.environment_bindings,stamp;call_schema)
-                end
-                result = _targeted_newborn_call_target(context,actual_application,
-                    actual.object_id,actual.model,actual.status_view,outputs,
-                    actual.output_targets,actual.call_bindings,owner.environment_bindings,
-                    actual.environment_binding,prepared_cache)
-                isnothing(Target) || result.execution_target isa Target ||
-                    throw(ArgumentError("A newborn execution target is outside its prepared schema."))
-                # Admit the full caller view before publishing its cache. The
-                # payload and partial environment owner retain their identities.
-                push!(targets,result)
-                targeted_runtime.call_context_caches[key] = prepared_cache
-                return nothing
+            _with_execution_target_type(admission,application,status_view,fields,owners) do target_type,actual_application,actual,owner,call_schema
+                _append_targeted_newborn_target!(target_type,actual_application,actual,owner,
+                    call_schema,targets,context,cache,stamp,targeted_runtime,key)
             end
         end
         return nothing
     end
     return targets
+end
+
+function _append_targeted_newborn_target!(::Val{Target}, actual_application, actual, owner,
+    call_schema, targets, context, cache, stamp, targeted_runtime, key,
+) where {Target}
+    outputs = isnothing(Target) ?
+        _runtime_model_output_streams(actual.status_view.status,actual_application,
+            actual.object_id,owner.temporal_streams,owner.output_retention,true) :
+        _prepared_runtime_outputs(fieldtype(Target,:output_bindings),
+            actual.status_view,actual.output_targets,actual_application,
+            actual.object_id,owner.compiled,owner.temporal_streams,
+            owner.output_retention,true)
+    # Narrow a retained cache before use; no new owner is published
+    # until all real fields have passed the same target admission.
+    prepared_cache = _admit_newborn_context_cache(Target,cache)
+    if isnothing(prepared_cache)
+        prepared_cache = _newborn_call_context_cache(context,actual_application,
+            actual.object_id,actual.bound_inputs,actual.output_targets,
+            actual.call_bindings,owner.environment_bindings,stamp;call_schema)
+    end
+    result = _targeted_newborn_call_target(context,actual_application,
+        actual.object_id,actual.model,actual.status_view,outputs,
+        actual.output_targets,actual.call_bindings,owner.environment_bindings,
+        actual.environment_binding,prepared_cache)
+    isnothing(Target) || result.execution_target isa Target ||
+        throw(ArgumentError("A newborn execution target is outside its prepared schema."))
+    # Admit the full caller view before publishing its cache. The
+    # payload and partial environment owner retain their identities.
+    push!(targets,result)
+    targeted_runtime.call_context_caches[key] = prepared_cache
+    return nothing
 end
 
 # Adopt a pre-barrier newborn's logical counter when the ordinary compiler

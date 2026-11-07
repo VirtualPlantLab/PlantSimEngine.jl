@@ -140,7 +140,7 @@ end
         status_view=status_view, bound_inputs=status_view.bound_inputs,
         output_targets=fields.output_targets, call_bindings=fields.call_bindings,
         environment_binding=fields.environment_binding)
-    return f(nothing, application, actual_fields, owners, OpenContextCallSchema())
+    return f(Val{nothing}(), application, actual_fields, owners, OpenContextCallSchema())
 end
 
 @generated function _with_execution_target_type(f, ::ClosedExecutionCohortSchema{T},
@@ -183,7 +183,7 @@ end
             if $condition
                 actual_fields = NamedTuple{$(QuoteNode(names))}($(Expr(:tuple,values...)))
                 actual_owners = NamedTuple{$(QuoteNode(owner_names))}($owner_values)
-                return f($Target, application::$A, actual_fields, actual_owners,
+                return f(Val{$Target}(), application::$A, actual_fields, actual_owners,
                     $CallSchema())
             end
         end)
