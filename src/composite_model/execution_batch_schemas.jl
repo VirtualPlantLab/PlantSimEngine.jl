@@ -130,8 +130,22 @@ end
     return closed ? :(PreparedContextCallSchema{$C}()) : :(OpenContextCallSchema())
 end
 
-@inline _with_execution_target_type(f, ::OpenExecutionCohortSchema, application, fields, owners) = f(nothing, application, fields, owners, OpenContextCallSchema())
-@generated function _with_execution_target_type(f, ::ClosedExecutionCohortSchema{T}, application, fields, owners) where {T}
+# Admit the real status view before reading its parameterized fields. The
+# ordinary function barrier specializes its actual V; prepared execution uses
+# the same existing finite target schema before assembling the same fields.
+@inline function _with_execution_target_type(f::F, ::OpenExecutionCohortSchema,
+    application, status_view::V, fields, owners,
+) where {F,V<:CompiledModelStatusView}
+    actual_fields = (object_id=fields.object_id, model=fields.model,
+        status_view=status_view, bound_inputs=status_view.bound_inputs,
+        output_targets=fields.output_targets, call_bindings=fields.call_bindings,
+        environment_binding=fields.environment_binding)
+    return f(nothing, application, actual_fields, owners, OpenContextCallSchema())
+end
+
+@generated function _with_execution_target_type(f, ::ClosedExecutionCohortSchema{T},
+    application, status_view::CompiledModelStatusView, fields, owners,
+) where {T}
     branches = Expr[]
     names = (:object_id, :model, :status_view, :bound_inputs,
         :output_targets, :call_bindings, :environment_binding)
@@ -143,21 +157,31 @@ end
         closed_calls = any(fieldtype(CT,:batch_schema) <: PreparedExecutionBatchSchema for CT in fieldtypes(Calls))
         closed_calls && _validate_prepared_context_calls(Calls)
         CallSchema = closed_calls ? PreparedContextCallSchema{Calls} : OpenContextCallSchema
+        V = fieldtype(Target, :status_view)
         checks = Expr[:(application isa $(fieldtype(Context, :application)))]
+        values = Expr[]
         for name in names
-            push!(checks, :(getproperty(fields, $(QuoteNode(name))) isa $(fieldtype(Target, name))))
+            value = if name === :status_view
+                :status_view
+            elseif name === :bound_inputs
+                # The earlier status_view check short-circuits before this read.
+                :((status_view::$V).bound_inputs)
+            else
+                :(getproperty(fields, $(QuoteNode(name))))
+            end
+            push!(checks, :($value isa $(fieldtype(Target, name))))
+            push!(values, :($value::$(fieldtype(Target, name))))
         end
         for name in (:compiled, :temporal_streams, :output_retention, :constants, :environment)
             push!(checks, :(getproperty(owners, $(QuoteNode(name))) isa $(fieldtype(Context, name))))
         end
         condition = foldl((a,b) -> :($a && $b), checks)
-        values = Expr(:tuple, [:(getproperty(fields, $(QuoteNode(name)))::$(fieldtype(Target,name))) for name in names]...)
         owner_names = (:compiled, :temporal_streams, :output_retention, :constants, :environment)
         owner_values = Expr(:tuple, [:(getproperty(owners, $(QuoteNode(name)))::$(fieldtype(Context,name))) for name in owner_names]...)
         A = fieldtype(Context, :application)
         push!(branches, quote
             if $condition
-                actual_fields = NamedTuple{$(QuoteNode(names))}($values)
+                actual_fields = NamedTuple{$(QuoteNode(names))}($(Expr(:tuple,values...)))
                 actual_owners = NamedTuple{$(QuoteNode(owner_names))}($owner_values)
                 return f($Target, application::$A, actual_fields, actual_owners,
                     $CallSchema())
@@ -505,7 +529,7 @@ function _prepare_execution_batch_schemas(simulation::Simulation, schemas::Named
         !cache.in_use && isnothing(cache.evaluation) && iszero(cache.execution_stamp[]) ||
             throw(ArgumentError("Execution schemas cannot replace a used or leased timeline."))
     end
-    storage = RuntimeStorage(simulation.temporal_streams.streams)
+    storage = RuntimeStorage(simulation.temporal_streams.streams, simulation.model.registry.objects)
     plan = compile_model_execution_plan(simulation.compiled,simulation.environment_bindings,
         storage,simulation.output_retention,simulation.constants; batch_schemas=schemas)
     closed_groups = Tuple(plan.groups)
@@ -581,7 +605,9 @@ function _execution_batch_type_with_call_schemas(::Type{B}, schemas::NamedTuple)
     parameters[9] = prepared_context
     prepared_target = Core.apply_type(CompiledExecutionTarget,parameters...)
     I = fieldtype(prepared_target,:object_id)
-    Rows = ExecutionCohortRows{prepared_target,ExecutionCohort{prepared_target,I}}
+    Store = fieldtype(fieldtype(B, :targets), :store)
+    Owner = _execution_store_owner_type(Store)
+    Rows = ExecutionCohortRows{prepared_target,ExecutionCohort{prepared_target,I,Owner},Store}
     return CompiledExecutionBatch{fieldtype(B,:application),Rows,
         fieldtype(B,:environment_provider),fieldtype(B,:output_publication)}
 end

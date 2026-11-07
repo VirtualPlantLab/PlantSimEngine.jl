@@ -60,12 +60,15 @@ else
 
     @testset "Prepared execution schemas" begin
         include("test-model-closed-cohort-schemas.jl")
+        include("test-model-cohort-store-identities.jl")
+        include("test-model-status-view-cache-admission.jl")
         include("test-model-call-cohort-retirement.jl")
         include("test-model-closed-group-refresh.jl")
         include("test-model-closed-group-layout-preflight.jl")
         include("test-model-prepared-call-schemas.jl")
         include("test-model-prepared-call-vector-api.jl")
         include("test-model-prepared-growth-schemas.jl")
+        include("test-model-target-status-view-admission.jl")
         include("test-model-prepared-missing-future-schema.jl")
         include("test-model-finite-call-extension-intents.jl")
     end
@@ -109,6 +112,7 @@ else
         include("test-model-authored-spec-matching.jl")
         include("test-compilation-metadata.jl")
         include("test-model-input-recipes.jl")
+        include("test-model-binding-index-identities.jl")
         include("test-model-output-retention-owners.jl")
         include("test-input-default-values.jl")
         include("test-application-membership-slots.jl")

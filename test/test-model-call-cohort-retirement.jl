@@ -158,7 +158,7 @@ Base.hash(owner::OwnerAlias, seed::UInt) = hash(owner.value, seed)
     @test !PSE._execution_cohort_owner_matches(schema_for(value), alias, owner)
     @test PSE._check_execution_cohort_location(location, owner, :leaf, value.object_id) === nothing
     @test_throws ArgumentError PSE._with_execution_cohort_location(identity, schema_for(value),
-        location, owner, :leaf, value.object_id)
+        runtime.cohorts, location, owner, :leaf, value.object_id)
     @test rows[1] === value
     PSE._retire_call_cohort_targets!(runtime, data.left.binding, ())
     @test isempty(runtime.cohorts.locations)

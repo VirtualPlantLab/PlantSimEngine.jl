@@ -73,7 +73,7 @@ end
     @test collect(map(membership -> only(flatten(membership)).context[], memberships)) == [0, 1, 2]
     called = Ref(false)
     foreign = PSE.cohort_location(store, :growth, root.object_id; owner=owners[2])
-    @test_throws ArgumentError PSE._with_execution_cohort_location(schema, foreign,
+    @test_throws ArgumentError PSE._with_execution_cohort_location(schema, store, foreign,
         owners[3], :growth, root.object_id) do admitted
         called[] = true
     end

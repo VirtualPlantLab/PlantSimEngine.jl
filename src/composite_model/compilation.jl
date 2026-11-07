@@ -2208,16 +2208,33 @@ function _extend_observed_manual_call_binding_callee_target_index!(
     return index
 end
 
-function _index_model_bindings(bindings, application_field::Symbol, object_field::Symbol)
-    grouped = Dict{Tuple{Symbol,ObjectId},Vector{Any}}()
+@inline function _model_binding_target_key(
+    binding::CompiledModelInputBinding, ::Type{I},
+) where {I<:ObjectId}
+    plan = getfield(binding, :plan)::CompiledModelInputPlan
+    return (getfield(plan, :application_id), getfield(binding, :consumer_id)::I)
+end
+
+@inline function _model_binding_target_key(
+    binding::CompiledModelCallBinding, ::Type{I},
+) where {I<:ObjectId}
+    plan = getfield(binding, :plan)::CompiledModelCallPlan
+    return (getfield(plan, :application_id), getfield(binding, :consumer_id)::I)
+end
+
+function _index_model_bindings(bindings, ::Type{I}) where {I<:ObjectId}
+    K = Tuple{Symbol,I}
+    grouped = Dict{K,Vector{Any}}()
     for binding in bindings
-        key = (
-            getproperty(binding, application_field),
-            getproperty(binding, object_field),
-        )
-        push!(get!(grouped, key, Any[]), binding)
+        key = _model_binding_target_key(binding, I)
+        values = get!(grouped, key) do
+            Any[]
+        end
+        push!(values, binding)
     end
-    return Dict(key => Tuple(values) for (key, values) in grouped)
+    # Lifecycle changes may replace a binding tuple with a new carrier schema.
+    # Only values are open; every consumer identity belongs to this registry.
+    return Dict{K,Any}(key => Tuple(values) for (key, values) in grouped)
 end
 
 """
@@ -2424,19 +2441,11 @@ function _compile_scene(
     # with a concrete carrier type. Keep the per-target index type-stable
     # across that replacement so an updated compiled scene can be stored in
     # an existing `Simulation`.
-    input_bindings_by_target = Dict{Any,Any}(
-        _index_model_bindings(
-            input_bindings,
-            :application_id,
-            :consumer_id,
-        ),
+    input_bindings_by_target = _index_model_bindings(
+        input_bindings, keytype(model.registry.objects),
     )
-    call_bindings_by_target = Dict{Any,Any}(
-        _index_model_bindings(
-            call_bindings,
-            :application_id,
-            :consumer_id,
-        ),
+    call_bindings_by_target = _index_model_bindings(
+        call_bindings, keytype(model.registry.objects),
     )
     call_owners = scenario_plan.call_owners
     application_children = scenario_plan.application_children
@@ -3774,12 +3783,8 @@ function _prepare_structural_compiled_delta(
             previous_temporal_sources[key] = copy(binding.source_ids)
         end
     end
-    input_bindings_by_target = Dict{Any,Any}(
-        _index_model_bindings(
-            input_bindings,
-            :application_id,
-            :consumer_id,
-        ),
+    input_bindings_by_target = _index_model_bindings(
+        input_bindings, keytype(model.registry.objects),
     )
 
     call_bindings = CompiledModelCallBinding[]
@@ -3801,12 +3806,8 @@ function _prepare_structural_compiled_delta(
             (binding.application_id, binding.consumer_id),
         )
     end
-    call_bindings_by_target = Dict{Any,Any}(
-        _index_model_bindings(
-            call_bindings,
-            :application_id,
-            :consumer_id,
-        ),
+    call_bindings_by_target = _index_model_bindings(
+        call_bindings, keytype(model.registry.objects),
     )
     many_input_binding_cache =
         _many_input_binding_cache(model, input_bindings)
@@ -3992,9 +3993,7 @@ function _refresh_scene_call_bindings!(
             plans_by_application=compiled.scenario_plan.call_plans_by_application,
         )
     replacement_call_bindings_by_target = _index_model_bindings(
-        replacement_call_bindings,
-        :application_id,
-        :consumer_id,
+        replacement_call_bindings, keytype(model.registry.objects),
     )
     call_bindings = compiled.call_bindings
     for key in rebuilt_existing_call_targets
@@ -4520,9 +4519,7 @@ function _extend_compiled_scene(
     isempty(new_call_bindings) || merge!(
         call_bindings_by_target,
         _index_model_bindings(
-            new_call_bindings,
-            :application_id,
-            :consumer_id,
+            new_call_bindings, keytype(model.registry.objects),
         ),
     )
     call_owners = compiled.scenario_plan.call_owners

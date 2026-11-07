@@ -58,7 +58,9 @@ end
     Binding = PSE.CompiledEnvironmentBinding{typeof(environment_plan),Nothing,PSE.EnvironmentContext{I}}
     Target = PSE.CompiledExecutionTarget{typeof(PSE.model_(application.spec)),View,
         Tuple{},Empty,Empty,Tuple{},Tuple{},Binding,Context,I}
-    Rows = PSE.ExecutionCohortRows{Target,PSE.ExecutionCohort{Target,I}}
+    Store = typeof(simulation.temporal_streams.cohorts)
+    Owner = PSE._execution_store_owner_type(Store)
+    Rows = PSE.ExecutionCohortRows{Target,PSE.ExecutionCohort{Target,I,Owner},Store}
     Batch = PSE.CompiledExecutionBatch{typeof(application),Rows,
         PSE.RawGlobalModelEnvironment{Nothing},PSE.CompiledOutputPublication{Tuple{}}}
     before_callbacks = declarations[]

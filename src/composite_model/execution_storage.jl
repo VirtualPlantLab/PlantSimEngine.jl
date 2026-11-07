@@ -4,13 +4,19 @@ Stream values retain the existing dictionary interface. Execution cohorts share
 that lifetime, rather than the model's reusable structural plan, so a fresh run
 cannot replace another simulation's targets or call-context leases.
 """
-struct RuntimeStorage{K,V,D<:AbstractDict{K,V}} <: AbstractDict{K,V}
+struct RuntimeStorage{K,V,D<:AbstractDict{K,V},S<:ExecutionCohortStore} <: AbstractDict{K,V}
     streams::D
-    cohorts::ExecutionCohortStore
+    cohorts::S
+
+    RuntimeStorage{K,V,D,S}(streams::D, cohorts::S) where {K,V,D<:AbstractDict{K,V},S<:ExecutionCohortStore} =
+        new{K,V,D,S}(streams, cohorts)
 end
 
-RuntimeStorage(streams::AbstractDict{K,V}) where {K,V} =
-    RuntimeStorage{K,V,typeof(streams)}(streams, ExecutionCohortStore())
+RuntimeStorage(streams::AbstractDict{K,V}, cohorts::S) where {K,V,S<:ExecutionCohortStore} =
+    RuntimeStorage{K,V,typeof(streams),S}(streams, cohorts)
+RuntimeStorage(streams::AbstractDict) = RuntimeStorage(streams, ExecutionCohortStore())
+RuntimeStorage(streams::AbstractDict, registry::ObjectFamilyStore) =
+    RuntimeStorage(streams, ExecutionCohortStore(registry))
 
 Base.length(storage::RuntimeStorage) = length(storage.streams)
 Base.iterate(storage::RuntimeStorage, state...) = iterate(storage.streams, state...)
@@ -23,8 +29,8 @@ Base.get!(default::Union{Function,Type}, storage::RuntimeStorage, key) =
     get!(default, storage.streams, key)
 Base.delete!(storage::RuntimeStorage, key) = (delete!(storage.streams, key); storage)
 Base.empty!(storage::RuntimeStorage) = (empty!(storage.streams); storage)
-Base.empty(storage::RuntimeStorage) = RuntimeStorage(empty(storage.streams))
-Base.copy(storage::RuntimeStorage) = RuntimeStorage(copy(storage.streams))
+Base.empty(storage::RuntimeStorage) = RuntimeStorage(empty(storage.streams), typeof(storage.cohorts)())
+Base.copy(storage::RuntimeStorage) = RuntimeStorage(copy(storage.streams), typeof(storage.cohorts)())
 Base.keys(storage::RuntimeStorage) = keys(storage.streams)
 Base.values(storage::RuntimeStorage) = values(storage.streams)
 Base.pairs(storage::RuntimeStorage) = pairs(storage.streams)
@@ -104,7 +110,7 @@ function _retire_call_cohort_targets!(storage::RuntimeStorage, binding, batches;
     for (application_id, object_id) in obsolete
         _with_execution_retirement_id(schema, object_id) do admitted_id
             location = cohort_location(store, application_id, admitted_id; owner)
-            _with_execution_cohort_location(identity, schema, location, owner, application_id, admitted_id)
+            _with_execution_cohort_location(identity, schema, store, location, owner, application_id, admitted_id)
         end
     end
     for (application_id, object_id) in obsolete

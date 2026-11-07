@@ -1,7 +1,7 @@
 """Ordered schedule membership, separate from persistent execution payloads."""
-struct ExecutionCohortMembership{S<:ExecutionCohortSchema,I<:ObjectId,L<:ExecutionCohortLocation,R<:ExecutionCohortRows}
-    store::ExecutionCohortStore
-    owner::Any
+struct ExecutionCohortMembership{S<:ExecutionCohortSchema,I<:ObjectId,L<:ExecutionCohortLocation,R<:ExecutionCohortRows,D<:ExecutionCohortStore,O}
+    store::D
+    owner::O
     application_id::Symbol
     schema::S
     object_ids::Vector{I}
@@ -36,7 +36,7 @@ end
 
 function _execution_membership_location_has_cohort(membership, position, cohort)
     object_id = membership.object_ids[position]
-    return _with_execution_cohort_location(membership.schema, membership.locations[position],
+    return _with_execution_cohort_location(membership.schema, membership.store, membership.locations[position],
         membership.owner, membership.application_id, object_id) do location
         location.cohort === cohort
     end
@@ -146,7 +146,8 @@ function _check_execution_cohort_target(target, object_id)
 end
 
 function _new_execution_cohort_membership(store, owner, application_id, count, schema=OpenExecutionCohortSchema())
-    types = _execution_cohort_types(schema)
+    owner = _execution_store_owner(store, owner)
+    types = _execution_cohort_types(schema, store)
     ids = Vector{types.identity}()
     locations = Vector{types.location}()
     capacity = count + max(16, count ÷ 4)
@@ -161,14 +162,14 @@ end
 # vectors become finite unions; all cohort payloads, references and run views
 # retain identity. No models, defaults, samplers or callbacks are invoked.
 function _close_execution_cohort_membership(previous::ExecutionCohortMembership, schema::ClosedExecutionCohortSchema)
-    types = _execution_cohort_types(schema)
+    types = _execution_cohort_types(schema, previous.store)
     for (object_id, location) in zip(previous.object_ids, previous.locations)
         object_id isa types.identity || throw(ArgumentError("An object identity is outside the prepared cohort schema."))
-        _with_execution_cohort_location(identity, schema, location, previous.owner, previous.application_id, object_id)
+        _with_execution_cohort_location(identity, schema, previous.store, location, previous.owner, previous.application_id, object_id)
     end
     for rows in previous.runs
-        _with_execution_cohort_rows(schema, rows) do admitted
-            _check_execution_cohort_rows_owner(admitted, previous.store, previous.owner, previous.application_id)
+        _with_execution_cohort_rows(schema, previous.store, rows) do admitted
+            _check_execution_cohort_rows_owner(admitted, previous.store, previous.owner, previous.application_id, schema)
         end
     end
     typeof(previous.schema) === typeof(schema) && return previous
@@ -187,8 +188,8 @@ function _close_execution_cohort_membership(previous::ExecutionCohortMembership,
     return membership
 end
 
-function _check_execution_cohort_rows_owner(rows, store, owner, application_id)
-    rows.store === store && isequal(rows.cohort.owner, owner) &&
+function _check_execution_cohort_rows_owner(rows, store, owner, application_id, schema)
+    rows.store === store && _execution_cohort_owner_matches(schema, rows.cohort.owner, owner) &&
         rows.cohort.application_id === application_id || throw(ArgumentError(
         "The execution run belongs to another store, owner or application.",
     ))
@@ -196,8 +197,8 @@ function _check_execution_cohort_rows_owner(rows, store, owner, application_id)
 end
 
 @inline function _with_execution_membership_run(f, membership, index)
-    return _with_execution_cohort_rows(membership.schema, membership.runs[index]) do rows
-        _check_execution_cohort_rows_owner(rows, membership.store, membership.owner, membership.application_id)
+    return _with_execution_cohort_rows(membership.schema, membership.store, membership.runs[index]) do rows
+        _check_execution_cohort_rows_owner(rows, membership.store, membership.owner, membership.application_id, membership.schema)
         f(rows)
     end
 end
@@ -234,6 +235,7 @@ function refresh_cohort_membership!(
     owner=nothing,
     schema=isnothing(previous) ? OpenExecutionCohortSchema() : previous.schema,
 )
+    owner = _execution_store_owner(store, owner)
     if !isnothing(previous)
         previous.store === store && previous.application_id === application_id &&
             isequal(previous.owner, owner) || throw(ArgumentError(
@@ -243,7 +245,7 @@ function refresh_cohort_membership!(
             "Close the application membership before entering its prepared refresh boundary.",
         ))
     end
-    types = _execution_cohort_types(schema)
+    types = _execution_cohort_types(schema, store)
     staged_targets = Vector{Tuple{types.identity,types.target}}()
     removed_ids = Vector{types.identity}()
     checked_ids = isnothing(previous) || isnothing(changed_ids) ? current_ids : changed_ids
@@ -252,7 +254,7 @@ function refresh_cohort_membership!(
         location = cohort_location(store, application_id, object_id; owner)
         is_current = isnothing(previous) || isnothing(changed_ids) ||
                      first(_sorted_object_id_position(current_ids, object_id))
-        _with_execution_cohort_location(schema, location, owner, application_id, object_id) do admitted
+        _with_execution_cohort_location(schema, store, location, owner, application_id, object_id) do admitted
             if !is_current
                 push!(removed_ids, object_id)
                 return nothing
@@ -284,7 +286,7 @@ function refresh_cohort_membership!(
     # and every run before the first clear/splice, including a fully empty result.
     for object_id in removed_ids
         location = cohort_location(store, application_id, object_id; owner)
-        _with_execution_cohort_location(identity, schema, location, owner, application_id, object_id)
+        _with_execution_cohort_location(identity, schema, store, location, owner, application_id, object_id)
     end
     membership = isnothing(previous) ?
                  _new_execution_cohort_membership(store, owner, application_id, length(current_ids), schema) :
@@ -305,7 +307,7 @@ function refresh_cohort_membership!(
         changed = _with_execution_cohort_target(schema, target) do accepted
             cohort = _execution_cohort(store, owner, application_id, typeof(accepted))
             old_location = cohort_location(store, application_id, object_id; owner)
-            return _with_execution_cohort_location(schema, old_location, owner, application_id, object_id) do admitted
+            return _with_execution_cohort_location(schema, store, old_location, owner, application_id, object_id) do admitted
                 slot = _store_execution_cohort_target!(store, cohort, accepted, admitted)
                 isnothing(previous) && return false
                 location = ExecutionCohortLocation(cohort, slot)
@@ -333,7 +335,7 @@ function refresh_cohort_membership!(
     if isnothing(previous)
         for object_id in current_ids
             location = cohort_location(store, application_id, object_id; owner)
-            _with_execution_cohort_location(schema, location, owner, application_id, object_id) do admitted
+            _with_execution_cohort_location(schema, store, location, owner, application_id, object_id) do admitted
                 _insert_execution_membership_row!(
                     membership, length(membership.object_ids) + 1, object_id, admitted,
                 )

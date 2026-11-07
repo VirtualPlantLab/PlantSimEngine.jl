@@ -1,14 +1,14 @@
 abstract type AbstractExecutionCohort end
 
-mutable struct ExecutionCohort{T,I<:ObjectId} <: AbstractExecutionCohort
-    owner::Any
+mutable struct ExecutionCohort{T,I<:ObjectId,O} <: AbstractExecutionCohort
+    owner::O
     application_id::Symbol
     rows::Vector{Union{Nothing,T}}
     indices::Dict{I,Int}
 
-    ExecutionCohort{T,I}(owner, application_id::Symbol, rows::Vector{Union{Nothing,T}},
-        indices::Dict{I,Int}) where {T,I<:ObjectId} =
-        new{T,I}(owner, application_id, rows, indices)
+    ExecutionCohort{T,I,O}(owner::O, application_id::Symbol, rows::Vector{Union{Nothing,T}},
+        indices::Dict{I,Int}) where {T,I<:ObjectId,O} =
+        new{T,I,O}(owner, application_id, rows, indices)
 end
 
 struct ExecutionCohortLocation{C<:AbstractExecutionCohort}
@@ -16,26 +16,40 @@ struct ExecutionCohortLocation{C<:AbstractExecutionCohort}
     row::Int
 end
 
-"""Persistent typed execution payloads, indexed independently of schedule order."""
-mutable struct ExecutionCohortStore
-    cohorts::Dict{Tuple{Any,Symbol,DataType},AbstractExecutionCohort}
-    locations::Dict{Tuple{Any,Symbol,ObjectId},ExecutionCohortLocation}
+"""Persistent payload storage with identity/owner types independent of target types.
+
+A closed registry admits the finite identity and canonical namespace types.
+The ordinary store keeps arbitrary owners and identity types; per-application
+schemas still own every concrete target/row witness.
+"""
+mutable struct ExecutionCohortStore{I<:ObjectId,O}
+    cohorts::Dict{Tuple{O,Symbol,DataType},AbstractExecutionCohort}
+    locations::Dict{Tuple{O,Symbol,I},ExecutionCohortLocation}
 end
 
-ExecutionCohortStore() = ExecutionCohortStore(
-    Dict{Tuple{Any,Symbol,DataType},AbstractExecutionCohort}(),
-    Dict{Tuple{Any,Symbol,ObjectId},ExecutionCohortLocation}(),
+ExecutionCohortStore{I,O}() where {I<:ObjectId,O} = ExecutionCohortStore{I,O}(
+    Dict{Tuple{O,Symbol,DataType},AbstractExecutionCohort}(),
+    Dict{Tuple{O,Symbol,I},ExecutionCohortLocation}(),
 )
+ExecutionCohortStore() = ExecutionCohortStore{ObjectId,Any}()
+ExecutionCohortStore(::ObjectFamilyStore{I,<:OpenObjectFamilyCatalog}) where {I} =
+    ExecutionCohortStore()
+ExecutionCohortStore(::ObjectFamilyStore{I,<:ClosedObjectFamilyCatalog}) where {I} =
+    ExecutionCohortStore{I,Union{Nothing,Tuple{Symbol,I,Symbol,Symbol}}}()
+
+_execution_store_owner_type(::Type{ExecutionCohortStore{I,O}}) where {I,O} = O
+_execution_store_owner(::ExecutionCohortStore{I,O}, owner) where {I,O} = owner::O
+_execution_store_object_id(::ExecutionCohortStore{I}, object_id) where {I} = ObjectId(object_id)::I
 
 """An ordered membership view over one application's concrete payload family."""
-struct ExecutionCohortRows{T,C<:ExecutionCohort{T}} <: AbstractVector{T}
-    store::ExecutionCohortStore
+struct ExecutionCohortRows{T,C<:ExecutionCohort{T},S<:ExecutionCohortStore} <: AbstractVector{T}
+    store::S
     cohort::C
     indices::Vector{Int}
 end
 
-ExecutionCohortRows{T}(store::ExecutionCohortStore, cohort::C, indices::Vector{Int}) where {T,C<:ExecutionCohort{T}} =
-    ExecutionCohortRows{T,C}(store, cohort, indices)
+ExecutionCohortRows{T}(store::S, cohort::C, indices::Vector{Int}) where {T,C<:ExecutionCohort{T},S<:ExecutionCohortStore} =
+    ExecutionCohortRows{T,C,S}(store, cohort, indices)
 
 # The finite witness belongs to one application/owner boundary, never to the
 # runtime store. In particular Target -> RunContext -> RuntimeStorage does not
@@ -106,19 +120,20 @@ function _check_execution_cohort_location(location, owner, application_id, objec
     return nothing
 end
 
-@inline _with_execution_cohort_location(f, schema::ExecutionCohortSchema, ::Nothing, owner, application_id, object_id) = f(nothing)
-@inline function _with_execution_cohort_location(f, ::OpenExecutionCohortSchema, location::ExecutionCohortLocation, owner, application_id, object_id)
+@inline _with_execution_cohort_location(f, schema::ExecutionCohortSchema, store::ExecutionCohortStore, ::Nothing, owner, application_id, object_id) = f(nothing)
+@inline function _with_execution_cohort_location(f, ::OpenExecutionCohortSchema, store::ExecutionCohortStore, location::ExecutionCohortLocation, owner, application_id, object_id)
     _check_execution_cohort_location(location, owner, application_id, object_id)
     return f(location)
 end
 
 # Select the actual cohort before invoking the operation. An assertion after a
 # dynamic read/clear would leave the abstract operation reachable by JuliaC.
-@generated function _with_execution_cohort_location(f, schema::ClosedExecutionCohortSchema{T}, location::ExecutionCohortLocation, owner, application_id, object_id) where {T}
+@generated function _with_execution_cohort_location(f, schema::ClosedExecutionCohortSchema{T}, store::S, location::ExecutionCohortLocation, owner, application_id, object_id) where {T,S<:ExecutionCohortStore}
     branches = Expr[]
+    O = _execution_store_owner_type(S)
     for Target in fieldtypes(T)
         I = fieldtype(Target, :object_id)
-        L = ExecutionCohortLocation{ExecutionCohort{Target,I}}
+        L = ExecutionCohortLocation{ExecutionCohort{Target,I,O}}
         push!(branches, quote
             if location isa $L
                 _check_execution_cohort_location(location, owner, application_id, object_id, schema)
@@ -141,22 +156,24 @@ end
     end
 end
 
-_execution_cohort_types(::OpenExecutionCohortSchema) =
+_execution_cohort_types(::OpenExecutionCohortSchema, ::ExecutionCohortStore) =
     (identity=ObjectId, target=Any, location=ExecutionCohortLocation, rows=ExecutionCohortRows)
-@generated function _execution_cohort_types(::ClosedExecutionCohortSchema{T}) where {T}
+@generated function _execution_cohort_types(::ClosedExecutionCohortSchema{T}, ::S) where {T,S<:ExecutionCohortStore}
     targets = collect(fieldtypes(T))
+    O = _execution_store_owner_type(S)
     ids = unique([fieldtype(Target, :object_id) for Target in targets])
-    locations = [ExecutionCohortLocation{ExecutionCohort{Target,fieldtype(Target,:object_id)}} for Target in targets]
-    rows = [ExecutionCohortRows{Target,ExecutionCohort{Target,fieldtype(Target,:object_id)}} for Target in targets]
+    locations = [ExecutionCohortLocation{ExecutionCohort{Target,fieldtype(Target,:object_id),O}} for Target in targets]
+    rows = [ExecutionCohortRows{Target,ExecutionCohort{Target,fieldtype(Target,:object_id),O},S} for Target in targets]
     I, U, L, R = Union{ids...}, Union{targets...}, Union{locations...}, Union{rows...}
     return :((identity=$I, target=$U, location=$L, rows=$R))
 end
 
-@inline _with_execution_cohort_rows(f, ::OpenExecutionCohortSchema, rows::ExecutionCohortRows) = f(rows)
-@generated function _with_execution_cohort_rows(f, ::ClosedExecutionCohortSchema{T}, rows::ExecutionCohortRows) where {T}
+@inline _with_execution_cohort_rows(f, ::OpenExecutionCohortSchema, store::ExecutionCohortStore, rows::ExecutionCohortRows) = f(rows)
+@generated function _with_execution_cohort_rows(f, ::ClosedExecutionCohortSchema{T}, store::S, rows::ExecutionCohortRows) where {T,S<:ExecutionCohortStore}
     branches = Expr[]
+    O = _execution_store_owner_type(S)
     for Target in fieldtypes(T)
-        R = ExecutionCohortRows{Target,ExecutionCohort{Target,fieldtype(Target,:object_id)}}
+        R = ExecutionCohortRows{Target,ExecutionCohort{Target,fieldtype(Target,:object_id),O},S}
         push!(branches, :(rows isa $R && return f(rows)))
     end
     return quote
@@ -181,7 +198,7 @@ Base.@propagate_inbounds function Base.getindex(rows::ExecutionCohortRows{T}, in
     return target::T
 end
 
-function _execution_cohort(store::ExecutionCohortStore, owner, application_id::Symbol, ::Type{T}) where {T}
+function _execution_cohort(store::ExecutionCohortStore{StoreI,O}, owner, application_id::Symbol, ::Type{T}) where {T,StoreI,O}
     isconcretetype(T) && T !== Nothing || throw(ArgumentError(
         "An execution cohort requires a concrete target payload type.",
     ))
@@ -189,10 +206,12 @@ function _execution_cohort(store::ExecutionCohortStore, owner, application_id::S
     I <: ObjectId && isconcretetype(I) || throw(ArgumentError(
         "An execution cohort requires a concrete ObjectId field in its target payload.",
     ))
+    I <: StoreI || throw(ArgumentError("The execution target identity is outside the store schema."))
+    owner = _execution_store_owner(store, owner)
     cohort = get!(store.cohorts, (owner, application_id, T)) do
-        ExecutionCohort{T,I}(owner, application_id, Union{Nothing,T}[], Dict{I,Int}())
+        ExecutionCohort{T,I,O}(owner, application_id, Union{Nothing,T}[], Dict{I,Int}())
     end
-    return cohort::ExecutionCohort{T,I}
+    return cohort::ExecutionCohort{T,I,O}
 end
 
 function _clear_execution_cohort_row!(cohort::ExecutionCohort, row::Int)
@@ -201,10 +220,11 @@ function _clear_execution_cohort_row!(cohort::ExecutionCohort, row::Int)
 end
 
 function _store_execution_cohort_target!(store::ExecutionCohortStore, cohort::ExecutionCohort{T}, target::T) where {T}
-    object_id = ObjectId(target.object_id)
-    previous = cohort_location(store, cohort.application_id, object_id; owner=cohort.owner)
-    return _with_execution_cohort_location(OpenExecutionCohortSchema(), previous,
-        cohort.owner, cohort.application_id, object_id) do location
+    object_id = _execution_store_object_id(store, target.object_id)
+    owner = _execution_store_owner(store, cohort.owner)
+    previous = cohort_location(store, cohort.application_id, object_id; owner)
+    return _with_execution_cohort_location(OpenExecutionCohortSchema(), store, previous,
+        owner, cohort.application_id, object_id) do location
         _store_execution_cohort_target!(store, cohort, target, location)
     end
 end
@@ -212,9 +232,10 @@ end
 function _store_execution_cohort_target!(
     store::ExecutionCohortStore, cohort::ExecutionCohort{T}, target::T, previous,
 ) where {T}
-    object_id = ObjectId(target.object_id)
+    object_id = _execution_store_object_id(store, target.object_id)
+    owner = _execution_store_owner(store, cohort.owner)
     if !isnothing(previous)
-        _check_execution_cohort_location(previous, cohort.owner, cohort.application_id, object_id)
+        _check_execution_cohort_location(previous, owner, cohort.application_id, object_id)
         previous.cohort === cohort || _clear_execution_cohort_row!(previous.cohort, previous.row)
     end
     slot = get(cohort.indices, object_id, 0)
@@ -225,7 +246,7 @@ function _store_execution_cohort_target!(
     else
         cohort.rows[slot] = target
     end
-    store.locations[(cohort.owner, cohort.application_id, object_id)] = ExecutionCohortLocation(cohort, slot)
+    store.locations[(owner, cohort.application_id, object_id)] = ExecutionCohortLocation(cohort, slot)
     return slot
 end
 
@@ -331,16 +352,20 @@ function reset_cohort_rows!(rows::ExecutionCohortRows{T}, targets::AbstractVecto
     return rows
 end
 
-cohort_location(store::ExecutionCohortStore, application_id::Symbol, object_id; owner=nothing) =
-    get(store.locations, (owner, application_id, ObjectId(object_id)), nothing)
+function cohort_location(store::ExecutionCohortStore, application_id::Symbol, object_id; owner=nothing)
+    id = _execution_store_object_id(store, object_id)
+    admitted_owner = _execution_store_owner(store, owner)
+    return get(store.locations, (admitted_owner, application_id, id), nothing)
+end
 
 """Remove an execution payload without renumbering any cohort's row slots."""
 function remove_cohort_target!(store::ExecutionCohortStore, application_id::Symbol, object_id; owner=nothing, schema=OpenExecutionCohortSchema())
-    object_id = ObjectId(object_id)
+    object_id = _execution_store_object_id(store, object_id)
+    owner = _execution_store_owner(store, owner)
     key = (owner, application_id, object_id)
     location = get(store.locations, key, nothing)
     isnothing(location) && return false
-    return _with_execution_cohort_location(schema, location, owner, application_id, object_id) do admitted
+    return _with_execution_cohort_location(schema, store, location, owner, application_id, object_id) do admitted
         _clear_execution_cohort_row!(admitted.cohort, admitted.row)
         delete!(store.locations, key)
         return true

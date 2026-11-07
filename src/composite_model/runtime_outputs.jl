@@ -1684,7 +1684,7 @@ end
         "No compiled status view for application `$(application.id)` on object ",
         "`$(object_id.value)`.",
     )
-    return compiled.status_views_by_target[key]
+    return compiled.status_views_by_target[key]::CompiledModelStatusView
 end
 
 function _set_status_if_present!(status::Status, variable::Symbol, value)
@@ -3359,7 +3359,7 @@ function _compiled_model_execution_target(
 )
     if temporal_streams isa RuntimeStorage
         location = cohort_location(temporal_streams.cohorts, application.id, object_id; owner)
-        return _with_execution_cohort_location(cohort_schema, location, owner, application.id, object_id) do admitted
+        return _with_execution_cohort_location(cohort_schema, temporal_streams.cohorts, location, owner, application.id, object_id) do admitted
             previous = isnothing(admitted) ? nothing : _execution_cohort_target(admitted)
             _compiled_model_execution_target_from_previous(previous, compiled, env_bindings,
                 application, object_id, temporal_streams, output_retention, constants;
@@ -3393,13 +3393,12 @@ function _new_model_execution_target(
     distributed_targets = _runtime_model_output_targets(compiled, application, object_id)
     call_bindings = get(compiled.call_bindings_by_target, (application.id, object_id), ())
     environment_binding = _environment_binding_for(env_bindings, application.id, object_id)
-    fields = (object_id=object_id, model=model, status_view=status_view,
-        bound_inputs=status_view.bound_inputs, output_targets=distributed_targets,
+    fields = (object_id=object_id, model=model, output_targets=distributed_targets,
         call_bindings=call_bindings, environment_binding=environment_binding)
     owners = (compiled=compiled, temporal_streams=temporal_streams,
         output_retention=output_retention, constants=constants,
         environment=_NO_ENVIRONMENT_OVERRIDE)
-    return _with_execution_target_type(target_schema, application, fields, owners) do Target, actual_application, actual, owner, call_schema
+    return _with_execution_target_type(target_schema, application, status_view, fields, owners) do Target, actual_application, actual, owner, call_schema
         input_bindings = isnothing(Target) ?
             _runtime_model_temporal_inputs(actual.status_view.temporal_inputs, owner.temporal_streams) :
             _prepared_runtime_temporal_inputs(fieldtype(Target,:input_bindings),
@@ -3484,7 +3483,7 @@ function _execution_batches_match_membership(
     batches = previous_group.batches
     length(batches) == length(membership.runs) || return false
     for index in eachindex(membership.runs)
-        matches = _with_execution_cohort_rows(membership.schema,membership.runs[index]) do rows
+        matches = _with_execution_cohort_rows(membership.schema,membership.store,membership.runs[index]) do rows
             _with_execution_batch(batch_schema,batches[index]) do batch
                 batch.targets === rows || return false
                 provider = _compiled_model_execution_environment_provider(env_bindings,
@@ -3528,7 +3527,7 @@ function _model_execution_batches(
     batches = _execution_batch_buffer(batch_schema)
     batches_constructed = 0
     for index in eachindex(membership.runs)
-        constructed = _with_execution_cohort_rows(membership.schema,membership.runs[index]) do rows
+        constructed = _with_execution_cohort_rows(membership.schema,membership.store,membership.runs[index]) do rows
             provider = _compiled_model_execution_environment_provider(env_bindings,
                 application,first(rows))
             reused = _compatible_execution_batch(batch_schema,
@@ -3913,6 +3912,10 @@ function _model_execution_target_change_reason(
     isnothing(status_view) && return :missing_status_view
     target.model === _application_model(application, object_id) ||
         return :model
+    # Preserve the existing reference checks after admitting the target's view schema.
+    V = typeof(target.status_view)
+    status_view isa V || return :status_view
+    status_view = status_view::V
     target.status_view.status === status_view.status || return :status_view
     target.status_view.canonical_status === status_view.canonical_status ||
         return :canonical_status
@@ -5949,9 +5952,7 @@ function _prepare_targeted_newborn_targets(
     end
 
     targeted_input_bindings = _index_model_bindings(
-        input_bindings,
-        :application_id,
-        :consumer_id,
+        input_bindings, keytype(model.registry.objects),
     )
 
     environment_bindings = _targeted_call_environment_bindings(
@@ -6007,18 +6008,17 @@ function _append_targeted_newborn_targets!(
             status_view = _compile_model_status_view(runtime_model(context),partial_application,
                 object_id,get(targeted_input_bindings,key,()),compiled.applications_by_id,
                 targeted_runtime.application_positions,compiled.distributed_outputs;
-                execution_stamp=stamp)
+                execution_stamp=stamp)::CompiledModelStatusView
             output_targets = _runtime_model_output_targets(compiled,application,object_id)
             environment_binding = _environment_binding_for(environment_bindings,application.id,object_id)
             call_bindings = () # targeted admission has rejected nested callees
             fields = (object_id=object_id,model=_application_model(application,object_id),
-                status_view=status_view,bound_inputs=status_view.bound_inputs,
                 output_targets=output_targets,call_bindings=call_bindings,
                 environment_binding=environment_binding)
             owners = (compiled=compiled,temporal_streams=context.temporal_streams,
                 output_retention=context.output_retention,constants=context.constants,
                 environment=context.environment)
-            _with_execution_target_type(admission,application,fields,owners) do Target,actual_application,actual,owner,call_schema
+            _with_execution_target_type(admission,application,status_view,fields,owners) do Target,actual_application,actual,owner,call_schema
                 outputs = isnothing(Target) ?
                     _runtime_model_output_streams(actual.status_view.status,actual_application,
                         actual.object_id,owner.temporal_streams,owner.output_retention,true) :
@@ -7878,7 +7878,7 @@ function _prepare_simulation!(
         :initial_output_retention_compile,
         started_at,
     )
-    temporal_streams = RuntimeStorage(Dict{Tuple{Symbol,ObjectId,Symbol},Any}())
+    temporal_streams = RuntimeStorage(Dict{Tuple{Symbol,ObjectId,Symbol},Any}(), model.registry.objects)
     _initialize_model_output_streams!(
         temporal_streams,
         compiled,
