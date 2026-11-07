@@ -57,7 +57,7 @@ Base.propertynames(ports::AuthoredPortInventory) =
 _authored_metadata_value(value) = value
 _authored_metadata_value(failure::ScenarioPreparationFailure) = throw(failure.error)
 
-function _capture_authored_metadata(operation, phase::Symbol, application_id::Symbol)
+function _capture_authored_metadata(operation, phase::Symbol, application_id::Union{Nothing,Symbol})
     try
         return operation()
     catch error

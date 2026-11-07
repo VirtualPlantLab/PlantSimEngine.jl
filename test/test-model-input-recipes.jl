@@ -103,9 +103,10 @@ end
         @test input_carrier(binding) === PSE.refvalue(model_status(model, 1), source)
         @test fieldtype(typeof(binding), :consumer_id) === ObjectId{Int}
     end
-    # Exercise the canonical default preparation entry, without supplying the
-    # prebuilt recipe table. It must derive the same routes and exact carriers.
-    fresh = PSE._compile_model_input_bindings(model, compiled.applications)
+    # Binding consumes the one prepared recipe table. It never reconstructs
+    # logical routes while obtaining the same canonical reference carriers.
+    fresh = PSE._compile_model_input_bindings(model, compiled.applications,
+        scenario.manual_application_ids, scenario.input_recipes_by_application)
     @test binding_signature(fresh) == binding_signature(compiled.input_bindings)
     @test all(input_carrier(binding) === PSE.refvalue(model_status(model, 1),
         binding.input === :left ? :x : :y) for binding in fresh)

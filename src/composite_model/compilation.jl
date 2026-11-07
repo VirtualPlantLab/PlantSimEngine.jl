@@ -676,11 +676,29 @@ function _application_recipe_with_calls(recipe::AuthoredApplicationRecipe, call_
         recipe.ports, call_plans)
 end
 
-mutable struct ScenarioPreparation{M,S,A,F}
+# Logical declarations have no resolved object identity, clock, scientific
+# default, live carrier or simulation owner. Keep one durable typed owner.
+mutable struct AuthoredScenarioProgram{D,I,CP,G}
+    const output_records::D
+    const input_records::I
+    const call_plans::CP
+    const graph::G
+end
+
+mutable struct AuthoredScenarioGraph{CO,MA,AC,AO,F}
+    const call_owners::CO
+    const manual_application_ids::MA
+    const application_children::AC
+    const application_order::AO
+    const failures::F
+end
+
+mutable struct ScenarioPreparation{M,S,A,F,P}
     const owner::M
     const source_specs::S
     const authored::A
     const failure::F
+    const program::P
     resolved::Any
 end
 
@@ -810,7 +828,11 @@ function _prepare_authored_scenario(model::CompositeModel, raw_specs)
     end
     failure_index = findfirst(record -> record isa ScenarioPreparationFailure, authored)
     failure = isnothing(failure_index) ? nothing : authored[failure_index]
-    return ScenarioPreparation(model, source_specs, Tuple(authored), failure, nothing)
+    authored_records = Tuple(authored)
+    recipes = Tuple(record for record in authored_records
+        if record isa AuthoredApplicationRecipe)
+    program = _prepare_authored_scenario_program(recipes)
+    return ScenarioPreparation(model, source_specs, authored_records, failure, program, nothing)
 end
 
 function _model_owned_scenario_preparation(model::CompositeModel, preparation::ScenarioPreparation)
@@ -818,7 +840,7 @@ function _model_owned_scenario_preparation(model::CompositeModel, preparation::S
     # Internal reconstruction can share authored metadata, never the mutable
     # resolved target snapshot. This check is O(1) on lifecycle invalidation.
     owned = ScenarioPreparation(model, preparation.source_specs,
-        preparation.authored, preparation.failure, nothing)
+        preparation.authored, preparation.failure, preparation.program, nothing)
     model.scenario_plan_cache = owned
     return owned
 end
@@ -1258,8 +1280,8 @@ function _scenario_update_order_edges!(
                         previous_application,
                     ) || continue
                     _selector_labels_may_overlap(
-                        previous_application.applies_to,
-                        application.applies_to,
+                        applies_to(previous_application.spec),
+                        applies_to(application.spec),
                     ) || continue
                     any(
                         label -> _update_matches_application(
@@ -1287,7 +1309,7 @@ function _application_output_selectors(
 )
     selectors = Any[]
     variable in _model_canonical_output_names(application) &&
-        push!(selectors, application.applies_to)
+        push!(selectors, applies_to(application.spec))
     for plan in _application_plans(plans.by_application, application.id)
         variable in plan.variable_names || continue
         push!(selectors, plan.selector)
@@ -1360,29 +1382,83 @@ function _freeze_scenario_application_children(applications, children)
     )
 end
 
-function _compile_scenario_application_children(
-    applications,
-    input_plans,
-    call_plans,
-    call_owners,
-    manual_application_ids,
-    distributed_output_plans,
-)
+function _prepare_authored_scenario_graph(applications, input_plans, call_plans,
+    distributed_output_plans)
+    call_owners = _scenario_call_owners(applications, call_plans)
+    manual_application_ids = Tuple(application.id for application in applications
+        if !isempty(call_owners[application.id]))
+    ownership_failure = _capture_authored_metadata(:call_ownership, nothing) do
+        _validate_scenario_call_ownership!(call_owners, manual_application_ids)
+    end
     children = Dict{Symbol,Set{Symbol}}()
-    _scenario_input_order_edges!(children, input_plans, call_owners)
-    _scenario_initializer_order_edges!(
-        children,
-        input_plans,
-        call_plans,
-        call_owners,
-    )
-    _scenario_update_order_edges!(
-        children,
-        applications,
-        manual_application_ids,
-        distributed_output_plans,
-    )
-    return _freeze_scenario_application_children(applications, children)
+    dependency_failure = _capture_authored_metadata(:dependency_inputs, nothing) do
+        _scenario_input_order_edges!(children, input_plans, call_owners)
+        _scenario_initializer_order_edges!(children, input_plans, call_plans, call_owners)
+        nothing
+    end
+    update_failure = _capture_authored_metadata(:update_order, nothing) do
+        _scenario_update_order_edges!(children, applications, manual_application_ids,
+            distributed_output_plans)
+        nothing
+    end
+    frozen_children = _freeze_scenario_application_children(applications, children)
+    order_result = _capture_authored_metadata(:schedule, nothing) do
+        Tuple(_stable_topological_application_order(applications, frozen_children))
+    end
+    order = order_result isa ScenarioPreparationFailure ? () : order_result
+    failures = (call_ownership=ownership_failure, dependency_inputs=dependency_failure,
+        update_order=update_failure,
+        schedule=order_result isa ScenarioPreparationFailure ? order_result : nothing)
+    return AuthoredScenarioGraph(call_owners, manual_application_ids,
+        frozen_children, order, failures)
+end
+
+function _prepare_authored_scenario_program(applications)
+    output_records = _prepare_authored_output_records(applications)
+    destinations = _authored_distributed_output_plans(applications, output_records)
+    input_records = _prepare_authored_input_records(applications, destinations)
+    inputs = Tuple(record for record in input_records if record isa CompiledModelInputPlan)
+    calls = Tuple(plan for application in applications for plan in application.call_plans)
+    graph = _prepare_authored_scenario_graph(applications, inputs, calls, destinations)
+    return AuthoredScenarioProgram(output_records, input_records, calls, graph)
+end
+
+function _authored_input_graph_matches(records::Tuple, plans)
+    length(records) == length(plans) || return false
+    return all(zip(records, plans)) do (authored, resolved)
+        authored isa CompiledModelInputPlan &&
+            authored.application_id === resolved.application_id &&
+            authored.input === resolved.input && authored.selector === resolved.selector &&
+            authored.origin === resolved.origin &&
+            authored.potential_source_application_ids === resolved.potential_source_application_ids &&
+            authored.order_after_application_ids === resolved.order_after_application_ids
+    end
+end
+
+function _authored_call_graph_matches(records::Tuple, plans)
+    length(records) == length(plans) || return false
+    return all(zip(records, plans)) do (authored, resolved)
+        authored.application_id === resolved.application_id &&
+            authored.call === resolved.call && authored.selector === resolved.selector &&
+            _compiled_call_mode(authored) === _compiled_call_mode(resolved) &&
+            authored.potential_callee_application_ids === resolved.potential_callee_application_ids
+    end
+end
+
+function _resolved_scenario_graph(preparation::ScenarioPreparation, applications,
+    input_plans, call_plans, distributed_output_plans)
+    program = preparation.program
+    if _authored_program_matches(program, applications, distributed_output_plans) &&
+       _authored_input_graph_matches(program.input_records, input_plans) &&
+       _authored_call_graph_matches(program.call_plans, call_plans)
+        return program.graph
+    end
+    # Diagnostics can deliberately omit applications or replace one failed
+    # phase by empty metadata. Reuse the exact constructor graph factory for
+    # that projected declaration set, with no author callback or fake object.
+    return _prepare_authored_scenario_graph(
+        _project_authored_applications(preparation, applications),
+        input_plans, call_plans, distributed_output_plans)
 end
 
 function _compiled_scenario_plan(
@@ -1403,27 +1479,16 @@ function _compiled_scenario_plan(
         call_plans,
         distributed_output_plans,
     )
-    call_owners = _scenario_call_owners(applications, call_plans)
-    manual_application_ids = Tuple(
-        application.id for application in applications
-        if !isempty(call_owners[application.id])
-    )
-    _validate_scenario_call_ownership!(
-        call_owners,
-        manual_application_ids,
-    )
-    application_children = _compile_scenario_application_children(
-        applications,
-        input_plans,
-        call_plans,
-        call_owners,
-        manual_application_ids,
-        distributed_output_plans,
-    )
-    application_order = _stable_topological_application_order(
-        applications,
-        application_children,
-    )
+    graph = _resolved_scenario_graph(preparation, applications,
+        input_plans, call_plans, distributed_output_plans)
+    _authored_metadata_value(graph.failures.call_ownership)
+    _authored_metadata_value(graph.failures.dependency_inputs)
+    _authored_metadata_value(graph.failures.update_order)
+    _authored_metadata_value(graph.failures.schedule)
+    call_owners = graph.call_owners
+    manual_application_ids = graph.manual_application_ids
+    application_children = graph.application_children
+    application_order = graph.application_order
     application_plans_by_id = CompiledMetadataTable(NamedTuple{application_ids}(application_plans))
     application_schedule = _compiled_application_schedule(
         application_plans_by_id,
@@ -2185,12 +2250,9 @@ function _compile_resolved_scenario_plan(
     model::CompositeModel, preparation::ScenarioPreparation, applications, timeline,
 )
     distributed_output_plans =
-        _compile_model_output_destination_plans(model, applications)
-    input_plans = _compile_model_input_plans(
-        model,
-        applications,
-        distributed_output_plans,
-    )
+        _resolve_model_output_destination_plans(model, preparation, applications)
+    input_plans = _resolve_model_input_plans(model, preparation,
+        applications, distributed_output_plans)
     call_plans = _compile_model_call_plans(model, applications)
     return _compiled_scenario_plan(
         model,
@@ -5068,11 +5130,12 @@ function _application_model(application::CompiledModelApplication, object_id::Ob
 end
 
 _application_ports(application::CompiledModelApplication) = getfield(application, :plan).ports
-_model_output_names(application::CompiledModelApplication) = _application_ports(application).outputs.local_names
-_model_canonical_output_names(application::CompiledModelApplication) = _application_ports(application).outputs.canonical_names
-_model_distributed_output_names(application::CompiledModelApplication) = _application_ports(application).outputs.distributed_names
-_model_environment_input_names(application::CompiledModelApplication) = _application_ports(application).environment_input_names
-_model_environment_output_names(application::CompiledModelApplication) = _application_ports(application).environment_output_names
+_application_ports(application::AuthoredApplicationRecipe) = getfield(application, :ports)
+_model_output_names(application) = _application_ports(application).outputs.local_names
+_model_canonical_output_names(application) = _application_ports(application).outputs.canonical_names
+_model_distributed_output_names(application) = _application_ports(application).outputs.distributed_names
+_model_environment_input_names(application) = _application_ports(application).environment_input_names
+_model_environment_output_names(application) = _application_ports(application).environment_output_names
 
 # Real-value initialization/inspection stays fresh; a hook already rejected at
 # authoring must instead rethrow its captured failure without being replayed.
@@ -5108,7 +5171,7 @@ function _application_match_labels(application::CompiledModelApplication)
     return labels
 end
 
-_update_matches_application(label::Symbol, application::CompiledModelApplication) =
+_update_matches_application(label::Symbol, application) =
     label == application.id
 
 function _update_variables(update)
@@ -7539,7 +7602,7 @@ function _potential_input_source_application_ids(
 )
     _selector_from_status(selector) && return ()
     source_selector = origin == :inferred_same_object ?
-                      consumer_application.applies_to : selector
+                      applies_to(consumer_application.spec) : selector
     return Tuple(
         application.id for application in get(writer_applications, source_var, ())
         if (isnothing(process_filter) ||
@@ -7561,10 +7624,10 @@ function _input_plan_writer_applications(
     local_output_names,
     distributed_output_plans,
 )
-    writers = Dict{Symbol,Vector{CompiledModelApplication}}()
+    writers = Dict{Symbol,Vector{AuthoredApplicationRecipe}}()
     for application in applications
         for variable in local_output_names[application.id]
-            push!(get!(Vector{CompiledModelApplication}, writers, variable), application)
+            push!(get!(Vector{AuthoredApplicationRecipe}, writers, variable), application)
         end
         distributed_output_plans isa NoCompiledDistributedOutputPlans && continue
         for plan in get(
@@ -7573,7 +7636,7 @@ function _input_plan_writer_applications(
             (),
         )
             for variable in plan.variable_names
-                candidates = get!(Vector{CompiledModelApplication}, writers, variable)
+                candidates = get!(Vector{AuthoredApplicationRecipe}, writers, variable)
                 # An application can write the same name through several
                 # destination plans. Keep it once, in application order.
                 (isempty(candidates) || last(candidates).id != application.id) &&
@@ -7594,7 +7657,7 @@ function _application_may_output_variable(
     return variable in local_output_names &&
            _selector_labels_may_overlap(
         source_selector,
-        application.applies_to,
+        applies_to(application.spec),
     )
 end
 
@@ -7608,7 +7671,7 @@ function _application_may_output_variable(
     variable in local_output_names &&
         _selector_labels_may_overlap(
             source_selector,
-            application.applies_to,
+            applies_to(application.spec),
         ) && return true
     return any(
         plan -> variable in plan.variable_names &&
@@ -7666,8 +7729,7 @@ Base.@nospecializeinfer function _input_plan_variable_contracts!(
 end
 
 Base.@nospecializeinfer function _compiled_model_input_plan(
-    plans,
-    model,
+    slot::Int,
     writer_applications,
     application,
     input::Symbol,
@@ -7727,12 +7789,12 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
     route = InputRouteTag{input,source_var,_selector_from_status(selector)}()
     return CompiledModelInputPlan(
         route,
-        length(plans) + 1,
-        application.plan.slot,
+        slot,
+        application.slot,
         application.id,
         input,
         selector,
-        _compile_selector_matcher(model, selector),
+        _authored_selector_matcher(selector),
         origin,
         Tuple(order_after_application_ids),
         source_var,
@@ -7745,110 +7807,93 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
     )
 end
 
-function _compile_model_input_plans(
-    model::CompositeModel,
-    applications,
-    distributed_output_plans=_compile_model_output_destination_plans(
-        model,
-        applications,
-    ),
-)
+function _prepare_authored_input_records(applications, distributed_output_plans)
     plans = CompiledModelInputPlan[]
-    applications_by_id = Dict(
-        application.id => application for application in applications
-    )
-    # The author owns value-free names; IDs also support diagnostic subsets
-    # with non-contiguous application slots.
-    local_output_names = Dict(
-        application.id => _model_output_names(application)
-        for application in applications
-    )
-    # Restrict producer scans by declared variable, before applying selectors
-    # and process/application filters. This remains a compile-pass inventory:
-    # retain empty applications, stream-only local outputs, and distributed
-    # declarations regardless of their current destination membership.
+    records = Any[]
+    applications_by_id = Dict(application.id => application for application in applications)
+    local_output_names = Dict(application.id => _model_output_names(application)
+        for application in applications)
     writer_applications = _input_plan_writer_applications(
-        applications,
-        local_output_names,
-        distributed_output_plans,
-    )
-    canonical_output_names = Dict(
-        application.id => Symbol[
-            variable for variable in local_output_names[application.id]
-            if _publish_mode_for_output(application.spec, variable) == :canonical
-        ] for application in applications
-    )
-    # Read saved pure contracts lazily at the existing endpoint positions.
-    # This preserves route/error ordering without replaying declaration hooks.
+        applications, local_output_names, distributed_output_plans)
+    canonical_output_names = Dict(application.id => _model_canonical_output_names(application)
+        for application in applications)
     variable_contracts_by_application = Dict{Symbol,NamedTuple}()
     for application in applications
-        _input_plan_variable_contracts!(variable_contracts_by_application, application)
+        preflight = _capture_authored_metadata(:input_plans, application.id) do
+            _input_plan_variable_contracts!(variable_contracts_by_application, application)
+        end
+        if preflight isa ScenarioPreparationFailure
+            push!(records, preflight)
+            continue
+        end
         declared_inputs = value_inputs(application.spec)
         declared_inputs isa NamedTuple || (declared_inputs = NamedTuple())
         declared_names = Set(Symbol.(keys(declared_inputs)))
         for (input_name, selector) in pairs(declared_inputs)
             input = Symbol(input_name)
-            _validate_declared_model_input_name!(application, input)
-            selector isa AbstractObjectMultiplicity || error(
-                "Input binding `$(input)` on application `$(application.id)` must use an object selector."
-            )
-            push!(
-                plans,
-                _compiled_model_input_plan(
-                    plans,
-                    model,
-                    writer_applications,
-                    application,
-                    input,
-                    selector,
+            record = _capture_authored_metadata(:input_plans, application.id) do
+                _validate_declared_model_input_name!(application, input)
+                selector isa AbstractObjectMultiplicity || error(
+                    "Input binding `$(input)` on application `$(application.id)` must use an object selector.")
+                _compiled_model_input_plan(length(plans) + 1, writer_applications,
+                    application, input, selector,
                     get(input_origins(application.spec), input, :model_spec),
-                    applications_by_id,
-                    distributed_output_plans,
-                    local_output_names,
-                    variable_contracts_by_application,
-                ),
-            )
+                    applications_by_id, distributed_output_plans, local_output_names,
+                    variable_contracts_by_application)
+            end
+            push!(records, record)
+            record isa CompiledModelInputPlan && push!(plans, record)
         end
         for input in _model_input_names(application)
             input in declared_names && continue
             for producer in get(writer_applications, input, ())
                 producer.id == application.id && continue
                 local_output = input in canonical_output_names[producer.id] &&
-                               _selector_labels_may_overlap(
-                    application.applies_to,
-                    producer.applies_to,
-                )
+                    _selector_labels_may_overlap(applies_to(application.spec), applies_to(producer.spec))
                 distributed_output = _application_declares_distributed_output(
-                    producer,
-                    input,
-                    application.applies_to,
-                    distributed_output_plans,
-                )
+                    producer, input, applies_to(application.spec), distributed_output_plans)
                 (local_output || distributed_output) || continue
-                selector = One(
-                    within=Self(),
-                    process=producer.process,
-                    application=producer.id,
-                    var=input,
-                )
-                push!(
-                    plans,
-                    _compiled_model_input_plan(
-                        plans,
-                        model,
-                        writer_applications,
-                        application,
-                        input,
-                        selector,
-                        :inferred_same_object,
-                        applications_by_id,
-                        distributed_output_plans,
-                        local_output_names,
-                        variable_contracts_by_application,
-                    ),
-                )
+                selector = One(within=Self(), process=producer.process,
+                    application=producer.id, var=input)
+                record = _capture_authored_metadata(:input_plans, application.id) do
+                    _compiled_model_input_plan(length(plans) + 1, writer_applications,
+                        application, input, selector, :inferred_same_object,
+                        applications_by_id, distributed_output_plans, local_output_names,
+                        variable_contracts_by_application)
+                end
+                push!(records, record)
+                record isa CompiledModelInputPlan && push!(plans, record)
             end
         end
+    end
+    return Tuple(records)
+end
+
+function _resolve_model_input_plan(model, plan::CompiledModelInputPlan, slot::Int)
+    matcher = _resolve_selector_matcher(model, plan.matcher)
+    matcher === plan.matcher && slot == plan.slot && return plan
+    return CompiledModelInputPlan(plan.route, slot, plan.application_slot,
+        plan.application_id, plan.input, plan.selector, matcher, plan.origin,
+        plan.order_after_application_ids, plan.source_var, plan.process,
+        plan.application, plan.multiplicity, plan.potential_source_application_ids,
+        plan.breaks_same_step_cycle, plan.window)
+end
+
+function _resolve_model_input_plans(model, preparation::ScenarioPreparation,
+    applications, distributed_output_plans)
+    program = preparation.program
+    records = if _authored_program_matches(program, applications, distributed_output_plans)
+        program.input_records
+    else
+        # A partial report is a different declaration set. Project the real
+        # recipes through the SAME pure factory, without replaying a hook.
+        _prepare_authored_input_records(_project_authored_applications(preparation, applications),
+            distributed_output_plans)
+    end
+    plans = CompiledModelInputPlan[]
+    for record in records
+        plan = _authored_metadata_value(record)
+        push!(plans, _resolve_model_input_plan(model, plan, length(plans) + 1))
     end
     return plans
 end
@@ -7899,50 +7944,112 @@ function _compile_model_call_plans(model::CompositeModel, applications)
     return plans
 end
 
-function _compile_model_output_destination_plans(
-    model::CompositeModel,
-    applications,
-)
+function _distributed_output_plans(applications, plans)
+    isempty(plans) && return NoCompiledDistributedOutputPlans()
+    return CompiledDistributedOutputPlans(Tuple(plans), _plans_by_application(applications, plans))
+end
+
+function _prepare_authored_output_records(applications)
+    records = Any[]
+    slot = 0
+    for application in applications
+        layout = _capture_authored_metadata(:output_destination_plans, application.id) do
+            _output_destination_layout(application.spec,
+                _model_distributed_output_names(application))
+        end
+        if layout isa ScenarioPreparationFailure
+            push!(records, layout)
+            continue
+        end
+        routes = Any[]
+        for (destination_slot, destination) in enumerate(layout)
+            record = _capture_authored_metadata(:output_destination_plans, application.id) do
+                group = Symbol("output_", destination_slot)
+                selector = destination.selector
+                selector isa AbstractObjectMultiplicity || error(
+                    "Output destination `$(group)` on application `$(application.id)` must use an object selector.")
+                CompiledModelOutputDestinationPlan(slot + 1,
+                    application.slot, application.id, group, selector,
+                    _authored_selector_matcher(selector), destination.variable_names,
+                    multiplicity(selector), destination.coverage)
+            end
+            push!(routes, record)
+            record isa ScenarioPreparationFailure || (slot += 1)
+        end
+        push!(records, Tuple(routes))
+    end
+    ids = Tuple(application.id for application in applications)
+    return CompiledMetadataTable(NamedTuple{ids}(Tuple(records)))
+end
+
+function _authored_distributed_output_plans(applications, output_records)
     plans = CompiledModelOutputDestinationPlan[]
     for application in applications
+        records = output_records[application.id]
+        records isa ScenarioPreparationFailure && continue
+        for record in records
+            record isa CompiledModelOutputDestinationPlan && push!(plans, record)
+        end
+    end
+    return _distributed_output_plans(applications, plans)
+end
+
+function _resolve_model_output_destination_plans(model::CompositeModel,
+    preparation::ScenarioPreparation, applications)
+    plans = CompiledModelOutputDestinationPlan[]
+    for application in applications
+        # Deliver each saved partition error before this application's real
+        # override validation and Scope resolution, retaining phase order.
+        authored = _authored_metadata_value(preparation.program.output_records[application.id])
         distributed_names = _model_distributed_output_names(application)
-        destinations = _output_destination_layout(application.spec, distributed_names)
         if !isnothing(application.model_overrides)
             for replacement in values(application.model_overrides)
                 replacement_names = _distributed_output_names(replacement)
                 _output_destination_layout(application.spec, replacement_names, replacement)
-                Set(replacement_names) == Set(distributed_names) ||
-                    error("Object override for application `$(application.id)` has incompatible distributed output names.")
+                Set(replacement_names) == Set(distributed_names) || error(
+                    "Object override for application `$(application.id)` has incompatible distributed output names.")
             end
         end
-        for (destination_slot, destination) in enumerate(destinations)
-            group_name = Symbol("output_", destination_slot)
-            selector = getproperty(destination, :selector)
-            selector isa AbstractObjectMultiplicity || error(
-                "Output destination `$(group_name)` on application `$(application.id)` " *
-                "must use an object selector.",
-            )
-            push!(
-                plans,
-                CompiledModelOutputDestinationPlan(
-                    length(plans) + 1,
-                    application.plan.slot,
-                    application.id,
-                    Symbol(group_name),
-                    selector,
-                    _compile_selector_matcher(model, selector),
-                    getproperty(destination, :variable_names),
-                    multiplicity(selector),
-                    getproperty(destination, :coverage),
-                ),
-            )
+        for record in authored
+            plan = _authored_metadata_value(record)
+            matcher = _resolve_selector_matcher(model, plan.matcher)
+            push!(plans, CompiledModelOutputDestinationPlan(length(plans) + 1,
+                plan.application_slot, plan.application_id, plan.group,
+                plan.selector, matcher, plan.variable_names, plan.multiplicity,
+                plan.coverage))
         end
     end
-    isempty(plans) && return NoCompiledDistributedOutputPlans()
-    return CompiledDistributedOutputPlans(
-        Tuple(plans),
-        _plans_by_application(applications, plans),
-    )
+    return _distributed_output_plans(applications, plans)
+end
+
+function _project_authored_applications(preparation::ScenarioPreparation, applications)
+    by_id = Dict(recipe.id => recipe for recipe in preparation.authored
+        if recipe isa AuthoredApplicationRecipe)
+    return Tuple(by_id[application.id] for application in applications)
+end
+
+function _authored_program_matches(program::AuthoredScenarioProgram,
+    applications, distributed_output_plans)
+    ids = Tuple(application.id for application in applications)
+    ids === keys(program.output_records) || return false
+    resolved = distributed_output_plans isa NoCompiledDistributedOutputPlans ?
+        () : distributed_output_plans.plans
+    index = 0
+    for application in applications
+        records = program.output_records[application.id]
+        records isa ScenarioPreparationFailure && return false
+        for authored in records
+            authored isa ScenarioPreparationFailure && return false
+            index += 1
+            index <= length(resolved) || return false
+            plan = resolved[index]
+            authored.application_id === plan.application_id &&
+                authored.group === plan.group && authored.selector === plan.selector &&
+                authored.variable_names === plan.variable_names &&
+                authored.coverage === plan.coverage || return false
+        end
+    end
+    return index == length(resolved)
 end
 
 _application_plans(plans_by_application, application_id::Symbol) =
@@ -8026,15 +8133,10 @@ end
 function _compile_model_input_bindings(
     model::CompositeModel,
     applications,
-    manual_application_ids=Set{Symbol}(),
-    input_recipes_by_application=nothing,
+    manual_application_ids,
+    input_recipes_by_application,
     distributed_outputs=NoCompiledDistributedOutputs(),
 )
-    if isnothing(input_recipes_by_application)
-        plans = _compile_model_input_plans(model, applications)
-        input_recipes_by_application = _compiled_application_input_recipes(
-            _plans_by_application(applications, plans))
-    end
     bindings = CompiledModelInputBinding[]
     by_object = _applications_by_object(applications, model.registry.objects)
     by_id = _applications_by_id(applications)
@@ -8371,7 +8473,7 @@ function _has_matching_distributed_input_writer(
     end
 end
 
-_model_input_names(application::CompiledModelApplication) = _application_ports(application).input_names
+_model_input_names(application) = _application_ports(application).input_names
 
 function _validate_model_input_source!(
     model::CompositeModel,
@@ -8396,7 +8498,7 @@ function _validate_model_input_source!(
     )
 end
 
-function _validate_declared_model_input_name!(application::CompiledModelApplication, input_sym::Symbol)
+function _validate_declared_model_input_name!(application, input_sym::Symbol)
     input_names = Set(_model_input_names(application))
     input_sym in input_names && return nothing
     error(
@@ -8749,57 +8851,10 @@ function _compile_model_call_bindings(
     return bindings
 end
 
-function _model_call_owners(call_bindings)
-    owners = Dict{Symbol,Set{Symbol}}()
-    for binding in call_bindings
-        _compiled_call_mode(binding) === :manual || continue
-        for callee_id in binding.callee_application_ids
-            push!(get!(owners, callee_id, Set{Symbol}()), binding.application_id)
-        end
-    end
-    return owners
-end
-
 function _add_model_application_edge!(children, parent::Symbol, child::Symbol)
     parent == child && return nothing
     push!(get!(children, parent, Set{Symbol}()), child)
     return nothing
-end
-
-function _model_input_order_edges!(children, input_bindings, call_owners)
-    for binding in input_bindings
-        binding.policy isa PreviousTimeStep && continue
-        ordering_sources = (
-            binding.source_application_ids...,
-            binding.order_after_application_ids...,
-        )
-        for source_id in ordering_sources
-            owners = get(call_owners, source_id, nothing)
-            if isnothing(owners)
-                _add_model_application_edge!(children, source_id, binding.application_id)
-            else
-                for owner_id in owners
-                    _add_model_application_edge!(children, owner_id, binding.application_id)
-                end
-            end
-        end
-    end
-    return children
-end
-
-function _model_update_order_edges!(children, applications)
-    any(application -> !isempty(updates(application.spec)), applications) ||
-        return children
-    for indexed_writers in values(_model_writer_groups(applications))
-        length(indexed_writers) > 1 || continue
-        sort!(indexed_writers; by=first)
-        for index in 2:length(indexed_writers)
-            previous_application = indexed_writers[index - 1][2]
-            application = indexed_writers[index][2]
-            _add_model_application_edge!(children, previous_application.id, application.id)
-        end
-    end
-    return children
 end
 
 function _stable_topological_application_order(applications, children)
@@ -8831,34 +8886,6 @@ function _stable_topological_application_order(applications, children)
         )
     end
     return order
-end
-
-function _compile_model_application_children(
-    applications,
-    input_bindings,
-    call_bindings,
-    call_owners,
-)
-    children = Dict{Symbol,Set{Symbol}}()
-    _model_input_order_edges!(children, input_bindings, call_owners)
-    _scenario_initializer_order_edges!(
-        children,
-        input_bindings,
-        call_bindings,
-        call_owners,
-    )
-    _model_update_order_edges!(children, applications)
-    return children
-end
-
-function _compile_model_application_order(applications, input_bindings, call_bindings)
-    children = _compile_model_application_children(
-        applications,
-        input_bindings,
-        call_bindings,
-        _model_call_owners(call_bindings),
-    )
-    return _stable_topological_application_order(applications, children)
 end
 
 function _ordered_model_applications(compiled::CompiledCompositeModel)

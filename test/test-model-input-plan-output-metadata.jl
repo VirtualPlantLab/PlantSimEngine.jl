@@ -86,7 +86,7 @@ function planner_pass(data, applications, destinations)
     data.source.contract_queries[] = 0
     foreach(reader -> reader.queries[] = 0, data.readers)
     foreach(reader -> reader.contract_queries[] = 0, data.readers)
-    plans = PSE._compile_model_input_plans(data.model, applications, destinations)
+    plans = PSE._resolve_model_input_plans(data.model, PSE._scenario_preparation(data.model), applications, destinations)
     queries = (source=data.source.queries[], readers=[reader.queries[] for reader in data.readers],
         source_contracts=data.source.contract_queries[],
         reader_contracts=[reader.contract_queries[] for reader in data.readers])
@@ -101,7 +101,7 @@ plan_signature(plans) = [(plan.application_id, plan.input, plan.origin,
         data = query_scene(T, count; explicit)
         applications = PSE._compile_model_applications(data.model, data.model.applications,
             PSE._model_timeline(data.model))
-        destinations = PSE._compile_model_output_destination_plans(data.model, applications)
+        destinations = PSE._resolve_model_output_destination_plans(data.model, PSE._scenario_preparation(data.model), applications)
         plans, queries = planner_pass(data, applications, destinations)
         @test length(plans) == count
         @test all(plan -> plan.potential_source_application_ids == (:source,), plans)
@@ -439,20 +439,23 @@ end
     ), environment=(duration=Hour(1),))
     applications = PSE._compile_model_applications(model, model.applications,
         PSE._model_timeline(model))
-    destinations = PSE._compile_model_output_destination_plans(model, applications)
+    preparation = PSE._scenario_preparation(model)
+    authored = PSE._project_authored_applications(preparation, applications)
+    destinations = PSE._resolve_model_output_destination_plans(model, preparation, applications)
     local_names = Dict(application.id => PSE._model_output_names(application)
         for application in applications)
     queries_before = [source.queries[] for source in (first_source, last_source, noise...)]
-    writers = PSE._input_plan_writer_applications(applications, local_names, destinations)
+    writers = PSE._input_plan_writer_applications(authored, local_names, destinations)
     @test [source.queries[] for source in (first_source, last_source, noise...)] == queries_before
     @test getproperty.(writers[:sent], :id) == [:local_first, :distributed, :local_last]
     # Each explicit or inferred scan for :sent now visits three declarations,
     # regardless of the 32 unrelated-variable applications.
     @test length(writers[:sent]) == 3 < length(applications)
     @test !haskey(writers, :missing)
-    @test all(isempty(application.target_ids) for application in writers[:sent]
-        if application.id != :distributed)
-    consumer = last(applications)
+    @test all(isempty(application.target_ids) for application in applications
+        if application.id in (:local_first, :local_last))
+    @test all(!hasproperty(recipe, :target_ids) for recipe in writers[:sent])
+    consumer = last(authored)
     potential(selector; process_filter=nothing, application_filter=nothing,
         origin=:model_spec) = PSE._potential_input_source_application_ids(
         writers, consumer, selector, :sent, process_filter, application_filter,
@@ -472,7 +475,7 @@ end
 
     # The pass also supports application subsets whose slots belong to the
     # original full graph, including distributed declaration lookup by ID.
-    selected = applications[[1, length(applications) - 2, length(applications)]]
+    selected = [authored[index] for index in (1, length(authored) - 2, length(authored))]
     subset = PSE._input_plan_writer_applications(selected, local_names, destinations)
     @test getproperty.(subset[:sent], :id) == [:local_first, :distributed]
     @test getproperty.(selected, :slot) == [1, 34, 36]
@@ -490,7 +493,7 @@ end
     @test model_status(model, :last).observed === 14.0
     refreshed = Advanced.refresh_bindings!(model; force=true)
     @test plan_signature(refreshed.scenario_plan.input_plans) == signature
-    @test PSE._input_plan_writer_applications(applications, local_names, destinations) !== writers
+    @test PSE._input_plan_writer_applications(authored, local_names, destinations) !== writers
 end
 
 end # module

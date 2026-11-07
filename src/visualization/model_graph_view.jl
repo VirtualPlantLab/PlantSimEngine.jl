@@ -92,34 +92,6 @@ function _model_graph_phase!(operation, diagnostics, phase::Symbol, fallback)
     end
 end
 
-function _model_graph_dependency_children(
-    applications,
-    input_bindings,
-    call_bindings,
-    distributed_output_plans=NoCompiledDistributedOutputPlans(),
-)
-    children = Dict{Symbol,Set{Symbol}}()
-    call_owners = _model_call_owners(call_bindings)
-    _model_input_order_edges!(
-        children,
-        input_bindings,
-        call_owners,
-    )
-    _scenario_initializer_order_edges!(
-        children,
-        input_bindings,
-        call_bindings,
-        call_owners,
-    )
-    _scenario_update_order_edges!(
-        children,
-        applications,
-        _manual_call_application_ids(call_bindings),
-        distributed_output_plans,
-    )
-    return children
-end
-
 function _model_graph_dependency_children(compiled::CompiledCompositeModel)
     return Dict{Symbol,Set{Symbol}}(
         application_id => Set{Symbol}(children)
@@ -378,18 +350,14 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         :output_destination_plans,
         NoCompiledDistributedOutputPlans(),
     ) do
-        _compile_model_output_destination_plans(model, applications)
+        _resolve_model_output_destination_plans(model, preparation, applications)
     end
     input_plans = _model_graph_phase!(
         diagnostics,
         :input_plans,
         CompiledModelInputPlan[],
     ) do
-        _compile_model_input_plans(
-            model,
-            applications,
-            distributed_output_plans,
-        )
+        _resolve_model_input_plans(model, preparation, applications, distributed_output_plans)
     end
     call_plans = _model_graph_phase!(
         diagnostics,
@@ -398,11 +366,10 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
     ) do
         _compile_model_call_plans(model, applications)
     end
-    scenario_call_owners = _scenario_call_owners(applications, call_plans)
-    manual_application_ids = Tuple(
-        application.id for application in applications
-        if !isempty(scenario_call_owners[application.id])
-    )
+    graph = _resolved_scenario_graph(preparation, applications,
+        input_plans, call_plans, distributed_output_plans)
+    scenario_call_owners = graph.call_owners
+    manual_application_ids = graph.manual_application_ids
     _model_graph_phase!(diagnostics, :call_ownership, nothing) do
         _validate_initializer_call_plans!(
             model,
@@ -411,10 +378,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
             call_plans,
             distributed_output_plans,
         )
-        _validate_scenario_call_ownership!(
-            scenario_call_owners,
-            manual_application_ids,
-        )
+        _authored_metadata_value(graph.failures.call_ownership)
     end
 
     call_bindings = _model_graph_phase!(diagnostics, :calls, CompiledModelCallBinding[]) do
@@ -464,33 +428,21 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         _wire_model_input_carriers!(model, input_bindings)
     end
 
-    children = Dict{Symbol,Set{Symbol}}()
+    children = Dict{Symbol,Set{Symbol}}(
+        application_id => Set(child_ids)
+        for (application_id, child_ids) in pairs(graph.application_children) if !isempty(child_ids))
     _model_graph_phase!(diagnostics, :dependency_inputs, nothing) do
-        _scenario_input_order_edges!(
-            children,
-            input_plans,
-            scenario_call_owners,
-        )
-        _scenario_initializer_order_edges!(
-            children,
-            input_plans,
-            call_plans,
-            scenario_call_owners,
-        )
+        _authored_metadata_value(graph.failures.dependency_inputs)
     end
     _model_graph_phase!(diagnostics, :update_order, nothing) do
-        _scenario_update_order_edges!(
-            children,
-            applications,
-            manual_application_ids,
-            distributed_output_plans,
-        )
+        _authored_metadata_value(graph.failures.update_order)
     end
     cycles = _model_graph_cycle_components(applications, children)
     application_order = Symbol[]
     if isempty(cycles)
         application_order = _model_graph_phase!(diagnostics, :schedule, Symbol[]) do
-            _stable_topological_application_order(applications, children)
+            _authored_metadata_value(graph.failures.schedule)
+            Symbol[graph.application_order...]
         end
     else
         for cycle in cycles
@@ -1705,7 +1657,7 @@ end
 
 function _model_graph_distributed_initialization!(rows, report)
     destinations = try
-        plans = _compile_model_output_destination_plans(report.model, report.applications)
+        plans = _resolve_model_output_destination_plans(report.model, _scenario_preparation(report.model), report.applications)
         _resolve_model_output_destinations(report.model, _applications_by_id(report.applications), plans)
     catch
         # A binding error is already in the report. Valid destinations can still

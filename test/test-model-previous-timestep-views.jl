@@ -233,10 +233,10 @@ end
            binding.input == :signal
     )
     children = Dict{Symbol,Set{Symbol}}()
-    PlantSimEngine._model_input_order_edges!(
+    PlantSimEngine._scenario_input_order_edges!(
         children,
-        (lagged_binding,),
-        Dict{Symbol,Set{Symbol}}(),
+        (lagged_binding.plan,),
+        NamedTuple(),
     )
     @test isempty(children)
 

@@ -543,6 +543,7 @@ PlantSimEngine.outputs_(::InitializerCacheMutatorModel) = (
     targeted_value=-1.0,
     refreshed_plan=false,
     cache_invalidated=false,
+    cache_preserved_for_adoption=false,
     bindings_remained_dirty=false,
 )
 
@@ -568,6 +569,7 @@ function PlantSimEngine.run!(
         )
         run_call!(context, :manual_leaf; objects=leaf, publish=false)
     elseif object_id(context) == ObjectId(:cache_creator_b)
+        previous_cache = PlantSimEngine.lifecycle_delta(runtime).targeted_topology_runtime
         leaf = register_object!(
             runtime,
             Object(
@@ -579,8 +581,15 @@ function PlantSimEngine.run!(
             ),
         )
         reparent_object!(runtime, :cache_leaf_a, :plant_b)
+        delta = PlantSimEngine.lifecycle_delta(runtime)
+        # Keep the real newborn execution stamps until ordinary views adopt
+        # them, while rejecting this cache for a mixed structural event.
+        status.cache_preserved_for_adoption = !isnothing(previous_cache) &&
+            delta.targeted_topology_runtime === previous_cache
         status.cache_invalidated = isnothing(
-            PlantSimEngine.lifecycle_delta(runtime).targeted_topology_runtime,
+            PlantSimEngine._targeted_new_object_call_targets(
+                context, :manual_leaf, (leaf.id,), only(context.calls),
+            ),
         )
         target = only(
             run_call!(
@@ -1423,6 +1432,8 @@ end
     @test model_status(model, :cache_creator_b).targeted_value == 7.0
     @test model_status(model, :cache_creator_b).refreshed_plan
     @test model_status(model, :cache_creator_b).cache_invalidated
+    @test model_status(model, :cache_creator_b).cache_preserved_for_adoption
+    @test isnothing(PlantSimEngine.lifecycle_delta(model).targeted_topology_runtime)
     @test !model_status(model, :cache_creator_b).bindings_remained_dirty
     @test simulation.compiled.applications_by_id[:cache_manual_target].target_ids ==
           [ObjectId(:cache_leaf_b)]

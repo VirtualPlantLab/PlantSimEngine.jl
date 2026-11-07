@@ -83,6 +83,7 @@ else
         include("test-model-prepared-scenario.jl")
         include("test-model-scenario-authoring.jl")
         include("test-model-authored-port-inventory.jl")
+    include("test-model-authored-input-graph.jl")
         include("test-model-prepared-authoring-owner.jl")
         include("test-model-public-refresh-owners.jl")
         include("test-model-authored-call-plans.jl")

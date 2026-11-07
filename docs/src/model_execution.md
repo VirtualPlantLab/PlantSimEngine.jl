@@ -69,9 +69,10 @@ other simulations with different choices.
 ## Compilation Before Runtime
 
 `CompositeModel` prepares the application declarations when you construct it:
-application identifiers, selector rules, output-port names, environment hints,
-and declared calls between models. It registers the objects you supplied without
-running their equations.
+application identifiers, input/output and environment port names, variable
+contracts, selector rules, declared value and call connections, and the dependency
+order between applications. Objects and weather rows can be added later. The
+constructor registers the objects you supplied without running their equations.
 
 Starting a simulation resolves those declarations against the current objects
 and environment. This preparation is called **compilation**. It:
@@ -84,8 +85,8 @@ and environment. This preparation is called **compilation**. It:
    models that run at different time steps;
 5. lists the models that each controller can call through `calls`;
 6. finds the weather source, cell, or layer that supplies each object;
-7. puts applications in order so their inputs are available when needed,
-   including any order specified by `Updates`;
+7. prepares a schedule from the dependency order, including `Updates`, and
+   each application's actual cadence;
 8. groups objects with matching model, status, and environment types so Julia
    can run them efficiently.
 
