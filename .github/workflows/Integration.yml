@@ -15,7 +15,7 @@ jobs:
   test:
     name: ${{ matrix.package.name }} - Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}${{ matrix.test_args && ' - reference-regression' || '' }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ matrix.timeout_minutes || 60 }}
     permissions:
       # needed to allow julia-actions/cache to proactively delete old caches that it has created
       actions: write
@@ -27,6 +27,8 @@ jobs:
           # Keep the complete XPalm suite, including JET, on Julia 1.12.
           - version: "1.12"
             os: ubuntu-latest
+            # The complete XPalm suite includes cold compilation and VPalm tests.
+            timeout_minutes: 90
             package: { name: XPalm, user: PalmStudio, repo: XPalm.jl, branch: main, default: main }
           - version: "1"
             os: ubuntu-latest
