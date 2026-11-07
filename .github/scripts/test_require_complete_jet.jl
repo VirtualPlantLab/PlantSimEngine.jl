@@ -22,6 +22,33 @@ end
     @test isempty(cache_flags.errors)
 end
 
+@testset "incremental precompilation leaves Main untouched" begin
+    mktempdir() do directory
+        input = joinpath(directory, "GuardPrecompileProbe.jl")
+        cache = joinpath(directory, "probe.ji")
+        object = joinpath(directory, "probe.o")
+        write(input, "module GuardPrecompileProbe; value() = 42; end")
+        source = """
+            @assert Base.generating_output(true)
+            @assert !isdefined(Main, :JETAnalysisGuard)
+            Base.include_package_for_output(Base.PkgId("GuardPrecompileProbe"), ARGS[1],
+                copy(DEPOT_PATH), copy(Base.DL_LOAD_PATH), copy(LOAD_PATH),
+                Base._concrete_dependencies, nothing)
+            """
+        output, errors = IOBuffer(), IOBuffer()
+        command = `$(Base.julia_cmd()) --startup-file=no --output-incremental=yes --output-ji=$cache --output-o=$object --load=$GUARD --eval $source $input`
+        process = run(pipeline(ignorestatus(command); stdout=output, stderr=errors))
+        incremental = (code=process.exitcode, output=String(take!(output)), errors=String(take!(errors)))
+        @test incremental.code == 0
+        @test isempty(incremental.errors)
+        @test isfile(cache) && filesize(cache) > 0
+        @test isfile(object) && filesize(object) > 0
+        if isfile(cache)
+            @test !iszero(open(Base.isvalid_cache_header, cache))
+        end
+    end
+end
+
 @testset "incomplete JET analysis fails its test subprocess" begin
     mktempdir() do packages
         source_dir = mkpath(joinpath(packages, "JET", "src"))
