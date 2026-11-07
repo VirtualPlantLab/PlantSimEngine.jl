@@ -430,7 +430,7 @@ end
     end
 end
 
-@generated function _prepared_runtime_outputs(::Type{O}, status, output_targets,
+@generated function _prepared_runtime_outputs(::Type{O}, status_view::CompiledModelStatusView, output_targets,
     application, object_id, compiled, streams, retention, initialize_missing,
 ) where {O<:Tuple}
     entries = Expr[]
@@ -446,6 +446,7 @@ end
         end
     end
     return quote
+        status = status_view.status
         outputs = $(Expr(:tuple,entries...))
         if initialize_missing
             # Targeted newborns own a pre-barrier private view: it is not in
@@ -463,7 +464,7 @@ end
             local_count == length(outputs) ||
                 throw(ArgumentError("Prepared newborn retained output count changed."))
         else
-            _model_execution_outputs_match(outputs,compiled,application,object_id,
+            _model_execution_outputs_match(outputs,status_view,compiled,application,object_id,
                 retention,streams) || throw(ArgumentError("Prepared retained output names or ownership changed."))
         end
         return outputs

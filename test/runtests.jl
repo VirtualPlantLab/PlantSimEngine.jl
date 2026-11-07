@@ -333,6 +333,7 @@ else
 
     @testset "Distributed output runtime" begin
         include("test-model-distributed-output-runtime.jl")
+        include("test-model-runtime-stream-extensions.jl")
     end
 
     @testset "Distributed output assignment API" begin

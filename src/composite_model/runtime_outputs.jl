@@ -3410,7 +3410,7 @@ function _new_model_execution_target(
                 actual_application,actual.object_id,owner.temporal_streams,owner.output_retention)
             (local_outputs...,distributed_outputs...)
         else
-            _prepared_runtime_outputs(fieldtype(Target,:output_bindings),actual.status_view.status,
+            _prepared_runtime_outputs(fieldtype(Target,:output_bindings),actual.status_view,
                 actual.output_targets,actual_application,actual.object_id,owner.compiled,
                 owner.temporal_streams,owner.output_retention,false)
         end
@@ -3644,13 +3644,23 @@ function compile_model_execution_plan(
     )
 end
 
+# Every staged source was checked against the destination's element type before
+# any destination is changed. Keep that proof at the append boundary after
+# selecting the real immutable owner from its typed tuple.
+@inline function _append_validated_runtime_streams!(
+    streams::Vector{S}, new_streams::Vector{Any},
+) where {S}
+    S === Any && return append!(streams, new_streams)
+    return append!(streams, (stream::S for stream in new_streams))
+end
+
 function _model_execution_inputs_match(
     runtime_inputs::Tuple,
     compiled_inputs::Tuple,
     temporal_streams=nothing,
 )
     length(runtime_inputs) == length(compiled_inputs) || return false
-    additions = Tuple{Any,Vector{Any}}[]
+    additions = Tuple{Int,Vector{Any}}[]
     for index in eachindex(runtime_inputs)
         runtime_input = runtime_inputs[index]
         compiled_input = compiled_inputs[index]
@@ -3684,19 +3694,28 @@ function _model_execution_inputs_match(
                 stream isa eltype(source_streams) || return false
                 push!(new_streams, stream)
             end
-            push!(additions, (source_streams, new_streams))
+            push!(additions, (index, new_streams))
         else
             runtime_input === compiled_input || return false
         end
     end
-    for (source_streams, new_streams) in additions
-        append!(source_streams, new_streams)
+    for addition in additions
+        _with_metadata_entry(runtime_inputs, first(addition)) do runtime_input
+            runtime_input isa RuntimeTemporalInput ||
+                error("A staged temporal stream extension lost its runtime owner.")
+            admitted_streams = runtime_input.source_streams
+            admitted_streams isa Vector ||
+                error("A staged temporal stream extension lost its vector storage.")
+            _append_validated_runtime_streams!(admitted_streams, last(addition))
+            return nothing
+        end
     end
     return true
 end
 
 function _model_execution_outputs_match(
     runtime_outputs::Tuple,
+    status_view::CompiledModelStatusView,
     compiled::CompiledCompositeModel,
     application::CompiledModelApplication,
     object_id::ObjectId,
@@ -3713,11 +3732,6 @@ function _model_execution_outputs_match(
     dependency_horizons = output_retention isa OutputRetentionPlan ?
                           output_retention.dependency_horizons :
                           nothing
-    status_view = get(
-        compiled.status_views_by_target,
-        (application.id, object_id),
-        nothing,
-    )
     for variable in variables
         variable in _model_output_names(application) || continue
         output_index += 1
@@ -3736,11 +3750,10 @@ function _model_execution_outputs_match(
         isnothing(temporal_streams) && continue
         key = _model_stream_key(application.id, object_id, variable)
         output.stream === get(temporal_streams, key, nothing) || return false
-        isnothing(status_view) && return false
         output.reference === refvalue(status_view.status, variable) || return false
     end
 
-    additions = Tuple{Any,Vector{Any}}[]
+    additions = Tuple{Int,Vector{Any}}[]
     if compiled.distributed_outputs isa CompiledDistributedOutputs
         groups = get(
             compiled.distributed_outputs.by_execution_target,
@@ -3797,14 +3810,22 @@ function _model_execution_outputs_match(
                         stream isa eltype(runtime_streams) || return false
                         push!(new_streams, stream)
                     end
-                    push!(additions, (runtime_streams, new_streams))
+                    push!(additions, (output_index, new_streams))
                 end
             end
         end
     end
     output_index == length(runtime_outputs) || return false
-    for (runtime_streams, new_streams) in additions
-        append!(runtime_streams, new_streams)
+    for addition in additions
+        _with_metadata_entry(runtime_outputs, first(addition)) do output
+            output isa RuntimeDistributedOutputStream ||
+                error("A staged distributed stream extension lost its runtime owner.")
+            admitted_streams = output.streams
+            admitted_streams isa Vector ||
+                error("A staged distributed stream extension lost its vector storage.")
+            _append_validated_runtime_streams!(admitted_streams, last(addition))
+            return nothing
+        end
     end
     return true
 end
@@ -3935,6 +3956,7 @@ function _model_execution_target_change_reason(
         return :temporal_inputs
     _model_execution_outputs_match(
         target.output_bindings,
+        status_view,
         compiled,
         application,
         object_id,
@@ -6023,7 +6045,7 @@ function _append_targeted_newborn_targets!(
                     _runtime_model_output_streams(actual.status_view.status,actual_application,
                         actual.object_id,owner.temporal_streams,owner.output_retention,true) :
                     _prepared_runtime_outputs(fieldtype(Target,:output_bindings),
-                        actual.status_view.status,actual.output_targets,actual_application,
+                        actual.status_view,actual.output_targets,actual_application,
                         actual.object_id,owner.compiled,owner.temporal_streams,
                         owner.output_retention,true)
                 # Narrow a retained cache before use; no new owner is published
