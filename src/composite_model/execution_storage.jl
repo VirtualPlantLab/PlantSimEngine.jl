@@ -36,7 +36,7 @@ _execution_cohort_store(::Nothing) = ExecutionCohortStore()
 _insert_with_spare_capacity!(rows::ExecutionCohortRows, position::Integer, target) =
     insert!(rows, position, target)
 
-function _retire_call_cohort_targets!(storage::RuntimeStorage, binding, batches)
+function _retire_call_cohort_targets!(storage::RuntimeStorage, binding, batches; schema=OpenExecutionCohortSchema())
     store = storage.cohorts
     owner = _execution_call_owner(binding)
     current = Set((batch.application.id, target.object_id)
@@ -47,12 +47,16 @@ function _retire_call_cohort_targets!(storage::RuntimeStorage, binding, batches)
         (application_id, object_id) in current || push!(obsolete, (application_id, object_id))
     end
     for (application_id, object_id) in obsolete
-        remove_cohort_target!(store, application_id, object_id; owner)
+        location = cohort_location(store, application_id, object_id; owner)
+        _with_execution_cohort_location(identity, schema, location, owner, application_id, object_id)
+    end
+    for (application_id, object_id) in obsolete
+        remove_cohort_target!(store, application_id, object_id; owner, schema)
     end
     return nothing
 end
 
-_retire_call_cohort_targets!(::Nothing, binding, batches) = nothing
+_retire_call_cohort_targets!(::Nothing, binding, batches; schema=OpenExecutionCohortSchema()) = nothing
 
 _execution_call_owner(binding) = (
     binding.application_id,

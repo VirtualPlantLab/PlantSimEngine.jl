@@ -544,15 +544,9 @@ abstract type AbstractExecutionBatch end
 mutable struct LazyCallExecutionBatches <: AbstractVector{AbstractExecutionBatch}
     owner::Any
     batches::Any
-    tracks_full_membership::Bool
 end
 
-LazyCallExecutionBatches(; tracks_full_membership::Bool=true) =
-    LazyCallExecutionBatches(
-        nothing,
-        nothing,
-        tracks_full_membership,
-    )
+LazyCallExecutionBatches() = LazyCallExecutionBatches(nothing, nothing)
 
 struct _TrackedCallExecutionBatchCache
     # Keep the already-boxed runtime values behind `Any` fields. This cache is
@@ -626,7 +620,7 @@ types widen as needed. Empty collections have element type `CallTarget`. Use
 target types. Each view captures its caller metadata and shares the live status
 references; collecting does not copy numerical state.
 """
-mutable struct CallTargets{CS,EB,B,TS,OR,C,BT} <: AbstractVector{CallTarget}
+mutable struct CallTargets{CS,EB,B,TS,OR,C,BT,S} <: AbstractVector{CallTarget}
     compiled::CS
     environment_bindings::EB
     binding::B
@@ -640,6 +634,8 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C,BT} <: AbstractVector{CallTarget}
     # may legitimately change its concrete type between invocations.
     environment::Any
     execution_batches::BT
+    const batch_schema::S
+    const tracks_full_membership::Bool
     preparation::CallTargetsPreparation{CS,EB,TS,OR,C}
     evaluation::Union{Nothing,CallEvaluationFrame}
     target_buffer_cache::Union{Nothing,_CallTargetBufferCache}
@@ -660,55 +656,18 @@ end
     return nothing
 end
 
-Base.@nospecializeinfer function CallTargets(
-    compiled,
-    environment_bindings,
-    binding,
-    temporal_streams,
-    output_retention,
-    time,
-    constants,
-    publication_allowed,
-    environment,
-    ;
+function CallTargets(
+    compiled, environment_bindings, binding, temporal_streams, output_retention,
+    time, constants, publication_allowed, environment;
     tracks_full_membership::Bool=true,
+    batch_schema=OpenExecutionBatchSchema(),
 )
-    # Cold construction returns concrete targets without specializing the
-    # assembly method on the entire compiled scene for every call binding.
-    @nospecialize compiled environment_bindings binding
-    execution_batches = if _compiled_call_mode(binding) === :initializer
-        ()
-    elseif binding.multiplicity === :many
-        # Large `Many` bindings are commonly executed with an object filter
-        # while organs are emitted. Defer their complete batch construction
-        # until an unfiltered view or execution actually needs it.
-        LazyCallExecutionBatches(
-            ; tracks_full_membership=tracks_full_membership,
-        )
-    else
-        # Preserve the concrete, allocation-free lookup path promised by
-        # `call_model` for `One` and `OptionalOne` bindings.
-        _compiled_call_execution_batches(
-            compiled,
-            environment_bindings,
-            binding,
-            temporal_streams,
-            output_retention,
-            constants,
-        )
-    end
-    return _prepared_call_targets(
-        compiled,
-        environment_bindings,
-        binding,
-        temporal_streams,
-        output_retention,
-        time,
-        constants,
-        publication_allowed,
-        environment,
-        execution_batches,
-    )
+    execution_batches = _call_execution_batches_for_schema(batch_schema,
+        compiled, environment_bindings, binding, temporal_streams,
+        output_retention, constants, tracks_full_membership)
+    return _prepared_call_targets(compiled, environment_bindings, binding,
+        temporal_streams, output_retention, time, constants, publication_allowed,
+        environment, execution_batches, batch_schema, tracks_full_membership)
 end
 
 # Both graph preparation and a leased context's clone use this fully specified
@@ -717,10 +676,12 @@ end
 @inline function _prepared_call_targets(
     compiled, environment_bindings, binding, temporal_streams, output_retention,
     time, constants, publication_allowed, environment, execution_batches,
+    batch_schema, tracks_full_membership::Bool,
 )
     targets = CallTargets(
         compiled, environment_bindings, binding, temporal_streams, output_retention,
         float(time), constants, publication_allowed, environment, execution_batches,
+        batch_schema, tracks_full_membership,
         _call_targets_preparation(
             compiled, environment_bindings, binding, temporal_streams, output_retention, constants,
         ),
@@ -770,7 +731,7 @@ end
     # A lazy wrapper points at its owning CallTargets. Share its prepared state,
     # never its owner link; cloning must leave a cold Many membership cold.
     return LazyCallExecutionBatches(
-        nothing, batches.batches, batches.tracks_full_membership,
+        nothing, batches.batches,
     )
 end
 
@@ -785,6 +746,7 @@ end
         compiled, environment_bindings, prototype.binding, temporal_streams,
         output_retention, time, constants, publication_allowed, environment,
         _clone_call_execution_batches(prototype.execution_batches),
+        prototype.batch_schema, prototype.tracks_full_membership,
     )
     remaining = _clone_runtime_call_targets(
         Base.tail(calls), compiled, environment_bindings, temporal_streams,
@@ -793,27 +755,12 @@ end
     return (targets, remaining...)
 end
 
-function _current_call_binding_for_retained_view(
-    compiled::CompiledCompositeModel,
+function _current_call_binding_for_retained_view(compiled::CompiledCompositeModel,
     binding::CompiledModelCallBinding,
 )
-    bindings = get(
-        compiled.call_bindings_by_target,
-        (binding.application_id, binding.consumer_id),
-        (),
-    )
-    binding_index = findfirst(
-        candidate ->
-            _compiled_call_name(candidate) === _compiled_call_name(binding) &&
-            _compiled_call_mode(candidate) === _compiled_call_mode(binding),
-        bindings,
-    )
-    isnothing(binding_index) && error(
-        "Retained hard-call view `$(_compiled_call_name(binding))` no longer has " *
-        "a compiled binding for application `$(binding.application_id)` on " *
-        "object `$(binding.consumer_id.value)`.",
-    )
-    return bindings[binding_index]
+    return _compiled_application_by_id(compiled,binding.application_id) do application
+        _current_call_binding_for_application(compiled,application,binding)
+    end
 end
 
 @inline function _environment_bindings_match_compiled(
@@ -837,41 +784,30 @@ function _prebarrier_environment_bindings(
     return nothing
 end
 
-function _synchronize_tracked_call_targets!(targets::CallTargets)
+function _synchronize_tracked_call_targets!(targets::CallTargets{CS,EB}) where {CS,EB}
     binding = targets.binding
     model = targets.compiled.model
     topology_dirty = bindings_dirty(model)
-    current_compiled = if topology_dirty
-        cached = getfield(model, :binding_cache)
-        cached isa CompiledCompositeModel ? cached : targets.compiled
+    cached = getfield(model,:binding_cache)
+    current_compiled = if isnothing(cached)
+        targets.compiled
     else
-        cached = compiled_bindings(model)
-        isnothing(cached) ? targets.compiled : cached
+        cached isa CS || _unprepared_runtime_configuration()
+        cached::CS
     end
-    current_environment_bindings = if topology_dirty
-        _prebarrier_environment_bindings(
-            model,
-            current_compiled,
-            targets.environment_bindings,
-        )
-    else
-        refresh_environment_bindings!(model, current_compiled)
-    end
-    if isnothing(current_environment_bindings)
-        # A dirty lifecycle may temporarily expose a newer structural cache
-        # without a matching pre-barrier environment cache. Keep the last
-        # internally coherent runtime shell instead of mixing generations.
+    candidate_environment = topology_dirty ?
+        _prebarrier_environment_bindings(model,current_compiled,targets.environment_bindings) :
+        refresh_environment_bindings!(model,current_compiled)
+    if isnothing(candidate_environment)
         current_compiled = targets.compiled
         current_environment_bindings = targets.environment_bindings
+    else
+        candidate_environment isa EB || _unprepared_runtime_configuration()
+        current_environment_bindings = candidate_environment::EB
     end
-    _invalidate_single_call_snapshot!(
-        targets, current_compiled, current_environment_bindings,
-    )
+    _invalidate_single_call_snapshot!(targets,current_compiled,current_environment_bindings)
     if current_compiled !== targets.compiled
-        current_binding = _current_call_binding_for_retained_view(
-            current_compiled,
-            binding,
-        )
+        current_binding = _current_call_binding_for_retained_view(current_compiled,binding)
         targets.compiled = current_compiled
         targets.binding = current_binding
     end
@@ -885,7 +821,7 @@ end
 )
     state = cached.batches
     isnothing(state) && return false
-    cached.tracks_full_membership || return true
+    targets.tracks_full_membership || return true
     state isa _TrackedCallExecutionBatchCache || return false
     return state.binding === targets.binding &&
            state.membership_generation ==
@@ -925,10 +861,14 @@ end
 function _record_call_execution_batch_cache!(
     cached::LazyCallExecutionBatches,
     targets::CallTargets,
-    batches,
+    batches;
+    cohort_schema=OpenExecutionCohortSchema(),
 )
+    if targets.tracks_full_membership
+        _retire_call_cohort_targets!(targets.temporal_streams, targets.binding, batches; schema=cohort_schema)
+    end
     targets.last_single_snapshot = nothing
-    cached.batches = if cached.tracks_full_membership
+    cached.batches = if targets.tracks_full_membership
         _TrackedCallExecutionBatchCache(
             batches,
             targets.binding,
@@ -946,9 +886,6 @@ function _record_call_execution_batch_cache!(
     # Explicit `objects=` selections share the call owner's payloads with its
     # complete cached view. Only that complete membership can retire rows;
     # absence from one selection does not remove a target from the call.
-    if cached.tracks_full_membership
-        _retire_call_cohort_targets!(targets.temporal_streams, targets.binding, batches)
-    end
     return batches
 end
 
@@ -965,7 +902,7 @@ function _record_extended_call_execution_batch_cache!(
     )
     cached = targets.execution_batches
     cached isa LazyCallExecutionBatches || return targets
-    cached.tracks_full_membership || return targets
+    targets.tracks_full_membership || return targets
     batches = _cached_call_execution_batches(targets)
     isnothing(batches) && return targets
     cached.batches = _TrackedCallExecutionBatchCache(
@@ -979,9 +916,11 @@ function _record_extended_call_execution_batch_cache!(
 end
 
 function _materialize_call_execution_batches!(targets::CallTargets)
+    targets.batch_schema isa PreparedExecutionBatchSchema &&
+        return _materialize_prepared_call_execution_batches!(targets.batch_schema, targets)
     cached = targets.execution_batches
     cached isa LazyCallExecutionBatches || return cached
-    if cached.tracks_full_membership
+    if targets.tracks_full_membership
         _tracked_call_execution_batch_cache_can_reuse(cached, targets) &&
             return _cached_call_execution_batches(targets)
         _synchronize_tracked_call_targets!(targets)
@@ -993,7 +932,7 @@ function _materialize_call_execution_batches!(targets::CallTargets)
     # A complete manual `Many` view becomes lifecycle-tracked only here. Merely
     # retrieving the cached CallTargets wrapper, diagnostics, and targeted
     # `objects=` calls leave the full membership cold.
-    if cached.tracks_full_membership
+    if targets.tracks_full_membership
         _observe_compiled_call_membership!(
             targets.compiled,
             targets.binding;
@@ -1036,37 +975,14 @@ Base.iterate(batches::LazyCallExecutionBatches, state...) =
 Base.IndexStyle(::Type{<:CallTargets}) = IndexLinear()
 Base.eltype(::Type{<:CallTargets}) = CallTarget
 
-_runtime_call_targets(compiled, environment_bindings, ::Tuple{}, args...) = ()
-
-Base.@nospecializeinfer function _runtime_call_targets(
-    compiled,
-    environment_bindings,
-    bindings::Tuple,
-    temporal_streams,
-    output_retention,
-    time,
-    constants,
-    publication_allowed,
-    environment,
+function _runtime_call_targets(
+    compiled, environment_bindings, bindings::Tuple, temporal_streams,
+    output_retention, time, constants, publication_allowed, environment;
+    call_schema=OpenContextCallSchema(),
 )
-    @nospecialize compiled environment_bindings bindings
-    # Assemble once instead of specializing recursively on each tuple suffix.
-    # The final tuple retains each target's concrete type and original order.
-    targets = CallTargets[]
-    for binding in bindings
-        push!(targets, CallTargets(
-            compiled,
-            environment_bindings,
-            binding,
-            temporal_streams,
-            output_retention,
-            float(time),
-            constants,
-            publication_allowed,
-            environment,
-        ))
-    end
-    return Tuple(targets)
+    return _assemble_runtime_call_targets(call_schema, compiled, environment_bindings,
+        bindings, temporal_streams, output_retention, time, constants,
+        publication_allowed, environment)
 end
 
 @inline _prepare_runtime_call_targets!(
@@ -1213,13 +1129,19 @@ CompiledExecutionBatch(
     ExecutionBatchContextState(nothing, nothing),
 )
 
-mutable struct CompiledApplicationExecutionGroup{A,B}
+mutable struct CompiledApplicationExecutionGroup{A,B,M<:ExecutionCohortMembership}
     application::A
     batches::B
-    membership::ExecutionCohortMembership
+    membership::M
 end
 
-function _compiled_application_execution_group(application, batches, membership)
+function _compiled_application_execution_group(application, batches, membership;
+    batch_schema=OpenExecutionBatchSchema(),
+)
+    if batch_schema isa PreparedExecutionBatchSchema
+        return CompiledApplicationExecutionGroup(application,
+            _finish_execution_batches(batch_schema,batches),membership)
+    end
     if !isempty(batches)
         batch_type = typeof(first(batches))
         eltype(batches) === batch_type &&
@@ -1245,8 +1167,21 @@ function _empty_model_execution_group(application, ::Type{B}, cohorts::Execution
     Rows = fieldtype(B, :targets)
     Rows <: ExecutionCohortRows || throw(ArgumentError("Prepared batches require canonical cohort rows."))
     _execution_cohort(cohorts, nothing, application.id, eltype(Rows))
-    membership = _new_execution_cohort_membership(cohorts, nothing, application.id, 0)
-    return CompiledApplicationExecutionGroup(application, B[], membership)
+    schema = _execution_cohort_schema(Tuple{B})
+    membership = _new_execution_cohort_membership(cohorts,nothing,application.id,0,schema)
+    return CompiledApplicationExecutionGroup(application,B[],membership)
+end
+
+# Prepare the membership witness before fixing the group's container types.
+# Batch/Rows/Target/context schemas are unchanged: only metadata vectors close.
+function _close_execution_group_cohorts(group::CompiledApplicationExecutionGroup; batches=group.batches)
+    schema = group.membership.schema isa ClosedExecutionCohortSchema ?
+        group.membership.schema : _execution_cohort_schema(Tuple(group.batches))
+    schema isa ClosedExecutionCohortSchema || throw(ArgumentError(
+        "An empty group needs an explicit future batch witness before closure.",
+    ))
+    membership = _close_execution_cohort_membership(group.membership, schema)
+    return CompiledApplicationExecutionGroup(group.application, batches, membership)
 end
 
 # Same-schema metadata refresh keeps the existing owner, including its formerly
@@ -1435,8 +1370,15 @@ function _execution_groups_by_application_slot(groups, application_count::Int)
         ),
         nothing,
     )
-    for group in groups
-        groups_by_slot[group.application.slot] = group
+    for index in eachindex(groups)
+        _with_metadata_entry(groups, index) do group
+            slot = group.application.slot
+            1 <= slot <= application_count || throw(ArgumentError(
+                "An execution group selected a slot outside the prepared application layout.",
+            ))
+            groups_by_slot[slot] = group
+            return nothing
+        end
     end
     return groups_by_slot
 end
@@ -1464,6 +1406,9 @@ mutable struct Simulation{S,CS,EB,EP,OR,TS,DT,R,RM,RT,C,P}
     constants::C
     performance::P
 end
+
+include("execution_batch_schemas.jl")
+include("execution_extension_intents.jl")
 
 function Base.show(io::IO, simulation::Simulation)
     print(
@@ -2803,6 +2748,7 @@ end
     publication_allowed::Bool,
     environment;
     fresh::Bool=false,
+    call_schema=_context_call_schema(context),
 )
     if isnothing(context) || fresh
         calls = if context isa RunContext && _call_context_clone_is_current(
@@ -2816,7 +2762,8 @@ end
         else
             _runtime_call_targets(
                 compiled, environment_bindings, call_bindings, temporal_streams,
-                output_retention, time, constants, publication_allowed, environment,
+                output_retention, time, constants, publication_allowed, environment;
+                call_schema,
             )
         end
         return RunContext(
@@ -3407,99 +3354,82 @@ function _compiled_model_execution_target(
     output_retention=nothing,
     constants=nothing;
     owner=nothing,
+    cohort_schema=OpenExecutionCohortSchema(),
 )
     if temporal_streams isa RuntimeStorage
         location = cohort_location(temporal_streams.cohorts, application.id, object_id; owner)
-        if !isnothing(location)
-            previous = location.cohort.rows[location.row]
-            if !isnothing(previous) && isnothing(_model_execution_target_change_reason(
-                previous, compiled, env_bindings, application, output_retention, temporal_streams,
-            ))
-                return previous
-            end
+        return _with_execution_cohort_location(cohort_schema, location, owner, application.id, object_id) do admitted
+            previous = isnothing(admitted) ? nothing : _execution_cohort_target(admitted)
+            _compiled_model_execution_target_from_previous(previous, compiled, env_bindings,
+                application, object_id, temporal_streams, output_retention, constants;
+                target_schema=cohort_schema)
         end
     end
-    return _new_model_execution_target(
-        compiled, env_bindings, application, object_id,
-        temporal_streams, output_retention, constants,
-    )
+    return _new_model_execution_target(compiled, env_bindings, application, object_id,
+        temporal_streams, output_retention, constants; target_schema=cohort_schema)
+end
+
+function _compiled_model_execution_target_from_previous(previous, compiled, env_bindings,
+    application, object_id, temporal_streams, output_retention, constants;
+    target_schema=OpenExecutionCohortSchema())
+    if !isnothing(previous) && isnothing(_model_execution_target_change_reason(
+        previous, compiled, env_bindings, application, output_retention, temporal_streams,
+    ))
+        return previous
+    end
+    return _new_model_execution_target(compiled, env_bindings, application, object_id,
+        temporal_streams, output_retention, constants; target_schema)
 end
 
 function _new_model_execution_target(
-    compiled::CompiledCompositeModel,
-    env_bindings::CompiledEnvironmentBindings,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-    temporal_streams,
-    output_retention,
-    constants,
+    compiled::CompiledCompositeModel, env_bindings::CompiledEnvironmentBindings,
+    application::CompiledModelApplication, object_id::ObjectId,
+    temporal_streams, output_retention, constants;
+    target_schema=OpenExecutionCohortSchema(),
 )
-    status_view = _model_status_view_for_application(
-        compiled,
-        application,
-        object_id,
-    )
+    status_view = _model_status_view_for_application(compiled, application, object_id)
     model = _application_model(application, object_id)
-    bound_inputs = status_view.bound_inputs
-    distributed_targets = _runtime_model_output_targets(
-        compiled,
-        application,
-        object_id,
-    )
-    call_bindings = get(
-        compiled.call_bindings_by_target,
-        (application.id, object_id),
-        (),
-    )
-    environment_binding = _environment_binding_for(
-        env_bindings,
-        application.id,
-        object_id,
-    )
-    context = if isnothing(temporal_streams) && isempty(distributed_targets)
-        nothing
-    else
-        _prepare_model_execution_context!(
-            nothing, compiled, env_bindings, application, object_id,
-            bound_inputs, distributed_targets, call_bindings, temporal_streams,
-            output_retention, 0.0, constants, true, _NO_ENVIRONMENT_OVERRIDE,
-        )
+    distributed_targets = _runtime_model_output_targets(compiled, application, object_id)
+    call_bindings = get(compiled.call_bindings_by_target, (application.id, object_id), ())
+    environment_binding = _environment_binding_for(env_bindings, application.id, object_id)
+    fields = (object_id=object_id, model=model, status_view=status_view,
+        bound_inputs=status_view.bound_inputs, output_targets=distributed_targets,
+        call_bindings=call_bindings, environment_binding=environment_binding)
+    owners = (compiled=compiled, temporal_streams=temporal_streams,
+        output_retention=output_retention, constants=constants,
+        environment=_NO_ENVIRONMENT_OVERRIDE)
+    return _with_execution_target_type(target_schema, application, fields, owners) do Target, actual_application, actual, owner, call_schema
+        input_bindings = isnothing(Target) ?
+            _runtime_model_temporal_inputs(actual.status_view.temporal_inputs, owner.temporal_streams) :
+            _prepared_runtime_temporal_inputs(fieldtype(Target,:input_bindings),
+                actual.status_view.temporal_inputs,owner.temporal_streams)
+        output_bindings = if isnothing(Target)
+            local_outputs = _runtime_model_output_streams(actual.status_view.status,
+                actual_application,actual.object_id,owner.temporal_streams,owner.output_retention)
+            distributed_outputs = _runtime_model_distributed_output_streams(owner.compiled,
+                actual_application,actual.object_id,owner.temporal_streams,owner.output_retention)
+            (local_outputs...,distributed_outputs...)
+        else
+            _prepared_runtime_outputs(fieldtype(Target,:output_bindings),actual.status_view.status,
+                actual.output_targets,actual_application,actual.object_id,owner.compiled,
+                owner.temporal_streams,owner.output_retention,false)
+        end
+        context = if isnothing(owner.temporal_streams) && isempty(actual.output_targets)
+            nothing
+        else
+            _prepare_model_execution_context!(nothing, owner.compiled, env_bindings,
+                actual_application, actual.object_id, actual.bound_inputs,
+                actual.output_targets, actual.call_bindings, owner.temporal_streams,
+                owner.output_retention, 0.0, owner.constants, true, owner.environment;
+                call_schema)
+        end
+        target = _compiled_execution_target(actual.object_id, actual.model,
+            actual.status_view, input_bindings, actual.bound_inputs,
+            actual.output_targets, output_bindings, actual.call_bindings,
+            actual.environment_binding, context,
+            CallContextCache(context, actual.status_view.execution_stamp))
+        return isnothing(Target) ? target : target::Target
     end
-    local_output_bindings = _runtime_model_output_streams(
-        status_view.status,
-        application,
-        object_id,
-        temporal_streams,
-        output_retention,
-    )
-    distributed_output_bindings =
-        _runtime_model_distributed_output_streams(
-            compiled,
-            application,
-            object_id,
-            temporal_streams,
-            output_retention,
-        )
-    output_bindings = (
-        local_output_bindings...,
-        distributed_output_bindings...,
-    )
-    return _compiled_execution_target(
-        object_id,
-        model,
-        status_view,
-        _runtime_model_temporal_inputs(
-            status_view.temporal_inputs,
-            temporal_streams,
-        ),
-        bound_inputs,
-        distributed_targets,
-        output_bindings,
-        call_bindings,
-        environment_binding,
-        context,
-        CallContextCache(context, status_view.execution_stamp),
-    )
 end
 
 function _compiled_model_execution_environment_provider(
@@ -3546,128 +3476,134 @@ end
 # their providers and publication contract before allocating reconciliation
 # indexes; an unchanged layout needs no new batch-list owner.
 function _execution_batches_match_membership(
-    env_bindings, application, membership, output_publication, previous_group,
+    env_bindings,application,membership,publication,previous_group,batch_schema,
 )
     isnothing(previous_group) && return false
     previous_group.application === application || return false
     batches = previous_group.batches
     length(batches) == length(membership.runs) || return false
     for index in eachindex(membership.runs)
-        rows = membership.runs[index]
-        batch = batches[index]
-        batch.targets === rows || return false
-        provider = _compiled_model_execution_environment_provider(
-            env_bindings, application, first(rows),
-        )
-        _execution_batch_matches(batch, application, provider, output_publication) || return false
+        matches = _with_execution_cohort_rows(membership.schema,membership.runs[index]) do rows
+            _with_execution_batch(batch_schema,batches[index]) do batch
+                batch.targets === rows || return false
+                provider = _compiled_model_execution_environment_provider(env_bindings,
+                    application,first(rows))
+                return _execution_batch_matches(batch,application,provider,publication)
+            end
+        end
+        matches || return false
     end
     return true
 end
 
 function _model_execution_batches(
-    env_bindings::CompiledEnvironmentBindings,
-    application::CompiledModelApplication,
-    membership::ExecutionCohortMembership,
-    output_retention,
-    previous_group=nothing,
+    env_bindings::CompiledEnvironmentBindings,application::CompiledModelApplication,
+    membership::ExecutionCohortMembership,output_retention,previous_group=nothing;
+    batch_schema=OpenExecutionBatchSchema(),
 )
-    output_publication = _compiled_output_publication(output_retention, application)
-    if _execution_batches_match_membership(
-        env_bindings, application, membership, output_publication, previous_group,
-    )
-        return (batches=previous_group.batches, batches_constructed=0)
+    publication = _batch_output_publication(batch_schema,output_retention,application)
+    if _execution_batches_match_membership(env_bindings,application,membership,
+        publication,previous_group,batch_schema)
+        return (batches=previous_group.batches,batches_constructed=0)
     end
     live_views = IdDict{ExecutionCohortRows,Nothing}(rows => nothing for rows in membership.runs)
     previous_by_view = IdDict{ExecutionCohortRows,Any}()
     spare_by_cohort = IdDict{AbstractExecutionCohort,Vector{Any}}()
     next_spare = IdDict{AbstractExecutionCohort,Int}()
     if !isnothing(previous_group) && previous_group.application === application
-        for batch in previous_group.batches
-            previous_by_view[batch.targets] = batch
-            if !haskey(live_views, batch.targets)
-                candidates = get!(spare_by_cohort, batch.targets.cohort) do
-                    Any[]
+        for index in eachindex(previous_group.batches)
+            _with_execution_batch(batch_schema,previous_group.batches[index]) do batch
+                previous_by_view[batch.targets] = batch
+                if !haskey(live_views,batch.targets)
+                    candidates = get!(spare_by_cohort,batch.targets.cohort) do
+                        Any[]
+                    end
+                    push!(candidates,batch)
                 end
-                push!(candidates, batch)
+                return nothing
             end
         end
     end
-    batches = AbstractExecutionBatch[]
+    batches = _execution_batch_buffer(batch_schema)
     batches_constructed = 0
-    for (index, rows) in pairs(membership.runs)
-        provider = _compiled_model_execution_environment_provider(
-            env_bindings, application, first(rows),
-        )
-        reused = get(previous_by_view, rows, nothing)
-        if !isnothing(reused) &&
-           !_execution_batch_matches(reused, application, provider, output_publication)
-            reused = nothing
-        end
-        if isnothing(reused)
-            candidates = get(spare_by_cohort, rows.cohort, ())
-            candidate_index = get(next_spare, rows.cohort, 1)
-            while candidate_index <= length(candidates)
-                candidate = candidates[candidate_index]
-                candidate_index += 1
-                if _execution_batch_matches(candidate, application, provider, output_publication)
-                    reused = candidate
-                    break
+    for index in eachindex(membership.runs)
+        constructed = _with_execution_cohort_rows(membership.schema,membership.runs[index]) do rows
+            provider = _compiled_model_execution_environment_provider(env_bindings,
+                application,first(rows))
+            reused = _compatible_execution_batch(batch_schema,
+                get(previous_by_view,rows,nothing),application,provider,publication)
+            if isnothing(reused)
+                candidates = get(spare_by_cohort,rows.cohort,())
+                candidate_index = get(next_spare,rows.cohort,1)
+                while candidate_index <= length(candidates)
+                    candidate = _compatible_execution_batch(batch_schema,
+                        candidates[candidate_index],application,provider,publication)
+                    candidate_index += 1
+                    if !isnothing(candidate)
+                        reused = candidate
+                        break
+                    end
                 end
+                next_spare[rows.cohort] = candidate_index
             end
-            next_spare[rows.cohort] = candidate_index
-        end
-        if isnothing(reused)
-            push!(batches, CompiledExecutionBatch(
-                application, rows, provider, output_publication,
-            ))
-            batches_constructed += 1
-        else
-            if reused.targets !== rows
-                # Never consume a view still reserved for a later ordered run.
-                # Spares are retired views, and shared index vectors need no copy.
-                if reused.targets.indices !== rows.indices
-                    empty!(reused.targets.indices)
-                    append!(reused.targets.indices, rows.indices)
+            if isnothing(reused)
+                _with_new_execution_batch(batch_schema,application,rows,provider,publication) do batch
+                    push!(batches,batch)
+                    return nothing
                 end
-                membership.runs[index] = reused.targets
+                return 1
             end
-            push!(batches, reused)
+            _with_execution_batch(batch_schema,reused) do batch
+                if batch.targets !== rows
+                    if batch.targets.indices !== rows.indices
+                        empty!(batch.targets.indices)
+                        append!(batch.targets.indices,rows.indices)
+                    end
+                    membership.runs[index] = batch.targets
+                end
+                push!(batches,batch)
+                return nothing
+            end
+            return 0
         end
+        batches_constructed += constructed
     end
-    return (batches=batches, batches_constructed=batches_constructed)
+    return (batches=batches,batches_constructed=batches_constructed)
 end
 
 function _compiled_call_execution_batches(
-    compiled::CompiledCompositeModel,
-    env_bindings::CompiledEnvironmentBindings,
-    binding,
-    temporal_streams,
-    output_retention,
-    constants,
+    compiled::CompiledCompositeModel, env_bindings::CompiledEnvironmentBindings,
+    binding, temporal_streams, output_retention, constants;
+    cohort_schema=OpenExecutionCohortSchema(),
+    batch_schema=OpenExecutionBatchSchema(),
 )
     cohorts = _execution_cohort_store(temporal_streams)
     owner = _execution_call_owner(binding)
-    batches = AbstractExecutionBatch[]
+    admission = _call_cohort_admission(batch_schema,cohort_schema)
+    batches = _execution_batch_buffer(batch_schema)
     for application_id in binding.callee_application_ids
-        application = _compiled_application_by_id(compiled, application_id)
-        current_ids = ObjectId[
-            object_id for object_id in binding.callee_object_ids
-            if _call_binding_target_matches(binding, application, object_id)
-        ]
-        refreshed = refresh_cohort_membership!(
-            cohorts, application.id, current_ids, nothing; owner,
-        ) do object_id, previous_target
-            _compiled_model_execution_target(
-                compiled, env_bindings, application, object_id,
-                temporal_streams, output_retention, constants; owner,
-            )
+        _compiled_application_by_id(compiled,application_id) do application
+            application_schema = _call_batch_schema_for_application(batch_schema,application)
+            current_ids = ObjectId[object_id for object_id in binding.callee_object_ids
+                if _call_binding_target_matches(binding,application,object_id)]
+            refreshed = refresh_cohort_membership!(cohorts,application.id,current_ids,
+                nothing;owner,schema=admission) do object_id, previous_target
+                _compiled_model_execution_target_from_previous(previous_target,
+                    compiled,env_bindings,application,object_id,temporal_streams,
+                    output_retention,constants;target_schema=admission)
+            end
+            assembled = _model_execution_batches(env_bindings,application,
+                refreshed.membership,output_retention;batch_schema=application_schema)
+            for index in eachindex(assembled.batches)
+                _with_execution_batch(application_schema,assembled.batches[index]) do batch
+                    push!(batches,batch)
+                    return nothing
+                end
+            end
+            return nothing
         end
-        assembled = _model_execution_batches(
-            env_bindings, application, refreshed.membership, output_retention,
-        )
-        append!(batches, assembled.batches)
     end
-    return Tuple(batches)
+    return _finish_execution_batches(batch_schema,batches)
 end
 
 function compile_model_execution_plan(
@@ -3675,16 +3611,20 @@ function compile_model_execution_plan(
     env_bindings::CompiledEnvironmentBindings,
     temporal_streams=nothing,
     output_retention=nothing,
-    constants=nothing,
+    constants=nothing;
+    batch_schemas=nothing,
 )
+    isnothing(batch_schemas) || _prepared_application_schema_order(compiled,batch_schemas)
     cohorts = _execution_cohort_store(temporal_streams)
     manual_application_ids = _manual_call_application_ids(compiled)
     groups = CompiledApplicationExecutionGroup[]
     batches = AbstractExecutionBatch[]
     for application in _ordered_model_applications(compiled)
         application.id in manual_application_ids && continue
+        previous_group = isnothing(batch_schemas) ? nothing :
+            _prepared_execution_group(application,getproperty(batch_schemas,application.id),cohorts)
         refreshed = _refresh_model_execution_group!(
-            nothing, cohorts, compiled, env_bindings, application,
+            previous_group, cohorts, compiled, env_bindings, application,
             temporal_streams, output_retention, constants, nothing, nothing,
         )
         isnothing(refreshed.group) && continue
@@ -4008,13 +3948,19 @@ function _model_execution_target_change_reason(
     target.call_bindings_signature ==
     _call_bindings_signature(target.call_bindings) ||
         return :call_bindings
-    any(
-        binding -> _manual_call_binding_has_changed_target(
-            binding,
-            compiled,
-        ),
-        target.call_bindings,
-    ) && return :call_bindings
+    if any(binding -> _manual_call_binding_has_changed_target(binding,compiled),
+        target.call_bindings)
+        context = target.context
+        # Delta markers describe changes entering this compiled owner. A child
+        # already prepared against that exact owner must not replay the delta.
+        # Reuse the same owner/binding/stamp proof as ordinary context cloning;
+        # a stale child still reaches the existing rebuild below.
+        current = context isa RunContext && _call_context_clone_is_current(
+            context,compiled,env_bindings,application,object_id,target.bound_inputs,
+            target.output_targets,target.call_bindings,temporal_streams,
+            output_retention,context.constants)
+        current || return :call_bindings
+    end
     return nothing
 end
 
@@ -4086,88 +4032,74 @@ function _extend_execution_target_call_batches_by_prefix!(
         (context.application.id, target.object_id),
         (),
     )
+    scope = _context_call_schema(context)
+    current_call_bindings = _admitted_current_execution_call_bindings(scope,
+        target, current_call_bindings)
+    isnothing(current_call_bindings) && return false
     length(context.calls) == length(current_call_bindings) || return false
-    staged = Tuple{Any,Any}[]
-    staged_bindings = Tuple{Any,Any}[]
-    for (call_targets, binding) in zip(context.calls, current_call_bindings)
-        _compiled_call_name(call_targets.binding) ==
-        _compiled_call_name(binding) || return false
-        push!(staged_bindings, (call_targets, binding))
-        _compiled_call_mode(binding) === :initializer && continue
-        execution_batches = _cached_call_execution_batches(call_targets)
-        isnothing(execution_batches) && continue
-        all(
-            batch -> batch.application.id in binding.callee_application_ids,
-            execution_batches,
-        ) || return false
-        for application_id in binding.callee_application_ids
-            application = _compiled_application_by_id(compiled, application_id)
-            batches = AbstractExecutionBatch[
-                batch for batch in execution_batches
-                if batch.application.id == application_id
-            ]
-            isempty(batches) && return false
-            current_ids = ObjectId[
-                object_id for object_id in binding.callee_object_ids
-                if _call_binding_target_matches(binding, application, object_id)
-            ]
-            # Call batches are compiled by walking the sorted callee IDs and
-            # only split when their concrete target type changes. A monotonic
-            # lifecycle addition therefore preserves the flattened old target
-            # sequence as an exact prefix. Any removal, reordering, or target
-            # replacement falls back to the general rebuild path.
-            existing_count = 0
-            for batch in batches
-                for execution_target in batch.targets
-                    existing_count += 1
-                    existing_count <= length(current_ids) || return false
-                    execution_target.object_id == current_ids[existing_count] ||
-                        return false
-                    (
-                        application.id,
-                        execution_target.object_id,
-                    ) in compiled.changed_execution_target_ids && return false
+    _preflight_current_execution_calls(scope, context.calls, current_call_bindings,
+        compiled, env_bindings) || return false
+    staged = _execution_append_intent_buffer(scope)
+    staged_bindings = _execution_binding_intent_buffer(scope)
+    for call_index in eachindex(context.calls)
+        extended = _with_current_execution_call(scope, context.calls,
+            current_call_bindings, call_index) do call_targets, binding
+            _compiled_call_name(call_targets.binding) == _compiled_call_name(binding) || return false
+            _stage_execution_binding!(staged_bindings, scope, call_targets, binding) || return false
+            _compiled_call_mode(binding) === :initializer && return true
+            execution_batches = _cached_call_execution_batches(call_targets)
+            isnothing(execution_batches) && return true
+            schema = call_targets.batch_schema
+            _execution_call_batches_match_applications(schema, execution_batches,
+                binding.callee_application_ids) || return false
+            for application_id in binding.callee_application_ids
+                matched = _compiled_application_by_id(compiled, application_id) do application
+                    application_schema = _call_batch_schema_for_application(schema, application)
+                    batches = _execution_call_batches_for_application(schema, application_schema,
+                        execution_batches, application_id)
+                    isempty(batches) && return false
+                    current_ids = ObjectId[object_id for object_id in binding.callee_object_ids
+                        if _call_binding_target_matches(binding, application, object_id)]
+                    # Preserve the existing ordered-prefix algorithm. Only the
+                    # count leaves each admitted concrete batch operation.
+                    existing_count = 0
+                    for raw_batch in batches
+                        next_count = _execution_call_prefix_end(application_schema,
+                            raw_batch, current_ids, existing_count,
+                            compiled.changed_execution_target_ids, application.id)
+                        isnothing(next_count) && return false
+                        existing_count = next_count
+                    end
+                    existing_count == length(current_ids) && return true
+                    admission = _call_cohort_admission(application_schema, OpenExecutionCohortSchema())
+                    return _with_execution_batch(application_schema, last(batches)) do destination_batch
+                        for index in (existing_count + 1):lastindex(current_ids)
+                            object_id = current_ids[index]
+                            execution_target = _compiled_model_execution_target(
+                                compiled, env_bindings, application, object_id,
+                                temporal_streams, output_retention, constants;
+                                owner=_execution_call_owner(binding), cohort_schema=admission)
+                            accepted = _with_execution_cohort_target(admission, execution_target) do actual
+                                _model_execution_batch_accepts_target(destination_batch,
+                                    actual, env_bindings, application) || return false
+                                return _stage_execution_append!(staged, scope, call_targets,
+                                    binding, destination_batch.targets, actual)
+                            end
+                            accepted || return false
+                        end
+                        return true
+                    end
                 end
+                matched || return false
             end
-            existing_count == length(current_ids) && continue
-            destination_batch = last(batches)
-            for index in (existing_count + 1):lastindex(current_ids)
-                object_id = current_ids[index]
-                execution_target = _compiled_model_execution_target(
-                    compiled,
-                    env_bindings,
-                    application,
-                    object_id,
-                    temporal_streams,
-                    output_retention,
-                    constants;
-                    owner=_execution_call_owner(binding),
-                )
-                _model_execution_batch_accepts_target(
-                    destination_batch,
-                    execution_target,
-                    env_bindings,
-                    application,
-                ) || return false
-                push!(staged, (destination_batch.targets, execution_target))
-            end
+            return true
         end
+        extended || return false
     end
-    for (targets, execution_target) in staged
-        push!(targets, execution_target)
-    end
-    for (call_targets, binding) in staged_bindings
-        call_targets.binding = binding
-        _record_extended_call_execution_batch_cache!(
-            call_targets,
-            compiled,
-            env_bindings,
-            binding,
-        )
-    end
+    _commit_execution_call_extension!(scope, staged, staged_bindings,
+        compiled, env_bindings) || return false
     target.call_bindings = current_call_bindings
-    target.call_bindings_signature =
-        _call_bindings_signature(current_call_bindings)
+    target.call_bindings_signature = _call_bindings_signature(current_call_bindings)
     target.call_context_cache.transient = nothing
     return true
 end
@@ -4187,13 +4119,10 @@ function _pure_addition_changed_call_target_ids(
                 object_id,
             ),
         ) || continue
-        application = _compiled_application_by_id(compiled, application_id)
-        first(
-            _sorted_object_id_position(
-                application.target_ids,
-                object_id,
-            ),
-        ) || continue
+        matches_application = _compiled_application_by_id(compiled, application_id) do application
+            first(_sorted_object_id_position(application.target_ids, object_id))
+        end
+        matches_application || continue
         push!(changed_ids, object_id)
         application_id in affected_application_ids ||
             push!(affected_application_ids, application_id)
@@ -4219,103 +4148,74 @@ function _extend_execution_target_call_batches_for_pure_addition!(
         (context.application.id, target.object_id),
         (),
     )
+    scope = _context_call_schema(context)
+    current_call_bindings = _admitted_current_execution_call_bindings(scope,
+        target, current_call_bindings)
+    isnothing(current_call_bindings) && return nothing
     length(context.calls) == length(current_call_bindings) || return nothing
-    staged = Tuple{Any,Any}[]
-    staged_bindings = Tuple{Any,Any}[]
-    for (call_targets, binding) in zip(context.calls, current_call_bindings)
-        _compiled_call_name(call_targets.binding) ==
-        _compiled_call_name(binding) || return nothing
-        push!(staged_bindings, (call_targets, binding))
-        _compiled_call_mode(binding) === :initializer && continue
-        execution_batches = _cached_call_execution_batches(call_targets)
-        isnothing(execution_batches) && continue
-        all(
-            batch -> batch.application.id in binding.callee_application_ids,
-            execution_batches,
-        ) || return nothing
-        changed_ids, affected_application_ids =
-            _pure_addition_changed_call_target_ids(binding, compiled)
-        isempty(changed_ids) && continue
-        length(affected_application_ids) == 1 || return nothing
-        length(binding.callee_application_ids) == 1 || return nothing
-        application_id = only(affected_application_ids)
-        application = _compiled_application_by_id(compiled, application_id)
-        batches = AbstractExecutionBatch[
-            batch for batch in execution_batches
-            if batch.application.id == application_id
-        ]
-        isempty(batches) && return false
-        last_old_id = last(last(batches).targets).object_id
-        all(
-            object_id -> _object_id_isless(last_old_id, object_id),
-            changed_ids,
-        ) || return false
-        found_boundary, boundary = _sorted_object_id_position(
-            binding.callee_object_ids,
-            last_old_id,
-        )
-        found_boundary || return false
-        for index in (boundary + 1):lastindex(binding.callee_object_ids)
-            object_id = binding.callee_object_ids[index]
-            first(
-                _sorted_object_id_position(
-                    application.target_ids,
-                    object_id,
-                ),
-            ) || continue
-            first(
-                _sorted_object_id_position(
-                    changed_ids,
-                    object_id,
-                ),
-            ) || return false
+    _preflight_current_execution_calls(scope, context.calls, current_call_bindings,
+        compiled, env_bindings) || return nothing
+    staged = _execution_append_intent_buffer(scope)
+    staged_bindings = _execution_binding_intent_buffer(scope)
+    for call_index in eachindex(context.calls)
+        extended = _with_current_execution_call(scope, context.calls,
+            current_call_bindings, call_index) do call_targets, binding
+            _compiled_call_name(call_targets.binding) == _compiled_call_name(binding) || return nothing
+            _stage_execution_binding!(staged_bindings, scope, call_targets, binding) || return nothing
+            _compiled_call_mode(binding) === :initializer && return true
+            execution_batches = _cached_call_execution_batches(call_targets)
+            isnothing(execution_batches) && return true
+            schema = call_targets.batch_schema
+            _execution_call_batches_match_applications(schema, execution_batches,
+                binding.callee_application_ids) || return nothing
+            changed_ids, affected_application_ids = _pure_addition_changed_call_target_ids(binding, compiled)
+            isempty(changed_ids) && return true
+            length(affected_application_ids) == 1 || return nothing
+            length(binding.callee_application_ids) == 1 || return nothing
+            application_id = only(affected_application_ids)
+            return _compiled_application_by_id(compiled, application_id) do application
+                application_schema = _call_batch_schema_for_application(schema, application)
+                batches = _execution_call_batches_for_application(schema, application_schema,
+                    execution_batches, application_id)
+                isempty(batches) && return false
+                admission = _call_cohort_admission(application_schema, OpenExecutionCohortSchema())
+                return _with_execution_batch(application_schema, last(batches)) do destination_batch
+                    last_old_id = last(destination_batch.targets).object_id
+                    all(object_id -> _object_id_isless(last_old_id, object_id), changed_ids) || return false
+                    found_boundary, boundary = _sorted_object_id_position(binding.callee_object_ids, last_old_id)
+                    found_boundary || return false
+                    for index in (boundary + 1):lastindex(binding.callee_object_ids)
+                        object_id = binding.callee_object_ids[index]
+                        first(_sorted_object_id_position(application.target_ids, object_id)) || continue
+                        first(_sorted_object_id_position(changed_ids, object_id)) || return false
+                    end
+                    for object_id in changed_ids
+                        execution_target = _compiled_model_execution_target(
+                            compiled, env_bindings, application, object_id,
+                            temporal_streams, output_retention, constants;
+                            owner=_execution_call_owner(binding), cohort_schema=admission)
+                        accepted = _with_execution_cohort_target(admission, execution_target) do actual
+                            _model_execution_batch_accepts_target(destination_batch,
+                                actual, env_bindings, application) || return false
+                            return _stage_execution_append!(staged, scope, call_targets,
+                                binding, destination_batch.targets, actual)
+                        end
+                        accepted || return false
+                    end
+                    return true
+                end
+            end
         end
-        destination_batch = last(batches)
-        for object_id in changed_ids
-            execution_target = _compiled_model_execution_target(
-                compiled,
-                env_bindings,
-                application,
-                object_id,
-                temporal_streams,
-                output_retention,
-                constants;
-                owner=_execution_call_owner(binding),
-            )
-            _model_execution_batch_accepts_target(
-                destination_batch,
-                execution_target,
-                env_bindings,
-                application,
-            ) || return false
-            push!(staged, (destination_batch.targets, execution_target))
-        end
+        isnothing(extended) && return nothing
+        extended || return false
     end
-    for (targets, execution_target) in staged
-        push!(targets, execution_target)
-    end
-    for (call_targets, binding) in staged_bindings
-        call_targets.binding = binding
-        _record_extended_call_execution_batch_cache!(
-            call_targets,
-            compiled,
-            env_bindings,
-            binding,
-        )
-    end
+    _commit_execution_call_extension!(scope, staged, staged_bindings,
+        compiled, env_bindings) || return false
     target.call_bindings = current_call_bindings
-    target.call_bindings_signature =
-        _call_bindings_signature(current_call_bindings)
+    target.call_bindings_signature = _call_bindings_signature(current_call_bindings)
     target.call_context_cache.transient = nothing
-    _runtime_performance_count!(
-        performance,
-        :execution_target_call_delta_extensions,
-    )
-    _runtime_performance_count!(
-        performance,
-        :execution_target_call_delta_targets_added,
-        length(staged),
-    )
+    _runtime_performance_count!(performance, :execution_target_call_delta_extensions)
+    _runtime_performance_count!(performance, :execution_target_call_delta_targets_added, length(staged))
     return true
 end
 
@@ -4367,6 +4267,7 @@ function _refresh_model_execution_group!(
     changed_object_ids,
 )
     previous_membership = isnothing(previous_group) ? nothing : previous_group.membership
+    target_schema = isnothing(previous_membership) ? OpenExecutionCohortSchema() : previous_membership.schema
     calls_extended = Ref(false)
     refreshed = refresh_cohort_membership!(
         cohorts, application.id, application.target_ids, changed_object_ids;
@@ -4388,14 +4289,15 @@ function _refresh_model_execution_group!(
         end
         target = _new_model_execution_target(
             compiled, env_bindings, application, object_id,
-            temporal_streams, output_retention, constants,
+            temporal_streams, output_retention, constants; target_schema,
         )
         _count_model_execution_target_rebuild!(performance, reason)
         return target
     end
     assembled = _model_execution_batches(
         env_bindings, application, refreshed.membership,
-        output_retention, previous_group,
+        output_retention, previous_group;
+        batch_schema=_execution_group_batch_schema(previous_group),
     )
     reused_group = !isnothing(previous_group) &&
                    previous_group.application === application &&
@@ -4416,7 +4318,8 @@ function _refresh_model_execution_group!(
         previous_group
     else
         _retain_execution_group(previous_group, _compiled_application_execution_group(
-            application, assembled.batches, refreshed.membership,
+            application, assembled.batches, refreshed.membership;
+            batch_schema=_execution_group_batch_schema(previous_group),
         ))
     end
     if !isnothing(group) && group === previous_group && group_changed
@@ -4444,28 +4347,108 @@ function _changed_execution_target_ids_by_application(changed_execution_target_i
     return changed_by_application
 end
 
-# Prefer the existing authored position without building a Dict of group
-# objects. Reordered application metadata still matches the old owner by id.
-# Only scalar refresh counts leave the concrete group callback, never a group.
-function _with_previous_execution_group(f, slots, application_id::Symbol,
-    preferred_slot::Int, visited::BitVector,
+# The ordinary open representation can learn a new group schema. A closed
+# tuple must enter the worker with an already admitted application witness.
+function _with_matching_previous_execution_group(f, group, application::A,
+    ::Tuple,
+) where {A<:CompiledModelApplication}
+    group isa CompiledApplicationExecutionGroup{A} || return nothing
+    group.application.id === application.id || return nothing
+    group.application.slot == application.slot || return nothing
+    return f(group)::NTuple{3,Int}
+end
+
+function _with_matching_previous_execution_group(f, group, application,
+    ::AbstractVector,
 )
+    isnothing(group) && return nothing
+    group.application.id === application.id || return nothing
+    return f(group)::NTuple{3,Int}
+end
+
+_missing_previous_execution_group(f, ::AbstractVector, application) =
+    f(nothing)::NTuple{3,Int}
+
+function _missing_previous_execution_group(f, ::Tuple, application)
+    throw(ArgumentError(
+        "The prepared execution-group schema has no matching application " *
+        "`$(application.id)` at slot $(application.slot). Prepare its group before execution.",
+    ))
+end
+
+# Prefer the current authored position, then search the existing owners by id.
+# Only scalar counts leave the concrete callback; there is one lookup loop for
+# both representations. Incompatible closed application types never enter f.
+function _with_previous_execution_group(f, slots, application::CompiledModelApplication,
+    visited::BitVector,
+)
+    preferred_slot = application.slot
     for candidate in 0:length(slots)
         slot = iszero(candidate) ? preferred_slot : candidate
         (slot < 1 || slot > length(slots) ||
          (!iszero(candidate) && slot == preferred_slot)) && continue
         counts = _with_metadata_entry(slots, slot) do group
-            if !isnothing(group) && group.application.id === application_id
-                return f(group)::NTuple{3,Int}
-            end
-            return nothing
+            _with_matching_previous_execution_group(f, group, application, slots)
         end
         if !isnothing(counts)
             visited[slot] = true
             return counts
         end
     end
-    return f(nothing)::NTuple{3,Int}
+    return _missing_previous_execution_group(f, slots, application)
+end
+
+# Validate each CURRENT entry before it reaches metadata readers. Literal
+# tuple fields close the container without constructing Tuple(values) with a
+# runtime arity, reordering application ids, or recreating any live group.
+_execution_groups_in_schema(::AbstractVector, groups) = groups
+
+@generated function _execution_groups_in_schema(::G, groups) where {G<:Tuple}
+    count = fieldcount(G)
+    values = [gensym(:group) for _ in 1:count]
+    statements = Any[]
+    for (index, (value, type)) in enumerate(zip(values, fieldtypes(G)))
+        push!(statements, :($value = groups[$index]))
+        push!(statements, :($value isa $type || throw(ArgumentError(
+            "A refreshed execution group is outside the prepared tuple schema at position " *
+            string($index) * ".",
+        ))))
+    end
+    result = Expr(:tuple, [:( $(values[index])::$(fieldtype(G, index)) )
+        for index in 1:count]...)
+    return quote
+        length(groups) == $count || throw(ArgumentError(
+            "The refreshed execution-group count differs from its prepared tuple schema.",
+        ))
+        $(statements...)
+        return $result
+    end
+end
+
+# A known closed layout mismatch is an admission error. Validate metadata
+# coverage and CURRENT schedule order before any membership/cohort worker runs.
+# This does not promise rollback of earlier lifecycle or binding preparation.
+_preflight_execution_group_layout!(previous, compiled, ::AbstractVector) = nothing
+
+function _preflight_execution_group_layout!(previous, compiled, slots::Tuple)
+    witnesses = CompiledApplicationExecutionGroup[]
+    visited = falses(length(slots))
+    for entry in compiled.scenario_plan.application_schedule.entries
+        _with_metadata_entry(compiled.applications_by_id,entry.application_id) do application
+            _with_previous_execution_group(slots,application,visited) do group
+                push!(witnesses,group)
+                return (0,0,0)
+            end
+            return nothing
+        end
+    end
+    # The witnesses remain the actual old owners in the NEW scheduler order.
+    # Never reorder them back to the prepared ids to make a cast succeed.
+    groups = _execution_groups_in_schema(previous.groups,witnesses)
+    current_slots = _execution_groups_by_application_slot(groups,
+        length(compiled.scenario_plan.applications))
+    _execution_groups_in_schema(slots,current_slots)
+    return nothing
 end
 
 function _refresh_model_execution_plan(
@@ -4484,6 +4467,7 @@ function _refresh_model_execution_plan(
         changed_execution_target_ids,
     )
     previous_slots = previous.groups_by_application_slot
+    _preflight_execution_group_layout!(previous,compiled,previous_slots)
     visited_slots = falses(length(previous_slots))
     groups = CompiledApplicationExecutionGroup[]
     batches = AbstractExecutionBatch[]
@@ -4496,8 +4480,8 @@ function _refresh_model_execution_plan(
     # call-only applications are already excluded by that same schedule.
     for entry in compiled.scenario_plan.application_schedule.entries
         counts = _with_metadata_entry(compiled.applications_by_id, entry.application_id) do application
-            _with_previous_execution_group(previous_slots, application.id,
-                application.slot, visited_slots,
+            _with_previous_execution_group(previous_slots, application,
+                visited_slots,
             ) do previous_group
                 if !isnothing(previous_group) && !isnothing(changed_application_ids) &&
                    !(application.id in changed_application_ids)
@@ -4530,25 +4514,29 @@ function _refresh_model_execution_plan(
         _with_metadata_entry(previous_slots, slot) do group
             isnothing(group) && return nothing
             for object_id in group.membership.object_ids
-                remove_cohort_target!(previous.cohorts, group.application.id, object_id)
+                remove_cohort_target!(previous.cohorts, group.application.id, object_id; schema=group.membership.schema)
             end
             return nothing
         end
     end
-    same_groups = _same_execution_members(previous.groups, groups)
+    groups_in_schema = _execution_groups_in_schema(previous.groups, groups)
+    same_groups = _same_execution_members(previous.groups, groups_in_schema)
     same_batches = _same_execution_members(previous.batches, batches)
     application_count = length(compiled.scenario_plan.applications)
     groups_by_slot = same_groups &&
                      length(previous.groups_by_application_slot) == application_count ?
                      previous.groups_by_application_slot :
-                     _execution_groups_by_application_slot(groups, application_count)
+                     _execution_groups_by_application_slot(groups_in_schema, application_count)
+    slots_in_schema = _execution_groups_in_schema(
+        previous.groups_by_application_slot, groups_by_slot,
+    )
     return (
         plan=CompiledExecutionPlan(
             previous.cohorts,
             previous.topology,
-            same_groups ? previous.groups : groups,
+            same_groups ? previous.groups : groups_in_schema,
             same_batches ? previous.batches : batches,
-            groups_by_slot,
+            slots_in_schema,
             _refreshed_runtime_application_schedule(previous.schedule,
                 compiled.scenario_plan.application_schedule),
             compiled.revision,
@@ -4941,11 +4929,19 @@ end
 _call_target_matches(targets::CallTargets, application, object_id::ObjectId) =
     _call_binding_target_matches(targets.binding, application, object_id)
 
+@inline function _with_call_execution_batch(f::F, targets::CallTargets, batches, index::Int) where {F}
+    return _with_metadata_entry(batches, index) do batch
+        _with_execution_batch(f, targets.batch_schema, batch)
+    end
+end
+
 function Base.length(targets::CallTargets)
     count = 0
     batches = _materialize_call_execution_batches!(targets)
-    for batch in batches
-        count += length(batch.targets)
+    for index in eachindex(batches)
+        count += _with_call_execution_batch(targets, batches, index) do batch
+            length(batch.targets)
+        end
     end
     return count
 end
@@ -4989,7 +4985,8 @@ end
                 _runtime_call_targets(
                     targets.compiled, targets.environment_bindings, target.call_bindings,
                     targets.temporal_streams, targets.output_retention, targets.time,
-                    targets.constants, targets.publication_allowed, environment,
+                    targets.constants, targets.publication_allowed, environment;
+                    call_schema=_context_call_schema(context),
                 )
             end
         else
@@ -5037,13 +5034,18 @@ end
 
 function Base.getindex(targets::CallTargets, requested::Int)
     batches = _materialize_call_execution_batches!(targets)
-    current = 0
-    for batch in batches
-        for target in batch.targets
-            current += 1
-            current == requested &&
-                return _materialize_call(targets, batch.application, target)
+    remaining = requested
+    for index in eachindex(batches)
+        count, selected = let position=remaining
+            _with_call_execution_batch(targets, batches, index) do batch
+                batch_count = length(batch.targets)
+                target = 1 <= position <= batch_count ?
+                    _materialize_call(targets, batch.application, batch.targets[position]) : nothing
+                return batch_count, target
+            end
         end
+        isnothing(selected) || return selected
+        remaining -= count
     end
     throw(BoundsError(targets, (requested,)))
 end
@@ -5052,14 +5054,15 @@ function Base.iterate(targets::CallTargets, state::Tuple{Int,Int}=(1, 1))
     batch_index, target_index = state
     batches = _materialize_call_execution_batches!(targets)
     while batch_index <= length(batches)
-        batch = batches[batch_index]
-        if target_index <= length(batch.targets)
-            target = batch.targets[target_index]
-            return (
-                _materialize_call(targets, batch.application, target),
-                (batch_index, target_index + 1),
-            )
+        selected = let batch_position=batch_index, target_position=target_index
+            _with_call_execution_batch(targets, batches, batch_position) do batch
+                target_position <= length(batch.targets) || return nothing
+                target = batch.targets[target_position]
+                return (_materialize_call(targets, batch.application, target),
+                    (batch_position, target_position + 1))
+            end
         end
+        isnothing(selected) || return selected
         batch_index += 1
         target_index = 1
     end
@@ -5103,26 +5106,34 @@ end
     return entry
 end
 
-function _refill_call_target_buffer!(values::Vector{V}, targets, batches::Tuple) where {V}
+function _refill_call_target_buffer!(values::Vector{V}, targets::CallTargets,
+    batches::Union{Tuple,AbstractVector},
+) where {V}
     count = 0
-    for batch in batches
-        count += length(batch.targets)
+    for index in eachindex(batches)
+        count += _with_call_execution_batch(targets, batches, index) do batch
+            length(batch.targets)
+        end
     end
     resize!(values, count)
-    index = 0
-    for batch in batches
-        for target in batch.targets
-            index += 1
-            # A concrete constructor lets Julia write immutable views directly
-            # into inline vector storage, without a boxed temporary per target.
-            # Mixed collections keep Base's widened element type instead.
-            view = if isconcretetype(V)
-                _materialize_call(V, targets, batch.application, target)
-            else
-                _materialize_call(targets, batch.application, target)
+    written = 0
+    for index in eachindex(batches)
+        next_count = let offset=written
+            _with_call_execution_batch(targets, batches, index) do batch
+                for (local_index, target) in enumerate(batch.targets)
+                    # Keep the same concrete snapshot constructor for inline
+                    # homogeneous buffers; heterogeneous vectors widen normally.
+                    view = if isconcretetype(V)
+                        _materialize_call(V, targets, batch.application, target)
+                    else
+                        _materialize_call(targets, batch.application, target)
+                    end
+                    @inbounds values[offset + local_index] = view
+                end
+                return length(batch.targets)
             end
-            @inbounds values[index] = view
         end
+        written += next_count
     end
     return values
 end
@@ -5363,17 +5374,22 @@ end
     return _single_call_target_snapshot(targets, batch.application, batch.targets[1])
 end
 
-function _only_call_target(targets::CallTargets, batches::Tuple)
+function _only_call_target(targets::CallTargets, batches::Union{Tuple,AbstractVector})
     count = 0
-    selected_batch = nothing
-    for batch in batches
-        isempty(batch.targets) && continue
-        count += length(batch.targets)
+    selected_index = 0
+    for index in eachindex(batches)
+        next_count = _with_call_execution_batch(targets, batches, index) do batch
+            length(batch.targets)
+        end
+        iszero(next_count) && continue
+        count += next_count
         count == 1 || _only_call_target_count_error(count)
-        selected_batch = batch
+        selected_index = index
     end
     iszero(count) && _only_call_target_count_error(count)
-    return _single_call_target_snapshot(targets, selected_batch.application, selected_batch.targets[1])
+    return _with_call_execution_batch(targets, batches, selected_index) do batch
+        _single_call_target_snapshot(targets, batch.application, batch.targets[1])
+    end
 end
 
 # Reuse only indistinguishable immutable snapshots; all numerical state is
@@ -5417,10 +5433,23 @@ Base.@constprop :aggressive function call_targets(
     return _with_named_call(_selected_call_targets, context.calls, name, context, requested_ids)
 end
 
-@inline function _single_call_model(batches::Tuple{B}) where {B}
+@inline function _single_call_model(targets::CallTargets, batches::Tuple{B}) where {B}
     # The caller has already checked singular membership. Index directly rather
     # than allocating the Vector iterator's (target, state) tuple on this path.
     return first(batches).targets[1].model
+end
+
+function _single_call_model(targets::CallTargets, batches::Union{Tuple,AbstractVector})
+    # Singular membership was checked by call_model. Empty retained runs do not
+    # choose a model; every real payload remains in its admitted batch branch.
+    for index in eachindex(batches)
+        model = _with_call_execution_batch(targets, batches, index) do batch
+            isempty(batch.targets) && return nothing
+            return batch.targets[1].model
+        end
+        isnothing(model) || return model
+    end
+    _only_call_target_count_error(0)
 end
 
 """
@@ -5458,7 +5487,7 @@ end
     _compiled_call_mode(targets.binding) === :manual ||
         _initializer_requires_dedicated_api(context, name)
     length(targets) == 1 || _call_model_target_count_error(name, targets)
-    return _single_call_model(_materialize_call_execution_batches!(targets))
+    return _single_call_model(targets, _materialize_call_execution_batches!(targets))
 end
 
 @inline Base.@constprop :aggressive function call_model(context::RunContext, name::Symbol)
@@ -5866,6 +5895,7 @@ function _targeted_new_object_call_targets(
 
     return _prepare_targeted_newborn_targets(
         context, name, targeted_runtime, application_set, callee_applications, initializer,
+        cached_targets.batch_schema,
     )
 end
 
@@ -5879,6 +5909,7 @@ function _prepare_targeted_newborn_targets(
     application_set::_TargetedApplicationSet,
     callee_applications::Tuple,
     initializer::Bool,
+    batch_schema::ExecutionBatchSchema,
 )
     model = runtime_model(context)
     compiled = context.compiled
@@ -5951,7 +5982,7 @@ function _prepare_targeted_newborn_targets(
     for partial_application in callee_applications
         _append_targeted_newborn_targets!(
             targets, context, targeted_runtime, partial_application,
-            targeted_input_bindings, environment_bindings,
+            targeted_input_bindings, environment_bindings, batch_schema,
         )
     end
     if initializer
@@ -5970,42 +6001,60 @@ function _append_targeted_newborn_targets!(
     partial_application::CompiledModelApplication,
     targeted_input_bindings,
     environment_bindings::CompiledEnvironmentBindings,
+    batch_schema::ExecutionBatchSchema,
 )
     compiled = context.compiled
-    # A partial application preserves its exact plan type. Recover that type
-    # after the heterogeneous application index before constructing its rows.
-    application = compiled.applications_by_id[partial_application.id]::typeof(partial_application)
-    for object_id in partial_application.target_ids
-        key = (application.id, object_id)
-        cache = get(targeted_runtime.call_context_caches, key, nothing)::Union{Nothing,CallContextCache}
-        stamp = isnothing(cache) ? Ref(UInt64(0)) :
-                (getfield(cache, :execution_stamp)::Base.RefValue{UInt64})
-        status_view = _compile_model_status_view(
-            runtime_model(context), partial_application, object_id,
-            get(targeted_input_bindings, key, ()), compiled.applications_by_id,
-            targeted_runtime.application_positions, compiled.distributed_outputs;
-            execution_stamp=stamp,
-        )
-        outputs = _runtime_model_output_streams(
-            status_view.status, application, object_id, context.temporal_streams,
-            context.output_retention, true,
-        )
-        output_targets = _runtime_model_output_targets(compiled, application, object_id)
-        environment_binding = _environment_binding_for(environment_bindings, application.id, object_id)
-        # Targeted admission has already resolved this callee without nested
-        # calls. The general payload/cache helper accepts the actual tuple;
-        # nested manual newborns retain their existing full-refresh path.
-        call_bindings = ()
-        if isnothing(cache)
-            cache = _newborn_call_context_cache(context, application, object_id,
-                status_view.bound_inputs, output_targets, call_bindings, environment_bindings, stamp)
-            targeted_runtime.call_context_caches[key] = cache
+    # Partial applications share the genuine authored application plan.
+    _compiled_application_by_id(compiled,partial_application.id) do application
+        application_schema = _call_batch_schema_for_application(batch_schema,application)
+        admission = _call_cohort_admission(application_schema,OpenExecutionCohortSchema())
+        for object_id in partial_application.target_ids
+            key = (application.id,object_id)
+            cache = get(targeted_runtime.call_context_caches,key,nothing)::Union{Nothing,CallContextCache}
+            stamp = isnothing(cache) ? Ref(UInt64(0)) :
+                (getfield(cache,:execution_stamp)::Base.RefValue{UInt64})
+            status_view = _compile_model_status_view(runtime_model(context),partial_application,
+                object_id,get(targeted_input_bindings,key,()),compiled.applications_by_id,
+                targeted_runtime.application_positions,compiled.distributed_outputs;
+                execution_stamp=stamp)
+            output_targets = _runtime_model_output_targets(compiled,application,object_id)
+            environment_binding = _environment_binding_for(environment_bindings,application.id,object_id)
+            call_bindings = () # targeted admission has rejected nested callees
+            fields = (object_id=object_id,model=_application_model(application,object_id),
+                status_view=status_view,bound_inputs=status_view.bound_inputs,
+                output_targets=output_targets,call_bindings=call_bindings,
+                environment_binding=environment_binding)
+            owners = (compiled=compiled,temporal_streams=context.temporal_streams,
+                output_retention=context.output_retention,constants=context.constants,
+                environment=context.environment)
+            _with_execution_target_type(admission,application,fields,owners) do Target,actual_application,actual,owner,call_schema
+                outputs = isnothing(Target) ?
+                    _runtime_model_output_streams(actual.status_view.status,actual_application,
+                        actual.object_id,owner.temporal_streams,owner.output_retention,true) :
+                    _prepared_runtime_outputs(fieldtype(Target,:output_bindings),
+                        actual.status_view.status,actual.output_targets,actual_application,
+                        actual.object_id,owner.compiled,owner.temporal_streams,
+                        owner.output_retention,true)
+                # Narrow a retained cache before use; no new owner is published
+                # until all real fields have passed the same target admission.
+                prepared_cache = _admit_newborn_context_cache(Target,cache)
+                if isnothing(prepared_cache)
+                    prepared_cache = _newborn_call_context_cache(context,actual_application,
+                        actual.object_id,actual.bound_inputs,actual.output_targets,
+                        actual.call_bindings,environment_bindings,stamp;call_schema)
+                end
+                result = _targeted_newborn_call_target(context,actual_application,
+                    actual.object_id,actual.model,actual.status_view,outputs,
+                    actual.output_targets,actual.call_bindings,environment_bindings,
+                    actual.environment_binding,prepared_cache)
+                isnothing(Target) || result.execution_target isa Target ||
+                    throw(ArgumentError("A newborn execution target is outside its prepared schema."))
+                targeted_runtime.call_context_caches[key] = prepared_cache
+                push!(targets,result)
+                return nothing
+            end
         end
-        push!(targets, _targeted_newborn_call_target(
-            context, application, object_id, _application_model(application, object_id),
-            status_view, outputs, output_targets, call_bindings,
-            environment_bindings, environment_binding, cache,
-        ))
+        return nothing
     end
     return targets
 end
@@ -6027,13 +6076,14 @@ end
 # Call bindings come from resolution, not from the shape of a cached prototype.
 function _newborn_call_context_cache(context::RunContext, application, object_id,
     bound_inputs, output_targets, call_bindings::Tuple, environment_bindings,
-    stamp::Base.RefValue{UInt64},
+    stamp::Base.RefValue{UInt64};
+    call_schema=OpenContextCallSchema(),
 )
     prepared = _prepare_model_execution_context!(
         nothing, context.compiled, environment_bindings, application, object_id,
         bound_inputs, output_targets, call_bindings, context.temporal_streams,
         context.output_retention, context.time, context.constants,
-        context.publication_allowed, context.environment,
+        context.publication_allowed, context.environment;call_schema,
     )
     return CallContextCache(prepared, stamp)
 end
@@ -6201,6 +6251,7 @@ function _current_topology_call_targets(
         context.environment,
         ;
         tracks_full_membership=false,
+        batch_schema=cached_targets.batch_schema,
     )
 end
 
@@ -6688,6 +6739,26 @@ end
         environment,
         frame,
     )
+    return nothing
+end
+
+# Prepared Many keeps an ordered runtime vector. Both representations enter
+# the same batch and target executor after their normal metadata admission.
+@inline function _run_compiled_call_batches!(
+    targets::CallTargets,
+    batches::AbstractVector,
+    publish::Bool,
+    sampled_environment,
+    environment,
+    frame,
+)
+    for index in eachindex(batches)
+        _with_call_execution_batch(targets, batches, index) do batch
+            _run_compiled_call_batch!(
+                targets, batch, publish, sampled_environment, environment, frame,
+            )
+        end
+    end
     return nothing
 end
 

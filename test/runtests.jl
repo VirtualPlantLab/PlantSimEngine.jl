@@ -26,6 +26,10 @@ if length(ARGS) == 1 && endswith(only(ARGS), ".jl")
     focused_path = joinpath(@__DIR__, focused_file)
     isfile(focused_path) || error("Unknown focused test file `$(focused_file)`.")
     @testset "Focused: $(focused_file)" begin
+        if focused_file in ("test-model-prepared-call-vector-api.jl",
+            "test-model-prepared-missing-future-schema.jl")
+            include("test-model-prepared-call-schemas.jl")
+        end
         include(focused_path)
     end
 else
@@ -52,6 +56,17 @@ else
         include("test-model-canonical-cohorts.jl")
         include("test-model-persistent-empty-groups.jl")
         include("test-model-slot-group-refresh.jl")
+    end
+
+    @testset "Prepared execution schemas" begin
+        include("test-model-closed-cohort-schemas.jl")
+        include("test-model-closed-group-refresh.jl")
+        include("test-model-closed-group-layout-preflight.jl")
+        include("test-model-prepared-call-schemas.jl")
+        include("test-model-prepared-call-vector-api.jl")
+        include("test-model-prepared-growth-schemas.jl")
+        include("test-model-prepared-missing-future-schema.jl")
+        include("test-model-finite-call-extension-intents.jl")
     end
 
     @testset "Organ creation allocations" begin

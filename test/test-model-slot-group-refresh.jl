@@ -62,23 +62,31 @@ end
     reordered = (second_group, nothing, first_group)
     visited = falses(3)
     counts = PSE._with_previous_execution_group(reordered,
-        first_group.application.id, 1, visited) do group
+        first_group.application, visited) do group
         @test group === first_group
         return (2, 3, 1)
     end
     @test counts === (2, 3, 1)
     @test visited == Bool[false, false, true]
     preferred_counts = PSE._with_previous_execution_group(reordered,
-        second_group.application.id, 1, visited) do group
+        second_group.application, visited) do group
         @test group === second_group
         return (0, 0, 1)
     end
     @test preferred_counts === (0, 0, 1)
     @test visited == Bool[true, false, true]
 
+    missing_application = simulation.execution_plan.groups[3].application
     missing_visited = falses(3)
-    missing_counts = PSE._with_previous_execution_group(reordered,
-        :missing, 9, missing_visited) do group
+    invoked = Ref(false)
+    @test_throws "prepared execution-group schema" PSE._with_previous_execution_group(
+        group -> (invoked[] = true; (0, 0, 0)), reordered,
+        missing_application, missing_visited,
+    )
+    @test !invoked[]
+    @test !any(missing_visited)
+    missing_counts = PSE._with_previous_execution_group(collect(reordered),
+        missing_application, missing_visited) do group
         @test isnothing(group)
         return (0, 0, 0)
     end

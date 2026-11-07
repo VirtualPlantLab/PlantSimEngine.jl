@@ -1535,7 +1535,7 @@ end
     @test only(selected).object_id == ObjectId(:callable_leaf)
     @test selected.execution_batches isa
           PlantSimEngine.LazyCallExecutionBatches
-    @test !selected.execution_batches.tracks_full_membership
+    @test !selected.tracks_full_membership
     @test !PlantSimEngine._compiled_call_membership_is_observed(binding)
 end
 

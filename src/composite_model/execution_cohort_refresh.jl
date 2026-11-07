@@ -1,11 +1,12 @@
 """Ordered schedule membership, separate from persistent execution payloads."""
-struct ExecutionCohortMembership
+struct ExecutionCohortMembership{S<:ExecutionCohortSchema,I<:ObjectId,L<:ExecutionCohortLocation,R<:ExecutionCohortRows}
     store::ExecutionCohortStore
     owner::Any
     application_id::Symbol
-    object_ids::Vector{ObjectId}
-    locations::Vector{ExecutionCohortLocation}
-    runs::Vector{ExecutionCohortRows}
+    schema::S
+    object_ids::Vector{I}
+    locations::Vector{L}
+    runs::Vector{R}
     run_starts::Vector{Int}
 end
 
@@ -33,48 +34,64 @@ function _shift_execution_run_starts!(membership, first_run, delta)
     return nothing
 end
 
+function _execution_membership_location_has_cohort(membership, position, cohort)
+    object_id = membership.object_ids[position]
+    return _with_execution_cohort_location(membership.schema, membership.locations[position],
+        membership.owner, membership.application_id, object_id) do location
+        location.cohort === cohort
+    end
+end
+
+function _execution_membership_run_has_cohort(membership, index, cohort)
+    return _with_execution_membership_run(membership, index) do rows
+        rows.cohort === cohort
+    end
+end
+
 function _insert_execution_membership_row!(membership, position, object_id, location)
     count = length(membership.object_ids)
     runs = membership.runs
     starts = membership.run_starts
     if isempty(runs) || position == count + 1
-        if !isempty(runs) && last(runs).cohort === location.cohort
-            push!(last(runs).indices, location.row)
+        if !isempty(runs) && _execution_membership_run_has_cohort(membership, length(runs), location.cohort)
+            _with_execution_membership_run(membership, length(runs)) do rows
+                push!(rows.indices, location.row)
+            end
         else
             push!(runs, _execution_cohort_rows(membership.store, location.cohort, Int[location.row]))
             push!(starts, position)
         end
     else
         run_index = searchsortedlast(starts, position)
-        rows = runs[run_index]
-        local_index = position - starts[run_index] + 1
-        if rows.cohort === location.cohort
-            insert!(rows.indices, local_index, location.row)
-            _shift_execution_run_starts!(membership, run_index + 1, 1)
-        elseif local_index == 1 && run_index > 1 &&
-               runs[run_index - 1].cohort === location.cohort
-            push!(runs[run_index - 1].indices, location.row)
-            _shift_execution_run_starts!(membership, run_index, 1)
-        elseif local_index == 1
-            insert!(runs, run_index, _execution_cohort_rows(
-                membership.store, location.cohort, Int[location.row],
-            ))
-            insert!(starts, run_index, position)
-            _shift_execution_run_starts!(membership, run_index + 1, 1)
-        else
-            # A new family inside a run needs one additional view of its right
-            # part. Other runs and all scientific payloads retain identity.
-            right_indices = rows.indices[local_index:end]
-            sizehint!(right_indices, length(right_indices) + max(16, length(right_indices) ÷ 4))
-            right = _execution_cohort_rows(membership.store, rows.cohort, right_indices)
-            resize!(rows.indices, local_index - 1)
-            insert!(runs, run_index + 1, _execution_cohort_rows(
-                membership.store, location.cohort, Int[location.row],
-            ))
-            insert!(starts, run_index + 1, position)
-            insert!(runs, run_index + 2, right)
-            insert!(starts, run_index + 2, position + 1)
-            _shift_execution_run_starts!(membership, run_index + 3, 1)
+        _with_execution_membership_run(membership, run_index) do rows
+            local_index = position - starts[run_index] + 1
+            if rows.cohort === location.cohort
+                insert!(rows.indices, local_index, location.row)
+                _shift_execution_run_starts!(membership, run_index + 1, 1)
+            elseif local_index == 1 && run_index > 1 &&
+                   _execution_membership_run_has_cohort(membership, run_index - 1, location.cohort)
+                _with_execution_membership_run(membership, run_index - 1) do previous_rows
+                    push!(previous_rows.indices, location.row)
+                end
+                _shift_execution_run_starts!(membership, run_index, 1)
+            elseif local_index == 1
+                insert!(runs, run_index, _execution_cohort_rows(membership.store, location.cohort, Int[location.row]))
+                insert!(starts, run_index, position)
+                _shift_execution_run_starts!(membership, run_index + 1, 1)
+            else
+                # This is the same ordered reconciliation algorithm: split only
+                # membership indices; retain payloads and scientific references.
+                right_indices = rows.indices[local_index:end]
+                sizehint!(right_indices, length(right_indices) + max(16, length(right_indices) ÷ 4))
+                right = _execution_cohort_rows(membership.store, rows.cohort, right_indices)
+                resize!(rows.indices, local_index - 1)
+                insert!(runs, run_index + 1, _execution_cohort_rows(membership.store, location.cohort, Int[location.row]))
+                insert!(starts, run_index + 1, position)
+                insert!(runs, run_index + 2, right)
+                insert!(starts, run_index + 2, position + 1)
+                _shift_execution_run_starts!(membership, run_index + 3, 1)
+            end
+            return nothing
         end
     end
     insert!(membership.object_ids, position, object_id)
@@ -86,17 +103,26 @@ function _delete_execution_membership_row!(membership, position)
     runs = membership.runs
     starts = membership.run_starts
     run_index = searchsortedlast(starts, position)
-    rows = runs[run_index]
-    deleteat!(rows.indices, position - starts[run_index] + 1)
+    run_empty = _with_execution_membership_run(membership, run_index) do rows
+        deleteat!(rows.indices, position - starts[run_index] + 1)
+        isempty(rows.indices)
+    end
     _shift_execution_run_starts!(membership, run_index + 1, -1)
-    if isempty(rows.indices)
+    if run_empty
         deleteat!(runs, run_index)
         deleteat!(starts, run_index)
-        if run_index > 1 && run_index <= length(runs) &&
-           runs[run_index - 1].cohort === runs[run_index].cohort
-            append!(runs[run_index - 1].indices, runs[run_index].indices)
-            deleteat!(runs, run_index)
-            deleteat!(starts, run_index)
+        if run_index > 1 && run_index <= length(runs)
+            merged = _with_execution_membership_run(membership, run_index - 1) do left
+                _with_execution_membership_run(membership, run_index) do right
+                    left.cohort === right.cohort || return false
+                    append!(left.indices, right.indices)
+                    return true
+                end
+            end
+            if merged
+                deleteat!(runs, run_index)
+                deleteat!(starts, run_index)
+            end
         end
     end
     deleteat!(membership.object_ids, position)
@@ -119,19 +145,63 @@ function _check_execution_cohort_target(target, object_id)
     return nothing
 end
 
-function _new_execution_cohort_membership(store, owner, application_id, count)
-    ids = ObjectId[]
-    locations = ExecutionCohortLocation[]
-    # Reserve initial spare capacity once. Ordinary push!/insert! growth then
-    # remains amortized; requesting exactly one spare slot on every refresh
-    # would itself force repeated allocations proportional to live object count.
+function _new_execution_cohort_membership(store, owner, application_id, count, schema=OpenExecutionCohortSchema())
+    types = _execution_cohort_types(schema)
+    ids = Vector{types.identity}()
+    locations = Vector{types.location}()
     capacity = count + max(16, count ÷ 4)
     sizehint!(ids, capacity)
     sizehint!(locations, capacity)
     return ExecutionCohortMembership(
-        store, owner, application_id, ids, locations, ExecutionCohortRows[], Int[],
+        store, owner, application_id, schema, ids, locations, Vector{types.rows}(), Int[],
     )
 end
+
+# Host-only schema closure, before a plan's container types are fixed. Metadata
+# vectors become finite unions; all cohort payloads, references and run views
+# retain identity. No models, defaults, samplers or callbacks are invoked.
+function _close_execution_cohort_membership(previous::ExecutionCohortMembership, schema::ClosedExecutionCohortSchema)
+    types = _execution_cohort_types(schema)
+    for (object_id, location) in zip(previous.object_ids, previous.locations)
+        object_id isa types.identity || throw(ArgumentError("An object identity is outside the prepared cohort schema."))
+        _with_execution_cohort_location(identity, schema, location, previous.owner, previous.application_id, object_id)
+    end
+    for rows in previous.runs
+        _with_execution_cohort_rows(schema, rows) do admitted
+            _check_execution_cohort_rows_owner(admitted, previous.store, previous.owner, previous.application_id)
+        end
+    end
+    typeof(previous.schema) === typeof(schema) && return previous
+    membership = _new_execution_cohort_membership(previous.store, previous.owner,
+        previous.application_id, length(previous.object_ids), schema)
+    append!(membership.object_ids, previous.object_ids)
+    append!(membership.locations, previous.locations)
+    # Close once with the same spare-capacity policy as initial preparation.
+    # Exact-length copies would force an O(n) resize on the first real birth.
+    run_count = length(previous.runs)
+    run_capacity = run_count + max(16, run_count ÷ 4)
+    sizehint!(membership.runs, run_capacity)
+    sizehint!(membership.run_starts, run_capacity)
+    append!(membership.runs, previous.runs)
+    append!(membership.run_starts, previous.run_starts)
+    return membership
+end
+
+function _check_execution_cohort_rows_owner(rows, store, owner, application_id)
+    rows.store === store && isequal(rows.cohort.owner, owner) &&
+        rows.cohort.application_id === application_id || throw(ArgumentError(
+        "The execution run belongs to another store, owner or application.",
+    ))
+    return nothing
+end
+
+@inline function _with_execution_membership_run(f, membership, index)
+    return _with_execution_cohort_rows(membership.schema, membership.runs[index]) do rows
+        _check_execution_cohort_rows_owner(rows, membership.store, membership.owner, membership.application_id)
+        f(rows)
+    end
+end
+
 
 """
     refresh_cohort_membership!(build_target, store, application_id, current_ids,
@@ -162,28 +232,40 @@ function refresh_cohort_membership!(
     changed_ids;
     previous::Union{Nothing,ExecutionCohortMembership}=nothing,
     owner=nothing,
+    schema=isnothing(previous) ? OpenExecutionCohortSchema() : previous.schema,
 )
     if !isnothing(previous)
         previous.store === store && previous.application_id === application_id &&
             isequal(previous.owner, owner) || throw(ArgumentError(
             "Previous execution membership belongs to a different store or execution owner.",
         ))
+        typeof(schema) === typeof(previous.schema) || throw(ArgumentError(
+            "Close the application membership before entering its prepared refresh boundary.",
+        ))
     end
-    staged_targets = Tuple{ObjectId,Any}[]
-    removed_ids = ObjectId[]
+    types = _execution_cohort_types(schema)
+    staged_targets = Vector{Tuple{types.identity,types.target}}()
+    removed_ids = Vector{types.identity}()
     checked_ids = isnothing(previous) || isnothing(changed_ids) ? current_ids : changed_ids
     for object_id in checked_ids
+        object_id isa types.identity || throw(ArgumentError("An object identity is outside the prepared cohort schema."))
         location = cohort_location(store, application_id, object_id; owner)
         is_current = isnothing(previous) || isnothing(changed_ids) ||
                      first(_sorted_object_id_position(current_ids, object_id))
-        if !is_current
-            push!(removed_ids, object_id)
-            continue
+        _with_execution_cohort_location(schema, location, owner, application_id, object_id) do admitted
+            if !is_current
+                push!(removed_ids, object_id)
+                return nothing
+            end
+            previous_target = isnothing(admitted) ? nothing : _execution_cohort_target(admitted)
+            target = build_target(object_id, previous_target)
+            _with_execution_cohort_target(schema, target) do accepted
+                _check_execution_cohort_target(accepted, object_id)
+                accepted === previous_target || push!(staged_targets, (object_id, accepted))
+                return nothing
+            end
+            return nothing
         end
-        previous_target = isnothing(location) ? nothing : _execution_cohort_target(location)
-        target = build_target(object_id, previous_target)
-        _check_execution_cohort_target(target, object_id)
-        target === previous_target || push!(staged_targets, (object_id, target))
     end
     if !isnothing(previous) && isnothing(changed_ids)
         current_index = firstindex(current_ids)
@@ -198,8 +280,14 @@ function refresh_cohort_membership!(
         end
     end
 
+    # Discovering removals may bypass checked_ids. Validate every old location
+    # and every run before the first clear/splice, including a fully empty result.
+    for object_id in removed_ids
+        location = cohort_location(store, application_id, object_id; owner)
+        _with_execution_cohort_location(identity, schema, location, owner, application_id, object_id)
+    end
     membership = isnothing(previous) ?
-                 _new_execution_cohort_membership(store, owner, application_id, length(current_ids)) :
+                 _new_execution_cohort_membership(store, owner, application_id, length(current_ids), schema) :
                  previous
     membership_changed = isnothing(previous)
     targets_removed = 0
@@ -211,42 +299,53 @@ function refresh_cohort_membership!(
             targets_removed += 1
             membership_changed = true
         end
-        remove_cohort_target!(store, application_id, object_id; owner)
+        remove_cohort_target!(store, application_id, object_id; owner, schema)
     end
     for (object_id, target) in staged_targets
-        cohort = _execution_cohort(store, owner, application_id, typeof(target))
-        _store_execution_cohort_target!(store, cohort, target)
-        isnothing(previous) && continue
-        location = cohort_location(store, application_id, object_id; owner)
-        found, position = if isempty(membership.object_ids) ||
-                             _object_id_isless(last(membership.object_ids), object_id)
-            (false, length(membership.object_ids) + 1)
-        else
-            _sorted_object_id_position(membership.object_ids, object_id)
+        changed = _with_execution_cohort_target(schema, target) do accepted
+            cohort = _execution_cohort(store, owner, application_id, typeof(accepted))
+            old_location = cohort_location(store, application_id, object_id; owner)
+            return _with_execution_cohort_location(schema, old_location, owner, application_id, object_id) do admitted
+                slot = _store_execution_cohort_target!(store, cohort, accepted, admitted)
+                isnothing(previous) && return false
+                location = ExecutionCohortLocation(cohort, slot)
+                found, position = if isempty(membership.object_ids) ||
+                                     _object_id_isless(last(membership.object_ids), object_id)
+                    (false, length(membership.object_ids) + 1)
+                else
+                    _sorted_object_id_position(membership.object_ids, object_id)
+                end
+                if !found
+                    _insert_execution_membership_row!(membership, position, object_id, location)
+                    return true
+                elseif !_execution_membership_location_has_cohort(membership, position, location.cohort)
+                    _delete_execution_membership_row!(membership, position)
+                    _insert_execution_membership_row!(membership, position, object_id, location)
+                    return true
+                else
+                    membership.locations[position] = location
+                    return false
+                end
+            end
         end
-        if !found
-            _insert_execution_membership_row!(membership, position, object_id, location)
-            membership_changed = true
-        elseif membership.locations[position].cohort !== location.cohort
-            _delete_execution_membership_row!(membership, position)
-            _insert_execution_membership_row!(membership, position, object_id, location)
-            membership_changed = true
-        else
-            membership.locations[position] = location
-        end
+        membership_changed |= changed
     end
     if isnothing(previous)
         for object_id in current_ids
             location = cohort_location(store, application_id, object_id; owner)
-            _insert_execution_membership_row!(
-                membership, length(membership.object_ids) + 1, object_id, location,
-            )
+            _with_execution_cohort_location(schema, location, owner, application_id, object_id) do admitted
+                _insert_execution_membership_row!(
+                    membership, length(membership.object_ids) + 1, object_id, admitted,
+                )
+            end
         end
-        for rows in membership.runs
-            count = length(rows)
-            sizehint!(rows.indices, count + max(16, count ÷ 4))
-            family_count = length(rows.cohort.rows)
-            sizehint!(rows.cohort.rows, family_count + max(16, family_count ÷ 4))
+        for index in eachindex(membership.runs)
+            _with_execution_membership_run(membership, index) do rows
+                count = length(rows)
+                sizehint!(rows.indices, count + max(16, count ÷ 4))
+                family_count = length(rows.cohort.rows)
+                sizehint!(rows.cohort.rows, family_count + max(16, family_count ÷ 4))
+            end
         end
     end
     return (

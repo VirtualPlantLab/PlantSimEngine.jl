@@ -175,7 +175,7 @@ end
             @test cloned.execution_batches !== original.execution_batches
             @test cloned.execution_batches.owner === cloned
             @test original.execution_batches.owner === original
-            @test cloned.execution_batches.tracks_full_membership
+            @test cloned.tracks_full_membership
             @test isnothing(cloned.execution_batches.batches)
         end
     end
