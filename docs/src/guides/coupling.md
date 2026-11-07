@@ -14,6 +14,9 @@ Choose how to connect your models from the calculation you need:
 
 A **model application** is a model configured with `ModelSpec`: it has a name,
 a choice of objects, and any settings needed for its inputs or timing.
+`ModelSpec` reads the model's `dep` method once to collect its default `Input`,
+`Call`, and `Initializer` bindings. Later environment remapping reuses those
+bindings. Build a new `ModelSpec` when you want to change them.
 
 ## Value coupling
 

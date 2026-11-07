@@ -85,6 +85,8 @@ else
         include("test-model-prepared-authoring-owner.jl")
         include("test-model-public-refresh-owners.jl")
         include("test-model-authored-call-plans.jl")
+        include("test-model-spec-normalization.jl")
+        include("test-model-runtime-snapshot-isolation.jl")
         include("test-model-authored-spec-matching.jl")
         include("test-compilation-metadata.jl")
         include("test-model-input-recipes.jl")

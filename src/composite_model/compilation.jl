@@ -1861,14 +1861,15 @@ function _refresh_runtime_bindings!(
 end
 
 function _refresh_owned_runtime_bindings!(
-    model::CompositeModel, current::CompiledCompositeModel{SC,SP}; performance=nothing,
-) where {SC,SP}
+    model::CompositeModel, current::CompiledCompositeModel; performance=nothing,
+)
     preparation = getfield(getfield(current.scenario_plan, :authoring), :preparation)
     preparation.owner === model || _unprepared_runtime_configuration()
     getfield(model, :scenario_plan_cache) === preparation || _unprepared_runtime_configuration()
     _authored_specs_match(preparation, model) || _unprepared_runtime_configuration()
-    prepared = getfield(preparation, :resolved)::Union{Nothing,PreparedScenario{SP}}
-    return _refresh_prepared_bindings!(model, current, prepared; performance)
+    # Adapter snapshots do not replace live metadata. The current published
+    # owner and lifecycle delta determine the running simulation's refresh.
+    return _refresh_prepared_bindings!(model, current, nothing; performance)
 end
 
 function _index_dynamic_input_binding!(
@@ -5004,7 +5005,7 @@ function _model_spec_with_environment_hints(
     new_window = isnothing(current_window) && !isnothing(hint.window) ? hint.window : current_window
 
     (new_bindings === current_bindings && new_window === current_window) && return spec
-    return _replace_model_spec(
+    return _model_spec_with_environment_settings(
         spec;
         environment_bindings=new_bindings,
         environment_window=new_window,

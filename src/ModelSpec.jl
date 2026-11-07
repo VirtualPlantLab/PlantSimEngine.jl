@@ -16,6 +16,11 @@ selected destination objects, `every` selects application cadence, and
 and intentional duplicate-writer ordering are declared directly with
 `output_routing` and `updates`.
 
+Model-authored `Input`, `Call`, and `Initializer` defaults from `dep(model)`
+are read once when this application is constructed. Preparing its environment
+preserves those normalized declarations. Build a new specification to change
+the model's default bindings.
+
 # Example
 
 ```julia
@@ -275,7 +280,8 @@ function _build_model_spec(
     normalized_name = _normalize_application_name(name)
     normalized_on = isnothing(on) ? nothing :
                     _validate_selector_context(on, :application_target)
-    default_inputs = _model_default_value_inputs(base_model)
+    dependencies = dep(base_model)
+    default_inputs = _model_default_value_inputs(dependencies)
     explicit_inputs = _normalize_application_bindings(inputs)
     normalized_inputs = _merge_value_inputs(default_inputs, explicit_inputs)
     for selector in values(normalized_inputs)
@@ -289,7 +295,7 @@ function _build_model_spec(
         normalized_input_origins,
         :inputs,
     )
-    default_calls = _model_default_model_calls(base_model)
+    default_calls = _model_default_model_calls(dependencies)
     explicit_calls = _normalize_application_bindings(calls)
     normalized_calls = _merge_value_inputs(default_calls, explicit_calls)
     for binding in values(normalized_calls)
@@ -309,7 +315,7 @@ function _build_model_spec(
     normalized_environment_window = _normalize_environment_window(environment_window)
     normalized_output_routing = _normalize_output_routing(output_routing)
     normalized_updates = _normalize_updates(updates)
-    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(normalized_on),typeof(normalized_inputs),typeof(normalized_input_origins),typeof(normalized_calls),typeof(normalized_call_origins),typeof(normalized_outputs_to),typeof(normalized_environment),typeof(every),typeof(normalized_environment_bindings),typeof(normalized_environment_window),typeof(normalized_output_routing),typeof(normalized_updates)}(
+    return _normalized_model_spec(
         base_model,
         normalized_name,
         normalized_on,
@@ -324,6 +330,38 @@ function _build_model_spec(
         normalized_environment_window,
         normalized_output_routing,
         normalized_updates
+    )
+end
+
+# All callers provide normalized declarations. Keep the field assembly here so
+# environment resolution can preserve authored bindings without re-reading dep.
+function _normalized_model_spec(
+    model::AbstractModel, name, on, inputs, input_origins, calls, call_origins,
+    outputs_to, environment, every, environment_bindings, environment_window,
+    output_routing, updates,
+)
+    return ModelSpec(
+        model, name, on, inputs, input_origins, calls, call_origins, outputs_to,
+        environment, every, environment_bindings, environment_window,
+        output_routing, updates,
+    )
+end
+
+function _model_spec_with_environment_settings(
+    spec::ModelSpec; environment_bindings=spec.environment_bindings,
+    environment_window=spec.environment_window,
+)
+    normalized_bindings = environment_bindings === spec.environment_bindings ?
+                          spec.environment_bindings :
+                          _normalize_environment_bindings(environment_bindings)
+    normalized_window = environment_window === spec.environment_window ?
+                        spec.environment_window :
+                        _normalize_environment_window(environment_window)
+    return _normalized_model_spec(
+        spec.model, spec.name, spec.applies_to, spec.inputs, spec.input_origins,
+        spec.calls, spec.call_origins, spec.outputs_to, spec.environment,
+        spec.timestep, normalized_bindings, normalized_window,
+        spec.output_routing, spec.updates,
     )
 end
 
