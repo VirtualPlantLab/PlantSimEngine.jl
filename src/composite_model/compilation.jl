@@ -824,8 +824,8 @@ function _prepare_authored_scenario(model::CompositeModel, raw_specs)
     # ModelSpec already owns normalized Call/Initializer declarations. Prepare
     # their logical routes after every application identifier is known, without
     # replaying dep or resolving any object/scope membership.
-    declaration_applications = Tuple(record for record in authored
-        if record isa AuthoredApplicationRecipe)
+    declaration_applications = AuthoredApplicationRecipe[record for record in authored
+        if record isa AuthoredApplicationRecipe]
     call_slot = 0
     for index in eachindex(authored)
         recipe = authored[index]
@@ -1401,8 +1401,16 @@ function _freeze_scenario_application_children(applications, children)
     )
 end
 
-function _prepare_authored_scenario_graph(applications, input_plans, call_plans,
+_graph_record_vector(::Type{T}, records) where {T} =
+    records isa Vector{T} ? records : collect(T, records)
+
+function _prepare_authored_scenario_graph(application_records, input_records, call_records,
     distributed_output_plans)
+    # Graph traversal needs scalar records, not a copied heterogeneous tuple
+    # every time a generator or callback crosses an unspecialized boundary.
+    applications = _graph_record_vector(AuthoredApplicationRecipe, application_records)
+    input_plans = _graph_record_vector(CompiledModelInputPlan, input_records)
+    call_plans = _graph_record_vector(CompiledModelCallPlan, call_records)
     call_owners = _scenario_call_owners(applications, call_plans)
     manual_application_ids = Tuple(application.id for application in applications
         if !isempty(call_owners[application.id]))
@@ -1432,7 +1440,8 @@ function _prepare_authored_scenario_graph(applications, input_plans, call_plans,
         frozen_children, order, failures)
 end
 
-function _prepare_authored_scenario_program(applications)
+function _prepare_authored_scenario_program(recipes)
+    applications = _graph_record_vector(AuthoredApplicationRecipe, recipes)
     output_records = _prepare_authored_output_records(applications)
     destinations = _authored_distributed_output_plans(applications, output_records)
     input_records = _prepare_authored_input_records(applications, destinations)
