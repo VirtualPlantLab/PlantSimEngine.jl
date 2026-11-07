@@ -16,30 +16,72 @@ struct ExecutionCohortLocation{C<:AbstractExecutionCohort}
     row::Int
 end
 
+# A nominal key keeps each field's declared storage type at dictionary boundaries.
+# Tuple{Union{...},...} is not a concrete tuple layout and can leave tuple equality
+# unresolved in a native build. Owner equality and hashing retain their ordinary
+# semantics, including equal values of different types in the open store.
+struct ExecutionCohortKey{O,K}
+    owner::O
+    application_id::Symbol
+    item::K
+end
+
+@inline Base.isequal(left::ExecutionCohortKey, right::ExecutionCohortKey) =
+    isequal(left.owner, right.owner) &&
+    left.application_id === right.application_id && isequal(left.item, right.item)
+
+@inline Base.hash(key::ExecutionCohortKey, seed::UInt) =
+    hash(key.item, hash(key.application_id, hash(key.owner, seed)))
+
 """Persistent payload storage with identity/owner types independent of target types.
 
 A closed registry admits the finite identity and canonical namespace types.
 The ordinary store keeps arbitrary owners and identity types; per-application
 schemas still own every concrete target/row witness.
 """
-mutable struct ExecutionCohortStore{I<:ObjectId,O}
-    cohorts::Dict{Tuple{O,Symbol,DataType},AbstractExecutionCohort}
-    locations::Dict{Tuple{O,Symbol,I},ExecutionCohortLocation}
+mutable struct ExecutionCohortStore{I<:ObjectId,O,CK,LK}
+    cohorts::Dict{CK,AbstractExecutionCohort}
+    locations::Dict{LK,ExecutionCohortLocation}
+
+    ExecutionCohortStore{I,O,CK,LK}(cohorts::Dict{CK,AbstractExecutionCohort},
+        locations::Dict{LK,ExecutionCohortLocation}) where {I<:ObjectId,O,CK,LK} =
+        new{I,O,CK,LK}(cohorts, locations)
 end
 
-ExecutionCohortStore{I,O}() where {I<:ObjectId,O} = ExecutionCohortStore{I,O}(
-    Dict{Tuple{O,Symbol,DataType},AbstractExecutionCohort}(),
-    Dict{Tuple{O,Symbol,I},ExecutionCohortLocation}(),
-)
+ExecutionCohortStore{I,O,CK,LK}() where {I<:ObjectId,O,CK,LK} =
+    ExecutionCohortStore{I,O,CK,LK}(
+        Dict{CK,AbstractExecutionCohort}(), Dict{LK,ExecutionCohortLocation}())
+ExecutionCohortStore{I,O}() where {I<:ObjectId,O} =
+    ExecutionCohortStore{I,O,ExecutionCohortKey{O,DataType},ExecutionCohortKey{O,I}}()
+ExecutionCohortStore{I,Any}() where {I<:ObjectId} =
+    ExecutionCohortStore{I,Any,Tuple{Any,Symbol,DataType},Tuple{Any,Symbol,I}}()
 ExecutionCohortStore() = ExecutionCohortStore{ObjectId,Any}()
 ExecutionCohortStore(::ObjectFamilyStore{I,<:OpenObjectFamilyCatalog}) where {I} =
     ExecutionCohortStore()
 ExecutionCohortStore(::ObjectFamilyStore{I,<:ClosedObjectFamilyCatalog}) where {I} =
     ExecutionCohortStore{I,Union{Nothing,Tuple{Symbol,I,Symbol,Symbol}}}()
 
-_execution_store_owner_type(::Type{ExecutionCohortStore{I,O}}) where {I,O} = O
+_execution_store_owner_type(::Type{<:ExecutionCohortStore{I,O}}) where {I,O} = O
 _execution_store_owner(::ExecutionCohortStore{I,O}, owner) where {I,O} = owner::O
 _execution_store_object_id(::ExecutionCohortStore{I}, object_id) where {I} = ObjectId(object_id)::I
+
+# Open queries keep the concrete tuple literal used by the ordinary store.
+# Closed dictionaries use their declared nominal key, before the same Dict ops.
+@inline _execution_store_key(::Type{K}, owner, application_id, item) where {K<:Tuple} =
+    (owner, application_id, item)
+@inline _execution_store_key(::Type{ExecutionCohortKey{O,K}}, owner, application_id, item) where {O,K} =
+    ExecutionCohortKey{O,K}(owner, application_id, item)
+@inline _execution_cohort_key(::ExecutionCohortStore{I,O,CK}, owner, application_id, ::Type{T}) where {I,O,CK,T} =
+    _execution_store_key(CK, owner, application_id, T)
+@inline _execution_location_key(::ExecutionCohortStore{I,O,CK,LK}, owner, application_id, object_id) where {I,O,CK,LK} =
+    _execution_store_key(LK, owner, application_id, object_id)
+
+@inline _execution_key_owner(key::Tuple) = getfield(key, 1)
+@inline _execution_key_owner(key::ExecutionCohortKey) = key.owner
+@inline _execution_key_application(key::Tuple) = getfield(key, 2)
+@inline _execution_key_application(key::ExecutionCohortKey) = key.application_id
+@inline _execution_key_item(key::Tuple) = getfield(key, 3)
+@inline _execution_key_item(key::ExecutionCohortKey) = key.item
 
 """An ordered membership view over one application's concrete payload family."""
 struct ExecutionCohortRows{T,C<:ExecutionCohort{T},S<:ExecutionCohortStore} <: AbstractVector{T}
@@ -208,7 +250,7 @@ function _execution_cohort(store::ExecutionCohortStore{StoreI,O}, owner, applica
     ))
     I <: StoreI || throw(ArgumentError("The execution target identity is outside the store schema."))
     owner = _execution_store_owner(store, owner)
-    cohort = get!(store.cohorts, (owner, application_id, T)) do
+    cohort = get!(store.cohorts, _execution_cohort_key(store, owner, application_id, T)) do
         ExecutionCohort{T,I,O}(owner, application_id, Union{Nothing,T}[], Dict{I,Int}())
     end
     return cohort::ExecutionCohort{T,I,O}
@@ -246,7 +288,7 @@ function _store_execution_cohort_target!(
     else
         cohort.rows[slot] = target
     end
-    store.locations[(owner, cohort.application_id, object_id)] = ExecutionCohortLocation(cohort, slot)
+    store.locations[_execution_location_key(store, owner, cohort.application_id, object_id)] = ExecutionCohortLocation(cohort, slot)
     return slot
 end
 
@@ -355,14 +397,14 @@ end
 function cohort_location(store::ExecutionCohortStore, application_id::Symbol, object_id; owner=nothing)
     id = _execution_store_object_id(store, object_id)
     admitted_owner = _execution_store_owner(store, owner)
-    return get(store.locations, (admitted_owner, application_id, id), nothing)
+    return get(store.locations, _execution_location_key(store, admitted_owner, application_id, id), nothing)
 end
 
 """Remove an execution payload without renumbering any cohort's row slots."""
 function remove_cohort_target!(store::ExecutionCohortStore, application_id::Symbol, object_id; owner=nothing, schema=OpenExecutionCohortSchema())
     object_id = _execution_store_object_id(store, object_id)
     owner = _execution_store_owner(store, owner)
-    key = (owner, application_id, object_id)
+    key = _execution_location_key(store, owner, application_id, object_id)
     location = get(store.locations, key, nothing)
     isnothing(location) && return false
     return _with_execution_cohort_location(schema, store, location, owner, application_id, object_id) do admitted

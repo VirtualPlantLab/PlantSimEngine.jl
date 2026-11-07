@@ -66,12 +66,15 @@ function check_store(simulation, closed)
     store = simulation.temporal_streams.cohorts
     I = closed ? Union{ObjectId{Int},ObjectId{Symbol}} : ObjectId
     O = closed ? Union{Nothing,Tuple{Symbol,I,Symbol,Symbol}} : Any
-    @test typeof(store) === PSE.ExecutionCohortStore{I,O}
+    CK = closed ? PSE.ExecutionCohortKey{O,DataType} : Tuple{O,Symbol,DataType}
+    LK = closed ? PSE.ExecutionCohortKey{O,I} : Tuple{O,Symbol,I}
+    @test typeof(store) === PSE.ExecutionCohortStore{I,O,CK,LK}
+    @test typeof(typeof(store)()) === typeof(store)
     @test fieldtype(typeof(simulation.execution_plan), :cohorts) === typeof(store)
     @test (@inferred plan_cohorts(simulation.execution_plan)) === store
     @test fieldtype(typeof(simulation.temporal_streams), :cohorts) === typeof(store)
-    @test keytype(store.cohorts) === Tuple{O,Symbol,DataType}
-    @test keytype(store.locations) === Tuple{O,Symbol,I}
+    @test keytype(store.cohorts) === CK
+    @test keytype(store.locations) === LK
     for group in simulation.execution_plan.groups
         @test group.membership.store === store
         @test fieldtype(typeof(group.membership), :store) === typeof(store)
@@ -279,6 +282,83 @@ end
         @test model_status(data.model, 1).value === 0.0f0
         @test PSE.refvalue(model_status(data.model, 1), :value) === reference
     end
+end
+# This ordinary owner deliberately aliases a canonical tuple without having its
+# type. Dictionary equality must not add a type/parameter tag to the owner.
+struct OwnerAlias{T}
+    value::T
+end
+Base.isequal(left::OwnerAlias, right::OwnerAlias) = isequal(left.value, right.value)
+Base.isequal(left::OwnerAlias, right::Tuple) = isequal(left.value, right)
+Base.isequal(left::Tuple, right::OwnerAlias) = isequal(left, right.value)
+Base.hash(owner::OwnerAlias, seed::UInt) = hash(owner.value, seed)
+
+@testset "ordinary tuple keys preserve open owner equality and hashing" begin
+    data = fixture(false)
+    status = model_status(data.model, 1)
+    payload = Payload(ObjectId(1), status, Ref(1))
+    for (stored,query) in ((1,1.0),(1.0,1),
+        ((:controller,ObjectId(:root),:first,:call),
+            OwnerAlias((:controller,ObjectId(:root),:first,:call))),
+        (OwnerAlias((:controller,ObjectId(:root),:first,:call)),
+            (:controller,ObjectId(:root),:first,:call)))
+        store = PSE.ExecutionCohortStore()
+        rows = PSE.cohort_rows!(store, :leaf, [payload]; owner=stored)
+        location = PSE.cohort_location(store, :leaf, ObjectId(1); owner=query)
+        @test location.cohort === rows.cohort
+        @test location.cohort.rows[location.row] === payload
+        @test PSE._execution_cohort(store, query, :leaf, typeof(payload)) === rows.cohort
+        @test length(store.cohorts) == 1
+        stored_key = PSE._execution_location_key(store, stored, :leaf, ObjectId(1))
+        query_key = PSE._execution_location_key(store, query, :leaf, ObjectId(1))
+        @test isequal(query_key, stored_key)
+        @test hash(query_key) == hash(stored_key)
+        @test PSE.remove_cohort_target!(store, :leaf, ObjectId(1); owner=query)
+        @test isnothing(rows.cohort.rows[location.row])
+        @test isempty(store.locations)
+        @test PSE.refvalue(payload.status, :value) === PSE.refvalue(status, :value)
+    end
+end
+
+_key_value(dict, key) = get(dict, key, 0)
+
+@testset "bounded keys admit independent caller and callee identities" begin
+    I = Union{ObjectId{Int},ObjectId{Symbol}}
+    O = Union{Nothing,Tuple{Symbol,I,Symbol,Symbol}}
+    store = PSE.ExecutionCohortStore{I,O}()
+    K = PSE.ExecutionCohortKey{O,I}
+    @test isconcretetype(K)
+    @test fieldtype(K, :owner) === O
+    @test fieldtype(K, :item) === I
+    # Both cross-products are valid: caller identity is not the callee's type.
+    for (caller,callee) in ((ObjectId(:root),ObjectId(1)),(ObjectId(1),ObjectId(:leaf)))
+        first = (:controller,caller,:first,:call)
+        alias = (:controller,caller,:alias,:call)
+        scheduled = PSE._execution_location_key(store, nothing, :leaf, callee)
+        called = PSE._execution_location_key(store, first, :leaf, callee)
+        aliased = PSE._execution_location_key(store, alias, :leaf, callee)
+        @test typeof(scheduled) === typeof(called) === typeof(aliased) === K
+        @test !isequal(scheduled, called) && !isequal(called, aliased)
+        values = Dict{K,Int}(scheduled=>1,called=>2,aliased=>3)
+        @test (@inferred _key_value(values, called)) == 2
+        @test values[scheduled] == 1 && values[aliased] == 3
+        @test length(values) == 3
+    end
+    # Representation differs; owner/id semantics and the ordinary query stay exact.
+    owner = (:controller,ObjectId(:root),:first,:call)
+    bounded = PSE._execution_location_key(store, owner, :leaf, ObjectId(1))
+    open_store = PSE.ExecutionCohortStore()
+    open = @inferred PSE._execution_location_key(open_store, owner, :leaf, ObjectId(1))
+    @test open === (owner,:leaf,ObjectId(1))
+    @test typeof(open) === Tuple{typeof(owner),Symbol,ObjectId{Int}}
+    @test isequal(PSE._execution_key_owner(bounded),PSE._execution_key_owner(open))
+    @test PSE._execution_key_application(bounded) === PSE._execution_key_application(open)
+    @test PSE._execution_key_item(bounded) === PSE._execution_key_item(open)
+    @test PSE._execution_store_owner_type(typeof(store)) === O
+    @test PSE._execution_store_owner_type(typeof(open_store)) === Any
+    rebuilt = typeof(store)()
+    @test typeof(rebuilt) === typeof(store)
+    @test isempty(rebuilt.cohorts) && isempty(rebuilt.locations)
 end
 
 end

@@ -96,7 +96,10 @@ function _retire_call_cohort_targets!(storage::RuntimeStorage, binding, batches;
     owner = _execution_call_owner(binding)
     current = _call_retirement_current(schema, batches, batch_schema)
     obsolete = _call_retirement_obsolete(schema)
-    for (candidate_owner, application_id, object_id) in keys(store.locations)
+    for store_key in keys(store.locations)
+        candidate_owner = _execution_key_owner(store_key)
+        application_id = _execution_key_application(store_key)
+        object_id = _execution_key_item(store_key)
         # Preserve the original argument order for arbitrary ordinary owners.
         matches = schema isa OpenExecutionCohortSchema ? isequal(owner, candidate_owner) :
             _execution_cohort_owner_matches(schema, candidate_owner, owner)
