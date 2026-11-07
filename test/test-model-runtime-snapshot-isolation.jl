@@ -50,7 +50,7 @@ end
     register_object!(model, Object(:born; scale=:Leaf, parent=:root))
     born_snapshot = PSE._prepare_scenario_plan(model; force=true)
     @test identity(born_snapshot.plan !== plan)
-    @test ObjectId(:born) in only(PSE._scenario_applications(born_snapshot)).target_ids
+    @test ObjectId(:born) in only(PSE._scenario_applications(born_snapshot, eltype(eltype(born_snapshot.target_ids)))).target_ids
     @test identity(model.binding_cache === compiled)
     @test PSE.bindings_dirty(model)
     step!(simulation)
@@ -72,7 +72,7 @@ end
 
     remove_object!(model, :born)
     removed_snapshot = PSE._prepare_scenario_plan(model; force=true)
-    @test only(PSE._scenario_applications(removed_snapshot)).target_ids == [ObjectId(:leaf)]
+    @test only(PSE._scenario_applications(removed_snapshot, eltype(eltype(removed_snapshot.target_ids)))).target_ids == [ObjectId(:leaf)]
     step!(simulation)
     @test identity(simulation.compiled.scenario_plan === plan)
     @test model_status(model, :leaf).visits == 5

@@ -3,6 +3,11 @@ module CompilationMetadataChecks
 using PlantSimEngine, Test
 const PSE = PlantSimEngine
 
+function application_identity_from_membership(applications::Vector{PSE.CompiledModelApplication})
+    application = first(applications)
+    return (application.id, application.process)
+end
+
 PSE.@process "compiled_port_metadata" verbose=false
 struct PortProbe{C} <: AbstractCompiled_Port_MetadataModel
     declarations::C
@@ -21,6 +26,9 @@ PSE.run!(::PortProbe, status, environment, constants, context) = nothing
     simulation = run!(model; steps=0, outputs=:none)
     application = only(simulation.compiled.applications)
     prepared_count = declarations[]
+    erased = PSE.CompiledModelApplication[simulation.compiled.applications...]
+    @test (@inferred application_identity_from_membership(erased)) ==
+          (:probe, :compiled_port_metadata)
     @test PSE._model_output_names(application) === (:value, :scratch)
     @test PSE._model_canonical_output_names(application) === (:value,)
     for _ in 1:20

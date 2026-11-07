@@ -20,7 +20,7 @@ end
 """
 Object-dependent runtime state for one compiled application.
 """
-mutable struct CompiledModelApplication{P,I<:ObjectId}
+mutable struct CompiledModelApplication{P<:CompiledApplicationPlan,I<:ObjectId}
     const plan::P
     target_ids::Vector{I}
 end
@@ -927,9 +927,11 @@ function _prepared_application_targets(model, applications; copy_targets=false)
     return T[copy_targets ? copy(app.target_ids) : app.target_ids for app in applications]
 end
 
-Base.@nospecializeinfer function _scenario_applications(prepared::PreparedScenario)
+Base.@nospecializeinfer function _scenario_applications(
+    prepared::PreparedScenario, ::Type{I},
+) where {I<:ObjectId}
     @nospecialize prepared
-    return CompiledModelApplication[
+    return CompiledModelApplication{<:CompiledApplicationPlan,I}[
         CompiledModelApplication(plan, sizehint!(copy(ids), length(ids) + 1))
         for (plan, ids) in zip(prepared.plan.applications, prepared.target_ids)
     ]
@@ -1809,7 +1811,8 @@ mutable struct CompiledEnvironmentBindings{SC,AP,API,B,I,PI,OI,C}
     const sample_cache::C
     const model_revision::Int
     const environment_revision::Int
-    const compiled_applications::Vector{CompiledModelApplication}
+    # Generation identity token only; executable membership stays in compiled.applications.
+    const compiled_applications::Any
 end
 
 # Keep a stable heap identity at dynamic execution-batch boundaries. The
@@ -2396,7 +2399,8 @@ function _compile_scene(
 end
 
 function _compile_scene(model::CompositeModel, prepared::PreparedScenario; kwargs...)
-    return _compile_scene(model, prepared.plan, _scenario_applications(prepared); kwargs...)
+    applications = _scenario_applications(prepared, keytype(model.registry.objects))
+    return _compile_scene(model, prepared.plan, applications; kwargs...)
 end
 
 function _compile_scene(
@@ -5030,7 +5034,8 @@ end
 function _resolve_application_recipes(
     model::CompositeModel, recipes::Tuple, timeline; on_environment_error=nothing,
 )
-    applications = CompiledModelApplication[]
+    I = keytype(model.registry.objects)
+    applications = CompiledModelApplication{<:CompiledApplicationPlan,I}[]
     for recipe in recipes
         target_matcher = _resolve_selector_matcher(model, recipe.target_matcher)
         selector = applies_to(recipe.spec)

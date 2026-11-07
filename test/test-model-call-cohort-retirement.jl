@@ -241,7 +241,7 @@ end
     @test partial.target_ids !== applications[:leaf].target_ids
     snapshot = PSE._prepare_scenario_plan(data.model)
     @test all(ids -> eltype(ids) === I, snapshot.target_ids)
-    copied = PSE._scenario_applications(snapshot)
+    copied = PSE._scenario_applications(snapshot, eltype(eltype(snapshot.target_ids)))
     for app in copied
         @test eltype(app.target_ids) === I
         @test app.target_ids == applications[app.id].target_ids

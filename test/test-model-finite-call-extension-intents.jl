@@ -202,6 +202,44 @@ random_state(rng) = rand(copy(rng), UInt64, 8)
     end
 end
 
+@testset "prefix extension appends after a nonempty updated boundary" begin
+    for prepared in (false, true)
+        data = fixture(; prepared, wide=true)
+        simulation = data.simulation
+        target = root_target(simulation)
+        add_leaves!(data)
+        @test extend!(:prefix, target, refreshed_owners(data), simulation) === true
+        rows = [only(call_targets(target.context, name).execution_batches).targets
+            for name in MANUAL_NAMES]
+        prefix = [collect(row) for row in rows]
+        cells = [[PSE.refvalue(child.status_view.status, :value) for child in row]
+            for row in rows]
+        @test all(length(row) == 2 for row in rows)
+        for (index, kind) in enumerate((:a, :b, :c, :d, :e, :f)), offset in 2:4
+            register_object!(data.model, Object(100index + offset; kind,
+                scale=:Leaf, parent=1, status=Status(visits=0, value=0.0)))
+        end
+        owners = refreshed_owners(data)
+        before_state = state(data.model)
+        before_random = random_state(data.rng)
+        @test extend!(:prefix, target, owners, simulation) === true
+        @test state(data.model) == before_state
+        @test random_state(data.rng) == before_random
+        @test all(isempty, values(outputs(simulation)))
+        for (index, name) in enumerate(MANUAL_NAMES)
+            current = only(call_targets(target.context, name).execution_batches).targets
+            @test current === rows[index]
+            @test length(current) == 5
+            @test all(current[position] === child for (position, child) in enumerate(prefix[index]))
+            @test all(PSE.refvalue(current[position].status_view.status, :value) === cell
+                for (position, cell) in enumerate(cells[index]))
+            kind_index = name === :alias_a ? 1 : findfirst(==(name), (:a, :b, :c, :d, :e, :f))
+            @test getproperty.(collect(current), :object_id) ==
+                [ObjectId(100kind_index + offset) for offset in 0:4]
+        end
+    end
+end
+
 @testset "a later inadmissible binding rejects before any earlier append" begin
     for algorithm in (:prefix, :pure_addition), mismatch in (:type, :owner)
         data = fixture()

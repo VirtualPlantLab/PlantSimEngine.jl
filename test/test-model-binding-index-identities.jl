@@ -427,4 +427,64 @@ end
     @test messages[1] == messages[2]
 end
 
+@testset "environment compilation preserves registry IDs and broad partial membership" begin
+    for closed in (false, true)
+        data = call_fixture(closed)
+        model, simulation = data.model, data.simulation
+        I = keytype(model.registry.objects)
+        @test fieldtype(eltype(simulation.compiled.applications), :target_ids) === Vector{I}
+        prepared = PSE._prepare_scenario_plan(model)
+        copied = PSE._scenario_applications(prepared, I)
+        @test eltype(copied) === eltype(simulation.compiled.applications)
+        authored = PSE._compile_model_applications(model, model.applications, PSE._model_timeline(model))
+        @test eltype(authored) === eltype(copied)
+        for application in simulation.compiled.applications
+            ids = application.target_ids
+            @test PSE._application_target_ids(model, ids) === ids
+        end
+        leaf = simulation.compiled.applications_by_id[:leaf]
+        references = (PSE.refvalue(model_status(model, :leaf), :x),
+            PSE.refvalue(model_status(model, 1), :x))
+        before = (NamedTuple(model_status(model, :leaf)), NamedTuple(model_status(model, 1)))
+        wide = ObjectId[ObjectId(:leaf), ObjectId(1)]
+        for source in (wide, view(wide, 2:-1:1))
+            adapted = PSE._application_target_ids(model, source)
+            @test eltype(adapted) === I
+            @test adapted == collect(source)
+            @test map(typeof, adapted) == map(typeof, source)
+            partial = PSE.CompiledModelApplication(leaf.plan, ObjectId[source...])
+            bindings = PSE._compile_environment_bindings_for_applications(model,
+                PSE.CompiledModelApplication[partial],
+                simulation.environment_bindings.application_plans_by_id)
+            @test [binding.object_id for binding in bindings] == collect(source)
+            @test length(bindings) == 2 # The canonical application also owns :outside.
+            @test all(binding.plan === simulation.environment_bindings.application_plans_by_id[:leaf]
+                for binding in bindings)
+        end
+        empty_ids = PSE._application_target_ids(model, ObjectId[])
+        @test eltype(empty_ids) === I && isempty(empty_ids)
+        @test PSE.refvalue(model_status(model, :leaf), :x) === references[1]
+        @test PSE.refvalue(model_status(model, 1), :x) === references[2]
+        @test (NamedTuple(model_status(model, :leaf)), NamedTuple(model_status(model, 1))) == before
+    end
+end
+
+@testset "empty canonical application buffers retain registry identity families" begin
+    for closed in (false, true)
+        model = CompositeModel(
+            Object(:root; scale=:Plant, status=Status(visits=0)),
+            Object(1; scale=:Leaf, parent=:root, status=Status(x=3f0));
+            applications=())
+        closed && (model = close_registry(model))
+        I = keytype(model.registry.objects)
+        authored = PSE._compile_model_applications(model, model.applications, PSE._model_timeline(model))
+        prepared = PSE._prepare_scenario_plan(model)
+        copied = PSE._scenario_applications(prepared, I)
+        @test isempty(authored) && isempty(copied)
+        @test eltype(authored) === eltype(copied)
+        @test fieldtype(eltype(authored), :target_ids) === Vector{I}
+        @test model_status(model, 1).x === 3f0
+    end
+end
+
 end

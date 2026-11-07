@@ -593,7 +593,8 @@ struct CallTargetsPreparation{CS,EB,TS,OR,C}
     constants::C
     model_revision::Int
     environment_revision::Int
-    compiled_applications::Vector{CompiledModelApplication}
+    # The actual vector is an identity token, never a source of executable data.
+    compiled_applications::Any
     membership_reference::Base.RefValue{UInt64}
     membership_generation::UInt64
 end
@@ -4109,8 +4110,9 @@ function _extend_execution_target_call_batches_by_prefix!(
                     end
                     existing_count == length(current_ids) && return true
                     admission = _call_cohort_admission(application_schema, OpenExecutionCohortSchema())
+                    first_new_index = existing_count + 1
                     return _with_execution_batch(application_schema, last(batches)) do destination_batch
-                        for index in (existing_count + 1):lastindex(current_ids)
+                        for index in first_new_index:lastindex(current_ids)
                             object_id = current_ids[index]
                             execution_target = _compiled_model_execution_target(
                                 compiled, env_bindings, application, object_id,

@@ -73,9 +73,9 @@ end
     @test model_object(model, :sensor).status === initial_status
 
     # A lowering may assemble target vectors, but those vectors belong to that execution.
-    left_apps = PlantSimEngine._scenario_applications(prepared)
+    left_apps = PlantSimEngine._scenario_applications(prepared, eltype(eltype(prepared.target_ids)))
     empty!(only(app for app in left_apps if app.id == :reader_a).target_ids)
-    right_apps = PlantSimEngine._scenario_applications(prepared)
+    right_apps = PlantSimEngine._scenario_applications(prepared, eltype(eltype(prepared.target_ids)))
     @test only(app for app in right_apps if app.id == :reader_a).target_ids == [ObjectId(:sensor)]
 
     copied_model = deepcopy(model)
@@ -104,18 +104,18 @@ end
     register_object!(model, Object(:extra; scale=:Sensor, parent=:plant_b, status=Status(lagged=-1.0)))
     added = PlantSimEngine._prepare_scenario_plan(model)
     @test added !== first
-    @test only(app for app in PlantSimEngine._scenario_applications(added) if app.id == :reader_b).target_ids ==
+    @test only(app for app in PlantSimEngine._scenario_applications(added, eltype(eltype(added.target_ids))) if app.id == :reader_b).target_ids ==
           [ObjectId(:extra)]
 
     reparent_object!(model, :sensor, :plant_b)
     moved = PlantSimEngine._prepare_scenario_plan(model)
     @test moved !== added
-    @test isempty(only(app for app in PlantSimEngine._scenario_applications(moved) if app.id == :reader_a).target_ids)
+    @test isempty(only(app for app in PlantSimEngine._scenario_applications(moved, eltype(eltype(moved.target_ids))) if app.id == :reader_a).target_ids)
 
     remove_object!(model, :extra)
     removed = PlantSimEngine._prepare_scenario_plan(model)
     @test removed !== moved
-    @test only(app for app in PlantSimEngine._scenario_applications(removed) if app.id == :reader_b).target_ids ==
+    @test only(app for app in PlantSimEngine._scenario_applications(removed, eltype(eltype(removed.target_ids))) if app.id == :reader_b).target_ids ==
           [ObjectId(:sensor)]
 
     cached_sim = run!(model; steps=4, outputs=:all)
@@ -128,7 +128,7 @@ end
     # A live simulation still handles additions through its incremental refresh.
     register_object!(model, Object(:new_sensor; scale=:Sensor, parent=:plant_a, status=Status(lagged=-1.0)))
     pending = PlantSimEngine._prepare_scenario_plan(model)
-    @test only(app for app in PlantSimEngine._scenario_applications(pending) if app.id == :reader_a).target_ids ==
+    @test only(app for app in PlantSimEngine._scenario_applications(pending, eltype(eltype(pending.target_ids))) if app.id == :reader_a).target_ids ==
           [ObjectId(:new_sensor)]
     continue!(cached_sim; steps=1)
     @test cached_sim.compiled.scenario_plan === removed.plan
