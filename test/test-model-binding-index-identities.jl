@@ -453,9 +453,11 @@ end
             @test adapted == collect(source)
             @test map(typeof, adapted) == map(typeof, source)
             partial = PSE.CompiledModelApplication(leaf.plan, ObjectId[source...])
+            target_ids = partial.target_ids
             bindings = PSE._compile_environment_bindings_for_applications(model,
                 PSE.CompiledModelApplication[partial],
                 simulation.environment_bindings.application_plans_by_id)
+            @test partial.target_ids === target_ids
             @test [binding.object_id for binding in bindings] == collect(source)
             @test length(bindings) == 2 # The canonical application also owns :outside.
             @test all(binding.plan === simulation.environment_bindings.application_plans_by_id[:leaf]
