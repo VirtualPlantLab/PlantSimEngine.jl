@@ -105,8 +105,17 @@ function _evaluate_call_targets!(targets::AbstractVector{<:CallTarget}, sampled_
     # Targeted newborn execution has lightweight individual views before the
     # lifecycle barrier installs the ordinary compiled batch.
     for target in targets
-        _run_call!(_evaluation_target(target), true, sampled_environment, environment)
+        _with_call_target_entry(targets, target) do actual
+            _run_call!(_evaluation_target(actual), true, sampled_environment, environment)
+        end
     end
+    return nothing
+end
+
+# Base.empty!(IdDict) allocates a fresh table. Its one-pass filter removes
+# current identities in place; insertion handles eventual tombstone cleanup.
+function _clear_call_execution_stamps!(frame::CallEvaluationFrame)
+    filter!(_ -> false, frame.executions)
     return nothing
 end
 
@@ -115,7 +124,7 @@ function _begin_call_evaluation!(frame, compiled, time, permission)
     frame.pending = false
     frame.in_use = true
     empty!(frame.events)
-    empty!(frame.executions)
+    _clear_call_execution_stamps!(frame)
     frame.task_identity = _call_evaluation_task_identity!()
     frame.compiled = compiled
     frame.model_revision = compiled.model.revision
@@ -142,7 +151,7 @@ function _with_call_evaluation(f, frame)
         return result
     catch
         empty!(frame.events)
-        empty!(frame.executions)
+        _clear_call_execution_stamps!(frame)
         frame.task_identity = nothing
         frame.parent = nothing
         rethrow()
@@ -241,8 +250,8 @@ call_targets(evaluation::CallEvaluation) = evaluation.targets
     return nothing
 end
 
-@noinline _call_execution_matches(cache::CallContextCache, executions::Dict{Any,UInt64}) =
-    cache.execution_revision == executions[cache]
+@noinline _call_execution_matches(stamp::Base.RefValue{UInt64},
+    executions::IdDict{Base.RefValue{UInt64},UInt64}) = stamp[] == executions[stamp]
 
 function _validate_call_evaluation(evaluation::CallEvaluation)
     frame = evaluation.frame
@@ -251,8 +260,8 @@ function _validate_call_evaluation(evaluation::CallEvaluation)
     frame.pending && frame.generation == evaluation.generation ||
         throw(ArgumentError("Call evaluation is stale or has already been accepted."))
     _validate_call_model_state(frame, frame.compiled)
-    for cache in keys(frame.executions)
-        _call_execution_matches(cache, frame.executions) ||
+    for stamp in keys(frame.executions)
+        _call_execution_matches(stamp, frame.executions) ||
             throw(ArgumentError("Call evaluation is stale after another execution of its targets."))
     end
     frame.parent === _active_call_evaluation() ||
@@ -310,7 +319,7 @@ function accept_call!(evaluation::CallEvaluation)
         # Keep prepared capacity, but release consumed snapshots. Published
         # streams or the parent journal now own the captured values.
         empty!(frame.events)
-        empty!(frame.executions)
+        _clear_call_execution_stamps!(frame)
         frame.task_identity = nothing
         frame.parent = nothing
     end

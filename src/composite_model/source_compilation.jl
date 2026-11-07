@@ -589,6 +589,7 @@ function _compiled_source_module_path(source_module::Module)
         parent === current && break
         current = parent
     end
+    current === Main && pushfirst!(names, :Main)
     return join(string.(names), ".")
 end
 
@@ -944,9 +945,9 @@ function _compiled_source_prepare_target!(
     shared_environment,
 )
     status = isempty(target.input_bindings) ?
-             target.status :
+             target.status_view.status :
              _materialize_model_inputs!(
-        target.status,
+        target.status_view.status,
         target.input_bindings,
         simulation.compiled,
         application,
@@ -968,10 +969,13 @@ function _compiled_source_prepare_target!(
         target.object_id,
         target.bound_inputs,
         target.output_targets,
+        target.call_bindings,
         simulation.temporal_streams,
         simulation.output_retention,
         time,
         simulation.constants,
+        true,
+        _NO_ENVIRONMENT_OVERRIDE,
     )
     return status, environment, context
 end
@@ -1029,7 +1033,7 @@ function _compiled_source_run_call_target!(
 )
     _record_call_execution!(target.call_context_cache, frame)
     status = _materialize_model_inputs!(
-        target.status,
+        target.status_view.status,
         target.input_bindings,
         targets.compiled,
         application,
@@ -1056,6 +1060,7 @@ function _compiled_source_run_call_target!(
         target.object_id,
         target.bound_inputs,
         target.output_targets,
+        target.call_bindings,
         targets.temporal_streams,
         targets.output_retention,
         targets.time,
@@ -1214,12 +1219,16 @@ function _compiled_source_run_initializer!(
         "Initializer `$(name)` cannot run inside a non-publishing hard call. " *
         "Keep its creator application root-scheduled.",
     )
+    requested_ids = _call_target_object_ids(runtime_model(context), object)
+    return _with_named_call(_selected_source_initializer!, context.calls, name, context,
+        source_id, requested_ids)
+end
+
+function _selected_source_initializer!(cached_targets, context::RunContext,
+    name::Symbol, source_id::Val, requested_ids)
     model = runtime_model(context)
-    requested_ids = _call_target_object_ids(model, object)
     targets = _targeted_new_object_call_targets(
-        context,
-        name,
-        requested_ids;
+        context, name, requested_ids, _synchronized_named_call(cached_targets, context, name);
         initializer=true,
     )
     target = only(targets)

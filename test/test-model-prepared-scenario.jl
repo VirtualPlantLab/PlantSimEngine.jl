@@ -132,7 +132,7 @@ end
           [ObjectId(:new_sensor)]
     continue!(cached_sim; steps=1)
     @test cached_sim.compiled.scenario_plan === removed.plan
-    @test cached_sim.compiled.applications_by_id.reader_a.target_ids == [ObjectId(:new_sensor)]
+    @test cached_sim.compiled.applications_by_id[:reader_a].target_ids == [ObjectId(:new_sensor)]
     @test PlantSimEngine._prepare_scenario_plan(model).plan === cached_sim.compiled.scenario_plan
     @test haskey(outputs(cached_sim), (:reader_a, ObjectId(:new_sensor), :observed))
 end
@@ -160,7 +160,7 @@ end
     @test ongoing.compiled.scenario_plan.timeline.base_step_seconds == 3600.0
     restarted = run!(continued_model; steps=0)
     @test restarted.compiled.scenario_plan.timeline.base_step_seconds == 7200.0
-    @test restarted.compiled.scenario_plan.applications_by_id.producer.clock.dt == 1.0
+    @test restarted.compiled.scenario_plan.applications_by_id[:producer].clock.dt == 1.0
     @test ongoing.compiled.scenario_plan.timeline.base_step_seconds == 3600.0
 
     authored = prepared_scenario_fixture()
@@ -176,8 +176,8 @@ end
     ))
     changed = PlantSimEngine._prepare_scenario_plan(edited)
     @test PlantSimEngine._prepare_scenario_plan(authored) === original
-    @test original.plan.applications_by_id.producer.clock.dt == 2.0
-    @test changed.plan.applications_by_id.producer.clock.dt == 3.0
+    @test original.plan.applications_by_id[:producer].clock.dt == 2.0
+    @test changed.plan.applications_by_id[:producer].clock.dt == 3.0
     edited_sim = run!(edited; steps=6, outputs=:all)
     fresh = prepared_scenario_fixture(; cadence=Hour(3), seed=37, reader_scope=Scope(:plant_b))
     @test edited_sim.compiled.scenario_plan === changed.plan

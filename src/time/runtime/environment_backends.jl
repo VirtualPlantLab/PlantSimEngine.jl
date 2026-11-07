@@ -199,6 +199,14 @@ Sample one environmental variable through an opaque compiled backend `handle`.
 The four-argument method reads the backend's committed state. The five-argument
 method reads a transient backend-specific `state` supplied through
 `run_call!(context, name; environment=state)`.
+
+`time` is an index on the simulation's base-step clock. Per-target backend
+sampling uses `float(step)` consistently, independently of output retention and
+performance instrumentation. Global forcing rows retain their scheduler-step
+lookup. Backends should accept an appropriate `Real` clock. The ordinary
+scheduler normalizes integer steps to `Float64`; already floating per-target
+clocks retain their representation. Hard calls use the `Float64` clock captured
+by their runtime context.
 """
 function sample(backend::AbstractEnvironmentBackend, handle, variable::Symbol, time)
     error(
@@ -348,12 +356,15 @@ function sample_environment(backend::GlobalConstant, handle, state, time, variab
     return _environment_row_at_step(state, Int(round(time)))
 end
 
-function _environment_sampling_rules(model_spec::ModelSpec)
+function _environment_sampling_configuration(model_spec::ModelSpec)
     bindings = environment_bindings(model_spec)
     bindings = bindings isa NamedTuple ? bindings : NamedTuple()
-    environment_sources = _environment_source_overrides(model_spec)
+    return bindings, _environment_source_overrides(model_spec)
+end
+
+function _environment_sampling_rules(bindings, environment_sources, input_names)
     rules = Pair{Symbol,Symbol}[]
-    for target in keys(environment_inputs_(model_spec))
+    for target in input_names
         source = target
         if haskey(bindings, target)
             rule = bindings[target]
@@ -382,12 +393,12 @@ function _environment_source_overrides(model_spec::ModelSpec)
 end
 
 function PreparedEnvironmentInputs(model_spec::ModelSpec)
-    rules = _environment_sampling_rules(model_spec)
+    bindings, environment_sources = _environment_sampling_configuration(model_spec)
+    input_names = _environment_variable_names(environment_inputs_(model_spec))
+    rules = _environment_sampling_rules(bindings, environment_sources, input_names)
     targets = Tuple(first(rule) for rule in rules)
     sources = Tuple(last(rule) for rule in rules)
-    bindings = environment_bindings(model_spec)
-    raw_global_source = !(bindings isa NamedTuple && !isempty(keys(bindings))) &&
-                        isempty(keys(_environment_source_overrides(model_spec)))
+    raw_global_source = isempty(keys(bindings)) && isempty(keys(environment_sources))
     return PreparedEnvironmentInputs(targets, sources; raw_global_source)
 end
 

@@ -86,7 +86,7 @@ end
     @test only(explain_bindings(model)).source_ids == [:leaf_a, :leaf_b]
     @test Advanced.bindings_dirty(model)
     @test Advanced.environment_bindings_dirty(model)
-    @test simulation.compiled.applications_by_id.source.target_ids == [ObjectId(:leaf_a)]
+    @test simulation.compiled.applications_by_id[:source].target_ids == [ObjectId(:leaf_a)]
     @test binding.source_ids == [ObjectId(:leaf_a)]
     @test input_carrier(binding) === carrier
     @test outputs(simulation)[stream_key] === retained

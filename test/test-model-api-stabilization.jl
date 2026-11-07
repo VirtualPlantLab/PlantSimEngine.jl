@@ -814,7 +814,7 @@ end
     Advanced.refresh_environment_bindings!(model)
     register_object!(model, Object(:leaf_1; scale=:Leaf, parent=:scene))
     first_refresh = Advanced.refresh_bindings!(model)
-    @test first_refresh.applications_by_id.source.target_ids ==
+    @test first_refresh.applications_by_id[:source].target_ids ==
           ObjectId[ObjectId(:leaf_1)]
     after_binding_refresh = Advanced.lifecycle_delta(model)
     @test after_binding_refresh.structural_kind == :clean
@@ -829,7 +829,7 @@ end
     @test Tuple(snapshot.id for snapshot in pending.added) ==
           (ObjectId(:leaf_1), ObjectId(:leaf_2))
     Advanced.refresh_environment_bindings!(model)
-    @test Advanced.compiled_bindings(model).applications_by_id.source.target_ids ==
+    @test Advanced.compiled_bindings(model).applications_by_id[:source].target_ids ==
           ObjectId.([:leaf_1, :leaf_2])
     @test Advanced.lifecycle_delta(model).structural_kind == :clean
     @test isempty(Advanced.lifecycle_delta(model).added)
@@ -1672,11 +1672,13 @@ end
 
     @test !ismutabletype(typeof(scenario_plan))
     @test !ismutabletype(typeof(application_plan))
-    @test !ismutabletype(typeof(application_schedule))
+    @test ismutabletype(typeof(application_schedule))
+    @test all(name -> isconst(typeof(application_schedule), name),
+        fieldnames(typeof(application_schedule)))
     @test !ismutabletype(typeof(only(application_schedule.entries)))
     @test ismutabletype(typeof(application))
     @test isconst(typeof(application), :plan)
-    @test compiled.applications_by_id isa NamedTuple
+    @test compiled.applications_by_id isa PlantSimEngine.CompiledMetadataTable
     @test scenario_plan.call_owners isa NamedTuple
     @test scenario_plan.application_children isa NamedTuple
     @test scenario_plan.manual_application_ids == ()
@@ -2114,7 +2116,7 @@ end
         Object(:leaf_2; scale=:Leaf, parent=:plant),
     )
     @test ObjectId(:leaf_2) ∉
-          simulation.compiled.applications_by_id.source.target_ids
+          simulation.compiled.applications_by_id[:source].target_ids
     pending_delta = Advanced.lifecycle_delta(model)
     @test pending_delta.structural_kind == :addition
     @test only(pending_delta.added).id == ObjectId(:leaf_2)
@@ -2745,11 +2747,11 @@ end
         simulation.output_retention,
         nothing,
         false,
-    ) === float32_target.status
+    ) === float32_target.status_view.status
     @test float32_target.context.time == Float64(float32_time)
 end
 
-@testset "execution plan addition falls back when a group is created" begin
+@testset "execution plan creates an initially empty application group" begin
     model = CompositeModel(
         Object(:scene; scale=:Scene);
         applications=(
@@ -2786,7 +2788,7 @@ end
     @test model_object(model, :leaf_1).status.signal == 1.0
 end
 
-@testset "execution plan pure-addition staging is transactional" begin
+@testset "execution plan extends only the affected concrete runs" begin
     context_models = PlantSimEngine.ObjectModelOverrides(
         StabilizationContextModel(),
         Dict(
@@ -2818,10 +2820,21 @@ end
         if group.application.id == :leaf_source
     )
     original_source_batch = only(original_source_group.batches)
+    original_targets = Dict(
+        (batch.application.id, target.object_id) => target
+        for batch in original_batches for target in batch.targets
+    )
+    original_locations = Dict(
+        key => PlantSimEngine.cohort_location(simulation.execution_plan.cohorts, key...)
+        for key in keys(original_targets)
+    )
     original_context_group = only(
         group for group in original_groups
         if group.application.id == :leaf_context
     )
+    # The group is the live mutable owner. Save its ordered wrappers so later
+    # identity assertions do not compare a refreshed owner with itself.
+    original_context_batches = copy(original_context_group.batches)
     @test [
         [target.object_id for target in batch.targets]
         for batch in original_context_group.batches
@@ -2833,16 +2846,15 @@ end
     )
     continue!(simulation)
 
-    # The first application was append-compatible, but the second needed a
-    # new concrete batch. Global staging must leave both old groups untouched
-    # before the general fallback replaces the plan.
+    # The source keeps its group and batch. The context family recurs after
+    # the override, so only that additional ordered run needs a new wrapper.
     @test [target.object_id for target in original_source_batch.targets] ==
-          ObjectId.([:leaf_a, :leaf_z])
+          ObjectId.([:leaf_a, :leaf_z, :leaf_zz])
     @test [
         [target.object_id for target in batch.targets]
-        for batch in original_context_group.batches
+        for batch in original_context_batches
     ] == [ObjectId.([:leaf_a]), ObjectId.([:leaf_z])]
-    @test simulation.execution_plan.groups !== original_groups
+    @test simulation.execution_plan.groups === original_groups
     @test simulation.execution_plan.batches !== original_batches
 
     refreshed_source_group = only(
@@ -2853,6 +2865,24 @@ end
         group for group in simulation.execution_plan.groups
         if group.application.id == :leaf_context
     )
+    @test refreshed_source_group === original_source_group
+    @test only(refreshed_source_group.batches) === original_source_batch
+    @test refreshed_context_group === original_context_group
+    @test refreshed_context_group.batches[1] === original_context_batches[1]
+    @test refreshed_context_group.batches[2] === original_context_batches[2]
+    @test refreshed_context_group.batches[3].targets.cohort ===
+          original_context_batches[1].targets.cohort
+    for batch in simulation.execution_plan.batches, target in batch.targets
+        key = (batch.application.id, target.object_id)
+        haskey(original_targets, key) || continue
+        previous_target = original_targets[key]
+        @test target === previous_target
+        @test target.context === previous_target.context
+        @test target.context.compiled === simulation.compiled
+        location = PlantSimEngine.cohort_location(simulation.execution_plan.cohorts, key...)
+        @test location.cohort === original_locations[key].cohort
+        @test location.row == original_locations[key].row
+    end
     @test [
         target.object_id for batch in refreshed_source_group.batches
         for target in batch.targets
@@ -2867,13 +2897,89 @@ end
     ]
     performance = Advanced.runtime_performance(simulation)
     @test performance.counts[:execution_targets_constructed] == 2
-    @test performance.counts[:execution_batches_constructed] == 4
+    @test performance.counts[:execution_batches_constructed] == 1
     @test get(
         performance.counts,
         :execution_groups_updated_in_place,
         0,
-    ) == 0
+    ) == 2 # source append and the context family's additional ordered run
     @test model_object(model, :leaf_zz).status.signal == 1.0
+    @test model_object(model, :leaf_a).status.signal == 2.0
+    @test model_object(model, :leaf_z).status.signal == 2.0
+end
+
+@testset "a newborn payload family preserves unrelated groups and row owners" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf_1; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(StabilizationSourceModel(); name=:leaf_source, on=Many(scale=:Leaf)),
+            ModelSpec(StabilizationSourceModel(); name=:scene_source, on=One(scale=:Scene)),
+        ),
+    )
+    simulation = run!(model; outputs=:none, performance=true)
+    old_leaf_group = only(group for group in simulation.execution_plan.groups
+                          if group.application.id == :leaf_source)
+    old_scene_group = only(group for group in simulation.execution_plan.groups
+                           if group.application.id == :scene_source)
+    old_leaf_batch = only(old_leaf_group.batches)
+    old_scene_batch = only(old_scene_group.batches)
+    old_leaf_target = only(old_leaf_batch.targets)
+    old_scene_target = only(old_scene_batch.targets)
+    old_leaf_location = PlantSimEngine.cohort_location(
+        simulation.execution_plan.cohorts, :leaf_source, ObjectId(:leaf_1),
+    )
+    register_object!(model, Object(
+        :leaf_2; scale=:Leaf, parent=:scene, status=Status(signal=0.0f0),
+    ))
+    continue!(simulation)
+    leaf_group = only(group for group in simulation.execution_plan.groups
+                      if group.application.id == :leaf_source)
+    scene_group = only(group for group in simulation.execution_plan.groups
+                       if group.application.id == :scene_source)
+    @test scene_group === old_scene_group
+    @test only(scene_group.batches) === old_scene_batch
+    @test only(old_scene_batch.targets) === old_scene_target
+    @test length(leaf_group.batches) == 2
+    @test first(leaf_group.batches) === old_leaf_batch
+    @test only(first(leaf_group.batches).targets) === old_leaf_target
+    @test last(leaf_group.batches).targets.cohort !== old_leaf_batch.targets.cohort
+    @test PlantSimEngine.cohort_location(
+        simulation.execution_plan.cohorts, :leaf_source, ObjectId(:leaf_1),
+    ) === old_leaf_location
+    @test model_object(model, :leaf_1).status.signal == 2.0
+    @test model_object(model, :leaf_2).status.signal === 1.0f0
+    @test model_object(model, :scene).status.signal == 2.0
+    performance = Advanced.runtime_performance(simulation)
+    @test performance.counts[:execution_targets_constructed] == 1
+    @test performance.counts[:execution_batches_constructed] == 1
+    @test performance.counts[:execution_groups_reused] == 1
+
+    # The new family now occurs before and after the surviving first family.
+    # Its later view must remain reserved for its existing batch.
+    later_float32_batch = last(leaf_group.batches)
+    later_float32_target = only(later_float32_batch.targets)
+    register_object!(model, Object(
+        :leaf_0; scale=:Leaf, parent=:scene, status=Status(signal=0.0f0),
+    ))
+    continue!(simulation)
+    recurring_group = only(group for group in simulation.execution_plan.groups
+                           if group.application.id == :leaf_source)
+    @test length(recurring_group.batches) == 3
+    @test recurring_group.batches[2] === old_leaf_batch
+    @test recurring_group.batches[3] === later_float32_batch
+    @test only(recurring_group.batches[3].targets) === later_float32_target
+    @test recurring_group.batches[1].targets !== later_float32_batch.targets
+    @test recurring_group.batches[1].targets.cohort === later_float32_batch.targets.cohort
+    @test [target.object_id for batch in recurring_group.batches for target in batch.targets] ==
+          ObjectId.([:leaf_0, :leaf_1, :leaf_2])
+    @test model_object(model, :leaf_0).status.signal === 1.0f0
+    @test model_object(model, :leaf_1).status.signal == 3.0
+    @test model_object(model, :leaf_2).status.signal === 2.0f0
+    @test model_object(model, :scene).status.signal == 3.0
+    performance = Advanced.runtime_performance(simulation)
+    @test performance.counts[:execution_targets_constructed] == 2
+    @test performance.counts[:execution_batches_constructed] == 2
 end
 
 function stabilization_lifecycle_scene(nleaves_per_plant)

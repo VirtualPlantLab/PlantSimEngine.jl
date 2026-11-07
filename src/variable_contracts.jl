@@ -87,8 +87,7 @@ function _declared_contract_variable_names(model)
     return declared
 end
 
-function _validate_variable_contract_names(model, schema)
-    declared = _declared_contract_variable_names(model)
+function _validate_variable_contract_names(model, schema, declared)
     unknown = Tuple(name for name in keys(schema) if name ∉ declared)
     isempty(unknown) || return _invalid_variable_contract_schema_error(
         model,
@@ -103,7 +102,7 @@ end
     error("`variable_contracts_($(typeof(model)))` $(message)")
 end
 
-function _variable_contract_schema(model)
+function _variable_contract_declarations(model)
     schema = variable_contracts_(model)
     schema isa NamedTuple || return _invalid_variable_contract_schema_error(
         model,
@@ -122,7 +121,12 @@ function _variable_contract_schema(model)
             ", ",
         ) * ".",
     )
-    return _validate_variable_contract_names(model, schema)
+    return schema
+end
+
+function _variable_contract_schema(model)
+    schema = _variable_contract_declarations(model)
+    return _validate_variable_contract_names(model, schema, _declared_contract_variable_names(model))
 end
 
 function _variable_contract(model, variable::Symbol)

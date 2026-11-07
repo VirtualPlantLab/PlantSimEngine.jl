@@ -47,8 +47,7 @@ include("composite_model_api.jl")
 # Time-step table adapter:
 include("component_models/TimeStepTable.jl")
 
-# Model application configuration:
-include("ModelSpec.jl")
+# CompositeModel display:
 include("composite_model/display.jl")
 
 # Model evaluation (statistics):
