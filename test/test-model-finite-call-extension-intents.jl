@@ -284,4 +284,62 @@ end
     @test only(raw) == (rows, candidate)
 end
 
+
+call_key(target) = (target.application.id, target.object_id.value)
+
+@testset "six real newborn call families retain finite metadata through execution" begin
+    ordinary, prepared = fixture(; prepared=false, wide=true), fixture(; wide=true)
+    for (data, closed) in ((ordinary, false), (prepared, true))
+        simulation = data.simulation
+        step!(simulation)
+        context = root_target(simulation).context
+        cached = call_targets(context, :all)
+        current_owner = context.environment_bindings
+        add_leaves!(data)
+        requested = [ObjectId(100index + 1) for index in 1:6]
+        cells = [PSE.refvalue(model_status(data.model, id), :value) for id in requested]
+        before_state = state(data.model)
+        before_random = random_state(data.rng)
+        locations = copy(simulation.temporal_streams.cohorts.locations)
+        targets = call_targets(context, :all; objects=requested)
+        @test getproperty.(targets, :object_id) == requested
+        @test state(data.model) == before_state
+        @test random_state(data.rng) == before_random
+        @test simulation.temporal_streams.cohorts.locations == locations
+        partial_owner = first(targets).environment_bindings
+        @test partial_owner !== current_owner
+        @test typeof(partial_owner) === typeof(current_owner) ===
+            fieldtype(typeof(cached), :environment_bindings)
+        @test all(target -> target.environment_bindings === partial_owner, targets)
+        @test context.environment_bindings === current_owner
+        if closed
+            @test length(Base.uniontypes(eltype(targets))) == 6
+            @test all(isconcretetype, Base.uniontypes(eltype(targets)))
+            @test fieldtype(typeof(context), :environment_bindings) === typeof(current_owner)
+            @test all(target -> fieldtype(typeof(target.context_cache.default),
+                :environment_bindings) === typeof(partial_owner), targets)
+            for (index, target) in enumerate(targets)
+                @test (@inferred PSE._with_call_target_entry(call_key, targets, target)) ===
+                    (APP_NAMES[index], 100index + 1)
+            end
+        else
+            @test eltype(targets) === CallTarget
+        end
+        for (index, target) in enumerate(targets)
+            @test target.canonical_status === model_status(data.model, requested[index])
+            @test PSE.refvalue(target.status, :value) === cells[index]
+            @test target.status.visits == 0
+        end
+        run_call!(context, :all; objects=requested, publish=false)
+        @test all(id -> model_status(data.model, id).visits == 1, requested)
+        @test simulation.temporal_streams.cohorts.locations == locations
+        continue!(simulation; steps=1)
+        @test all(PSE.refvalue(model_status(data.model, id), :value) === cell
+            for (id, cell) in zip(requested, cells))
+    end
+    @test state(prepared.model) == state(ordinary.model)
+    @test random_state(prepared.rng) == random_state(ordinary.rng)
+    @test collect_outputs(prepared.simulation) == collect_outputs(ordinary.simulation)
+end
+
 end # module FiniteCallExtensionIntentChecks

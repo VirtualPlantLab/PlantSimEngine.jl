@@ -15,7 +15,9 @@ struct GrowthController <: AbstractClosure_ControllerModel
     birth_day::Base.RefValue{Int}
     seed::Base.RefValue{Float64}
 end
-struct LeafState <: AbstractClosure_LeafModel end
+struct LeafState <: AbstractClosure_LeafModel
+    fail_after_mutation::Bool
+end
 
 PSE.inputs_(::Pulse) = NamedTuple()
 PSE.outputs_(::Pulse) = (rate=0.0,)
@@ -56,9 +58,10 @@ function PSE.run!(model::GrowthController, status, environment, constants, conte
     return nothing
 end
 
-function PSE.run!(::LeafState, status, environment, constants, context)
+function PSE.run!(model::LeafState, status, environment, constants, context)
     status.value += status.seed
     status.visits += 1
+    model.fail_after_mutation && error("leaf initialization failed after mutation")
     return nothing
 end
 
@@ -74,7 +77,7 @@ function make_hardcall()
     )
 end
 
-function make_growth()
+function make_growth(; environment=nothing, fail_initializer=false)
     birth_day = Ref(2)
     seed = Ref(3.0)
     model = CompositeModel(Object(:owner; scale=:Scene,
@@ -88,9 +91,9 @@ function make_growth()
                     pulse=One(within=Self(), application=:pulse),
                     initialize=Initializer(One(within=Subtree(), scale=:Leaf, application=:leaf)),
                 )),
-            ModelSpec(LeafState(); name=:leaf, on=Many(scale=:Leaf)),
+            ModelSpec(LeafState(fail_initializer); name=:leaf, on=Many(scale=:Leaf)),
             ModelSpec(Pulse(); name=:pulse, on=One(id=:owner)),
-        ),
+        ), environment,
     )
     return (; model, birth_day, seed)
 end
@@ -127,7 +130,7 @@ function future_leaf_batch_type(simulation)
     compiled = simulation.compiled
     application = compiled.applications_by_id[:leaf]
     environment_plan = simulation.environment_bindings.application_plans_by_id[:leaf]
-    @assert environment_plan.backend isa PSE.GlobalConstant{Nothing}
+    @assert environment_plan.backend isa PSE.GlobalConstant
     @assert environment_plan.uses_raw_global_source
     @assert isempty(application.target_ids)
     Empty = NamedTuple{(),Tuple{}}
@@ -137,7 +140,7 @@ function future_leaf_batch_type(simulation)
     View = PSE.CompiledModelStatusView{LeafFullStatus,LeafFullStatus,Tuple{},Empty,Empty}
     Context = PSE.RunContext{typeof(compiled),typeof(application),Tuple{},Empty,Empty,
         typeof(simulation.temporal_streams),typeof(simulation.output_retention),
-        typeof(simulation.constants),PSE.NoEnvironmentOverride,I}
+        typeof(simulation.constants),PSE.NoEnvironmentOverride,I,typeof(simulation.environment_bindings)}
     Binding = PSE.CompiledEnvironmentBinding{typeof(environment_plan),Nothing,PSE.EnvironmentContext{I}}
     Target = PSE.CompiledExecutionTarget{typeof(PSE.model_(application.spec)),View,
         Tuple{},Empty,Empty,Tuple{},Tuple{},Binding,Context,I}
@@ -145,11 +148,12 @@ function future_leaf_batch_type(simulation)
     Owner = PSE._execution_store_owner_type(Store)
     Rows = PSE.ExecutionCohortRows{Target,PSE.ExecutionCohort{Target,I,Owner},Store}
     return PSE.CompiledExecutionBatch{typeof(application),Rows,
-        PSE.RawGlobalModelEnvironment{Nothing},PSE.CompiledOutputPublication{Tuple{}}}
+        PSE.RawGlobalModelEnvironment{typeof(environment_plan.prepared_source)},
+        PSE.CompiledOutputPublication{Tuple{}}}
 end
 
-function prepare_schema_growth()
-    setup = make_growth()
+function prepare_schema_growth(; environment=nothing, fail_initializer=false)
+    setup = make_growth(; environment, fail_initializer)
     model = with_closed_registry(setup.model;future=(LeafSeedStatus,LeafFullStatus))
     simulation = run!(model;steps=0,outputs=:none)
     controller = only(simulation.execution_plan.groups)
@@ -213,6 +217,109 @@ end
                 payload.status_view.execution_stamp
         end
     end
+end
+
+
+call_key(target) = (target.application.id, target.object_id.value)
+
+@testset "prepared newborn views retain current and private environment owners" begin
+    for environment in (nothing, (T=3f0,))
+        state = prepare_schema_growth(; environment)
+        state.birth_day[] = 100 # The test registers its real target explicitly.
+        simulation = state.simulation
+        step!(simulation) # Obtain a context invoked by the actual root kernel.
+        controller = only(group for group in simulation.execution_plan.groups
+            if group.application.id === :controller)
+        context = only(only(controller.batches).targets).context
+        cached = only(calls for calls in context.calls
+            if PSE._compiled_call_name(calls.binding) === :initialize)
+        current_owner = context.environment_bindings
+        leaf_group = only(group for group in simulation.execution_plan.groups
+            if group.application.id === :leaf)
+        leaf = register_object!(simulation.model, Object(:leaf; scale=:Leaf,
+            parent=:owner, status=Status(seed=2.5)))
+        targets = PSE._targeted_new_object_call_targets(context, :initialize,
+            [ObjectId(:leaf)], cached; initializer=true)
+        target = only(targets)
+        partial_owner = target.environment_bindings
+        @test isconcretetype(eltype(targets))
+        @test (@inferred PSE._with_call_target_entry(call_key, targets, target)) === (:leaf, :leaf)
+        @test partial_owner !== current_owner
+        @test typeof(partial_owner) === typeof(current_owner) ===
+            fieldtype(typeof(cached), :environment_bindings)
+        @test fieldtype(typeof(context), :environment_bindings) === typeof(current_owner)
+        @test fieldtype(typeof(target.context_cache.default), :environment_bindings) ===
+            typeof(partial_owner)
+        TrialContext = PSE._call_context_type(target.context_cache.default, (T=9f0,))
+        @test fieldtype(TrialContext, :environment_bindings) === typeof(partial_owner)
+        @test context.environment_bindings === current_owner
+        @test only(partial_owner.bindings).object_id == ObjectId(:leaf)
+        canonical = model_status(simulation.model, leaf)
+        @test target.canonical_status === canonical
+        @test PSE.refvalue(target.status, :seed) === PSE.refvalue(canonical, :seed)
+        @test canonical.visits == 0 && canonical.value == 0.0
+        if isnothing(environment)
+            # All other owners/fields belong to the real admitted newborn.
+            # Only EB comes from another genuine scenario, outside its schema.
+            foreign = prepare_schema_growth(; environment=(T=3f0,))
+            foreign_owner = foreign.simulation.environment_bindings
+            @test !(foreign_owner isa typeof(partial_owner))
+            fields = (object_id=target.object_id, model=target.model,
+                output_targets=target.output_targets,
+                call_bindings=target.execution_target.call_bindings,
+                environment_binding=target.environment_binding)
+            owners = (compiled=target.compiled, environment_bindings=foreign_owner,
+                temporal_streams=target.temporal_streams,
+                output_retention=target.output_retention, constants=target.constants,
+                environment=target.environment)
+            admission = PSE._call_cohort_admission(cached.batch_schema,
+                PSE.OpenExecutionCohortSchema())
+            @test_throws ArgumentError PSE._with_execution_target_type(
+                (args...) -> error("foreign owner entered target factory"), admission,
+                target.application, target.execution_target.status_view, fields, owners)
+            @test canonical.visits == 0 && canonical.value == 0.0
+            @test isempty(PSE.lifecycle_delta(simulation.model).initialized_targets)
+        end
+        @test isempty(leaf_group.batches)
+        @test PSE.cohort_location(simulation.temporal_streams.cohorts,
+            :leaf, ObjectId(:leaf)) === nothing
+
+        @test run_initializer!(context, :initialize, leaf) === canonical
+        @test canonical.visits == 1 && canonical.value == 2.5
+        @test (:leaf, ObjectId(:leaf)) in PSE.lifecycle_delta(simulation.model).initialized_targets
+        @test isempty(leaf_group.batches)
+        @test_throws "already initialized" run_initializer!(context, :initialize, leaf)
+        @test canonical.visits == 1
+        continue!(simulation; steps=1)
+        payload = only(only(leaf_group.batches).targets)
+        @test canonical.visits == 2 && canonical.value == 5.0
+        @test payload.status_view.canonical_status === canonical
+        @test payload.call_context_cache !== target.context_cache
+        @test payload.call_context_cache.execution_stamp === target.context_cache.execution_stamp
+        @test target.environment_bindings === partial_owner
+    end
+end
+
+@testset "a failed prepared initializer reserves before its only kernel" begin
+    state = prepare_schema_growth(; fail_initializer=true)
+    state.birth_day[] = 100
+    simulation = state.simulation
+    step!(simulation)
+    controller = only(group for group in simulation.execution_plan.groups
+        if group.application.id === :controller)
+    context = only(only(controller.batches).targets).context
+    leaf = register_object!(simulation.model, Object(:leaf; scale=:Leaf,
+        parent=:owner, status=Status(seed=3.0)))
+    @test_throws "failed after mutation" run_initializer!(context, :initialize, leaf)
+    canonical = model_status(simulation.model, leaf)
+    @test canonical.visits == 1 && canonical.value == 3.0
+    delta = PSE.lifecycle_delta(simulation.model)
+    key = (:leaf, ObjectId(:leaf))
+    @test key in delta.initialized_targets
+    @test !delta.targeted_topology_runtime.call_context_caches[key].in_use
+    @test_throws "already initialized" run_initializer!(context, :initialize, leaf)
+    @test canonical.visits == 1 && canonical.value == 3.0
+    @test PSE.cohort_location(simulation.temporal_streams.cohorts, :leaf, ObjectId(:leaf)) === nothing
 end
 
 end

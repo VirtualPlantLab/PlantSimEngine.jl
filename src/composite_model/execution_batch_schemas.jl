@@ -172,11 +172,11 @@ end
             push!(checks, :($value isa $(fieldtype(Target, name))))
             push!(values, :($value::$(fieldtype(Target, name))))
         end
-        for name in (:compiled, :temporal_streams, :output_retention, :constants, :environment)
+        for name in (:compiled, :environment_bindings, :temporal_streams, :output_retention, :constants, :environment)
             push!(checks, :(getproperty(owners, $(QuoteNode(name))) isa $(fieldtype(Context, name))))
         end
         condition = foldl((a,b) -> :($a && $b), checks)
-        owner_names = (:compiled, :temporal_streams, :output_retention, :constants, :environment)
+        owner_names = (:compiled, :environment_bindings, :temporal_streams, :output_retention, :constants, :environment)
         owner_values = Expr(:tuple, [:(getproperty(owners, $(QuoteNode(name)))::$(fieldtype(Context,name))) for name in owner_names]...)
         A = fieldtype(Context, :application)
         push!(branches, quote
@@ -637,4 +637,46 @@ end
     Cache = CallContextCache{fieldtype(T,:context)}
     cache isa Cache || throw(ArgumentError("A retained newborn context is outside its prepared schema."))
     return cache::Cache
+end
+
+# Private newborn views are assembled dynamically but already have a finite
+# canonical payload family. Preserve its existing CallTarget types, including
+# the actual caller's typed environment owners, until the shared executor.
+@inline _targeted_newborn_target_buffer(::OpenExecutionBatchSchema, context) = CallTarget[]
+@generated function _targeted_newborn_target_buffer(::PreparedExecutionBatchSchema{BT},
+    context::RC,
+) where {BT,RC<:RunContext}
+    views = Type[]
+    CS = fieldtype(RC, :compiled)
+    EB = fieldtype(RC, :environment_bindings)
+    TS = fieldtype(RC, :temporal_streams)
+    OR = fieldtype(RC, :output_retention)
+    C = fieldtype(RC, :constants)
+    E = fieldtype(RC, :environment) # CallTargets.environment is deliberately Any.
+    for B in _prepared_execution_batch_types(BT)
+        Target = eltype(fieldtype(B, :targets))
+        TargetContext = fieldtype(Target, :context)
+        A = fieldtype(TargetContext, :application)
+        Calls = fieldtype(TargetContext, :calls)
+        I = fieldtype(Target, :object_id)
+        push!(views, CallTarget{Target,CS,EB,A,Calls,TS,OR,C,E,I})
+    end
+    unique!(views)
+    return :(Vector{$(Union{views...})}())
+end
+
+# Readback from a finite collection enters the same hard-call executor in a
+# concrete branch. Open collections keep ordinary Julia dispatch. This admits
+# metadata only; it never reconstructs an execution payload or scientific state.
+@generated function _with_call_target_entry(f::F, targets::AbstractVector{V}, target) where {F,V}
+    views = Base.uniontypes(V)
+    if !all(T -> isconcretetype(T) && T <: CallTarget, views)
+        return :(f(target))
+    end
+    branches = [:(target isa $T && return f(target::$T)) for T in views]
+    return quote
+        $(Expr(:meta, :inline))
+        $(branches...)
+        throw(ArgumentError("A call target is outside its collection schema."))
+    end
 end

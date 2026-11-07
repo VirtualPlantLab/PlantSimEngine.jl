@@ -54,7 +54,7 @@ end
     View = PSE.CompiledModelStatusView{Full,Full,Tuple{},Empty,Empty}
     Context = PSE.RunContext{typeof(compiled),typeof(application),Tuple{},Empty,Empty,
         typeof(simulation.temporal_streams),typeof(simulation.output_retention),
-        typeof(simulation.constants),PSE.NoEnvironmentOverride,I}
+        typeof(simulation.constants),PSE.NoEnvironmentOverride,I,typeof(simulation.environment_bindings)}
     Binding = PSE.CompiledEnvironmentBinding{typeof(environment_plan),Nothing,PSE.EnvironmentContext{I}}
     Target = PSE.CompiledExecutionTarget{typeof(PSE.model_(application.spec)),View,
         Tuple{},Empty,Empty,Tuple{},Tuple{},Binding,Context,I}

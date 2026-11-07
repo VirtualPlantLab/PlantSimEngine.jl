@@ -259,9 +259,9 @@ Runtime context passed as the final argument to model kernels. Use
 [`call_targets`](@ref), and [`run_call!`](@ref) instead of inspecting its
 fields.
 """
-mutable struct RunContext{CS,A,CT,BI,OT,TS,OR,C,E,I<:ObjectId}
+mutable struct RunContext{CS,A,CT,BI,OT,TS,OR,C,E,I<:ObjectId,EB<:CompiledEnvironmentBindings}
     compiled::CS
-    environment_bindings::CompiledEnvironmentBindings
+    environment_bindings::EB
     application::A
     object_id::I
     calls::CT
@@ -3400,7 +3400,8 @@ function _new_model_execution_target(
     environment_binding = _environment_binding_for(env_bindings, application.id, object_id)
     fields = (object_id=object_id, model=model, output_targets=distributed_targets,
         call_bindings=call_bindings, environment_binding=environment_binding)
-    owners = (compiled=compiled, temporal_streams=temporal_streams,
+    owners = (compiled=compiled, environment_bindings=env_bindings,
+        temporal_streams=temporal_streams,
         output_retention=output_retention, constants=constants,
         environment=_NO_ENVIRONMENT_OVERRIDE)
     return _with_execution_target_type(target_schema, application, status_view, fields, owners) do Target, actual_application, actual, owner, call_schema
@@ -3422,7 +3423,7 @@ function _new_model_execution_target(
         context = if isnothing(owner.temporal_streams) && isempty(actual.output_targets)
             nothing
         else
-            _prepare_model_execution_context!(nothing, owner.compiled, env_bindings,
+            _prepare_model_execution_context!(nothing, owner.compiled, owner.environment_bindings,
                 actual_application, actual.object_id, actual.bound_inputs,
                 actual.output_targets, actual.call_bindings, owner.temporal_streams,
                 owner.output_retention, 0.0, owner.constants, true, owner.environment;
@@ -5998,7 +5999,7 @@ function _prepare_targeted_newborn_targets(
         return nothing
     end
 
-    targets = CallTarget[]
+    targets = _targeted_newborn_target_buffer(batch_schema, context)
     for partial_application in callee_applications
         _append_targeted_newborn_targets!(
             targets, context, targeted_runtime, partial_application,
@@ -6043,7 +6044,8 @@ function _append_targeted_newborn_targets!(
             fields = (object_id=object_id,model=_application_model(application,object_id),
                 output_targets=output_targets,call_bindings=call_bindings,
                 environment_binding=environment_binding)
-            owners = (compiled=compiled,temporal_streams=context.temporal_streams,
+            owners = (compiled=compiled,environment_bindings=environment_bindings,
+                temporal_streams=context.temporal_streams,
                 output_retention=context.output_retention,constants=context.constants,
                 environment=context.environment)
             _with_execution_target_type(admission,application,status_view,fields,owners) do Target,actual_application,actual,owner,call_schema
@@ -6060,16 +6062,18 @@ function _append_targeted_newborn_targets!(
                 if isnothing(prepared_cache)
                     prepared_cache = _newborn_call_context_cache(context,actual_application,
                         actual.object_id,actual.bound_inputs,actual.output_targets,
-                        actual.call_bindings,environment_bindings,stamp;call_schema)
+                        actual.call_bindings,owner.environment_bindings,stamp;call_schema)
                 end
                 result = _targeted_newborn_call_target(context,actual_application,
                     actual.object_id,actual.model,actual.status_view,outputs,
-                    actual.output_targets,actual.call_bindings,environment_bindings,
+                    actual.output_targets,actual.call_bindings,owner.environment_bindings,
                     actual.environment_binding,prepared_cache)
                 isnothing(Target) || result.execution_target isa Target ||
                     throw(ArgumentError("A newborn execution target is outside its prepared schema."))
-                targeted_runtime.call_context_caches[key] = prepared_cache
+                # Admit the full caller view before publishing its cache. The
+                # payload and partial environment owner retain their identities.
                 push!(targets,result)
+                targeted_runtime.call_context_caches[key] = prepared_cache
                 return nothing
             end
         end
@@ -6347,8 +6351,8 @@ end
 # not change the concrete child-call tuple. Recover the context type without
 # erasing the normal no-override execution path.
 @inline _call_context_type(
-    ::RunContext{CS,A,CT,BI,OT,TS,OR,C,OldE,I}, ::E,
-) where {CS,A,CT,BI,OT,TS,OR,C,OldE,I,E} = RunContext{CS,A,CT,BI,OT,TS,OR,C,E,I}
+    ::RunContext{CS,A,CT,BI,OT,TS,OR,C,OldE,I,EB}, ::E,
+) where {CS,A,CT,BI,OT,TS,OR,C,OldE,I,EB,E} = RunContext{CS,A,CT,BI,OT,TS,OR,C,E,I,EB}
 @inline _call_context_type(::Nothing, environment) = RunContext
 
 # Metadata already proved current needs only invocation values synchronized.
@@ -6821,12 +6825,9 @@ function _run_call_targets!(
     environment,
 )
     for target in targets
-        _run_call!(
-            target,
-            publish,
-            sampled_environment,
-            environment,
-        )
+        _with_call_target_entry(targets, target) do actual
+            _run_call!(actual, publish, sampled_environment, environment)
+        end
     end
     return targets
 end
@@ -6868,19 +6869,13 @@ function _selected_run_initializer!(cached_targets, context::RunContext, name::S
         context, name, requested_ids, _synchronized_named_call(cached_targets, context, name);
         initializer=true,
     )
-    target = only(targets)
-    key = (target.application.id, target.object_id)
-    # Reserve the application/object pair before model code runs. If the
-    # initializer mutates and then throws, retrying it would duplicate an
-    # unknown partial side effect, so the lifecycle event remains poisoned.
-    push!(lifecycle_delta(model).initialized_targets, key)
-    _run_call_targets!(
-        targets,
-        false,
-        _UNSPECIFIED_SCENE_ENVIRONMENT,
-        context.environment,
-    )
-    return model_status(model, target.object_id)
+    return _with_call_target_entry(targets, only(targets)) do target
+        key = (target.application.id, target.object_id)
+        # Reserve before model code; failure still poisons this lifecycle event.
+        push!(lifecycle_delta(model).initialized_targets, key)
+        _run_call!(target, false, _UNSPECIFIED_SCENE_ENVIRONMENT, context.environment)
+        return model_status(model, target.object_id)
+    end
 end
 
 function run_initializer!(context, name::Symbol, object)

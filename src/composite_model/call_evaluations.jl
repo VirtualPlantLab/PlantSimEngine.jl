@@ -105,7 +105,9 @@ function _evaluate_call_targets!(targets::AbstractVector{<:CallTarget}, sampled_
     # Targeted newborn execution has lightweight individual views before the
     # lifecycle barrier installs the ordinary compiled batch.
     for target in targets
-        _run_call!(_evaluation_target(target), true, sampled_environment, environment)
+        _with_call_target_entry(targets, target) do actual
+            _run_call!(_evaluation_target(actual), true, sampled_environment, environment)
+        end
     end
     return nothing
 end
