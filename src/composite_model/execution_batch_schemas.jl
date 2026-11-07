@@ -288,7 +288,7 @@ function _materialize_prepared_call_execution_batches!(schema::PreparedExecution
         cohort_schema=_execution_cohort_schema(schema), batch_schema=schema)
     if targets.tracks_full_membership
         _retire_call_cohort_targets!(targets.temporal_streams, targets.binding, batches;
-            schema=_execution_cohort_schema(schema))
+            schema=_execution_cohort_schema(schema), batch_schema=schema)
     end
     # Publish a complete validated replacement, preserving retained lease shells.
     targets.execution_batches = batches
@@ -593,7 +593,9 @@ end
     Plan = fieldtype(B,:plan)
     index = findfirst(==(Plan),collect(fieldtypes(plans)))
     isnothing(index) && return :(throw(ArgumentError("A retained call no longer has its prepared declaration.")))
-    Bindings = Tuple{[CompiledModelCallBinding{T} for T in fieldtypes(plans)]...}
+    CallerId = fieldtype(B,:consumer_id)
+    CalleeId = eltype(fieldtype(B,:callee_object_ids))
+    Bindings = Tuple{[CompiledModelCallBinding{T,CallerId,CalleeId} for T in fieldtypes(plans)]...}
     return quote
         bindings = get(compiled.call_bindings_by_target,
             (binding.application_id,binding.consumer_id),())

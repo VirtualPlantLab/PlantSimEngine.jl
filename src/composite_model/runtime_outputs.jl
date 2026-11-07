@@ -865,7 +865,8 @@ function _record_call_execution_batch_cache!(
     cohort_schema=OpenExecutionCohortSchema(),
 )
     if targets.tracks_full_membership
-        _retire_call_cohort_targets!(targets.temporal_streams, targets.binding, batches; schema=cohort_schema)
+        _retire_call_cohort_targets!(targets.temporal_streams, targets.binding, batches;
+            schema=cohort_schema, batch_schema=targets.batch_schema)
     end
     targets.last_single_snapshot = nothing
     cached.batches = if targets.tracks_full_membership
@@ -3584,7 +3585,7 @@ function _compiled_call_execution_batches(
     for application_id in binding.callee_application_ids
         _compiled_application_by_id(compiled,application_id) do application
             application_schema = _call_batch_schema_for_application(batch_schema,application)
-            current_ids = ObjectId[object_id for object_id in binding.callee_object_ids
+            current_ids = [object_id for object_id in binding.callee_object_ids
                 if _call_binding_target_matches(binding,application,object_id)]
             refreshed = refresh_cohort_membership!(cohorts,application.id,current_ids,
                 nothing;owner,schema=admission) do object_id, previous_target
@@ -4058,7 +4059,7 @@ function _extend_execution_target_call_batches_by_prefix!(
                     batches = _execution_call_batches_for_application(schema, application_schema,
                         execution_batches, application_id)
                     isempty(batches) && return false
-                    current_ids = ObjectId[object_id for object_id in binding.callee_object_ids
+                    current_ids = [object_id for object_id in binding.callee_object_ids
                         if _call_binding_target_matches(binding, application, object_id)]
                     # Preserve the existing ordered-prefix algorithm. Only the
                     # count leaves each admitted concrete batch operation.
@@ -4333,13 +4334,15 @@ function _refresh_model_execution_group!(
     )
 end
 
-function _changed_execution_target_ids_by_application(changed_execution_target_ids)
-    changed_by_application = Dict{Symbol,Vector{ObjectId}}()
+function _changed_execution_target_ids_by_application(changed_execution_target_ids,
+    ::Type{I},
+) where {I<:ObjectId}
+    changed_by_application = Dict{Symbol,Vector{I}}()
     for (application_id, object_id) in changed_execution_target_ids
         object_ids = get!(changed_by_application, application_id) do
-            ObjectId[]
+            I[]
         end
-        push!(object_ids, object_id)
+        push!(object_ids, object_id::I)
     end
     for object_ids in values(changed_by_application)
         _sort_object_ids!(object_ids)
@@ -4379,9 +4382,9 @@ end
 # Prefer the current authored position, then search the existing owners by id.
 # Only scalar counts leave the concrete callback; there is one lookup loop for
 # both representations. Incompatible closed application types never enter f.
-function _with_previous_execution_group(f, slots, application::CompiledModelApplication,
+function _with_previous_execution_group(f::F, slots, application::CompiledModelApplication,
     visited::BitVector,
-)
+) where {F}
     preferred_slot = application.slot
     for candidate in 0:length(slots)
         slot = iszero(candidate) ? preferred_slot : candidate
@@ -4465,6 +4468,7 @@ function _refresh_model_execution_plan(
     changed_by_application = isnothing(changed_application_ids) ? nothing :
                              _changed_execution_target_ids_by_application(
         changed_execution_target_ids,
+        keytype(compiled.model.registry.objects),
     )
     previous_slots = previous.groups_by_application_slot
     _preflight_execution_group_layout!(previous,compiled,previous_slots)
@@ -5512,17 +5516,7 @@ function _call_target_object_ids(model::CompositeModel, objects)
                 objects : (objects,)
     ids = ObjectId[_call_target_object_id(model, object) for object in requested]
     unique!(ids)
-    return ids
-end
-
-function _partial_model_application(
-    application::CompiledModelApplication,
-    target_ids::Vector{ObjectId},
-)
-    return CompiledModelApplication(
-        application.plan,
-        target_ids,
-    )
+    return _application_target_ids(model, ids)
 end
 
 struct _ApplicationsByObjectOverlay{B,O}
@@ -6193,7 +6187,7 @@ function _current_topology_call_targets(
     selected_binding = CompiledModelCallBinding(
         resolved_binding.plan,
         resolved_binding.consumer_id,
-        requested_ids,
+        _application_target_ids(model, requested_ids),
         callee_application_ids,
     )
     if !isnothing(context.temporal_streams) &&

@@ -60,6 +60,7 @@ else
 
     @testset "Prepared execution schemas" begin
         include("test-model-closed-cohort-schemas.jl")
+        include("test-model-call-cohort-retirement.jl")
         include("test-model-closed-group-refresh.jl")
         include("test-model-closed-group-layout-preflight.jl")
         include("test-model-prepared-call-schemas.jl")

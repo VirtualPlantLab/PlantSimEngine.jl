@@ -612,10 +612,7 @@ function _refresh_environment_bindings_for_objects(
         haskey(model.registry.objects, object_id) || continue
         for slot in current_applications
             _with_metadata_entry(current_applications.applications, slot) do application
-                partial_application = CompiledModelApplication(
-                    application.plan,
-                    ObjectId[object_id],
-                )
+                partial_application = _partial_model_application(application, ObjectId[object_id])
                 for binding in _compile_environment_bindings_for_applications(
                     model,
                     (partial_application,),

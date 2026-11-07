@@ -20,9 +20,23 @@ end
 """
 Object-dependent runtime state for one compiled application.
 """
-mutable struct CompiledModelApplication{P}
+mutable struct CompiledModelApplication{P,I<:ObjectId}
     const plan::P
-    target_ids::Vector{ObjectId}
+    target_ids::Vector{I}
+end
+
+# Ordinary registries admit future identity types. Explicitly closed registries
+# retain their finite identity family in the same mutable membership vectors.
+_application_target_ids(::Type{I}, ids::Vector{I}) where {I<:ObjectId} = ids
+_application_target_ids(::Type{I}, ids::AbstractVector{<:ObjectId}) where {I<:ObjectId} =
+    I[object_id::I for object_id in ids]
+_application_target_ids(model::CompositeModel, ids) =
+    _application_target_ids(keytype(model.registry.objects), ids)
+
+function _partial_model_application(application::CompiledModelApplication{P,I},
+    target_ids::AbstractVector{<:ObjectId},
+) where {P,I}
+    return CompiledModelApplication(application.plan, _application_target_ids(I, target_ids))
 end
 
 @inline function Base.getproperty(
@@ -903,9 +917,14 @@ end
 
 # The snapshot owns its target lists. Runtime application membership can
 # change during growth, so each binding compilation takes a private copy.
-struct PreparedScenario{P}
+struct PreparedScenario{P,I<:ObjectId}
     plan::P
-    target_ids::Vector{Vector{ObjectId}}
+    target_ids::Vector{Vector{I}}
+end
+
+function _prepared_application_targets(model, applications; copy_targets=false)
+    T = Vector{keytype(model.registry.objects)}
+    return T[copy_targets ? copy(app.target_ids) : app.target_ids for app in applications]
 end
 
 Base.@nospecializeinfer function _scenario_applications(prepared::PreparedScenario)
@@ -1596,10 +1615,10 @@ mutable struct CompiledModelStatusView{S,C,T,P,BI}
     const bound_inputs::BI
 end
 
-struct CompiledModelCallBinding{P}
+struct CompiledModelCallBinding{P,I<:ObjectId,J<:ObjectId}
     plan::P
-    consumer_id::ObjectId
-    callee_object_ids::Vector{ObjectId}
+    consumer_id::I
+    callee_object_ids::Vector{J}
     callee_application_ids::Vector{Symbol}
     # The binding stays immutable while lifecycle refreshes extend or rebuild
     # its shared target vectors in place. Keep the corresponding generation in
@@ -1615,11 +1634,11 @@ end
 
 function CompiledModelCallBinding(
     plan::P,
-    consumer_id::ObjectId,
-    callee_object_ids::Vector{ObjectId},
+    consumer_id::I,
+    callee_object_ids::Vector{J},
     callee_application_ids::Vector{Symbol},
-) where {P}
-    return CompiledModelCallBinding{P}(
+) where {P,I<:ObjectId,J<:ObjectId}
+    return CompiledModelCallBinding{P,I,J}(
         plan,
         consumer_id,
         callee_object_ids,
@@ -1841,7 +1860,7 @@ function refresh_bindings!(
                     model, preparation, _model_timeline(model); performance,
                 )
                 prepared = PreparedScenario(plan,
-                    Vector{ObjectId}[application.target_ids for application in applications])
+                    _prepared_application_targets(model, applications))
             end
         end
     end
@@ -2324,13 +2343,13 @@ function _prepare_scenario_plan(
            compiled.scenario_plan.authoring.preparation === preparation &&
            compiled.scenario_plan.timeline.base_step_seconds == timeline.base_step_seconds
             prepared = PreparedScenario(compiled.scenario_plan,
-                Vector{ObjectId}[copy(app.target_ids) for app in compiled.applications])
+                _prepared_application_targets(model, compiled.applications; copy_targets=true))
             preparation.resolved = prepared
             return prepared
         end
     end
     plan, applications = _resolve_prepared_scenario(model, preparation, timeline; performance)
-    prepared = PreparedScenario(plan, Vector{ObjectId}[app.target_ids for app in applications])
+    prepared = PreparedScenario(plan, _prepared_application_targets(model, applications))
     # A running simulation still needs its pending topology refresh. Give
     # an adapter the requested snapshot without replacing that live plan.
     if !force && model.bindings_dirty && !isnothing(model.binding_cache)
@@ -3959,10 +3978,7 @@ function _refresh_scene_call_bindings!(
             _sort_object_ids!(target_ids)
             push!(
                 affected_call_applications,
-                CompiledModelApplication(
-                    application.plan,
-                    target_ids,
-                ),
+                _partial_model_application(application, target_ids),
             )
         end
     end
@@ -4159,10 +4175,7 @@ function _extend_compiled_scene(
 
     started_at = _runtime_performance_start(performance)
     added_applications = CompiledModelApplication[
-        CompiledModelApplication(
-            application.plan,
-            new_targets[application.id],
-        )
+        _partial_model_application(application, new_targets[application.id])
         for application in new_target_applications
     ]
     new_call_bindings, changed_call_target_keys, observed_manual_call_binding_indices_by_callee_target =
@@ -4464,10 +4477,7 @@ function _extend_compiled_scene(
             _sort_object_ids!(target_ids)
             push!(
                 rewired_applications,
-                CompiledModelApplication(
-                    application.plan,
-                    target_ids,
-                ),
+                _partial_model_application(application, target_ids),
             )
         end
         (added_applications..., rewired_applications...)
@@ -5018,7 +5028,7 @@ function _resolve_application_recipes(
     for recipe in recipes
         target_matcher = _resolve_selector_matcher(model, recipe.target_matcher)
         selector = applies_to(recipe.spec)
-        target_ids = _resolve_object_ids(model, selector, target_matcher)
+        target_ids = _application_target_ids(model, _resolve_object_ids(model, selector, target_matcher))
         sizehint!(target_ids, length(target_ids) + 1)
         spec = _model_spec_with_environment_hints(
             model, recipe.spec, _model_application_hint_scale(model, target_ids),
@@ -5474,14 +5484,14 @@ function _validate_model_writers_for_objects!(
     return _validate_model_writer_groups!(groups)
 end
 
-function _model_application_hint_scale(model::CompositeModel, target_ids::Vector{ObjectId})
+function _model_application_hint_scale(model::CompositeModel, target_ids::AbstractVector{<:ObjectId})
     isempty(target_ids) && return :Scene
     scales = unique!([_model_object(model, object_id).scale for object_id in target_ids])
     length(scales) == 1 && return something(only(scales), :Default)
     return :Mixed
 end
 
-function _model_application_clock(model::CompositeModel, spec, target_ids::Vector{ObjectId}, timeline)
+function _model_application_clock(model::CompositeModel, spec, target_ids::AbstractVector{<:ObjectId}, timeline)
     process_model = model_(spec)
     source = _runtime_clock_source_for_spec(spec)
     source == :environment_base_step || return _model_clock(spec, process_model, timeline)
@@ -8674,12 +8684,12 @@ function _resolved_compiled_call_membership(
     binding::CompiledModelCallBinding,
 )
     model = compiled.model
-    object_ids = _dependency_object_ids(
+    object_ids = _application_target_ids(model, _dependency_object_ids(
         model,
         binding.selector,
         binding.matcher,
         binding.consumer_id,
-    )
+    ))
     if bindings_dirty(model) && !isempty(lifecycle_delta(model).added)
         # A newborn has no compiled application/status/environment target until
         # the safe refresh barrier. Keep it out of a first complete view so the
@@ -8841,7 +8851,7 @@ function _compile_model_call_bindings(
                     CompiledModelCallBinding(
                         plan,
                         consumer_id,
-                        callee_object_ids,
+                        _application_target_ids(model, callee_object_ids),
                         callee_application_ids,
                     ),
                 )

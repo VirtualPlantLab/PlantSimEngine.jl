@@ -89,9 +89,17 @@ end
     return _execution_cohort_schema_expression(B, true)
 end
 
-function _check_execution_cohort_location(location, owner, application_id, object_id)
+# Ordinary stores may use arbitrary owner values. Closed execution first
+# admits the stored owner to the concrete expected type, before comparison.
+@inline _execution_cohort_owner_matches(::OpenExecutionCohortSchema, stored, expected) = isequal(stored, expected)
+@inline function _execution_cohort_owner_matches(::ClosedExecutionCohortSchema, stored, expected::O) where {O}
+    return stored isa O && isequal(stored::O, expected)
+end
+
+function _check_execution_cohort_location(location, owner, application_id, object_id,
+    schema=OpenExecutionCohortSchema())
     cohort = location.cohort
-    isequal(cohort.owner, owner) && cohort.application_id === application_id &&
+    _execution_cohort_owner_matches(schema, cohort.owner, owner) && cohort.application_id === application_id &&
         get(cohort.indices, object_id, 0) == location.row || throw(ArgumentError(
         "The execution location belongs to another owner, application or object.",
     ))
@@ -106,14 +114,14 @@ end
 
 # Select the actual cohort before invoking the operation. An assertion after a
 # dynamic read/clear would leave the abstract operation reachable by JuliaC.
-@generated function _with_execution_cohort_location(f, ::ClosedExecutionCohortSchema{T}, location::ExecutionCohortLocation, owner, application_id, object_id) where {T}
+@generated function _with_execution_cohort_location(f, schema::ClosedExecutionCohortSchema{T}, location::ExecutionCohortLocation, owner, application_id, object_id) where {T}
     branches = Expr[]
     for Target in fieldtypes(T)
         I = fieldtype(Target, :object_id)
         L = ExecutionCohortLocation{ExecutionCohort{Target,I}}
         push!(branches, quote
             if location isa $L
-                _check_execution_cohort_location(location, owner, application_id, object_id)
+                _check_execution_cohort_location(location, owner, application_id, object_id, schema)
                 return f(location)
             end
         end)
