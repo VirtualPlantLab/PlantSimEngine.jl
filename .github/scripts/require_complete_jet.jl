@@ -1,7 +1,9 @@
 # Loaded in the full XPalm test subprocess before JET creates analysis tasks.
 module JETAnalysisGuard
 
-using Logging
+# Pkg probes cache flags with an empty LOAD_PATH before loading packages.
+using Base.CoreLogging: AbstractLogger, global_logger
+const Logging = Base.CoreLogging
 
 struct AnalyzerErrorLogger{L<:AbstractLogger} <: AbstractLogger
     inner::L

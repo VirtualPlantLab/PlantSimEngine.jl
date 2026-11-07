@@ -11,6 +11,17 @@ function guarded_case(packages, source)
     return (code=process.exitcode, output=String(take!(output)), errors=String(take!(errors)))
 end
 
+@testset "Pkg cache-flag probe with an empty LOAD_PATH" begin
+    output, errors = IOBuffer(), IOBuffer()
+    command = `$(Base.julia_cmd()) --code-coverage=none --color=yes --check-bounds=yes --warn-overwrite=yes --depwarn=yes --inline=yes --startup-file=no --track-allocation=none --load=$GUARD --eval 'show(ccall(:jl_cache_flags, UInt8, ()))'`
+    process = run(pipeline(ignorestatus(addenv(command, "JULIA_LOAD_PATH" => ""));
+        stdout=output, stderr=errors))
+    cache_flags = (code=process.exitcode, output=String(take!(output)), errors=String(take!(errors)))
+    @test cache_flags.code == 0
+    @test cache_flags.output == sprint(show, parse(UInt8, cache_flags.output))
+    @test isempty(cache_flags.errors)
+end
+
 @testset "incomplete JET analysis fails its test subprocess" begin
     mktempdir() do packages
         source_dir = mkpath(joinpath(packages, "JET", "src"))
