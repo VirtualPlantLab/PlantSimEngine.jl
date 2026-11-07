@@ -993,7 +993,7 @@ end
     end
     @test contains(
         ambiguous_scoped_error,
-        "available=(scales = [:Leaf],",
+        "available=(scales=[Symbol(\"Leaf\")],",
     )
 
     missing_scoped_error = try
@@ -1008,9 +1008,9 @@ end
     end
     @test contains(
         missing_scoped_error,
-        "available=(scales = [:Leaf, :Plant],",
+        "available=(scales=[Symbol(\"Leaf\"), Symbol(\"Plant\")],",
     )
-    @test contains(missing_scoped_error, "suggestions=(scale = [:Leaf]")
+    @test contains(missing_scoped_error, "suggestions=(scale=[Symbol(\"Leaf\")]")
 
     long_scope_objects = Object[Object(:long_root; scale=:Plant)]
     long_scope_leaf_ids = Set{ObjectId}()

@@ -91,13 +91,16 @@ end
 
 @testset "raw authored scopes remain in cardinality and context errors" begin
     model = scope_scene()
-    for selector in (One(SelfPlant(); scale=:Leaf),
-                     One(Subtree(); scale=:Leaf),
-                     One(Ancestor(scale=:Plant); scale=:Leaf),
-                     One(Scope(ObjectId(:plant_a)); scale=:Leaf))
+    for (selector, scope_text) in (
+        (One(SelfPlant(); scale=:Leaf), "SelfPlant()"),
+        (One(Subtree(); scale=:Leaf), "Subtree()"),
+        (One(Ancestor(scale=:Plant); scale=:Leaf), "Ancestor(scale=Symbol(\"Plant\"))"),
+        (One(Scope(ObjectId(:plant_a)); scale=:Leaf), "Scope(root=ObjectId(Symbol(\"plant_a\")))"),
+    )
         error = query_error(model, selector; context=:axis_a)
         @test occursin("Expected exactly one object", error)
-        @test occursin(string(selector), error)
+        @test occursin("One(selectors=(" * scope_text, error)
+        @test occursin("scale=Symbol(\"Leaf\")", error)
         @test !occursin("CompiledNamedScope", error)
     end
     @test_throws "current object context" resolve_object_ids(model, Many(SelfPlant(); scale=:Leaf))

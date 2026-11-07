@@ -1394,16 +1394,16 @@ end
     catch error
         sprint(showerror, error)
     end
-    @test contains(typo_selector_error, "requested=(scale=Leef")
-    @test contains(typo_selector_error, "available=(scales = [:Axis, :Leaf, :Plant, :Scene, :Soil]")
-    @test contains(typo_selector_error, "suggestions=(scale = [:Leaf]")
+    @test contains(typo_selector_error, "requested=(scale=Symbol(\"Leef\")")
+    @test contains(typo_selector_error, "available=(scales=[Symbol(\"Axis\"), Symbol(\"Leaf\"), Symbol(\"Plant\"), Symbol(\"Scene\"), Symbol(\"Soil\")]")
+    @test contains(typo_selector_error, "suggestions=(scale=[Symbol(\"Leaf\")]")
     ambiguous_selector_error = try
         resolve_object_ids(selector_scene, One(scale=:Leaf))
         nothing
     catch error
         sprint(showerror, error)
     end
-    @test contains(ambiguous_selector_error, "matched_ids=[:leaf_1, :leaf_2, :leaf_3]")
+    @test contains(ambiguous_selector_error, "matched_ids=[ObjectId(Symbol(\"leaf_1\")), ObjectId(Symbol(\"leaf_2\")), ObjectId(Symbol(\"leaf_3\"))]")
     @test_throws "Unsupported object selector keyword" One(sacle=:Leaf)
     @test_throws "object-query" resolve_object_ids(
         selector_scene,

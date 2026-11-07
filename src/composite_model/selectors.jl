@@ -1037,6 +1037,189 @@ function _available_selector_labels(model::CompositeModel, candidate_ids)
     )
 end
 
+# Type display is fixed by the schema. Keeping its text constant avoids the
+# generic Julia syntax printer in the compiled application's error paths.
+@generated function _selector_diagnostic_type_name(::Type{T}) where {T}
+    return QuoteNode(string(T))
+end
+
+function _print_selector_diagnostic(io, value::T, ancestors) where {T}
+    # Ancestors are inspected only with ===; recursive values remain typed by
+    # this method's argument, never recovered from the identity stack.
+    tracked = ismutabletype(T)
+    if tracked
+        any(ancestor -> ancestor === value, ancestors) &&
+            return print(io, "<circular reference>")
+        push!(ancestors, value)
+    end
+    try
+        _print_selector_diagnostic_value(io, value, ancestors)
+    finally
+        tracked && pop!(ancestors)
+    end
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, value::AbstractString, ancestors)
+    print(io, '"')
+    escape_string(io, value, ('"',))
+    print(io, '"')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, value::Symbol, ancestors)
+    print(io, "Symbol(")
+    _print_selector_diagnostic_value(io, String(value), ancestors)
+    print(io, ')')
+    return nothing
+end
+
+_print_selector_diagnostic_value(io, ::Nothing, ancestors) = print(io, "nothing")
+
+# User numeric types use the record printer too; their custom show methods must
+# not silently reintroduce the generic syntax printer.
+_print_selector_diagnostic_value(io, value::Union{
+    Bool,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,
+    Float16,Float32,Float64,BigInt,BigFloat,
+}, ancestors) =
+    print(io, value)
+
+function _print_selector_diagnostic_value(io, value::Char, ancestors)
+    print(io, "Char(")
+    _print_selector_diagnostic_value(io, string(value), ancestors)
+    print(io, ')')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, value::ObjectId, ancestors)
+    print(io, "ObjectId(")
+    _print_selector_diagnostic(io, value.value, ancestors)
+    print(io, ')')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, ::Type{T}, ancestors) where {T}
+    print(io, _selector_diagnostic_type_name(T))
+    return nothing
+end
+
+function _print_selector_diagnostic_items(io, items::Tuple, ancestors)
+    isempty(items) && return nothing
+    _print_selector_diagnostic(io, first(items), ancestors)
+    if length(items) > 1
+        print(io, ", ")
+        _print_selector_diagnostic_items(io, Base.tail(items), ancestors)
+    end
+    return nothing
+end
+
+function _print_selector_diagnostic_items(io, items::AbstractVector, ancestors)
+    for (index, item) in enumerate(items)
+        index == 1 || print(io, ", ")
+        _print_selector_diagnostic(io, item, ancestors)
+    end
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, items::Union{Tuple,AbstractVector}, ancestors)
+    tuple = items isa Tuple
+    print(io, tuple ? '(' : '[')
+    _print_selector_diagnostic_items(io, items, ancestors)
+    tuple && length(items) == 1 && print(io, ',')
+    print(io, tuple ? ')' : ']')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, items::AbstractArray, ancestors)
+    print(io, _selector_diagnostic_type_name(typeof(items)), "(size=")
+    _print_selector_diagnostic(io, size(items), ancestors)
+    print(io, ", values=[")
+    for (index, item) in enumerate(items)
+        index == 1 || print(io, ", ")
+        _print_selector_diagnostic(io, item, ancestors)
+    end
+    print(io, "])")
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, items::AbstractDict, ancestors)
+    print(io, _selector_diagnostic_type_name(typeof(items)), '(')
+    for (index, (key, value)) in enumerate(items)
+        index == 1 || print(io, ", ")
+        _print_selector_diagnostic(io, key, ancestors)
+        print(io, " => ")
+        _print_selector_diagnostic(io, value, ancestors)
+    end
+    print(io, ')')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, items::AbstractSet, ancestors)
+    print(io, _selector_diagnostic_type_name(typeof(items)), '(')
+    for (index, item) in enumerate(items)
+        index == 1 || print(io, ", ")
+        _print_selector_diagnostic(io, item, ancestors)
+    end
+    print(io, ')')
+    return nothing
+end
+
+@generated function _print_selector_diagnostic_fields(io, value::T, ancestors) where {T}
+    statements = Expr[]
+    for (index, name) in enumerate(fieldnames(T))
+        index == 1 || push!(statements, :(print(io, ", ")))
+        push!(statements, quote
+            print(io, $(String(name)), '=')
+            if isdefined(value, $index)
+                _print_selector_diagnostic(io, getfield(value, $index), ancestors)
+            else
+                print(io, "<undefined>")
+            end
+        end)
+    end
+    return quote
+        $(statements...)
+        return nothing
+    end
+end
+
+function _print_selector_diagnostic_value(io, value::NamedTuple, ancestors)
+    print(io, '(')
+    _print_selector_diagnostic_fields(io, value, ancestors)
+    print(io, ')')
+    return nothing
+end
+
+function _print_selector_diagnostic_record(io, label, value::T, ancestors) where {T}
+    print(io, label, '(')
+    _print_selector_diagnostic_fields(io, value, ancestors)
+    print(io, ')')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, selector::AbstractObjectMultiplicity, ancestors)
+    label = selector isa One ? "One" : selector isa OptionalOne ? "OptionalOne" : "Many"
+    print(io, label)
+    _print_selector_diagnostic_value(io, criteria(selector), ancestors)
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, scope::_OBJECT_SELECTOR_POSITIONAL_TYPES, ancestors)
+    _print_selector_diagnostic_record(io, String(nameof(typeof(scope))), scope, ancestors)
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, value::T, ancestors) where {T}
+    if isprimitivetype(T)
+        print(io, _selector_diagnostic_type_name(T), "(bytes=")
+        _print_selector_diagnostic(io, reinterpret(NTuple{sizeof(T),UInt8}, value), ancestors)
+        print(io, ')')
+    else
+        _print_selector_diagnostic_record(io, _selector_diagnostic_type_name(T), value, ancestors)
+    end
+    return nothing
+end
+
 function _selector_resolution_error(
     model::CompositeModel,
     selector,
@@ -1056,13 +1239,22 @@ function _selector_resolution_error(
     )
     expected = selector isa One ? "exactly one" : "zero or one"
     context_id = _object_id_from_context(context)
-    error(
-        "Expected $(expected) object for selector `$(selector)`, got $(length(matched_ids)). ",
-        "context=$(isnothing(context_id) ? nothing : context_id.value), ",
-        "matched_ids=$([id.value for id in matched_ids]), ",
-        "requested=(scale=$(scale), kind=$(kind), species=$(species), id=$(id)), ",
-        "available=$(available), suggestions=$(suggestions)."
-    )
+    io = IOBuffer()
+    ancestors = Any[]
+    print(io, "Expected ", expected, " object for selector `")
+    _print_selector_diagnostic(io, selector, ancestors)
+    print(io, "`, got ", length(matched_ids), ". context=")
+    _print_selector_diagnostic(io, context_id, ancestors)
+    print(io, ", matched_ids=")
+    _print_selector_diagnostic(io, matched_ids, ancestors)
+    print(io, ", requested=")
+    _print_selector_diagnostic(io, (; scale, kind, species, id), ancestors)
+    print(io, ", available=")
+    _print_selector_diagnostic(io, available, ancestors)
+    print(io, ", suggestions=")
+    _print_selector_diagnostic(io, suggestions, ancestors)
+    print(io, '.')
+    error(String(take!(io)))
 end
 
 function _matches_object_criteria(object::Object; scale=nothing, kind=nothing, species=nothing, id=nothing)

@@ -313,7 +313,118 @@ end
         @test occursin("available=", expected) && occursin("suggestions=", expected)
         @test message(closed, selector) == expected
     end
-    @test occursin("suggestions=(scale = [:Leaf]", message(closed, One(scale=:Leef)))
+    @test occursin("suggestions=(scale=[Symbol(\"Leaf\")]", message(closed, One(scale=:Leef)))
+end
+
+function diagnostic_text(value)
+    io = IOBuffer()
+    PSE._print_selector_diagnostic(io, value, Any[])
+    return String(take!(io))
+end
+
+struct DiagnosticIdentity{Tag}
+    ordinal::Int
+    label::Symbol
+end
+
+# A diagnostic must use the declared value fields, not an arbitrary user printer.
+Base.show(::IO, ::DiagnosticIdentity) = error("custom identity show must not be called")
+
+struct DiagnosticNumber <: Number
+    amount::Int
+    label::Symbol
+end
+Base.show(::IO, ::DiagnosticNumber) = error("custom numeric show must not be called")
+
+primitive type DiagnosticPrimitive 8 end
+
+mutable struct DiagnosticCycle
+    label::Symbol
+    next::Union{Nothing,DiagnosticCycle}
+end
+
+@testset "selector diagnostic text preserves identities and complete criteria" begin
+    text = diagnostic_text
+    @test text((1, Symbol("1"), Symbol("feuille α"), Symbol("a,b\n\""))) ==
+        "(1, Symbol(\"1\"), Symbol(\"feuille α\"), Symbol(\"a,b\\n\\\"\"))"
+    @test text(ObjectId(1)) == "ObjectId(1)"
+    @test text(ObjectId(Symbol("1"))) == "ObjectId(Symbol(\"1\"))"
+    @test text(ObjectId(DiagnosticIdentity{:a}(1, :leaf))) !=
+        text(ObjectId(DiagnosticIdentity{:b}(1, :leaf)))
+    custom = text(ObjectId(DiagnosticIdentity{:a}(1, Symbol("feuille α"))))
+    @test occursin("DiagnosticIdentity{:a}", custom)
+    @test occursin("ordinal=1, label=Symbol(\"feuille α\")", custom)
+    @test occursin("amount=3, label=Symbol(\"leaf\")", text(DiagnosticNumber(3, :leaf)))
+    primitive_text = text(reinterpret(DiagnosticPrimitive, UInt8(1)))
+    @test occursin("DiagnosticPrimitive(bytes=", primitive_text)
+    @test primitive_text != text(reinterpret(DiagnosticPrimitive, UInt8(2)))
+    @test occursin("size=(2, 1), values=[Symbol(\"a\"), Symbol(\"b\")]",
+        text(reshape([:a, :b], 2, 1)))
+    @test occursin("Symbol(\"a\") => 2", text(Dict(:a => 2)))
+    @test occursin("Symbol(\"a\")", text(Set((:a,))))
+
+    factor = Ref(2)
+    label = Symbol("captured α")
+    reducer = values -> (factor[] + length(String(label))) * sum(values)
+    selector = One(Scope(ObjectId(Symbol("plante α")));
+        scale=(:Leaf, :Flower), kind=:active, species=:palm,
+        id=(1, Symbol("1")), relation=:children,
+        process=:growth, application=:leaf, var=:x,
+        policy=Aggregate(reducer), window=PSE.Dates.Hour(2),
+        from_status=true, after=(:first, :second))
+    rendered = text(selector)
+    for field in (:selectors, :scale, :kind, :species, :id, :relation,
+                  :process, :application, :var, :policy, :window,
+                  :from_status, :after)
+        @test occursin(String(field) * "=", rendered)
+    end
+    @test occursin("Scope(root=ObjectId(Symbol(\"plante α\")))", rendered)
+    @test occursin("Aggregate", rendered)
+    @test occursin("Hour", rendered) && occursin("value=2", rendered)
+    @test occursin("reducer=", rendered)
+    @test occursin("Symbol(\"captured α\")", rendered)
+    @test occursin("x=2", rendered)
+    @test occursin("from_status=true", rendered)
+    @test occursin("after=(Symbol(\"first\"), Symbol(\"second\"))", rendered)
+
+    node = DiagnosticCycle(Symbol("cycle α"), nothing)
+    node.next = node
+    cycle = text(node)
+    @test occursin("label=Symbol(\"cycle α\")", cycle)
+    @test occursin("next=<circular reference>", cycle)
+    array = Any[]
+    push!(array, array)
+    @test text(array) == "[<circular reference>]"
+end
+
+@testset "cardinality messages preserve mixed IDs and Unicode in Open and Closed models" begin
+    messages = String[]
+    for closed in (false, true)
+        model = CompositeModel(
+            Object(Symbol("plante α"); scale=:Plant),
+            Object(1; scale=:Leaf, parent=Symbol("plante α")),
+            Object(Symbol("1"); scale=:Leaf, parent=Symbol("plante α")),
+            Object(Symbol("feuille α"); scale=:Leaf, parent=Symbol("plante α")))
+        closed && (model = close_registry(model))
+        message = try
+            resolve_object_ids(model, One(Subtree(); scale=:Leaf);
+                context=Symbol("plante α"))
+            "no error"
+        catch error
+            sprint(showerror, error)
+        end
+        @test occursin("Expected exactly one object", message)
+        @test occursin("One(selectors=(Subtree(),), scale=Symbol(\"Leaf\"))", message)
+        @test occursin("context=ObjectId(Symbol(\"plante α\"))", message)
+        @test occursin("ObjectId(1)", message)
+        @test occursin("ObjectId(Symbol(\"1\"))", message)
+        @test occursin("ObjectId(Symbol(\"feuille α\"))", message)
+        for field in ("matched_ids=", "requested=", "available=", "suggestions=")
+            @test occursin(field, message)
+        end
+        push!(messages, message)
+    end
+    @test messages[1] == messages[2]
 end
 
 end
