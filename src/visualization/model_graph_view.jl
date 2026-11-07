@@ -442,6 +442,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         _compile_model_distributed_outputs(
             model,
             applications,
+            _applications_by_id(applications),
             manual_application_ids,
             distributed_output_plans,
         )
@@ -819,7 +820,7 @@ end
 
 function _model_graph_output_destinations(spec)
     resolved = try
-        _resolved_output_destinations(spec)
+        _output_destination_layout(spec, _distributed_output_names(spec))
     catch
         # Invalid declarations remain editable; compilation reports the error.
         nothing
@@ -828,7 +829,7 @@ function _model_graph_output_destinations(spec)
         Dict{String,Any}(
             "selector" => _model_graph_selector_dict(destination.selector),
             "vars" => isnothing(destination.vars) ? nothing : collect(string.(destination.vars)),
-            "resolvedVars" => isnothing(resolved) ? nothing : collect(string.(keys(resolved[index].vars))),
+            "resolvedVars" => isnothing(resolved) ? nothing : collect(string.(resolved[index].variable_names)),
             "origin" => isnothing(destination.vars) ? "inferred" : "explicit",
             "coverage" => string(destination.coverage),
         )
@@ -1685,7 +1686,7 @@ end
 function _model_graph_distributed_initialization!(rows, report)
     destinations = try
         plans = _compile_model_output_destination_plans(report.model, report.applications)
-        _resolve_model_output_destinations(report.model, report.applications, plans)
+        _resolve_model_output_destinations(report.model, _applications_by_id(report.applications), plans)
     catch
         # A binding error is already in the report. Valid destinations can still
         # expose required storage when later compilation phases fail.
@@ -1694,7 +1695,7 @@ function _model_graph_distributed_initialization!(rows, report)
     for destination in destinations
         for object_id in destination.destination_ids
             object = _model_object(report.model, object_id)
-            for (variable, declaration) in pairs(destination.plan.declarations)
+            for (variable, declaration) in pairs(destination.declarations)
                 supplied = variable in get(report.initial_status_variables, object_id, Set{Symbol}())
                 value = supplied ? object.status[variable] :
                         declaration isa Default ? declaration.value : nothing

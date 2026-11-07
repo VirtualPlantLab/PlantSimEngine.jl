@@ -87,6 +87,7 @@ else
         include("test-model-authored-call-plans.jl")
         include("test-model-spec-normalization.jl")
         include("test-model-runtime-snapshot-isolation.jl")
+        include("test-model-refreshed-schedule.jl")
         include("test-model-authored-spec-matching.jl")
         include("test-compilation-metadata.jl")
         include("test-model-input-recipes.jl")
@@ -304,6 +305,7 @@ else
 
     @testset "Distributed output declarations" begin
         include("test-model-output-destination-declarations.jl")
+        include("test-model-distributed-route-ownership.jl")
     end
 
     @testset "Distributed output runtime" begin

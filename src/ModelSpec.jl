@@ -133,12 +133,11 @@ function _normalize_outputs_to(destinations)
     ))
 end
 
-function _resolved_output_destinations(spec::ModelSpec, effective_model=model_(spec))
-    schema = _distributed_output_schema(effective_model)
+function _output_destination_layout(spec::ModelSpec, distributed_names, effective_model=model_(spec))
     destinations = spec.outputs_to
     application = isnothing(spec.name) ? process(effective_model) : spec.name
     context = "Application `$(application)`"
-    for name in keys(schema)
+    for name in distributed_names
         get(spec.output_routing, name, :canonical) === :stream_only && throw(ArgumentError(
             "$(context) cannot route Distributed output `$(name)` as stream_only: " *
             "output targets write destination status. Use canonical routing for this variable.",
@@ -150,14 +149,14 @@ function _resolved_output_destinations(spec::ModelSpec, effective_model=model_(s
         inferred && length(destinations) != 1 && throw(ArgumentError(
             "$(context) has multiple OutputTo destinations; specify `vars` for every entry.",
         ))
-        names = inferred ? keys(schema) : destination.vars
+        names = inferred ? distributed_names : destination.vars
         isempty(names) && throw(ArgumentError(
             "$(context) has no Distributed outputs to infer for OutputTo.",
         ))
         for name in names
-            haskey(schema, name) || throw(ArgumentError(
+            name in distributed_names || throw(ArgumentError(
                 "$(context) binds `$(name)` in OutputTo, but it is not declared as " *
-                "a Distributed output. Declared distributed outputs: `$(keys(schema))`.",
+                "a Distributed output. Declared distributed outputs: `$(distributed_names)`.",
             ))
             name in used && throw(ArgumentError(
                 "$(context) binds distributed output `$(name)` more than once in outputs_to.",
@@ -166,18 +165,19 @@ function _resolved_output_destinations(spec::ModelSpec, effective_model=model_(s
         end
         (
             selector=destination.selector,
-            vars=NamedTuple{names}(map(name -> schema[name], names)),
+            variable_names=Tuple(names),
             coverage=destination.coverage,
             origin=inferred ? :inferred : :explicit,
         )
     end
-    missing = Tuple(name for name in keys(schema) if !(name in used))
+    missing = Tuple(name for name in distributed_names if !(name in used))
     isempty(missing) || throw(ArgumentError(
         "$(context) declares Distributed output(s) `$(missing)` without an " *
         "OutputTo binding in `outputs_to`.",
     ))
     return resolved
 end
+
 
 """
     Updates(vars...; after=nothing)

@@ -726,7 +726,7 @@ end
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelOutputDestinations)
     spec = _model_edit_spec(model, edit.application)
     replacement = _replace_model_spec(spec; outputs_to=edit.destinations)
-    _resolved_output_destinations(replacement)
+    _output_destination_layout(replacement, _distributed_output_names(replacement))
     return _replace_model_edit_spec!(model, edit.application, replacement)
 end
 

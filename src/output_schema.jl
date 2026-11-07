@@ -43,6 +43,11 @@ function _local_output_schema(model)
     return NamedTuple{names}(map(name -> schema[name], names))
 end
 
+function _distributed_output_names(model)
+    schema = _output_schema(model)
+    return Tuple(name for name in keys(schema) if schema[name] isa Distributed)
+end
+
 function _distributed_output_schema(model)
     schema = _output_schema(model)
     names = Tuple(name for name in keys(schema) if schema[name] isa Distributed)

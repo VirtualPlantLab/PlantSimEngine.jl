@@ -1260,7 +1260,8 @@ function _retain_execution_group(previous::G, current::G) where {G<:CompiledAppl
     return previous
 end
 
-mutable struct RuntimeApplicationSchedule
+mutable struct RuntimeApplicationSchedule{P}
+    const definition::P
     next_due_steps::Vector{Int}
     heap::Vector{Int}
     due_entry_indices::Vector{Int}
@@ -1345,6 +1346,7 @@ function _runtime_application_schedule(
 )
     entry_count = length(plan.entries)
     schedule = RuntimeApplicationSchedule(
+        plan,
         fill(typemax(Int), entry_count),
         Int[],
         Int[],
@@ -1362,6 +1364,15 @@ function _runtime_application_schedule(
         _schedule_heap_push!(schedule, entry_index)
     end
     return schedule
+end
+
+# Author/configuration refresh can replace the cadence or its root order.
+# Ordinary lifecycle refresh shares its immutable definition and reuses the heap.
+@inline function _refreshed_runtime_application_schedule(
+    previous::RuntimeApplicationSchedule, definition::CompiledApplicationSchedule,
+)
+    previous.definition === definition && return previous
+    return _runtime_application_schedule(definition; after_step=previous.last_step)
 end
 
 @inline function _generic_schedule_entry_is_due(
@@ -1931,7 +1942,7 @@ function _initialize_changed_model_output_streams!(
             )
             isnothing(groups) && return nothing
             for binding in values(groups)
-                for variable_ in keys(binding.declarations)
+                for variable_ in binding.plan.variable_names
                     variable = Symbol(variable_)
                     variable in variables || continue
                     for destination_id in binding.destination_ids
@@ -3280,7 +3291,7 @@ function _runtime_model_distributed_output_streams(
     isnothing(groups) && return ()
     outputs = Any[]
     for binding in values(groups)
-        for variable_ in keys(binding.declarations)
+        for variable_ in binding.plan.variable_names
             variable = Symbol(variable_)
             variable in retained_variables || continue
             source_streams = Any[
@@ -3371,7 +3382,7 @@ function _runtime_model_output_targets(
             alignment_id = length(anchors)
         end
         target = OutputTargets(binding, alignment_id)
-        for name in keys(binding.declarations)
+        for name in binding.plan.variable_names
             push!(names, name)
             push!(targets, target)
         end
@@ -3799,7 +3810,7 @@ function _model_execution_outputs_match(
         if !isnothing(groups)
             isnothing(temporal_streams) && return false
             for binding in values(groups)
-                for variable_ in keys(binding.declarations)
+                for variable_ in binding.plan.variable_names
                     variable = Symbol(variable_)
                     variable in variables || continue
                     output_index += 1
@@ -3884,7 +3895,7 @@ function _model_execution_output_targets_match(
     count = 0
     ordered_bindings = values(bindings)
     for (index, binding) in enumerate(ordered_bindings)
-        for name in keys(binding.declarations)
+        for name in binding.plan.variable_names
             hasproperty(targets, name) || return false
             target = getproperty(targets, name)
             target.binding === binding || return false
@@ -3892,10 +3903,10 @@ function _model_execution_output_targets_match(
         end
         # A monotonic addition can extend existing columns and streams in place.
         # Rebuild only if it changes which destination declarations are aligned.
-        current = getproperty(targets, first(keys(binding.declarations)))
+        current = getproperty(targets, first(binding.plan.variable_names))
         for previous_index in 1:(index - 1)
             previous = ordered_bindings[previous_index]
-            previous_target = getproperty(targets, first(keys(previous.declarations)))
+            previous_target = getproperty(targets, first(previous.plan.variable_names))
             was_aligned = current.alignment_id == previous_target.alignment_id
             now_aligned = binding.destination_ids == previous.destination_ids
             was_aligned == now_aligned || return false
@@ -4538,7 +4549,8 @@ function _refresh_model_execution_plan(
             same_groups ? previous.groups : groups,
             same_batches ? previous.batches : batches,
             groups_by_slot,
-            previous.schedule,
+            _refreshed_runtime_application_schedule(previous.schedule,
+                compiled.scenario_plan.application_schedule),
             compiled.revision,
             env_bindings.environment_revision,
         ),
@@ -4706,7 +4718,7 @@ function _model_application_output_variables(
     plans = compiled.scenario_plan.distributed_output_plans
     if plans isa CompiledDistributedOutputPlans
         for plan in _application_plans(plans.by_application, application.id)
-            for variable_ in keys(plan.declarations)
+            for variable_ in plan.variable_names
                 variable = Symbol(variable_)
                 variable in variables || push!(variables, variable)
             end
@@ -8050,7 +8062,7 @@ function _model_request_matches_distributed_output(
     plans = compiled.scenario_plan.distributed_output_plans
     plans isa CompiledDistributedOutputPlans || return false
     return any(
-        plan -> request.var in keys(plan.declarations) &&
+        plan -> request.var in plan.variable_names &&
                 _selector_labels_may_overlap(request.selector, plan.selector),
         _application_plans(plans.by_application, application.id),
     )

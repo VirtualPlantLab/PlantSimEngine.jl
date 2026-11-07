@@ -1672,7 +1672,9 @@ end
 
     @test !ismutabletype(typeof(scenario_plan))
     @test !ismutabletype(typeof(application_plan))
-    @test !ismutabletype(typeof(application_schedule))
+    @test ismutabletype(typeof(application_schedule))
+    @test all(name -> isconst(typeof(application_schedule), name),
+        fieldnames(typeof(application_schedule)))
     @test !ismutabletype(typeof(only(application_schedule.entries)))
     @test ismutabletype(typeof(application))
     @test isconst(typeof(application), :plan)

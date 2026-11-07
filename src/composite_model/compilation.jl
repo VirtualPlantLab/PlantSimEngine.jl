@@ -197,15 +197,14 @@ end
 _compiled_call_name(::CompiledModelCallPlan{NAME}) where {NAME} = NAME
 @inline _compiled_call_mode(::CompiledModelCallPlan{NAME,MODE}) where {NAME,MODE} = MODE
 
-"""Immutable authored cross-object output declaration for one application."""
-struct CompiledModelOutputDestinationPlan{GROUP,SEL,M,D,C}
+"""Immutable value-free cross-object output route for one application."""
+struct CompiledModelOutputDestinationPlan{GROUP,NAMES,SEL,M,C}
     slot::Int
     application_slot::Int
     application_id::Symbol
     group::Symbol
     selector::SEL
     matcher::M
-    declarations::D
     multiplicity::Symbol
     coverage::C
 end
@@ -217,15 +216,15 @@ function CompiledModelOutputDestinationPlan(
     group::Symbol,
     selector,
     matcher,
-    declarations,
+    variable_names::Tuple{Vararg{Symbol}},
     multiplicity,
     coverage,
 )
     return CompiledModelOutputDestinationPlan{
         group,
+        variable_names,
         typeof(selector),
         typeof(matcher),
-        typeof(declarations),
         typeof(coverage),
     }(
         slot,
@@ -234,15 +233,25 @@ function CompiledModelOutputDestinationPlan(
         group,
         selector,
         matcher,
-        declarations,
         multiplicity,
         coverage,
     )
 end
 
-"""Resolved destination membership before status references are constructed."""
-struct ResolvedModelOutputDestination{P}
+_output_destination_variable_names(::CompiledModelOutputDestinationPlan{GROUP,NAMES}) where {GROUP,NAMES} = NAMES
+
+@inline function Base.getproperty(plan::CompiledModelOutputDestinationPlan, name::Symbol)
+    name === :variable_names && return _output_destination_variable_names(plan)
+    return getfield(plan, name)
+end
+
+Base.propertynames(plan::CompiledModelOutputDestinationPlan) =
+    (fieldnames(typeof(plan))..., :variable_names)
+
+"""Real effective declarations and membership before status references are constructed."""
+struct ResolvedModelOutputDestination{P,D}
     plan::P
+    declarations::D
     execution_object_id::ObjectId
     destination_ids::Vector{ObjectId}
 end
@@ -277,7 +286,6 @@ end
     name === :group && return getfield(plan, :group)
     name === :selector && return getfield(plan, :selector)
     name === :matcher && return getfield(plan, :matcher)
-    name === :declarations && return getfield(plan, :declarations)
     name === :multiplicity && return getfield(plan, :multiplicity)
     name === :coverage && return getfield(plan, :coverage)
     return getproperty(plan, name)
@@ -333,11 +341,11 @@ struct CompiledApplicationScheduleEntry
 end
 
 """Immutable cadence definitions for root-scheduled applications."""
-struct CompiledApplicationSchedule{E,A,P,G}
-    entries::E
-    always_entry_indices::A
-    periodic_entry_indices::P
-    generic_entry_indices::G
+mutable struct CompiledApplicationSchedule{E,A,P,G}
+    const entries::E
+    const always_entry_indices::A
+    const periodic_entry_indices::P
+    const generic_entry_indices::G
 end
 
 """Reverse candidate index for compiled selector matchers."""
@@ -1301,7 +1309,7 @@ function _application_output_selectors(
     variable in _model_canonical_output_names(application) &&
         push!(selectors, application.applies_to)
     for plan in _application_plans(plans.by_application, application.id)
-        variable in keys(plan.declarations) || continue
+        variable in plan.variable_names || continue
         push!(selectors, plan.selector)
     end
     return selectors
@@ -2323,9 +2331,11 @@ function _compile_scene(
         :call_binding_compile,
         started_at,
     )
+    applications_by_id = _applications_by_id(applications)
     distributed_outputs = _compile_model_distributed_outputs(
         model,
         applications,
+        applications_by_id,
         scenario_plan.manual_application_ids,
         scenario_plan.distributed_output_plans,
     )
@@ -2370,7 +2380,6 @@ function _compile_scene(
     call_owners = scenario_plan.call_owners
     application_children = scenario_plan.application_children
     application_order = scenario_plan.application_order
-    applications_by_id = _applications_by_id(applications)
     ordered_applications = Tuple(
         applications_by_id[application_id]
         for application_id in application_order
@@ -5209,27 +5218,32 @@ end
 
 _resolve_model_output_destinations(
     ::CompositeModel,
-    applications,
+    applications_by_id,
     ::NoCompiledDistributedOutputPlans,
 ) = ()
 
+# Port names are authored metadata; defaults belong to the actual initial or
+# newborn destination event, never a previous binding's cached declaration.
+function _model_output_destination_declarations(
+    application, execution_object_id,
+    ::CompiledModelOutputDestinationPlan{GROUP,NAMES},
+) where {GROUP,NAMES}
+    effective_model = _application_model(application, execution_object_id)
+    selected = NamedTuple{NAMES}(_output_schema(effective_model))
+    return map(output -> output.declaration, selected)
+end
+
 function _resolve_model_output_destinations(
     model::CompositeModel,
-    applications,
+    applications_by_id,
     compiled_plans::CompiledDistributedOutputPlans,
 )
     resolved = ResolvedModelOutputDestination[]
     for plan in compiled_plans.plans
-        application = applications[plan.application_slot]
+        application = applications_by_id[plan.application_id]
         for execution_object_id in application.target_ids
-            effective_model = _application_model(application, execution_object_id)
-            declarations = _distributed_output_schema(effective_model)
-            names = keys(plan.declarations)
-            effective_declarations = NamedTuple{names}(map(name -> declarations[name], names))
-            effective_plan = CompiledModelOutputDestinationPlan(
-                plan.slot, plan.application_slot, plan.application_id, plan.group,
-                plan.selector, plan.matcher, effective_declarations, plan.multiplicity,
-                plan.coverage,
+            declarations = _model_output_destination_declarations(
+                application, execution_object_id, plan,
             )
             destination_ids = _dependency_object_ids(
                 model,
@@ -5241,7 +5255,8 @@ function _resolve_model_output_destinations(
             push!(
                 resolved,
                 ResolvedModelOutputDestination(
-                    effective_plan,
+                    plan,
+                    declarations,
                     execution_object_id,
                     destination_ids,
                 ),
@@ -5268,7 +5283,7 @@ function _push_compiled_writer_owner!(
     return ownership
 end
 
-function _validate_compiled_writer_ownership!(ownership, applications)
+function _validate_compiled_writer_ownership!(ownership, applications_by_id)
     groups = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Int,Any}}}()
     for ((object_id, variable), owners) in ownership
         sort!(owners; by=owner -> owner.application_slot)
@@ -5290,7 +5305,7 @@ function _validate_compiled_writer_ownership!(ownership, applications)
                 ),
                 (
                     owner.application_slot,
-                    applications[owner.application_slot],
+                    applications_by_id[owner.application_id],
                 ),
             )
         end
@@ -5301,6 +5316,7 @@ end
 
 function _compile_model_writer_ownership(
     applications,
+    applications_by_id,
     manual_application_ids,
     resolved_destinations,
 )
@@ -5329,9 +5345,8 @@ function _compile_model_writer_ownership(
     end
     for resolved in resolved_destinations
         plan = resolved.plan
-        application = applications[plan.application_slot]
         for destination_id in resolved.destination_ids
-            for variable_ in keys(plan.declarations)
+            for variable_ in plan.variable_names
                 variable = Symbol(variable_)
                 _push_compiled_writer_owner!(
                     ownership,
@@ -5348,7 +5363,7 @@ function _compile_model_writer_ownership(
             end
         end
     end
-    return _validate_compiled_writer_ownership!(ownership, applications)
+    return _validate_compiled_writer_ownership!(ownership, applications_by_id)
 end
 
 _validate_manual_model_output_destination_plans!(::NoCompiledDistributedOutputPlans, _) = nothing
@@ -6143,7 +6158,7 @@ function _validate_required_model_output_destinations!(
     missing = NamedTuple[]
     for resolved in resolved_destinations
         for destination_id in resolved.destination_ids
-            for (variable_, declaration) in pairs(resolved.plan.declarations)
+            for (variable_, declaration) in pairs(resolved.declarations)
                 declaration isa Required || continue
                 variable = Symbol(variable_)
                 if _status_has_variable(model, destination_id, variable)
@@ -6220,7 +6235,7 @@ function _prepare_model_output_destination_statuses!(
                     model,
                     destination_id,
                 )
-                for (variable_, declaration) in pairs(resolved.plan.declarations)
+                for (variable_, declaration) in pairs(resolved.declarations)
                     declaration isa Default || continue
                     variable = Symbol(variable_)
                     if preparation isa Status
@@ -6256,7 +6271,7 @@ function _model_output_destination_columns(
     model::CompositeModel,
     resolved::ResolvedModelOutputDestination,
 )
-    declarations = resolved.plan.declarations
+    declarations = resolved.declarations
     names = Tuple(Symbol.(keys(declarations)))
     columns = map(names) do variable
         refs = Base.RefValue[
@@ -6333,7 +6348,7 @@ function _index_model_output_destination_ids(bindings)
     index = Dict{Tuple{Symbol,Symbol},Vector{ObjectId}}()
     merged_keys = Set{Tuple{Symbol,Symbol}}()
     for binding in bindings
-        for variable_ in keys(binding.declarations)
+        for variable_ in binding.plan.variable_names
             variable = Symbol(variable_)
             key = (binding.application_id, variable)
             destination_ids = get(index, key, nothing)
@@ -6362,6 +6377,7 @@ end
 function _compile_model_distributed_outputs(
     model::CompositeModel,
     applications,
+    applications_by_id,
     manual_application_ids,
     ::NoCompiledDistributedOutputPlans,
 )
@@ -6375,16 +6391,18 @@ end
 function _compile_model_distributed_outputs(
     model::CompositeModel,
     applications,
+    applications_by_id,
     manual_application_ids,
     plans::CompiledDistributedOutputPlans,
 )
     resolved = _resolve_model_output_destinations(
         model,
-        applications,
+        applications_by_id,
         plans,
     )
     ownership = _compile_model_writer_ownership(
         applications,
+        applications_by_id,
         manual_application_ids,
         resolved,
     )
@@ -6507,6 +6525,11 @@ function _incremental_distributed_output_addition!(
             resolved_additions,
             ResolvedModelOutputDestination(
                 binding.plan,
+                _model_output_destination_declarations(
+                    applications_by_id[binding.application_id],
+                    binding.execution_object_id,
+                    binding.plan,
+                ),
                 binding.execution_object_id,
                 destination_ids,
             ),
@@ -6543,7 +6566,7 @@ function _incremental_distributed_output_addition!(
     for resolved in resolved_additions
         plan = resolved.plan
         for destination_id in resolved.destination_ids
-            for variable_ in keys(plan.declarations)
+            for variable_ in plan.variable_names
                 variable = Symbol(variable_)
                 _stage_distributed_writer_owner!(
                     staged_ownership,
@@ -6561,7 +6584,7 @@ function _incremental_distributed_output_addition!(
             end
         end
     end
-    _validate_compiled_writer_ownership!(staged_ownership, applications)
+    _validate_compiled_writer_ownership!(staged_ownership, applications_by_id)
     _prepare_model_output_destination_statuses!(model, resolved_additions)
 
     column_additions = Any[]
@@ -6570,7 +6593,7 @@ function _incremental_distributed_output_addition!(
         groups = previous.by_execution_target[key]
         binding = getproperty(groups, resolved.plan.group)
         columns = _model_output_destination_columns(model, resolved)
-        for variable in keys(binding.declarations)
+        for variable in binding.plan.variable_names
             existing_references = parent(getproperty(binding.columns, variable))
             added_references = parent(getproperty(columns, variable))
             eltype(added_references) <: eltype(existing_references) ||
@@ -6585,7 +6608,7 @@ function _incremental_distributed_output_addition!(
     for addition in column_additions
         binding = addition.binding
         resolved = addition.resolved
-        for variable_ in keys(binding.declarations)
+        for variable_ in binding.plan.variable_names
             variable = Symbol(variable_)
             append!(
                 parent(getproperty(binding.columns, variable)),
@@ -6641,6 +6664,7 @@ function _refresh_model_distributed_outputs(
     current = _compile_model_distributed_outputs(
         model,
         applications,
+        applications_by_id,
         manual_application_ids,
         plans,
     )
@@ -6664,7 +6688,7 @@ function _new_writers_on_existing_destinations(outputs, new_targets, added_ids)
             if isnothing(by_variable)
                 by_variable = Dict{Symbol,Vector{Tuple{ObjectId,Symbol}}}()
             end
-            for variable in keys(group.declarations)
+            for variable in group.plan.variable_names
                 push!(
                     get!(Vector{Tuple{ObjectId,Symbol}}, by_variable, variable),
                     (destination, application_id),
@@ -6689,7 +6713,7 @@ function _changed_writers_on_surviving_destinations(model, previous, current, ch
                     if isnothing(by_variable)
                         by_variable = Dict{Symbol,Vector{Tuple{ObjectId,Symbol}}}()
                     end
-                    for variable in keys(group.declarations)
+                    for variable in group.plan.variable_names
                         push!(get!(Vector{Tuple{ObjectId,Symbol}}, by_variable, variable),
                             (destination, group.application_id))
                     end
@@ -7557,7 +7581,7 @@ function _input_plan_writer_applications(
             application.id,
             (),
         )
-            for variable in keys(plan.declarations)
+            for variable in plan.variable_names
                 candidates = get!(Vector{CompiledModelApplication}, writers, variable)
                 # An application can write the same name through several
                 # destination plans. Keep it once, in application order.
@@ -7596,7 +7620,7 @@ function _application_may_output_variable(
             application.applies_to,
         ) && return true
     return any(
-        plan -> variable in keys(plan.declarations) &&
+        plan -> variable in plan.variable_names &&
                 _selector_labels_may_overlap(source_selector, plan.selector),
         _application_plans(plans.by_application, application.id),
     )
@@ -7616,7 +7640,7 @@ function _application_declares_distributed_output(
     plans::CompiledDistributedOutputPlans,
 )
     return any(
-        plan -> variable in keys(plan.declarations) &&
+        plan -> variable in plan.variable_names &&
                 _selector_labels_may_overlap(source_selector, plan.selector),
         _application_plans(plans.by_application, application.id),
     )
@@ -7895,11 +7919,13 @@ function _compile_model_output_destination_plans(
 )
     plans = CompiledModelOutputDestinationPlan[]
     for application in applications
-        destinations = _resolved_output_destinations(application.spec)
+        distributed_names = _distributed_output_names(application.spec)
+        destinations = _output_destination_layout(application.spec, distributed_names)
         if !isnothing(application.model_overrides)
             for replacement in values(application.model_overrides)
-                _resolved_output_destinations(application.spec, replacement)
-                Set(keys(_distributed_output_schema(replacement))) == Set(keys(_distributed_output_schema(application.spec))) ||
+                replacement_names = _distributed_output_names(replacement)
+                _output_destination_layout(application.spec, replacement_names, replacement)
+                Set(replacement_names) == Set(distributed_names) ||
                     error("Object override for application `$(application.id)` has incompatible distributed output names.")
             end
         end
@@ -7919,7 +7945,7 @@ function _compile_model_output_destination_plans(
                     Symbol(group_name),
                     selector,
                     _compile_selector_matcher(model, selector),
-                    getproperty(destination, :vars),
+                    getproperty(destination, :variable_names),
                     multiplicity(selector),
                     getproperty(destination, :coverage),
                 ),
@@ -7955,9 +7981,11 @@ end
 
 function _application_declares_output_name(application, variable::Symbol)
     variable in _model_output_names(application) && return true
-    destinations = _resolved_output_destinations(application.spec)
+    destinations = _output_destination_layout(
+        application.spec, _distributed_output_names(application.spec),
+    )
     return any(
-        destination -> variable in keys(destination.vars),
+        destination -> variable in destination.variable_names,
         values(destinations),
     )
 end
@@ -9098,7 +9126,7 @@ function _explain_output_bindings(outputs::CompiledDistributedOutputs, compiled)
                 origin=origin,
                 destination_ids=[id.value for id in binding.destination_ids],
                 destination_count=length(binding.destination_ids),
-                variables=Tuple(Symbol.(keys(binding.declarations))),
+                variables=Tuple(Symbol.(binding.plan.variable_names)),
                 column_types=NamedTuple{Tuple(keys(binding.columns))}(
                     Tuple(typeof(column) for column in values(binding.columns)),
                 ),
