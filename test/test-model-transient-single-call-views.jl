@@ -259,6 +259,12 @@ end
 # independently of the transient environment's dynamically selected type.
 @noinline captured_offset(targets) = only(targets).constants.offset
 
+@noinline function captured_metadata(targets)
+    target = only(targets)
+    return (target.compiled, target.environment_bindings,
+        target.temporal_streams, target.output_retention, target.constants)
+end
+
 function transient_lookup_allocations(sink, targets, count)
     return @allocated escape_transient_single_views!(sink, targets, count)
 end
@@ -286,6 +292,10 @@ end
             targets = call_targets(data.context_capture[], name)
             @test transient_lookup_allocations(sink, targets, 1000) == 0
             @test (@inferred captured_offset(targets)) === zero(S)
+            metadata = @inferred captured_metadata(targets)
+            expected = (targets.compiled, targets.environment_bindings,
+                targets.temporal_streams, targets.output_retention, targets.constants)
+            @test all(pair -> first(pair) === last(pair), zip(metadata, expected))
             @test sink[] isa PSE.CallTarget
             @test sink[].environment === trial
             @test sink[].status.seen === S(40)

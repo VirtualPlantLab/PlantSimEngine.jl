@@ -251,6 +251,8 @@ end
     @test eltype(selected.binding.callee_object_ids) === I
     @test typeof(selected.binding) === typeof(data.left.binding)
     @test view_ids(selected) == [ObjectId(1)]
+    @test only(selected).object_id === ObjectId(1)
+    @test only(selected).constants === selected.constants
 end
 
 @testset "ordinary and prepared public calls retain state histories and membership through birth and removal" begin

@@ -508,6 +508,11 @@ end
 const _SingleCallTargetView{T,CS,EB,A,TS,OR,C,I} =
     CallTarget{T,CS,EB,A,CT,TS,OR,C,E,I} where {CT,E}
 
+# A dynamic batch lookup may erase payload/application/descendant/environment
+# types. The collection still owns these five caller metadata types.
+const _CallTargetMetadata{CS,EB,TS,OR,C} =
+    CallTarget{T,CS,EB,A,CT,TS,OR,C,E,I} where {T,A,CT,E,I<:ObjectId}
+
 # V fixes caller metadata while allowing descendant and environment types to change.
 # The concrete mutable slot crosses the dispatch boundary without unboxing its
 # immutable snapshot or erasing the metadata types needed by the caller.
@@ -5423,8 +5428,9 @@ end
 
 # Reuse only indistinguishable immutable snapshots; all numerical state is
 # still live. General iteration/collection and borrowed-buffer paths stay fresh.
-@inline function Base.only(targets::CallTargets)
-    return _only_call_target(targets, _materialize_call_execution_batches!(targets))
+@inline function Base.only(targets::CallTargets{CS,EB,B,TS,OR,C}) where {CS,EB,B,TS,OR,C}
+    return _only_call_target(targets,
+        _materialize_call_execution_batches!(targets))::_CallTargetMetadata{CS,EB,TS,OR,C}
 end
 
 """
