@@ -101,6 +101,56 @@ end
     @test getproperty.(flatten(membership), :object_id) == ids((1, 3))
 end
 
+@testset "interior insertions preserve ordered run families and live payloads" begin
+    for closed in (false, true)
+        store = PSE.ExecutionCohortStore()
+        left, right = make_target(20, 20.0), make_target(80, 80.0)
+        middle = make_target(50, 50.0f0)
+        targets = Dict{ObjectId,Any}(target.object_id => target for target in (left, right, middle))
+        schema = closed ? schema_for(left, middle) : PSE.OpenExecutionCohortSchema()
+        membership = refresh(store, targets, (20, 80); schema).membership
+        original_run = only(membership.runs)
+        original_indices = original_run.indices
+        original_left = PSE.cohort_location(store, :growth, left.object_id)
+        original_right = PSE.cohort_location(store, :growth, right.object_id)
+        left_reference = PSE.refvalue(left.status, :value)
+        right_reference = PSE.refvalue(right.status, :value)
+
+        # A new B inside A splits only its ordered index view into A/B/A.
+        refresh(store, targets, (20, 50, 80), (50,); previous=membership, schema)
+        @test membership.run_starts == [1, 2, 3]
+        @test first(membership.runs) === original_run
+        @test first(membership.runs).indices === original_indices
+        @test flatten(membership) == [left, middle, right]
+        @test first(membership.runs).cohort === last(membership.runs).cohort
+
+        # Exercise previous-family append, front insertion, tail reuse/new run,
+        # and same-family insertion within an existing run.
+        current = [20, 50, 80]
+        for (id, value) in ((30, 30.0), (10, 10.0f0), (90, 90.0),
+                            (100, 100.0f0), (25, 25.0))
+            target = make_target(id, value)
+            targets[target.object_id] = target
+            push!(current, id)
+            sort!(current)
+            changed = refresh(store, targets, current, (id,); previous=membership, schema)
+            @test changed.targets_constructed == 1
+            @test changed.targets_reused == length(current) - 1
+            @test getproperty.(flatten(membership), :object_id) == ids(current)
+        end
+        @test membership.run_starts == [1, 2, 5, 6, 8]
+        @test getproperty.(flatten(membership), :object_id) == ids((10, 20, 25, 30, 50, 80, 90, 100))
+        @test membership.runs[2] === original_run
+        @test membership.runs[2].indices === original_indices
+        @test PSE.cohort_location(store, :growth, left.object_id) === original_left
+        @test PSE.cohort_location(store, :growth, right.object_id) === original_right
+        @test PSE.refvalue(left.status, :value) === left_reference
+        @test PSE.refvalue(right.status, :value) === right_reference
+        @test only(target for target in flatten(membership) if target.object_id == left.object_id) === left
+        @test only(target for target in flatten(membership) if target.object_id == right.object_id) === right
+    end
+end
+
 @testset "an empty future schema creates no target or scientific default" begin
     S = Status{(:value,),Tuple{Base.RefValue{Float64}}}
     T = Target{ObjectId{Int},S,Base.RefValue{Int}}

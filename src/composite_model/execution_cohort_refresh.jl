@@ -27,11 +27,18 @@ function _execution_cohort_rows(
     return ExecutionCohortRows{T}(store, cohort, indices)
 end
 
-function _shift_execution_run_starts!(membership, first_run, delta)
-    for index in first_run:lastindex(membership.run_starts)
-        membership.run_starts[index] += delta
+function _shift_execution_run_starts!(starts::Vector{Int}, first_run, delta)
+    for index in first_run:lastindex(starts)
+        starts[index] += delta
     end
     return nothing
+end
+
+function _split_execution_run_indices!(indices::Vector{Int}, local_index)
+    right = indices[local_index:end]
+    sizehint!(right, length(right) + max(16, length(right) ÷ 4))
+    resize!(indices, local_index - 1)
+    return right
 end
 
 function _execution_membership_location_has_cohort(membership, position, cohort)
@@ -63,35 +70,35 @@ function _insert_execution_membership_row!(membership, position, object_id, loca
         end
     else
         run_index = searchsortedlast(starts, position)
-        _with_execution_membership_run(membership, run_index) do rows
-            local_index = position - starts[run_index] + 1
-            if rows.cohort === location.cohort
-                insert!(rows.indices, local_index, location.row)
-                _shift_execution_run_starts!(membership, run_index + 1, 1)
-            elseif local_index == 1 && run_index > 1 &&
-                   _execution_membership_run_has_cohort(membership, run_index - 1, location.cohort)
-                _with_execution_membership_run(membership, run_index - 1) do previous_rows
-                    push!(previous_rows.indices, location.row)
-                end
-                _shift_execution_run_starts!(membership, run_index, 1)
-            elseif local_index == 1
-                insert!(runs, run_index, _execution_cohort_rows(membership.store, location.cohort, Int[location.row]))
-                insert!(starts, run_index, position)
-                _shift_execution_run_starts!(membership, run_index + 1, 1)
-            else
-                # This is the same ordered reconciliation algorithm: split only
-                # membership indices; retain payloads and scientific references.
-                right_indices = rows.indices[local_index:end]
-                sizehint!(right_indices, length(right_indices) + max(16, length(right_indices) ÷ 4))
-                right = _execution_cohort_rows(membership.store, rows.cohort, right_indices)
-                resize!(rows.indices, local_index - 1)
-                insert!(runs, run_index + 1, _execution_cohort_rows(membership.store, location.cohort, Int[location.row]))
-                insert!(starts, run_index + 1, position)
-                insert!(runs, run_index + 2, right)
-                insert!(starts, run_index + 2, position + 1)
-                _shift_execution_run_starts!(membership, run_index + 3, 1)
+        indices, same_cohort = _with_execution_membership_run(membership, run_index) do rows
+            (rows.indices, rows.cohort === location.cohort)
+        end
+        local_index = position - starts[run_index] + 1
+        if same_cohort
+            insert!(indices, local_index, location.row)
+            _shift_execution_run_starts!(starts, run_index + 1, 1)
+        elseif local_index == 1 && run_index > 1 &&
+               _execution_membership_run_has_cohort(membership, run_index - 1, location.cohort)
+            _with_execution_membership_run(membership, run_index - 1) do previous_rows
+                push!(previous_rows.indices, location.row)
             end
-            return nothing
+            _shift_execution_run_starts!(starts, run_index, 1)
+        elseif local_index == 1
+            insert!(runs, run_index, _execution_cohort_rows(membership.store, location.cohort, Int[location.row]))
+            insert!(starts, run_index, position)
+            _shift_execution_run_starts!(starts, run_index + 1, 1)
+        else
+            # Split only membership indices; payloads and scientific references
+            # stay in their original cohorts.
+            right_indices = _split_execution_run_indices!(indices, local_index)
+            store = membership.store
+            insert!(runs, run_index + 1, _execution_cohort_rows(store, location.cohort, Int[location.row]))
+            insert!(starts, run_index + 1, position)
+            _with_execution_membership_run(membership, run_index) do rows
+                insert!(runs, run_index + 2, _execution_cohort_rows(store, rows.cohort, right_indices))
+            end
+            insert!(starts, run_index + 2, position + 1)
+            _shift_execution_run_starts!(starts, run_index + 3, 1)
         end
     end
     insert!(membership.object_ids, position, object_id)
@@ -107,7 +114,7 @@ function _delete_execution_membership_row!(membership, position)
         deleteat!(rows.indices, position - starts[run_index] + 1)
         isempty(rows.indices)
     end
-    _shift_execution_run_starts!(membership, run_index + 1, -1)
+    _shift_execution_run_starts!(starts, run_index + 1, -1)
     if run_empty
         deleteat!(runs, run_index)
         deleteat!(starts, run_index)
