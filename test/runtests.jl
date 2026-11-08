@@ -49,10 +49,16 @@ else
 
         for group_index in group_indices
             name, files = TEST_GROUPS[group_index]
-            @testset "$name" begin
-                for file in files
-                    include(file)
+            @info "Test group start" group_index name files
+            group_started_at = time_ns()
+            try
+                @testset "$name" begin
+                    for file in files
+                        include(file)
+                    end
                 end
+            finally
+                @info "Test group end" group_index name elapsed_seconds=(time_ns() - group_started_at) / 1.0e9
             end
         end
 
