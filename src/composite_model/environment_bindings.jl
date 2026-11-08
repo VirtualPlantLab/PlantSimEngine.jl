@@ -588,11 +588,13 @@ function _same_environment_backend(a, b)
     return false
 end
 
-function _same_environment_context(a, b)
-    return a.application == b.application &&
-           a.object_id == b.object_id &&
-           a.scale == b.scale &&
-           a.process == b.process
+function _same_environment_context(a, b, ::Type{I}) where {I<:ObjectId}
+    previous = a::EnvironmentContext
+    current = b::EnvironmentContext
+    return previous.application == current.application &&
+           (previous.object_id::I) == (current.object_id::I) &&
+           previous.scale == current.scale &&
+           previous.process == current.process
 end
 
 function _same_environment_plan_configuration(
@@ -693,7 +695,7 @@ function _reconcile_environment_binding_metadata(
             old.geometry_source_object_id == geometry_source_object_id ||
                 return nothing
             old.geometry_source == geometry_source || return nothing
-            _same_environment_context(old.context, context) || return nothing
+            _same_environment_context(old.context, context, keytype(cached.targets_by_object)) || return nothing
 
             if old.plan === plan
                 push!(bindings, old)

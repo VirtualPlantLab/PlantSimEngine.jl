@@ -364,6 +364,50 @@ function check_indexes(model, owner)
     end
 end
 
+@testset "canonical environment contexts admit identity values independently of their parameter" begin
+    for closed in (false, true)
+        data = fixture(closed)
+        model, owner = data.model, data.simulation.environment_bindings
+        I = keytype(owner.targets_by_object)
+        integer = owner.by_target[(:probe, ObjectId(1))].context
+        symbolic = owner.by_target[(:probe, ObjectId(:leaf))].context
+        for context in (integer, symbolic)
+            fields = (context.application, context.object_id, context.scale, context.process)
+            @test PSE._same_environment_context(context, EA.EnvironmentContext(fields...), I)
+            for O in (Any, I)
+                widened = EA.EnvironmentContext{O}(fields...)
+                @test PSE._same_environment_context(context, widened, I)
+                @test PSE._same_environment_context(widened, context, I)
+            end
+        end
+        # An owner may mix identity types; a different context parameter is not
+        # an admission failure, and different identity values still compare false.
+        @test PSE._same_environment_context(integer, symbolic, I) === false
+        @test PSE._same_environment_context(symbolic, integer, I) === false
+        for changed in (
+            EA.EnvironmentContext(:other, integer.object_id, integer.scale, integer.process),
+            EA.EnvironmentContext(integer.application, integer.object_id, :Other, integer.process),
+            EA.EnvironmentContext(integer.application, integer.object_id, integer.scale, :other),
+        )
+            @test PSE._same_environment_context(integer, changed, I) === false
+        end
+
+        # Keep the original short-circuit: different applications do not read
+        # or admit the identity value, even when it is outside the owner domain.
+        different_application = EA.EnvironmentContext(:other, missing, integer.scale, integer.process)
+        @test PSE._same_environment_context(different_application, integer, I) === false
+        same_application = EA.EnvironmentContext(integer.application, missing, integer.scale, integer.process)
+        @test_throws TypeError PSE._same_environment_context(same_application, integer, I)
+
+        remove_object!(model, 1)
+        @test !haskey(model.registry.objects, integer.object_id)
+        retained = EA.EnvironmentContext{Any}(integer.application, integer.object_id,
+            integer.scale, integer.process)
+        @test PSE._same_environment_context(integer, retained, I)
+        @test PSE._same_environment_context(integer, symbolic, I) === false
+    end
+end
+
 @testset "environment indexes retain admitted identity pools" begin
     for closed in (false, true)
         data = fixture(closed)

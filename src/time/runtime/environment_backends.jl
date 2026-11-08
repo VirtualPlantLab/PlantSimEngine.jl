@@ -18,6 +18,10 @@ Immutable model-target metadata passed to [`bind_environment`](@ref). Backends
 return an opaque handle from that method and use the handle for all subsequent
 sampling and commits. Runtime status and geometry are intentionally absent:
 object-to-environment routing belongs to the compiled handle.
+
+For `CompositeModel` bindings, the compiler constructs this context with an
+`ObjectId` value from its prepared identity family. Providers customize the
+returned handle, while this metadata remains owned by the compiler.
 """
 struct EnvironmentContext{O}
     application::Symbol
