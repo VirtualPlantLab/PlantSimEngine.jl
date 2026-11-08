@@ -184,6 +184,7 @@ function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.GraphEdit
         PlantSimEngine._validate_model_environment_inputs!(
             bindings,
             Dict(application.id => application for application in report.applications),
+            keytype(candidate.registry.objects),
         )
     end
     push!(session.history, session.model)
