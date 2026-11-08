@@ -262,18 +262,18 @@ Base.propertynames(plan::CompiledModelOutputDestinationPlan) =
     (fieldnames(typeof(plan))..., :variable_names)
 
 """Real effective declarations and membership before status references are constructed."""
-struct ResolvedModelOutputDestination{P,D}
+struct ResolvedModelOutputDestination{P,D,I<:ObjectId}
     plan::P
     declarations::D
     execution_object_id::ObjectId
-    destination_ids::Vector{ObjectId}
+    destination_ids::Vector{I}
 end
 
 """Compiled columnar references for one execution object and output group."""
-mutable struct CompiledModelOutputDestinationBinding{P,C,I}
+mutable struct CompiledModelOutputDestinationBinding{P,C,I,ID<:ObjectId}
     const plan::P
     const execution_object_id::ObjectId
-    destination_ids::Vector{ObjectId}
+    destination_ids::Vector{ID}
     columns::C
     destination_index::I
     membership_generation::UInt64
@@ -5338,11 +5338,14 @@ function _resolve_model_output_destinations(
             declarations = _model_output_destination_declarations(
                 application, execution_object_id, plan,
             )
-            destination_ids = _dependency_object_ids(
+            destination_ids = _application_target_ids(
                 model,
-                plan.selector,
-                plan.matcher,
-                execution_object_id,
+                _dependency_object_ids(
+                    model,
+                    plan.selector,
+                    plan.matcher,
+                    execution_object_id,
+                ),
             )
             sizehint!(destination_ids, length(destination_ids) + 1)
             push!(
@@ -6379,8 +6382,8 @@ function _model_output_destination_columns(
     return NamedTuple{names}(Tuple(columns))
 end
 
-function _model_output_destination_index(destination_ids)
-    index = Dict{ObjectId,Int}()
+function _model_output_destination_index(destination_ids::AbstractVector{I}) where {I<:ObjectId}
+    index = Dict{I,Int}()
     sizehint!(index, length(destination_ids))
     for (position, object_id) in pairs(destination_ids)
         haskey(index, object_id) && error(
@@ -6437,8 +6440,9 @@ function _compile_model_output_destination_bindings(
     return bindings, by_execution_target
 end
 
-function _index_model_output_destination_ids(bindings)
-    index = Dict{Tuple{Symbol,Symbol},Vector{ObjectId}}()
+function _index_model_output_destination_ids(model::CompositeModel, bindings)
+    I = keytype(model.registry.objects)
+    index = Dict{Tuple{Symbol,Symbol},Vector{I}}()
     merged_keys = Set{Tuple{Symbol,Symbol}}()
     for binding in bindings
         for variable_ in binding.plan.variable_names
@@ -6512,7 +6516,7 @@ function _compile_model_distributed_outputs(
         bindings,
         by_execution_target,
         ownership,
-        _index_model_output_destination_ids(bindings),
+        _index_model_output_destination_ids(model, bindings),
     )
 end
 
@@ -6592,7 +6596,7 @@ function _incremental_distributed_output_addition!(
             model,
             binding.execution_object_id,
         )
-        destination_ids = ObjectId[
+        destination_ids = keytype(model.registry.objects)[
             object_id for object_id in added_ids
             if _selector_matches_object_id(
                 model,

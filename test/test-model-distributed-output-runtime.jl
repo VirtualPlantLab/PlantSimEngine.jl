@@ -1226,3 +1226,145 @@ end
           [:distributed_runtime_policy_updater]
     @test binding.policy isa Aggregate
 end
+
+
+# Same closure mechanism used by the maintained finite-registry fixtures. Every
+# status family here is an actual fully initialized object in this small scene.
+function _distributed_runtime_closed_destination_registry(model::CompositeModel)
+    PSE = PlantSimEngine
+    previous = model.registry
+    registry = PSE.ObjectRegistry(PSE._closed_object_family_store(previous.objects),
+        previous.by_scale, previous.by_kind, previous.by_species,
+        previous.ancestor_ids_by_object)
+    return PSE.CompositeModel(registry, model.applications, model.environment,
+        model.instances, model.source_adapter, model.status_conversion,
+        model.status_conversion_records, model.status_source_owners,
+        model.status_source_identities, model.scenario_plan_cache,
+        model.binding_cache, model.environment_binding_cache, model.bindings_dirty,
+        model.environment_bindings_dirty, model.lifecycle_delta,
+        model.input_default_status_variables, model.runtime_revision,
+        model.revision, model.environment_revision)
+end
+
+@testset "Closed distributed memberships retain the registry ID domain and live carriers" begin
+    PSE = PlantSimEngine
+    for (scene, leaves, added) in ((10, (20,), 30),
+        (:scene, (:leaf_a,), :leaf_z), (:scene, (20, :leaf_a), :leaf_z))
+        model = CompositeModel(
+            Object(scene; scale=:Scene, status=Status(private_runs=0)),
+            (Object(id; scale=:Leaf, parent=scene, status=Status(incident_par=0.0)) for id in leaves)...;
+            applications=(ModelSpec(DistributedRuntimeStatefulWriterModel();
+                name=:closed_destination_writer, on=One(id=scene),
+                outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope()); vars=(:incident_par,)),)),),
+            environment=(duration=Hour(1),))
+        model = _distributed_runtime_closed_destination_registry(model)
+        simulation = run!(model; steps=0, outputs=:all, performance=true)
+        I = keytype(model.registry.objects)
+        binding = only(simulation.compiled.distributed_outputs.bindings)
+        ids = binding.destination_ids
+        index = simulation.compiled.distributed_outputs.destination_ids_by_application_variable
+        @test ids isa Vector{I}
+        @test fieldtype(typeof(binding), :destination_ids) === typeof(ids)
+        @test keytype(binding.destination_index) === I
+        @test index[(:closed_destination_writer, :incident_par)] === ids
+        @test object_ids(PSE.OutputTargets(binding, 1)).ids === ids
+        application = simulation.compiled.applications_by_id[:closed_destination_writer]
+        declarations = PSE._model_output_destination_declarations(application, binding.execution_object_id, binding.plan)
+        resolved = PSE.ResolvedModelOutputDestination(binding.plan, declarations, binding.execution_object_id, ids)
+        @test resolved.destination_ids === ids
+        @test fieldtype(typeof(resolved), :destination_ids) === typeof(ids)
+        carrier = binding.columns.incident_par
+        references = parent(carrier)
+        old_references = Tuple(references)
+        continue!(simulation)
+        register_object!(model, Object(added; scale=:Leaf, status=Status(incident_par=0.0)); parent=scene)
+        continue!(simulation)
+        current = only(simulation.compiled.distributed_outputs.bindings)
+        @test current === binding
+        @test current.destination_ids === ids
+        @test current.columns.incident_par === carrier
+        @test parent(carrier) === references
+        @test all(references[i] === old_references[i] for i in eachindex(old_references))
+        @test simulation.compiled.distributed_outputs.destination_ids_by_application_variable[
+            (:closed_destination_writer, :incident_par)] === ids
+        @test eltype(ids) === I
+        @test ids == PSE._sort_object_ids!(ObjectId.([leaves..., added]))
+        @test all(references[i] === PSE.refvalue(model_status(model, ids[i]), :incident_par) for i in eachindex(ids))
+        @test all(model_status(model, id).incident_par == 102.0 for id in ids)
+        @test outputs(simulation)[(:closed_destination_writer, ObjectId(first(leaves)), :incident_par)] == [(1.0, 101.0), (2.0, 102.0)]
+        @test outputs(simulation)[(:closed_destination_writer, ObjectId(added), :incident_par)] == [(2.0, 102.0)]
+    end
+end
+
+@testset "Closed distributed context and Self destinations share their normalized IDs" begin
+    PSE = PlantSimEngine
+    for (scene, other) in ((1, 2), (:scene, :other), (1, :other)),
+        selector in (Many(), Many(within=Self()))
+        model = CompositeModel(
+            Object(scene; scale=:Scene, status=Status(private_runs=0, incident_par=0.0)),
+            Object(other; scale=:Other, status=Status(private_runs=0, incident_par=0.0));
+            applications=(ModelSpec(DistributedRuntimeStatefulWriterModel();
+                name=:closed_context_writer, on=One(id=scene),
+                outputs_to=(OutputTo(selector; vars=(:incident_par,)),)),))
+        model = _distributed_runtime_closed_destination_registry(model)
+        simulation = run!(model; steps=0, outputs=:all)
+        binding = only(simulation.compiled.distributed_outputs.bindings)
+        I = keytype(model.registry.objects)
+        @test eltype(binding.destination_ids) === I
+        @test keytype(binding.destination_index) === I
+        @test binding.destination_ids == ObjectId[ObjectId(scene)]
+        @test simulation.compiled.distributed_outputs.destination_ids_by_application_variable[
+            (:closed_context_writer, :incident_par)] === binding.destination_ids
+        continue!(simulation)
+        @test model_status(model, scene).incident_par == 101.0
+        @test model_status(model, other).incident_par == 0.0
+    end
+end
+
+@testset "Closed empty and merged distributed indices preserve membership ownership" begin
+    PSE = PlantSimEngine
+    # The spare object declares the real leaf status family without selecting it.
+    empty_model = CompositeModel(
+        Object(1; scale=:Scene, status=Status(private_runs=0)),
+        Object(2; scale=:Spare, status=Status(incident_par=0.0));
+        applications=(ModelSpec(DistributedRuntimeStatefulWriterModel();
+            name=:closed_empty_writer, on=One(id=1),
+            outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope()); vars=(:incident_par,)),)),))
+    empty_model = _distributed_runtime_closed_destination_registry(empty_model)
+    simulation = run!(empty_model; steps=0, outputs=:all)
+    binding = only(simulation.compiled.distributed_outputs.bindings)
+    @test isempty(binding.destination_ids)
+    @test eltype(binding.destination_ids) === keytype(empty_model.registry.objects)
+    @test simulation.compiled.distributed_outputs.destination_ids_by_application_variable[
+        (:closed_empty_writer, :incident_par)] === binding.destination_ids
+    register_object!(empty_model, Object(3; scale=:Leaf, status=Status(incident_par=0.0)); parent=1)
+    continue!(simulation)
+    binding = only(simulation.compiled.distributed_outputs.bindings)
+    @test binding.destination_ids == ObjectId[ObjectId(3)]
+    @test simulation.compiled.distributed_outputs.destination_ids_by_application_variable[
+        (:closed_empty_writer, :incident_par)] === binding.destination_ids
+    @test outputs(simulation)[(:closed_empty_writer, ObjectId(3), :incident_par)] == [(1.0, 101.0)]
+
+    merged_model = CompositeModel(
+        Object(1; scale=:Plant, status=Status(private_runs=0)),
+        Object(2; scale=:Plant, status=Status(private_runs=0)),
+        Object(10; scale=:Leaf, parent=1, status=Status(incident_par=0.0)),
+        Object(20; scale=:Leaf, parent=2, status=Status(incident_par=0.0));
+        applications=(ModelSpec(DistributedRuntimeStatefulWriterModel();
+            name=:closed_merged_writer, on=Many(scale=:Plant),
+            outputs_to=(OutputTo(Many(scale=:Leaf, within=Subtree()); vars=(:incident_par,)),)),))
+    merged_model = _distributed_runtime_closed_destination_registry(merged_model)
+    simulation = run!(merged_model; steps=0, outputs=:all)
+    bindings = simulation.compiled.distributed_outputs.bindings
+    combined = simulation.compiled.distributed_outputs.destination_ids_by_application_variable[
+        (:closed_merged_writer, :incident_par)]
+    @test length(bindings) == 2
+    @test combined == ObjectId.(Int[10, 20])
+    @test all(combined !== binding.destination_ids for binding in bindings)
+    @test [copy(binding.destination_ids) for binding in bindings] == [ObjectId.([10]), ObjectId.([20])]
+    register_object!(merged_model, Object(30; scale=:Leaf, status=Status(incident_par=0.0)); parent=2)
+    continue!(simulation)
+    @test combined == ObjectId.(Int[10, 20, 30])
+    @test all(combined !== binding.destination_ids for binding in bindings)
+    @test model_status(merged_model, 30).incident_par == 101.0
+end
