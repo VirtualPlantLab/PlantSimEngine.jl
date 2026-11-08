@@ -31,9 +31,13 @@ handle directly.
 bind_environment(backend, object::Object, context, config=nothing) = nothing
 
 function _environment_binding_object(model::CompositeModel, object::Object)
-    !isnothing(geometry(object)) && return object, object.id, :self
+    if !isnothing(geometry(object))
+        object_id = _index_object_id(model.registry.objects, object.id)
+        return object, object_id, :self
+    end
     ancestor_id = object.parent
     while !isnothing(ancestor_id)
+        ancestor_id = _index_object_id(model.registry.objects, ancestor_id)
         ancestor = _model_object(model, ancestor_id)
         if !isnothing(geometry(ancestor))
             proxy = Object(
@@ -48,7 +52,7 @@ function _environment_binding_object(model::CompositeModel, object::Object)
                 status=object.status,
                 applications=object.applications,
             )
-            return proxy, ancestor.id, :ancestor
+            return proxy, ancestor_id, :ancestor
         end
         ancestor_id = ancestor.parent
     end

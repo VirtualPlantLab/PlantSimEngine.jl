@@ -7285,7 +7285,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
                 # The lifecycle set can contain heterogeneous IDs. Capture the
                 # canonical index's identity schema inside this query instead
                 # of an existential ObjectId in the application callback.
-                let object_id = _application_index_object_id(
+                let object_id = _index_object_id(
                     simulation.compiled.applications_by_object,
                     dirty_object_id,
                 )

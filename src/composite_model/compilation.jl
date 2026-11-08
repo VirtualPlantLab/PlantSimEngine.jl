@@ -8627,16 +8627,16 @@ function Base.iterate(slots::ApplicationMembershipSlots, state...)
     return _application_membership_slot(slots.applications, member), next
 end
 
-@inline function _application_index_object_id(::AbstractDict{I}, object_id::ObjectId) where {I<:ObjectId}
+@inline function _index_object_id(::AbstractDict{I}, object_id::ObjectId) where {I<:ObjectId}
     object_id isa I || throw(ArgumentError(
-        "The object identity is outside the compiled application index schema.",
+        "The object identity is outside the prepared index schema.",
     ))
     return object_id::I
 end
 
 function _application_membership_slots(compiled::CompiledCompositeModel, object_id::ObjectId)
     index = compiled.applications_by_object
-    id = _application_index_object_id(index, object_id)
+    id = _index_object_id(index, object_id)
     return ApplicationMembershipSlots(compiled.applications_by_id, get(index, id, ()))
 end
 

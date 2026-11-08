@@ -65,8 +65,8 @@ end
     closed = PSE._closed_object_family_store(model.registry.objects)
     index = PSE._applications_by_object(compiled.applications, closed)
     @test keytype(index) === ObjectId{Symbol}
-    @test PSE._application_index_object_id(index, ObjectId(:leaf)) === ObjectId(:leaf)
-    @test_throws ArgumentError PSE._application_index_object_id(index, ObjectId(7))
+    @test PSE._index_object_id(index, ObjectId(:leaf)) === ObjectId(:leaf)
+    @test_throws ArgumentError PSE._index_object_id(index, ObjectId(7))
     @test index[ObjectId(:leaf)] == compiled.applications_by_object[ObjectId(:leaf)]
     @test all(left === right for (left, right) in zip(index[ObjectId(:leaf)], compiled.applications))
     @test PSE.model_status(model, :leaf) === status

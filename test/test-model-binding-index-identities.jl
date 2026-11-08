@@ -572,4 +572,62 @@ end
     end
 end
 
+struct GeometryOwnerBackend <: PSE.EnvironmentAPI.AbstractEnvironmentBackend end
+mutable struct GeometryOwnerHandle{G}
+    geometry::G
+end
+PSE.EnvironmentAPI.base_step_seconds(::GeometryOwnerBackend) = 3600.0
+PSE.EnvironmentAPI.get_nsteps(::GeometryOwnerBackend) = 8
+PSE.EnvironmentAPI.bind_environment(::GeometryOwnerBackend, object::Object, context, config) =
+    GeometryOwnerHandle(geometry(object))
+
+@testset "environment geometry provenance retains the registry identity family" begin
+    for closed in (false, true)
+        model = CompositeModel(
+            Object(:root; scale=:Plant, geometry=(cell=:a,), status=Status()),
+            Object(1; scale=:Branch, parent=:root, status=Status()),
+            Object(:leaf; scale=:Leaf, parent=1, status=Status(x=3f0)),
+            Object(:other; scale=:Plant, geometry=(cell=:b,), status=Status()),
+            Object(:no_geometry; scale=:Plant, status=Status()),
+            Object(:blank_branch; scale=:Branch, parent=:no_geometry, status=Status());
+            applications=(ModelSpec(Leaf(); name=:leaf, on=Many(scale=:Leaf)),),
+            environment=GeometryOwnerBackend())
+        closed && (model = close_registry(model))
+        simulation = run!(model; steps=0, outputs=:none)
+        leaf = model_object(model, :leaf)
+        reference = PSE.refvalue(leaf.status, :x)
+        for (id, source_id, role) in ((:root, ObjectId(:root), :self),
+            (1, ObjectId(:root), :ancestor), (:leaf, ObjectId(:root), :ancestor),
+            (:no_geometry, nothing, :global), (:blank_branch, nothing, :global))
+            object = model_object(model, id)
+            bound, source, actual_role = PSE._environment_binding_object(model, object)
+            @test actual_role === role
+            @test source === source_id
+            @test bound.status === object.status
+            @test bound.id === object.id
+            if !isnothing(source)
+                @test typeof(source) === typeof(model_object(model, source).id)
+                @test geometry(bound) == (cell=:a,)
+            end
+        end
+        binding = simulation.environment_bindings.by_target[(:leaf, ObjectId(:leaf))]
+        @test binding.geometry_source_object_id === ObjectId(:root)
+        @test binding.handle.geometry == (cell=:a,)
+        reparent_object!(model, :leaf, :other)
+        refreshed = PSE.Advanced.refresh_environment_bindings!(model)
+        moved = refreshed.by_target[(:leaf, ObjectId(:leaf))]
+        @test moved.geometry_source_object_id === ObjectId(:other)
+        @test moved.handle.geometry == (cell=:b,)
+        @test moved.handle !== binding.handle
+        move_object!(model, :other, (cell=:c,))
+        current = PSE.Advanced.refresh_environment_bindings!(model)
+        moved_again = current.by_target[(:leaf, ObjectId(:leaf))]
+        @test moved_again.geometry_source_object_id === ObjectId(:other)
+        @test moved_again.handle.geometry == (cell=:c,)
+        @test moved_again.handle !== moved.handle
+        @test PSE.refvalue(leaf.status, :x) === reference
+        @test leaf.status.x === 3f0
+    end
+end
+
 end
