@@ -84,7 +84,12 @@ function _model_environment_entities(model::CompositeModel, object_ids=nothing)
             if haskey(model.registry.objects, object_id)
         )
     end
-    return [_model_environment_entity(object) for object in objects]
+    # Backend index metadata may mix identity and geometry value types.
+    entities = NamedTuple[]
+    for object in objects
+        push!(entities, _model_environment_entity(object))
+    end
+    return entities
 end
 
 function _model_environment_backends(model::CompositeModel, compiled::CompiledCompositeModel)

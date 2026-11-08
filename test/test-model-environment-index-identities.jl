@@ -8,6 +8,7 @@ const EA = PSE.EnvironmentAPI
 mutable struct Backend <: EA.AbstractEnvironmentBackend
     values::Dict{Symbol,Float32}
     binds::Int
+    index_updates::Vector{Any}
 end
 mutable struct Handle
     cell::Symbol
@@ -22,6 +23,10 @@ function EA.bind_environment(backend::Backend, object::Object, context, config)
 end
 EA.sample(backend::Backend, handle::Handle, ::Symbol, time) =
     backend.values[handle.cell] + Float32(handle.generation)
+function EA.update_index!(backend::Backend, entities, removed_object_ids)
+    push!(backend.index_updates, (; entities, removed_object_ids))
+    return nothing
+end
 
 PSE.@process "environment_identity_index" verbose=false
 struct Probe <: AbstractEnvironment_Identity_IndexModel end
@@ -51,7 +56,7 @@ function close_registry(model::CompositeModel)
 end
 
 function fixture(closed::Bool)
-    backend = Backend(Dict(:a => 10.0f0, :b => 20.0f0), 0)
+    backend = Backend(Dict(:a => 10.0f0, :b => 20.0f0), 0, Any[])
     model = CompositeModel(
         Object(:root; scale=:Scene, status=Status(seen=0.0f0, visits=0)),
         Object(1; scale=:Leaf, parent=:root, geometry=(cell=:a,),
@@ -63,6 +68,72 @@ function fixture(closed::Bool)
     closed && (model = close_registry(model))
     simulation = run!(model; steps=1, outputs=:all)
     return (; model, simulation, backend)
+end
+
+@testset "environment index metadata preserves mixed values, order and live aliases" begin
+    for closed in (false, true)
+        data = fixture(closed)
+        model, backend = data.model, data.backend
+        initial = first(backend.index_updates)
+        # The backend boundary deliberately accepts heterogeneous NamedTuple rows,
+        # including an empty batch; it does not infer a concrete row eltype.
+        @test eltype(initial.entities) === NamedTuple
+        @test [entity.id for entity in initial.entities] ==
+            [object.id.value for object in model_objects(model)]
+        @test isempty(initial.removed_object_ids)
+
+        position_a = Float32[1, 2, 3]
+        bounds_a = Dict(:radius => 0.5f0)
+        geometry_a = (cell=:a, position=position_a, bounds=bounds_a)
+        geometry_b = (cell=:b, position=(x=4.0, y=5.0, z=6.0), bounds=(width=2.0,))
+        update_geometry!(model, 1, geometry_a; invalidate_environment=false)
+        update_geometry!(model, :leaf, geometry_b; invalidate_environment=false)
+        changed = ObjectId[ObjectId(:leaf), ObjectId(1), ObjectId(:leaf)]
+        before = length(backend.index_updates)
+        PSE._update_model_environment_indices!(model, [backend], changed)
+        @test length(backend.index_updates) == before + 1
+        batch = last(backend.index_updates)
+        @test eltype(batch.entities) === NamedTuple
+        @test [entity.id for entity in batch.entities] == [:leaf, 1, :leaf]
+        @test isempty(batch.removed_object_ids)
+        @test batch.entities[1].object === batch.entities[3].object === model_object(model, :leaf)
+        integer = batch.entities[2]
+        @test integer.object === model_object(model, 1)
+        @test integer.geometry === geometry_a
+        @test batch.entities[1].geometry === geometry_b
+        @test typeof(integer.geometry) !== typeof(batch.entities[1].geometry)
+        @test integer.position === position_a
+        @test integer.bounds === bounds_a
+
+        position_a[1] = 7f0
+        bounds_a[:radius] = 2f0
+        model_status(model, 1).seen = 70f0
+        @test integer.geometry.position[1] === 7f0
+        @test integer.bounds[:radius] === 2f0
+        @test geometry(integer.object).position === position_a
+        @test integer.object.status.seen === 70f0
+
+        replacement = (cell=:a, position=Float32[8, 9, 10], bounds=Dict(:radius => 3f0))
+        update_geometry!(model, 1, replacement; invalidate_environment=false)
+        @test geometry(integer.object) === replacement
+        @test integer.geometry === geometry_a
+        PSE._update_model_environment_indices!(model, [backend], ObjectId[ObjectId(1)])
+        @test only(last(backend.index_updates).entities).geometry === replacement
+
+        remove_object!(model, :leaf)
+        PSE._update_model_environment_indices!(model, [backend], changed)
+        surviving = last(backend.index_updates)
+        @test [entity.id for entity in surviving.entities] == [1]
+        @test surviving.removed_object_ids == ObjectId[ObjectId(:leaf), ObjectId(:leaf)]
+        remove_object!(model, 1)
+        PSE._update_model_environment_indices!(model, [backend], changed)
+        removed = last(backend.index_updates)
+        @test isempty(removed.entities)
+        @test eltype(removed.entities) === NamedTuple
+        @test removed.removed_object_ids == changed
+        @test typeof.(removed.removed_object_ids) ==
+            [ObjectId{Symbol}, ObjectId{Int}, ObjectId{Symbol}]
+    end
 end
 
 function check_indexes(model, owner)
