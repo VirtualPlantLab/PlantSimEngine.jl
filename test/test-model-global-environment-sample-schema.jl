@@ -385,13 +385,14 @@ memo_preparations(source) = (source.sampler_preparations, source.source_preparat
 
 @testset "source-plan memo shares preparation and preserves current application metadata" begin
     observed_source = MemoPreparationSource(10f0, 20f0, Hour(1), 0, 0)
-    observed = run!(memo_source_model(observed_source); steps=0, outputs=:none)
-    schema = PSE._environment_plan_schema_from_types(typeof.(observed.environment_bindings.application_plans))
+    observed = PSE._prepare_simulation!(memo_source_model(observed_source); steps=0, outputs=:none,
+        constants=PSE.Constants(), environment_schema=PSE._collecting_environment_binding_schema())
+    schema = PSE._freeze_environment_binding_schema(observed.environment_bindings.environment_schema)
     for fixed in (false, true)
         source = MemoPreparationSource(10f0, 20f0, Hour(1), 0, 0)
         model = memo_source_model(source)
         simulation = PSE._prepare_simulation!(model; steps=0, outputs=:none,
-            constants=PSE.Constants(), environment_plan_schema=fixed ? schema : nothing)
+            constants=PSE.Constants(), environment_schema=fixed ? schema : PSE.EnvironmentBindingSchema())
         compiled, owner = simulation.compiled, simulation.environment_bindings
         @test memo_preparations(source) == (1, 1)
         raw, mapped = owner.application_plans_by_id[:raw], owner.application_plans_by_id[:mapped]
@@ -406,7 +407,7 @@ memo_preparations(source) = (source.sampler_preparations, source.source_preparat
         current, by_id = PSE._compile_environment_application_plans(model,
             compiled.applications, compiled.applications_by_id;
             previous_plans_by_id=owner.application_plans_by_id,
-            plan_schema=owner.application_plan_schema)
+            environment_schema=owner.environment_schema)
         @test memo_preparations(source) == (1, 1)
         @test map(plan -> plan.application_id, current) == [:raw, :mapped]
         for original in (raw, mapped)
@@ -434,20 +435,23 @@ memo_preparations(source) = (source.sampler_preparations, source.source_preparat
         @test memo_preparations(source) == (1, 1)
         if fixed
             @test all(plan -> PSE._with_environment_plan(identity, schema, plan) === plan, current)
-            mapped_schema = PSE._environment_plan_schema_from_types([typeof(mapped)])
+            mapped_evidence = PSE._collecting_environment_binding_schema()
+            PSE._check_environment_schema_owner(mapped_evidence, [mapped],
+                [owner.by_target[(:mapped, ObjectId(:b))]])
+            mapped_schema = PSE._freeze_environment_binding_schema(mapped_evidence)
             @test_throws "raw` is outside its prepared family schema" PSE._refresh_environment_bindings!(
-                model, compiled, owner; plan_schema=mapped_schema)
+                model, compiled, owner; environment_schema=mapped_schema)
             @test model.environment_binding_cache === owner
             alternate = PSE.Advanced.compile_composite_model(model, (model.applications[2],))
             replacement = PSE._refresh_environment_bindings!(model, alternate, owner;
-                plan_schema=mapped_schema)
-            @test replacement.application_plan_schema === mapped_schema
+                environment_schema=mapped_schema)
+            @test replacement.environment_schema === mapped_schema
             @test only(replacement.application_plans).application_id === :mapped
             @test memo_preparations(source) == (2, 2)
             again, _ = PSE._compile_environment_application_plans(model,
                 alternate.applications, alternate.applications_by_id;
                 previous_plans_by_id=replacement.application_plans_by_id,
-                plan_schema=replacement.application_plan_schema)
+                environment_schema=replacement.environment_schema)
             @test only(again).prepared_source === source
             @test memo_preparations(source) == (2, 2)
         end
@@ -474,10 +478,12 @@ end
         end
         previous = Dict(:initial => initial, :newer => newer)
         expected = last(collect(values(previous)))
-        for schema in (nothing, PSE._environment_plan_schema_from_types(typeof.(fresh)))
+        collected = PSE._collecting_environment_binding_schema()
+        foreach(plan -> PSE._with_environment_plan(identity, collected, plan), fresh)
+        for schema in (PSE.EnvironmentBindingSchema(), PSE._freeze_environment_binding_schema(collected))
             reused, _ = PSE._compile_environment_application_plans(data.model,
                 compiled.applications, compiled.applications_by_id;
-                previous_plans_by_id=previous, plan_schema=schema)
+                previous_plans_by_id=previous, environment_schema=schema)
             @test map(plan -> plan.application_id, reused) == [:probe, :other]
             @test all(plan -> plan.sampler === expected.sampler, reused)
             @test all(plan -> plan.prepared_source === expected.prepared_source, reused)

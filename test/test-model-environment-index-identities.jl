@@ -67,7 +67,7 @@ function close_registry(model::CompositeModel)
     )
 end
 
-function fixture(closed::Bool)
+function fixture(closed::Bool; environment_schema=PSE.EnvironmentBindingSchema())
     backend = Backend(Dict(:a => 10.0f0, :b => 20.0f0), 0, Any[], nothing)
     model = CompositeModel(
         Object(:root; scale=:Scene, status=Status(seen=0.0f0, visits=0)),
@@ -78,7 +78,9 @@ function fixture(closed::Bool)
         applications=(ModelSpec(Probe(); name=:probe, on=Many(scale=:Leaf),
             environment=Environment(provider=:identity_probe)),), environment=backend)
     closed && (model = close_registry(model))
-    simulation = run!(model; steps=1, outputs=:all)
+    simulation = PSE._prepare_simulation!(model; steps=1, outputs=:all,
+        constants=PSE.Constants(), environment_schema)
+    PSE._continue_scene!(simulation, 1)
     return (; model, simulation, backend)
 end
 
@@ -129,20 +131,20 @@ end
 (collector::ApplicationIDCollector)(application) = push!(collector.ids, application.id)
 
 @testset "environment backend admission preserves discovery and index callback order" begin
-    observed = index_discovery_fixture(false)
+    observed = index_discovery_fixture(true)
     control = PSE._prepare_simulation!(observed.model; steps=0, outputs=:none,
-        constants=PSE.Constants())
+        constants=PSE.Constants(), environment_schema=PSE._collecting_environment_binding_schema())
     plan_types = unique(typeof.(control.environment_bindings.application_plans))
     # Two distinct plan families share the same backend type. One index callback
     # must not be repeated for each matching family witness.
     @test count(P -> fieldtype(P, :backend) === Backend, plan_types) == 2
-    schema = PSE._environment_plan_schema_from_types(plan_types)
+    schema = PSE._freeze_environment_binding_schema(control.environment_bindings.environment_schema)
     for fixed in (false, true)
         data = index_discovery_fixture(fixed)
         model, events = data.model, data.events
-        active_schema = fixed ? schema : nothing
+        active_schema = fixed ? schema : PSE.EnvironmentBindingSchema()
         simulation = PSE._prepare_simulation!(model; steps=0, outputs=:none,
-            constants=PSE.Constants(), environment_plan_schema=active_schema)
+            constants=PSE.Constants(), environment_schema=active_schema)
         compiled = simulation.compiled
         application_ids = Symbol[]
         collector = ApplicationIDCollector(application_ids)
@@ -154,7 +156,7 @@ end
         # Initial preparation has its existing discovery pass, then index calls,
         # then the separate existing application-plan normalization pass.
         @test index_trace(events) == vcat(discoveries, indexed, discoveries)
-        @test simulation.environment_bindings.application_plan_schema === active_schema
+        @test simulation.environment_bindings.environment_schema === active_schema
 
         empty!(events)
         PSE._update_model_environment_indices!(model, compiled)
@@ -175,7 +177,7 @@ end
         empty!(events)
         mark_environment_binding_dirty!(model)
         owner = PSE.Advanced.refresh_environment_bindings!(model, compiled)
-        @test owner.application_plan_schema === active_schema
+        @test owner.environment_schema === active_schema
         @test index_trace(events) == vcat(discoveries, indexed, discoveries)
 
         # A different current geometry owner must preserve its schema and the
@@ -189,7 +191,7 @@ end
         empty!(events)
         update_geometry!(model, 1, (cell=:b,))
         restored = PSE.Advanced.refresh_environment_bindings!(model, compiled)
-        @test restored.application_plan_schema === active_schema
+        @test restored.environment_schema === active_schema
         @test index_trace(events) == vcat(discoveries, [(:index, objectid(data.backend_a))])
         @test only(last(events).entities).geometry == (cell=:b,)
 
@@ -202,15 +204,14 @@ end
 end
 
 @testset "environment discovery retains actual values beyond 32 applications" begin
-    observed = index_discovery_fixture(false)
+    observed = index_discovery_fixture(true)
     control = PSE._prepare_simulation!(observed.model; steps=0, outputs=:none,
-        constants=PSE.Constants())
-    schema = PSE._environment_plan_schema_from_types(
-        unique(typeof.(control.environment_bindings.application_plans)))
+        constants=PSE.Constants(), environment_schema=PSE._collecting_environment_binding_schema())
+    schema = PSE._freeze_environment_binding_schema(control.environment_bindings.environment_schema)
     for fixed in (false, true)
         data = index_discovery_fixture(fixed; extra_applications=36)
         simulation = PSE._prepare_simulation!(data.model; steps=0, outputs=:none,
-            constants=PSE.Constants(), environment_plan_schema=fixed ? schema : nothing)
+            constants=PSE.Constants(), environment_schema=fixed ? schema : PSE.EnvironmentBindingSchema())
         compiled = simulation.compiled
         names = [:first, :shared, :other, [Symbol(:extra_, index) for index in 1:36]...]
         discoveries = [(:discover, name) for name in names]
@@ -235,16 +236,15 @@ end
 end
 
 @testset "partial index updates snapshot selected plans and retain previous application IDs" begin
-    observed = index_discovery_fixture(false)
+    observed = index_discovery_fixture(true)
     control = PSE._prepare_simulation!(observed.model; steps=0, outputs=:none,
-        constants=PSE.Constants())
-    schema = PSE._environment_plan_schema_from_types(
-        unique(typeof.(control.environment_bindings.application_plans)))
+        constants=PSE.Constants(), environment_schema=PSE._collecting_environment_binding_schema())
+    schema = PSE._freeze_environment_binding_schema(control.environment_bindings.environment_schema)
     for fixed in (false, true)
         data = index_discovery_fixture(fixed)
         model, events = data.model, data.events
         simulation = PSE._prepare_simulation!(model; steps=0, outputs=:none,
-            constants=PSE.Constants(), environment_plan_schema=fixed ? schema : nothing)
+            constants=PSE.Constants(), environment_schema=fixed ? schema : PSE.EnvironmentBindingSchema())
         compiled, owner = simulation.compiled, simulation.environment_bindings
 
         # A previous target remains relevant even when the supplied compiled
@@ -478,8 +478,11 @@ end
 end
 
 @testset "partial growth and retirement update the same environment indexes" begin
-    for closed in (false, true)
-        data = fixture(closed)
+    evidence = PSE._collecting_environment_binding_schema()
+    fixture(true; environment_schema=evidence)
+    fixed = PSE._freeze_environment_binding_schema(evidence)
+    for closed in (false, true), schema in (PSE.EnvironmentBindingSchema(), evidence, fixed)
+        data = fixture(closed; environment_schema=schema)
         model, simulation = data.model, data.simulation
         previous = simulation.environment_bindings
         register_object!(model, Object(2; scale=:Leaf, parent=:root, geometry=(cell=:a,),
@@ -489,6 +492,7 @@ end
         @test current.by_target === previous.by_target
         @test current.positions_by_target === previous.positions_by_target
         @test current.targets_by_object === previous.targets_by_object
+        @test current.environment_schema === previous.environment_schema === schema
         @test length(current.bindings) == 3
         @test model_status(model, 2).seen === 13.0f0
         @test model_status(model, 2).visits == 1
@@ -571,7 +575,7 @@ end
 @testset "discovered backend is independent of the later normalized plan family" begin
     opened = fixture(false)
     open_simulation = PSE._prepare_simulation!(opened.model; steps=0, outputs=:none,
-        constants=PSE.Constants(), environment_plan_schema=Val(:collect))
+        constants=PSE.Constants(), environment_schema=PSE._collecting_environment_binding_schema())
     @test opened.source.calls == 2
     @test [(event.phase, event.tag) for event in opened.events] ==
         [(:discover, :A), (:index, :A), (:discover, :B)]
@@ -580,11 +584,11 @@ end
     plan_types = unique(typeof.(open_simulation.environment_bindings.application_plans))
     @test length(plan_types) == 1
     @test fieldtype(only(plan_types), :backend) === typeof(opened.b)
-    schema = PSE._environment_plan_schema_from_types(plan_types)
+    schema = PSE._freeze_environment_binding_schema(open_simulation.environment_bindings.environment_schema)
 
     closed = fixture(true)
     simulation = PSE._prepare_simulation!(closed.model; steps=0, outputs=:none,
-        constants=PSE.Constants(), environment_plan_schema=schema)
+        constants=PSE.Constants(), environment_schema=schema)
     @test closed.source.calls == 2
     @test [(event.phase, event.tag) for event in closed.events] ==
         [(:discover, :A), (:index, :A), (:discover, :B)]
@@ -593,6 +597,6 @@ end
     @test only(updates).entity_ids == [:root]
     @test only(updates).removed_count == 0
     @test only(simulation.environment_bindings.application_plans).backend === closed.b
-    @test simulation.environment_bindings.application_plan_schema === schema
+    @test simulation.environment_bindings.environment_schema === schema
 end
 end

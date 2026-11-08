@@ -179,7 +179,7 @@ function _update_model_environment_indices_for_objects!(
     seen = Set{UInt}()
     for application_id in application_ids
         plan = cached.application_plans_by_id[application_id]
-        _with_environment_plan(cached.application_plan_schema, plan) do admitted_plan
+        _with_environment_plan(cached.environment_schema, plan) do admitted_plan
             backend = admitted_plan.backend
             isnothing(backend) && return nothing
             id = objectid(backend)
@@ -191,7 +191,7 @@ function _update_model_environment_indices_for_objects!(
     # Plans are immutable snapshots. Index callbacks may replace the owner's
     # dictionary entries, so consume these selected plans without rereading it.
     return _update_model_environment_indices!(model, plans, dirty_object_ids) do consume, plan
-        _with_environment_plan(cached.application_plan_schema, plan) do admitted_plan
+        _with_environment_plan(cached.environment_schema, plan) do admitted_plan
             consume(admitted_plan.backend)
         end
     end
@@ -223,7 +223,7 @@ function _compile_environment_application_plans(
     applications_by_id;
     previous_plans_by_id=nothing,
     prepare_runtime::Bool=true,
-    plan_schema=nothing,
+    environment_schema=EnvironmentBindingSchema(),
 )
     plans = CompiledEnvironmentApplicationPlan[]
     plans_by_id = Dict{Symbol,CompiledEnvironmentApplicationPlan}()
@@ -281,14 +281,14 @@ function _compile_environment_application_plans(
                     plans_by_source[source] = prepared_plan
                     prepared_plan
                 else
-                    _with_environment_plan(plan_schema, cached_plan) do admitted_plan
+                    _with_environment_plan(environment_schema, cached_plan) do admitted_plan
                         build_plan(admitted_plan.sampler, admitted_plan.prepared_source)
                     end
                 end
             else
                 build_plan(nothing, nothing)
             end
-            _with_environment_plan(identity, plan_schema, plan)
+            _with_environment_plan(identity, environment_schema, plan)
             push!(plans, plan)
             haskey(plans_by_id, application.id) && error(
                 "Environment application-plan compilation produced duplicate application id `$(application.id)`.",
@@ -299,22 +299,79 @@ function _compile_environment_application_plans(
     return plans, plans_by_id
 end
 
-# Open owners retain the same type when their live configuration changes.
-_environment_plan_schema(::Nothing) = nothing
-_environment_plan_schema(owner::CompiledEnvironmentBindings) = owner.application_plan_schema
+_environment_schema(::Nothing) = EnvironmentBindingSchema()
+_environment_schema(owner::CompiledEnvironmentBindings) = owner.environment_schema
+_collecting_environment_binding_schema() = EnvironmentBindingSchema(DataType[], DataType[])
 
-# The default preparation inherits its owner. Collection explicitly stays open;
-# a fixed native schema is supplied before the first compilation of its plans.
-_preparation_environment_plan_schema(::Nothing, cached) = _environment_plan_schema(cached)
-_preparation_environment_plan_schema(::Val{:collect}, cached) = nothing
-_preparation_environment_plan_schema(schema::CompiledMetadataTable, cached) = schema
+_is_open_environment_schema(::EnvironmentBindingSchema{Nothing,Nothing}) = true
+_is_open_environment_schema(::EnvironmentBindingSchema) = false
+_is_collecting_environment_schema(::EnvironmentBindingSchema{Vector{DataType},Vector{DataType}}) = true
+_is_collecting_environment_schema(::EnvironmentBindingSchema) = false
 
-@inline _with_environment_plan(f, ::Nothing, plan) = f(plan)
-@generated function _with_environment_plan(f::F, schema::CompiledMetadataTable{T},
+function _remember_environment_type!(types::Vector{DataType}, T::DataType)
+    T in types || push!(types, T)
+    return nothing
+end
+
+function _merge_environment_binding_schema!(
+    destination::EnvironmentBindingSchema{Vector{DataType},Vector{DataType}},
+    source::EnvironmentBindingSchema{Vector{DataType},Vector{DataType}},
+)
+    foreach(T -> _remember_environment_type!(destination.plans, T), source.plans)
+    foreach(T -> _remember_environment_type!(destination.bindings, T), source.bindings)
+    return destination
+end
+
+# Promoting an execution owner/type from collection would reintroduce the
+# owner -> schema -> target/context -> owner cycle in a fresh prepared world.
+function _environment_schema_contains_execution_type(T, seen=IdDict{Any,Nothing}())
+    haskey(seen, T) && return false
+    seen[T] = nothing
+    if T isa Union
+        return any(part -> _environment_schema_contains_execution_type(part, seen), Base.uniontypes(T))
+    elseif T isa UnionAll
+        return _environment_schema_contains_execution_type(Base.unwrap_unionall(T), seen)
+    elseif T isa Tuple
+        return any(part -> _environment_schema_contains_execution_type(part, seen), T)
+    elseif !(T isa DataType)
+        return false
+    end
+    for name in (:CompiledEnvironmentBindings, :CompiledExecutionTarget, :RunContext, :CallTargets, :Simulation)
+        isdefined(@__MODULE__, name) || continue
+        T <: getfield(@__MODULE__, name) && return true
+    end
+    return any(part -> _environment_schema_contains_execution_type(part, seen), T.parameters)
+end
+
+function _freeze_environment_binding_schema(
+    collected::EnvironmentBindingSchema{Vector{DataType},Vector{DataType}},
+)
+    all(P -> isconcretetype(P) && P <: CompiledEnvironmentApplicationPlan, collected.plans) ||
+        throw(ArgumentError("Environment-plan evidence needs real concrete normalized plan types."))
+    all(B -> isconcretetype(B) && B <: CompiledEnvironmentBinding, collected.bindings) ||
+        throw(ArgumentError("Environment-binding evidence needs real concrete binding types."))
+    any(_environment_schema_contains_execution_type, vcat(collected.plans, collected.bindings)) &&
+        throw(ArgumentError("Environment evidence embeds execution-owner/target/context types; a fresh closed owner is not proven for that handle family."))
+    names(prefix, types) = ntuple(index -> Symbol(prefix, index), length(types))
+    plans = NamedTuple{names(:environment_plan_, collected.plans)}(Tuple(Val(P) for P in collected.plans))
+    bindings = NamedTuple{names(:environment_binding_, collected.bindings)}(Tuple(Val(B) for B in collected.bindings))
+    return EnvironmentBindingSchema(plans, bindings)
+end
+
+_with_environment_plan(f, ::EnvironmentBindingSchema{Nothing,Nothing}, plan) = f(plan)
+function _with_environment_plan(f,
+    schema::EnvironmentBindingSchema{Vector{DataType},Vector{DataType}},
     plan::CompiledEnvironmentApplicationPlan,
-) where {F,T}
+)
+    _remember_environment_type!(schema.plans, typeof(plan))
+    return f(plan)
+end
+
+@generated function _with_environment_plan(f::F, schema::EnvironmentBindingSchema{PT,BT},
+    plan::CompiledEnvironmentApplicationPlan,
+) where {F,PT<:NamedTuple,BT<:NamedTuple}
     branches = Expr[]
-    for Witness in fieldtypes(T)
+    for Witness in fieldtypes(PT)
         Witness <: Val || error("Environment-plan metadata must contain type witnesses only.")
         P = only(Witness.parameters)
         P isa DataType && isconcretetype(P) && P <: CompiledEnvironmentApplicationPlan ||
@@ -329,39 +386,99 @@ _preparation_environment_plan_schema(schema::CompiledMetadataTable, cached) = sc
     end
 end
 
-# Host-only reconstruction from TYPES already observed in collection worlds.
-# Their union must cover the initial and future normalized plan families.
-function _environment_plan_schema_from_types(observed_types)
-    plan_types = unique(observed_types)
-    all(P -> P isa DataType && isconcretetype(P) && P <: CompiledEnvironmentApplicationPlan,
-        plan_types) || throw(ArgumentError("Supply actual observed normalized plan types."))
-    witnesses = Tuple(Val(P) for P in plan_types)
-    names = ntuple(index -> Symbol(:environment_plan_, index), length(witnesses))
-    return CompiledMetadataTable(NamedTuple{names}(witnesses))
+_with_environment_binding(f, ::EnvironmentBindingSchema{Nothing,Nothing}, binding::CompiledEnvironmentBinding) = f(binding)
+function _with_environment_binding(f,
+    schema::EnvironmentBindingSchema{Vector{DataType},Vector{DataType}},
+    binding::CompiledEnvironmentBinding,
+)
+    _with_environment_plan(identity, schema, getfield(binding, :plan)::CompiledEnvironmentApplicationPlan)
+    _remember_environment_type!(schema.bindings, typeof(binding))
+    return f(binding)
 end
 
-function _retype_environment_plan_owner(compiled, owner, schema)
-    for plan in owner.application_plans
-        _with_environment_plan(identity, schema, plan)
+@generated function _with_environment_binding(f::F, schema::EnvironmentBindingSchema{P,EB},
+    binding::CompiledEnvironmentBinding,
+) where {F,P<:NamedTuple,EB<:NamedTuple}
+    branches = Expr[]
+    for Witness in fieldtypes(EB)
+        Witness <: Val || error("Environment-binding metadata needs type witnesses only.")
+        B = only(Witness.parameters)
+        B isa DataType && isconcretetype(B) && B <: CompiledEnvironmentBinding ||
+            error("Environment-binding metadata needs actual concrete binding types.")
+        push!(branches, :(binding isa $B && return f(binding::$B)))
     end
+    return quote
+        $(branches...)
+        throw(ArgumentError("The environment binding is outside its prepared family schema. Prepare complete present/call/future binding evidence."))
+    end
+end
+
+function _construct_environment_binding(schema, plan, object_id, handle, context,
+    geometry_source_object_id, geometry_source,
+)
+    binding = CompiledEnvironmentBinding(plan, object_id, handle, context,
+        geometry_source_object_id, geometry_source)
+    return _with_environment_binding(identity, schema, binding)
+end
+
+function _new_environment_binding(
+    schema::Union{EnvironmentBindingSchema{Nothing,Nothing},EnvironmentBindingSchema{Vector{DataType},Vector{DataType}}},
+    plan, object_id, handle, context, geometry_source_object_id, geometry_source,
+)
+    return _construct_environment_binding(schema, plan, object_id, handle, context,
+        geometry_source_object_id, geometry_source)
+end
+
+@generated function _new_environment_binding(schema::EnvironmentBindingSchema{P,EB},
+    plan::CompiledEnvironmentApplicationPlan, object_id::ObjectId, handle, context,
+    geometry_source_object_id::Union{Nothing,ObjectId}, geometry_source::Symbol,
+) where {P<:NamedTuple,EB<:NamedTuple}
+    branches = Expr[]
+    for Witness in fieldtypes(EB)
+        B = only(Witness.parameters)
+        BP, H, C = (fieldtype(B, name) for name in (:plan, :handle, :context))
+        # These describe the ordinary outer constructor's actual result. A
+        # widened old H remains admissible, but does not predict a new H value.
+        all(isconcretetype, (BP, H, C)) || continue
+        push!(branches, quote
+            if plan isa $BP && handle isa $H && context isa $C
+                return _construct_environment_binding(schema, plan::$BP, object_id,
+                    handle::$H, context::$C, geometry_source_object_id, geometry_source)
+            end
+        end)
+    end
+    return quote
+        $(branches...)
+        throw(ArgumentError("The real environment binding fields have no witnessed constructor family. An undeclared future handle family cannot be inferred."))
+    end
+end
+
+_check_environment_schema_owner(::EnvironmentBindingSchema{Nothing,Nothing}, plans, bindings) = nothing
+function _check_environment_schema_owner(schema::EnvironmentBindingSchema, plans, bindings)
+    foreach(plan -> _with_environment_plan(identity, schema, plan), plans)
+    foreach(binding -> _with_environment_binding(identity, schema, binding), bindings)
+    return nothing
+end
+
+function _retype_environment_binding_owner(compiled, owner, schema)
     return _compiled_environment_bindings(owner.model, compiled,
         owner.application_plans, owner.application_plans_by_id,
         owner.bindings, owner.by_target, owner.sample_cache,
-        owner.positions_by_target, owner.targets_by_object; plan_schema=schema)
+        owner.positions_by_target, owner.targets_by_object; environment_schema=schema)
 end
 
 function _compile_environment_bindings_for_applications(
     model::CompositeModel,
     applications,
     plans_by_id;
-    plan_schema=nothing,
+    environment_schema=EnvironmentBindingSchema(),
 )
     bindings = CompiledEnvironmentBinding[]
     for application in applications
         application_id = application.id
         application_process = application.process
         target_ids = application.target_ids
-        _with_environment_plan(plan_schema, plans_by_id[application_id]) do plan
+        _with_environment_plan(environment_schema, plans_by_id[application_id]) do plan
             for object_id in target_ids
                 object = _model_object(model, object_id)
                 context = _object_environment_context(application_id, application_process, object, object_id)
@@ -375,7 +492,8 @@ function _compile_environment_bindings_for_applications(
                 )
                 push!(
                     bindings,
-                    CompiledEnvironmentBinding(
+                    _new_environment_binding(
+                        environment_schema,
                         plan,
                         object_id,
                         handle,
@@ -394,24 +512,24 @@ function _compile_environment_bindings(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
     plans_by_id;
-    plan_schema=nothing,
+    environment_schema=EnvironmentBindingSchema(),
 )
     return _compile_environment_bindings_for_applications(
         model,
         compiled.applications,
         plans_by_id;
-        plan_schema,
+        environment_schema,
     )
 end
 
 function _validate_model_environment_inputs!(bindings, applications_by_id,
-    ::Type{I}; plan_schema=nothing,
+    ::Type{I}; environment_schema=EnvironmentBindingSchema(),
 ) where {I<:ObjectId}
     missing_details = String[]
     for binding in bindings
         plan = getfield(binding, :plan)::CompiledEnvironmentApplicationPlan
         object_id = getfield(binding, :object_id)::I
-        _with_environment_plan(plan_schema, plan) do plan
+        _with_environment_plan(environment_schema, plan) do plan
             application_id = getfield(plan, :application_id)
             no_inputs = _with_metadata_entry(applications_by_id, application_id) do application
                 isempty(_model_environment_input_names(application))
@@ -485,13 +603,14 @@ function _compiled_environment_bindings(
     targets_by_object=_index_environment_targets_by_object(
         bindings, keytype(model.registry.objects),
     );
-    plan_schema=nothing,
+    environment_schema=EnvironmentBindingSchema(),
 )
+    _check_environment_schema_owner(environment_schema, application_plans, bindings)
     return CompiledEnvironmentBindings(
         model,
         application_plans,
         application_plans_by_id,
-        plan_schema,
+        environment_schema,
         bindings,
         by_target,
         positions_by_target,
@@ -550,24 +669,24 @@ end
 
 function compile_environment_bindings(model::CompositeModel, compiled::CompiledCompositeModel=refresh_bindings!(model))
     cached = getfield(model, :environment_binding_cache)::Union{Nothing,CompiledEnvironmentBindings}
-    return _compile_environment_binding_owner(model, compiled, _environment_plan_schema(cached))
+    return _compile_environment_binding_owner(model, compiled, _environment_schema(cached))
 end
 
 function _compile_environment_binding_owner(model::CompositeModel,
-    compiled::CompiledCompositeModel, plan_schema,
+    compiled::CompiledCompositeModel, environment_schema,
 )
     _update_model_environment_indices!(model, compiled)
     application_plans, application_plans_by_id =
         _compile_environment_application_plans(model, compiled.applications,
-            compiled.applications_by_id; plan_schema)
+            compiled.applications_by_id; environment_schema)
     bindings = _compile_environment_bindings(
         model,
         compiled,
         application_plans_by_id;
-        plan_schema,
+        environment_schema,
     )
     _validate_model_environment_inputs!(bindings, compiled.applications_by_id,
-        keytype(model.registry.objects); plan_schema)
+        keytype(model.registry.objects); environment_schema)
     by_target = _index_environment_bindings(bindings, keytype(model.registry.objects))
     return _compiled_environment_bindings(
         model,
@@ -576,7 +695,7 @@ function _compile_environment_binding_owner(model::CompositeModel,
         application_plans_by_id,
         bindings,
         by_target;
-        plan_schema,
+        environment_schema,
     )
 end
 
@@ -629,31 +748,82 @@ function _reconciled_environment_application_plans(
         compiled.applications,
         compiled.applications_by_id;
         previous_plans_by_id=cached.application_plans_by_id,
-        plan_schema=cached.application_plan_schema,
+        environment_schema=cached.environment_schema,
     )
     plans = CompiledEnvironmentApplicationPlan[]
     plans_by_id = Dict{Symbol,CompiledEnvironmentApplicationPlan}()
-    plan_schema = cached.application_plan_schema
+    environment_schema = cached.environment_schema
     for candidate in candidates
         application_id = candidate.application_id
         old = get(cached.application_plans_by_id, application_id, nothing)
         plan = if isnothing(old)
-            _with_environment_plan(identity, plan_schema, candidates_by_id[application_id])
+            _with_environment_plan(identity, environment_schema, candidates_by_id[application_id])
         else
-            _with_environment_plan(plan_schema, old) do admitted_old
-                _with_environment_plan(plan_schema, candidates_by_id[application_id]) do admitted_candidate
-                    _same_environment_plan_configuration(admitted_old, admitted_candidate) ||
-                        return nothing
-                    return _same_environment_application_plan(admitted_old, admitted_candidate) ?
-                           admitted_old : _with_environment_plan(identity, plan_schema, candidates_by_id[application_id])
-                end
-            end
+            admitted_old = _with_environment_plan(identity, environment_schema, old)
+            admitted_candidate = _with_environment_plan(identity, environment_schema, candidates_by_id[application_id])
+            _same_environment_plan_configuration(admitted_old, admitted_candidate) ||
+                return nothing
+            _same_environment_application_plan(admitted_old, admitted_candidate) ?
+                admitted_old : _with_environment_plan(identity, environment_schema, candidates_by_id[application_id])
         end
         isnothing(plan) && return nothing
         push!(plans, plan)
         plans_by_id[plan.application_id] = plan
     end
     return plans, plans_by_id
+end
+
+function _reconcile_environment_binding_values(schema, old, old_plan, plan,
+    object_id, context, geometry_source_object_id, geometry_source, ::Type{I},
+) where {I<:ObjectId}
+    _same_environment_plan_configuration(old_plan, plan) || return nothing
+    old.geometry_source_object_id == geometry_source_object_id || return nothing
+    old.geometry_source == geometry_source || return nothing
+    _same_environment_context(old.context, context, I) || return nothing
+    old.plan === plan && return old
+    return _new_environment_binding(schema, plan, object_id, old.handle, context,
+        geometry_source_object_id, geometry_source)
+end
+
+function _reconcile_environment_binding(
+    schema::Union{EnvironmentBindingSchema{Nothing,Nothing},EnvironmentBindingSchema{Vector{DataType},Vector{DataType}}},
+    old::CompiledEnvironmentBinding, plan::CompiledEnvironmentApplicationPlan,
+    object_id, context, geometry_source_object_id, geometry_source, I::Type{<:ObjectId},
+)
+    _with_environment_binding(identity, schema, old)
+    old_plan = getfield(old, :plan)::CompiledEnvironmentApplicationPlan
+    _with_environment_plan(identity, schema, old_plan)
+    return _reconcile_environment_binding_values(schema, old, old_plan, plan,
+        object_id, context, geometry_source_object_id, geometry_source, I)
+end
+
+# Admit the real old EB and both actual plans before entering the worker. No
+# closure or argument tuple is constructed from an existential old binding.
+@generated function _reconcile_environment_binding(schema::EnvironmentBindingSchema{PT,BT},
+    old::CompiledEnvironmentBinding, plan::CompiledEnvironmentApplicationPlan,
+    object_id, context, geometry_source_object_id, geometry_source, I::Type{<:ObjectId},
+) where {PT<:NamedTuple,BT<:NamedTuple}
+    plan_types = [only(W.parameters) for W in fieldtypes(PT)]
+    branches = Expr[]
+    for Witness in fieldtypes(BT)
+        B = only(Witness.parameters)
+        old_plan = fieldtype(B, :plan)
+        old_types = isconcretetype(old_plan) && old_plan <: CompiledEnvironmentApplicationPlan ?
+                    (old_plan,) : plan_types
+        for OP in old_types, NP in plan_types
+            push!(branches, quote
+                if old isa $B && getfield(old::$B, :plan) isa $OP && plan isa $NP
+                    return _reconcile_environment_binding_values(schema, old::$B,
+                        getfield(old::$B, :plan)::$OP, plan::$NP, object_id, context,
+                        geometry_source_object_id, geometry_source, I)
+                end
+            end)
+        end
+    end
+    return quote
+        $(branches...)
+        throw(ArgumentError("Environment reconciliation lacks a witnessed old binding/current plan family."))
+    end
 end
 
 function _reconcile_environment_binding_metadata(
@@ -673,7 +843,7 @@ function _reconcile_environment_binding_metadata(
 
     bindings = CompiledEnvironmentBinding[]
     changed = false
-    plan_schema = cached.application_plan_schema
+    environment_schema = cached.environment_schema
     for application in compiled.applications
         application_id = application.id
         plan = application_plans_by_id[application_id]
@@ -685,34 +855,12 @@ function _reconcile_environment_binding_metadata(
             context = _object_environment_context(application.id, application.process, object, object_id)
             _, geometry_source_object_id, geometry_source =
                 _environment_binding_object(model, object)
-            old_plan = getfield(old, :plan)::CompiledEnvironmentApplicationPlan
-            same_configuration = _with_environment_plan(plan_schema, old_plan) do admitted_old
-                _with_environment_plan(plan_schema, application_plans_by_id[application_id]) do admitted_current
-                    _same_environment_plan_configuration(admitted_old, admitted_current)
-                end
-            end
-            same_configuration || return nothing
-            old.geometry_source_object_id == geometry_source_object_id ||
-                return nothing
-            old.geometry_source == geometry_source || return nothing
-            _same_environment_context(old.context, context, keytype(cached.targets_by_object)) || return nothing
-
-            if old.plan === plan
-                push!(bindings, old)
-            else
-                changed = true
-                push!(
-                    bindings,
-                    CompiledEnvironmentBinding(
-                        plan,
-                        object_id,
-                        old.handle,
-                        context,
-                        geometry_source_object_id,
-                        geometry_source,
-                    ),
-                )
-            end
+            binding = _reconcile_environment_binding(environment_schema, old, plan,
+                object_id, context, geometry_source_object_id, geometry_source,
+                keytype(cached.targets_by_object))
+            isnothing(binding) && return nothing
+            changed |= binding !== old
+            push!(bindings, binding)
         end
     end
     changed || return _compiled_environment_bindings(
@@ -725,11 +873,11 @@ function _reconcile_environment_binding_metadata(
         cached.sample_cache,
         cached.positions_by_target,
         cached.targets_by_object;
-        plan_schema=cached.application_plan_schema,
+        environment_schema=cached.environment_schema,
     )
     _validate_model_environment_inputs!(bindings, compiled.applications_by_id,
         keytype(model.registry.objects);
-        plan_schema=cached.application_plan_schema)
+        environment_schema=cached.environment_schema)
     by_target = _index_environment_bindings(bindings, keytype(model.registry.objects))
     return _compiled_environment_bindings(
         model,
@@ -739,7 +887,7 @@ function _reconcile_environment_binding_metadata(
         bindings,
         by_target,
         cached.sample_cache;
-        plan_schema=cached.application_plan_schema,
+        environment_schema=cached.environment_schema,
     )
 end
 
@@ -791,7 +939,7 @@ function _refresh_environment_bindings_for_objects(
                     model,
                     (partial_application,),
                     cached.application_plans_by_id;
-                    plan_schema=cached.application_plan_schema,
+                    environment_schema=cached.environment_schema,
                 )
                     replacements[_environment_binding_target_key(binding, I)] = binding
                 end
@@ -802,7 +950,7 @@ function _refresh_environment_bindings_for_objects(
         (binding::CompiledEnvironmentBinding for binding in values(replacements)),
         compiled.applications_by_id,
         keytype(model.registry.objects);
-        plan_schema=cached.application_plan_schema,
+        environment_schema=cached.environment_schema,
     )
 
     for target in stale_targets
@@ -848,7 +996,7 @@ function _refresh_environment_bindings_for_objects(
         cached.sample_cache,
         cached.positions_by_target,
         cached.targets_by_object;
-        plan_schema=cached.application_plan_schema,
+        environment_schema=cached.environment_schema,
     )
 end
 
@@ -902,16 +1050,16 @@ end
 
 function _refresh_environment_bindings!(model::CompositeModel, compiled,
     cached::Union{Nothing,CompiledEnvironmentBindings}; force::Bool=false,
-    plan_schema=_environment_plan_schema(cached),
+    environment_schema=_environment_schema(cached),
 )
-    policy_changed = !isnothing(cached) && cached.application_plan_schema !== plan_schema
+    policy_changed = !isnothing(cached) && cached.environment_schema !== environment_schema
     if policy_changed && !force && !model.environment_bindings_dirty &&
        cached.model_revision == compiled.revision &&
        cached.environment_revision == model.environment_revision &&
        cached.compiled_applications === compiled.applications
         # Only the policy changes: validate current normalized values and retain
         # every existing handle/container, without replaying provider code.
-        refreshed = _retype_environment_plan_owner(compiled, cached, plan_schema)
+        refreshed = _retype_environment_binding_owner(compiled, cached, environment_schema)
         model.environment_binding_cache = refreshed
         _record_runtime_owner_replacement!(model, cached, refreshed)
         return refreshed
@@ -925,7 +1073,7 @@ function _refresh_environment_bindings!(model::CompositeModel, compiled,
             partial_owner = cached.compiled_applications === compiled.applications ?
                             cached : _reconcile_environment_binding_metadata(model, compiled, cached)
             if isnothing(partial_owner)
-                _compile_environment_binding_owner(model, compiled, plan_schema)
+                _compile_environment_binding_owner(model, compiled, environment_schema)
             else
                 _refresh_environment_bindings_for_objects(
                     model,
@@ -935,7 +1083,7 @@ function _refresh_environment_bindings!(model::CompositeModel, compiled,
                 )
             end
         else
-            _compile_environment_binding_owner(model, compiled, plan_schema)
+            _compile_environment_binding_owner(model, compiled, environment_schema)
         end
         model.environment_binding_cache = refreshed
         _record_runtime_owner_replacement!(model, cached, refreshed)
@@ -949,7 +1097,7 @@ function _refresh_environment_bindings!(model::CompositeModel, compiled,
     else
         reconciled = _reconcile_environment_binding_metadata(model, compiled, cached)
         refreshed = isnothing(reconciled) ?
-                    _compile_environment_binding_owner(model, compiled, plan_schema) : reconciled
+                    _compile_environment_binding_owner(model, compiled, environment_schema) : reconciled
         model.environment_binding_cache = refreshed
         _record_runtime_owner_replacement!(model, cached, refreshed)
         return refreshed

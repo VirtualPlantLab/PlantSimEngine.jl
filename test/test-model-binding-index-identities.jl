@@ -556,14 +556,16 @@ end
         owner = simulation.environment_bindings
         bindings = owner.bindings
         I = keytype(model.registry.objects)
-        schema = PSE._environment_plan_schema_from_types(typeof(plan) for plan in owner.application_plans)
+        collected = PSE._collecting_environment_binding_schema()
+        PSE._check_environment_schema_owner(collected, owner.application_plans, owner.bindings)
+        schema = PSE._freeze_environment_binding_schema(collected)
         references = (PSE.refvalue(model_status(model, 1), :x),
             PSE.refvalue(model_status(model, :leaf), :x))
         states = (NamedTuple(model_status(model, 1)), NamedTuple(model_status(model, :leaf)))
         ids = [binding.object_id for binding in bindings]
         for table in (simulation.compiled.applications_by_id,
             Dict(application.id => application for application in simulation.compiled.applications))
-            @test PSE._validate_model_environment_inputs!(bindings, table, I; plan_schema=schema) === nothing
+            @test PSE._validate_model_environment_inputs!(bindings, table, I; environment_schema=schema) === nothing
             @test [binding.object_id for binding in bindings] == ids
             @test PSE.refvalue(model_status(model, 1), :x) === references[1]
             @test PSE.refvalue(model_status(model, :leaf), :x) === references[2]

@@ -1,6 +1,7 @@
 module EnvironmentBindingsIdentityChecks
 using PlantSimEngine
 using Serialization
+using Dates
 using Test
 const PSE = PlantSimEngine
 const EA = PSE.EnvironmentAPI
@@ -53,7 +54,7 @@ function PSE.run!(::Leaf, status, environment, constants, context)
     return nothing
 end
 
-function fixture(::Type{T}; steps=1, environment_plan_schema=nothing) where {T}
+function fixture(::Type{T}; steps=1, environment_schema=PSE.EnvironmentBindingSchema()) where {T}
     capture = Ref{Any}()
     backend = Backend(Dict(:a => T(10), :b => T(20)), 0)
     model = CompositeModel(
@@ -69,11 +70,11 @@ function fixture(::Type{T}; steps=1, environment_plan_schema=nothing) where {T}
             ModelSpec(Leaf(zero(T)); name=:manual_probe, on=Many(kind=:manual),
                 environment=Environment(provider=:shell_probe)),
         ), environment=backend)
-    simulation = if isnothing(environment_plan_schema)
+    simulation = if PSE._is_open_environment_schema(environment_schema)
         run!(model; steps, outputs=:all)
     else
         prepared = PSE._prepare_simulation!(model; steps, outputs=:all,
-            constants=PSE.Constants(), environment_plan_schema)
+            constants=PSE.Constants(), environment_schema)
         PSE._continue_scene!(prepared, steps)
     end
     batch = only(batch for batch in simulation.execution_plan.batches
@@ -82,10 +83,10 @@ function fixture(::Type{T}; steps=1, environment_plan_schema=nothing) where {T}
     return (; model, simulation, capture, backend, batch, kept)
 end
 
-function fixture_plan_schema(::Type{T}) where {T}
-    initial = fixture(T; steps=0)
-    return PSE._environment_plan_schema_from_types(
-        typeof(plan) for plan in initial.simulation.environment_bindings.application_plans)
+function fixture_environment_schema(::Type{T}) where {T}
+    schema = PSE._collecting_environment_binding_schema()
+    fixture(T; steps=0, environment_schema=schema)
+    return PSE._freeze_environment_binding_schema(schema)
 end
 
 function checkpoint_copy(simulation)
@@ -96,8 +97,8 @@ function checkpoint_copy(simulation)
 end
 
 @testset "checkpointed environment owners preserve application identity" begin
-    for schema in (nothing, fixture_plan_schema(Float32)), copy_simulation in (deepcopy, checkpoint_copy)
-        data = fixture(Float32; environment_plan_schema=schema)
+    for schema in (PSE.EnvironmentBindingSchema(), fixture_environment_schema(Float32)), copy_simulation in (deepcopy, checkpoint_copy)
+        data = fixture(Float32; environment_schema=schema)
         simulation = data.simulation
         original_context = data.capture[]
         original_targets = only(original_context.calls)
@@ -112,10 +113,10 @@ end
             if group.application.id === :owner)
         context = only(only(owner.batches).targets).context
         targets = only(context.calls)
-        @test typeof(environment_bindings.application_plan_schema) ===
-            typeof(simulation.environment_bindings.application_plan_schema)
-        @test context.environment_bindings.application_plan_schema ===
-            environment_bindings.application_plan_schema
+        @test typeof(environment_bindings.environment_schema) ===
+            typeof(simulation.environment_bindings.environment_schema)
+        @test context.environment_bindings.environment_schema ===
+            environment_bindings.environment_schema
         cached_batches = PSE._cached_call_execution_batches(targets)
         @test !isnothing(cached_batches)
 
@@ -284,8 +285,8 @@ end
 end
 
 @testset "the typed boundary selects the current model cache after public refresh" begin
-    for schema in (nothing, fixture_plan_schema(Float32))
-        data = fixture(Float32; environment_plan_schema=schema)
+    for schema in (PSE.EnvironmentBindingSchema(), fixture_environment_schema(Float32))
+        data = fixture(Float32; environment_schema=schema)
         simulation = data.simulation
         prepared = simulation.environment_bindings
         @test PSE._current_environment_binding_owner(data.model, prepared) === prepared
@@ -304,7 +305,7 @@ end
         @test data.backend.samples == samples
 
         mark_environment_binding_dirty!(data.model)
-        @test isnothing(schema) ?
+        @test PSE._is_open_environment_schema(schema) ?
             isnothing(PSE._current_environment_binding_owner(data.model, prepared)) :
             PSE._current_environment_binding_owner(data.model, prepared) === partial
         full = PSE.Advanced.refresh_environment_bindings!(data.model, simulation.compiled)
@@ -328,7 +329,7 @@ end
         @test is_current_alternate
         @test length(current.bindings) == 2
         @test current.compiled_applications === alternate_compiled.applications
-        @test current.application_plan_schema === schema
+        @test current.environment_schema === schema
         samples = data.backend.samples
         restored = PSE._refresh_environment_bindings!(data.model, simulation.compiled, current)
         is_restored = restored === PSE.compiled_environment_bindings(data.model)
@@ -404,15 +405,15 @@ end
 end
 
 @testset "a pending move reconciles an authoritative Advanced subset cache" begin
-    for schema in (nothing, fixture_plan_schema(Float32))
-        data = fixture(Float32; environment_plan_schema=schema)
+    for schema in (PSE.EnvironmentBindingSchema(), fixture_environment_schema(Float32))
+        data = fixture(Float32; environment_schema=schema)
         simulation = data.simulation
         alternate_compiled = PSE.Advanced.compile_composite_model(data.model, (
             ModelSpec(Leaf(0.0f0); name=:manual_probe, on=Many(kind=:manual),
                 environment=Environment(provider=:shell_probe)),
         ))
         alternate = PSE.Advanced.refresh_environment_bindings!(data.model, alternate_compiled)
-        @test alternate.application_plan_schema === schema
+        @test alternate.environment_schema === schema
         @test length(alternate.bindings) == 1
         @test !haskey(alternate.application_plans_by_id, :scheduled_probe)
         move_object!(data.model, :scheduled_move, (cell=:b,))
@@ -625,19 +626,19 @@ function policy_model(variable=:T; active=true)
         applications=(policy_spec(variable; active),), environment=source)
     return (; model, source, backend)
 end
-function prepare_policy(data; schema=nothing)
+function prepare_policy(data; schema=PSE.EnvironmentBindingSchema())
     return PSE._prepare_simulation!(data.model; steps=0, outputs=:all,
-        constants=PSE.Constants(), environment_plan_schema=schema)
+        constants=PSE.Constants(), environment_schema=schema)
 end
 policy_counts(data) = (data.source.normalizations, data.backend.binds, data.backend.samples)
 policy_types(simulation) = [typeof(plan) for plan in simulation.environment_bindings.application_plans]
 
 @testset "fixed environment policies admit plans before any initial bind" begin
     initial = policy_model(:T)
-    first_simulation = prepare_policy(initial; schema=Val(:collect))
+    first_simulation = prepare_policy(initial; schema=PSE._collecting_environment_binding_schema())
     first_types = policy_types(first_simulation)
-    initial_schema = PSE._environment_plan_schema_from_types(first_types)
-    @test first_simulation.environment_bindings.application_plan_schema === nothing
+    initial_schema = PSE._freeze_environment_binding_schema(first_simulation.environment_bindings.environment_schema)
+    @test PSE._is_collecting_environment_schema(first_simulation.environment_bindings.environment_schema)
     for active in (false, true)
         missing = policy_model(:U; active)
         @test_throws "policy_probe` is outside its prepared family schema" prepare_policy(missing; schema=initial_schema)
@@ -650,7 +651,7 @@ policy_types(simulation) = [typeof(plan) for plan in simulation.environment_bind
     compiled = prepare_policy(fixed; schema=initial_schema)
     @test policy_counts(fixed) == policy_counts(ordinary)
     @test fixed.backend.binds == 2
-    @test compiled.environment_bindings.application_plan_schema === initial_schema
+    @test compiled.environment_bindings.environment_schema === initial_schema
     @test map(binding -> binding.object_id, compiled.environment_bindings.bindings) ==
         map(binding -> binding.object_id, control.environment_bindings.bindings)
     @test Set(binding.object_id for binding in compiled.environment_bindings.bindings) ==
@@ -665,13 +666,13 @@ end
 
 @testset "zero-target plans and observed future families obey the fixed union" begin
     a = policy_model(:T; active=false)
-    simulation = prepare_policy(a; schema=Val(:collect))
+    simulation = prepare_policy(a; schema=PSE._collecting_environment_binding_schema())
     first_types = policy_types(simulation)
-    first_schema = PSE._environment_plan_schema_from_types(first_types)
+    first_schema = PSE._freeze_environment_binding_schema(simulation.environment_bindings.environment_schema)
     alternate = PSE.Advanced.compile_composite_model(a.model, (policy_spec(:U; active=false),))
     future = PSE.Advanced.refresh_environment_bindings!(a.model, alternate; force=true)
     @test isempty(future.bindings)
-    @test future.application_plan_schema === nothing
+    @test PSE._is_collecting_environment_schema(future.environment_schema)
     future_types = [typeof(plan) for plan in future.application_plans]
     @test first_types != future_types
     b = policy_model(:T; active=false)
@@ -679,22 +680,22 @@ end
     alternate_b = PSE.Advanced.compile_composite_model(b.model, (policy_spec(:U; active=false),))
     @test_throws "policy_probe` is outside its prepared family schema" PSE.Advanced.refresh_environment_bindings!(b.model, alternate_b)
     @test b.backend.binds == 0
-    union_schema = PSE._environment_plan_schema_from_types(vcat(first_types, future_types))
+    union_schema = PSE._freeze_environment_binding_schema(simulation.environment_bindings.environment_schema)
     c = policy_model(:T; active=false)
     admitted = prepare_policy(c; schema=union_schema)
     E = typeof(admitted.environment_bindings)
     alternate_c = PSE.Advanced.compile_composite_model(c.model, (policy_spec(:U; active=false),))
     current = PSE.Advanced.refresh_environment_bindings!(c.model, alternate_c; force=true)
     @test typeof(current) === E
-    @test current.application_plan_schema === union_schema
+    @test current.environment_schema === union_schema
     @test only(typeof.(current.application_plans)) in future_types
     @test only(policy_types(admitted)) in first_types
     @test c.backend.binds == c.backend.samples == 0
 end
 
 @testset "collection can reopen clean and dirty fixed environment owners" begin
-    observed = prepare_policy(policy_model())
-    schema = PSE._environment_plan_schema_from_types(policy_types(observed))
+    observed = prepare_policy(policy_model(); schema=PSE._collecting_environment_binding_schema())
+    schema = PSE._freeze_environment_binding_schema(observed.environment_bindings.environment_schema)
     for dirty in (false, true)
         data = policy_model()
         simulation = prepare_policy(data; schema)
@@ -706,9 +707,9 @@ end
         end
         before = policy_counts(data)
         current = PSE._refresh_environment_bindings!(data.model, simulation.compiled, owner;
-            plan_schema=nothing)
+            environment_schema=PSE._collecting_environment_binding_schema())
         delta = policy_counts(data) .- before
-        @test current.application_plan_schema === nothing
+        @test PSE._is_collecting_environment_schema(current.environment_schema)
         @test current.application_plans === owner.application_plans || dirty
         @test current.bindings === owner.bindings || dirty
         @test data.backend.binds == before[2] + (dirty ? 2 : 0)
@@ -722,35 +723,273 @@ end
         data = policy_model()
         previous = prepare_policy(data; schema)
         dirty && mark_environment_binding_dirty!(data.model)
-        collected = prepare_policy(data; schema=Val(:collect))
-        @test collected.environment_bindings.application_plan_schema === nothing
+        collected = prepare_policy(data; schema=PSE._collecting_environment_binding_schema())
+        @test PSE._is_collecting_environment_schema(collected.environment_bindings.environment_schema)
         alternate = PSE.Advanced.compile_composite_model(data.model, (policy_spec(:U),))
         refreshed = PSE.Advanced.refresh_environment_bindings!(data.model, alternate)
-        @test refreshed.application_plan_schema === nothing
+        @test PSE._is_collecting_environment_schema(refreshed.environment_schema)
         @test only(refreshed.application_plans).compiled_sampling_rules !=
             only(previous.environment_bindings.application_plans).compiled_sampling_rules
     end
 end
 
 @testset "dirty fixed policies survive checkpoints and rebuild handles" begin
-    schema = fixture_plan_schema(Float32)
+    schema = fixture_environment_schema(Float32)
     for copy_simulation in (deepcopy, checkpoint_copy)
-        data = fixture(Float32; environment_plan_schema=schema)
+        data = fixture(Float32; environment_schema=schema)
         move_object!(data.model, :scheduled_move, (cell=:b,))
         mark_environment_binding_dirty!(data.model)
         restored = copy_simulation(data.simulation)
         retained = restored.environment_bindings
         @test restored.model.environment_binding_cache === retained
-        S = typeof(retained.application_plan_schema)
+        S = typeof(retained.environment_schema)
         current = PSE.Advanced.refresh_environment_bindings!(restored.model, restored.compiled)
         @test current !== retained
-        @test typeof(current.application_plan_schema) === S
-        @test current.application_plan_schema === retained.application_plan_schema
+        @test typeof(current.environment_schema) === S
+        @test current.environment_schema === retained.environment_schema
         moved = current.by_target[(:scheduled_probe, ObjectId(:scheduled_move))]
         @test moved.handle.cell === :b
         @test moved.handle !== retained.by_target[(:scheduled_probe, ObjectId(:scheduled_move))].handle
         step!(restored)
         @test model_status(restored.model, :scheduled_move).seen === 20f0
+    end
+end
+
+
+@testset "reconciliation collects binding families and preserves live handle aliases" begin
+    evidence = PSE._collecting_environment_binding_schema()
+    control = policy_model(:T)
+    observed = prepare_policy(control; schema=evidence)
+    old_plan = only(observed.environment_bindings.application_plans)
+    alternate = PSE.Advanced.compile_composite_model(control.model, (policy_spec(:U),))
+    future = PSE.Advanced.refresh_environment_bindings!(control.model, alternate; force=true)
+    new_plan = only(future.application_plans)
+    @test typeof(new_plan) !== typeof(old_plan)
+    @test PSE._same_environment_plan_configuration(old_plan, new_plan)
+    @test evidence === future.environment_schema
+    schema = PSE._freeze_environment_binding_schema(evidence)
+    @test all(P -> P in evidence.plans, typeof.(future.application_plans))
+    @test all(B -> B in evidence.bindings, typeof.(future.bindings))
+
+    for policy in (PSE.EnvironmentBindingSchema(), schema)
+        data = policy_model(:T)
+        simulation = prepare_policy(data; schema=policy)
+        owner = simulation.environment_bindings
+        alternate = PSE.Advanced.compile_composite_model(data.model, (policy_spec(:U),))
+        before = policy_counts(data)
+        refreshed = PSE.Advanced.refresh_environment_bindings!(data.model, alternate)
+        @test refreshed !== owner
+        @test refreshed.environment_schema === policy
+        @test policy_counts(data) == (before[1] + 1, before[2], before[3])
+        @test typeof(only(refreshed.application_plans)) !== typeof(only(owner.application_plans))
+        for object_id in (ObjectId(:leaf), ObjectId(1))
+            old = owner.by_target[(:policy_probe, object_id)]
+            binding = refreshed.by_target[(:policy_probe, object_id)]
+            @test binding !== old
+            @test binding.plan === only(refreshed.application_plans)
+            @test binding.handle === old.handle
+            @test binding.object_id === object_id
+            @test binding.context.object_id === object_id
+            @test binding.geometry_source_object_id === old.geometry_source_object_id
+            @test binding.geometry_source === old.geometry_source
+            binding.handle.cell = :b
+            @test old.handle.cell === :b
+            @test PSE._model_environment_for_model(refreshed,
+                alternate.applications_by_id[:policy_probe], object_id, 1) == (U=20f0,)
+        end
+        data.backend.values = (T=11f0, U=29f0)
+        @test PSE._model_environment_for_model(refreshed,
+            alternate.applications_by_id[:policy_probe], ObjectId(:leaf), 1) == (U=29f0,)
+        sampled = policy_counts(data)
+        @test sampled == (before[1] + 1, before[2], before[3] + 3)
+        @test PSE.Advanced.refresh_environment_bindings!(data.model, alternate) === refreshed
+        @test policy_counts(data) == sampled
+    end
+
+    # Explicitly widened Advanced fields are admitted as their real old EB;
+    # the usual outer constructor still infers the new plan/handle/context.
+    before = policy_counts(control)
+    process = first(observed.environment_bindings.bindings).context.process
+    for object_id in (ObjectId(:leaf), ObjectId(1))
+        narrow = EA.EnvironmentContext(:policy_probe, object_id, :Leaf, process)
+        wide = EA.EnvironmentContext{Any}(:policy_probe, object_id, :Leaf, process)
+        for (old_context, context) in ((wide, narrow), (narrow, wide)),
+            plan_field_type in (typeof(old_plan), Any)
+            handle = Handle(:a)
+            old = PSE.CompiledEnvironmentBinding{plan_field_type,Any,typeof(old_context)}(
+                old_plan, object_id, handle, old_context, object_id, :self)
+            collected = PSE._collecting_environment_binding_schema()
+            expected = PSE._new_environment_binding(collected, new_plan,
+                object_id, handle, context, object_id, :self)
+            PSE._with_environment_binding(identity, collected, old)
+            fixed = PSE._freeze_environment_binding_schema(collected)
+            for policy in (PSE.EnvironmentBindingSchema(), collected, fixed)
+                binding = PSE._reconcile_environment_binding(policy, old, new_plan,
+                    object_id, context, object_id, :self, ObjectId)
+                @test typeof(binding) === typeof(expected)
+                @test fieldtype(typeof(binding), :handle) === Handle
+                @test binding.plan === new_plan
+                @test binding.context === context
+                @test binding.object_id === object_id
+                @test binding.geometry_source_object_id === object_id
+                @test binding.handle === old.handle === handle
+                binding.handle.cell = :b
+                @test old.handle.cell === :b
+            end
+        end
+    end
+    @test policy_counts(control) == before
+end
+
+@testset "collection seeds existing bindings without replaying providers" begin
+    data = policy_model()
+    simulation = prepare_policy(data)
+    cached = simulation.environment_bindings
+    evidence = PSE._collecting_environment_binding_schema()
+    before = policy_counts(data)
+    current = PSE._refresh_environment_bindings!(data.model, simulation.compiled, cached;
+        environment_schema=evidence)
+    @test policy_counts(data) == before
+    @test current.bindings === cached.bindings
+    @test current.by_target === cached.by_target
+    @test current.sample_cache === cached.sample_cache
+    @test Set(evidence.plans) == Set(typeof.(cached.application_plans))
+    @test Set(evidence.bindings) == Set(typeof.(cached.bindings))
+    E = typeof(current)
+    mark_environment_binding_dirty!(data.model)
+    @test data.model.environment_binding_cache === current
+    rebuilt = PSE.Advanced.refresh_environment_bindings!(data.model, simulation.compiled)
+    @test typeof(rebuilt) === E
+    @test rebuilt.environment_schema === evidence
+    @test data.backend.binds == before[2] + 2
+end
+
+@testset "discarded reconciliation temporaries remain part of collected evidence" begin
+    data = policy_model(:T)
+    evidence = PSE._collecting_environment_binding_schema()
+    simulation = prepare_policy(data; schema=evidence)
+    owner = simulation.environment_bindings
+    alternate = PSE.Advanced.compile_composite_model(data.model, (policy_spec(:U),))
+    ids = only(alternate.applications).target_ids
+    first_id, later_id = first(ids), last(ids)
+    # A stale later context makes the metadata fast path give up, after the
+    # first actual binding has already been constructed for the new plan.
+    old = owner.by_target[(:policy_probe, later_id)]
+    wrong_context = EA.EnvironmentContext(:stale_application, later_id,
+        old.context.scale, old.context.process)
+    owner.by_target[(:policy_probe, later_id)] = PSE.CompiledEnvironmentBinding(
+        old.plan, later_id, old.handle, wrong_context,
+        old.geometry_source_object_id, old.geometry_source)
+    before = policy_counts(data)
+    result = PSE._reconcile_environment_binding_metadata(data.model, alternate, owner)
+    @test isnothing(result)
+    @test policy_counts(data) == (before[1] + 1, before[2], before[3])
+    new_plan_types = filter(P -> P !== typeof(old.plan), evidence.plans)
+    @test length(new_plan_types) == 1
+    @test any(B -> fieldtype(B, :plan) === only(new_plan_types) &&
+        fieldtype(B, :context) === typeof(EA.EnvironmentContext(:policy_probe,
+            first_id, :Leaf, old.context.process)), evidence.bindings)
+    @test data.model.environment_binding_cache === owner
+end
+
+@testset "frozen evidence is detached and rejects an undeclared handle family" begin
+    evidence = PSE._collecting_environment_binding_schema()
+    data = policy_model()
+    simulation = prepare_policy(data; schema=evidence)
+    binding = first(simulation.environment_bindings.bindings)
+    fixed = PSE._freeze_environment_binding_schema(evidence)
+    @test fixed.plans isa NamedTuple
+    @test fixed.bindings isa NamedTuple
+    @test all(witness -> witness isa Val, values(fixed.plans))
+    @test all(witness -> witness isa Val, values(fixed.bindings))
+    plan_count, binding_count = length(fixed.plans), length(fixed.bindings)
+    different = PSE._new_environment_binding(evidence, binding.plan,
+        binding.object_id, Ref(:a), binding.context,
+        binding.geometry_source_object_id, binding.geometry_source)
+    @test length(evidence.bindings) == binding_count + 1
+    @test length(fixed.plans) == plan_count
+    @test length(fixed.bindings) == binding_count
+    @test_throws "outside its prepared family schema" PSE._with_environment_binding(identity, fixed, different)
+    @test_throws "no witnessed constructor family" PSE._new_environment_binding(fixed,
+        binding.plan, binding.object_id, different.handle, binding.context,
+        binding.geometry_source_object_id, binding.geometry_source)
+    @test PSE._with_environment_binding(identity, PSE.EnvironmentBindingSchema(), different) === different
+    merged = PSE._collecting_environment_binding_schema()
+    @test PSE._merge_environment_binding_schema!(merged, evidence) === merged
+    @test merged.plans == evidence.plans
+    @test merged.bindings == evidence.bindings
+    empty!(evidence.plans)
+    empty!(evidence.bindings)
+    @test length(merged.plans) == plan_count
+    @test length(merged.bindings) == binding_count + 1
+    @test_throws ArgumentError PSE.EnvironmentBindingSchema(nothing, DataType[])
+    owner_handle = PSE._new_environment_binding(merged, binding.plan,
+        binding.object_id, simulation.environment_bindings, binding.context,
+        binding.geometry_source_object_id, binding.geometry_source)
+    @test owner_handle.handle === simulation.environment_bindings
+    @test PSE._with_environment_binding(identity, PSE.EnvironmentBindingSchema(), owner_handle) === owner_handle
+    @test_throws "embeds execution-owner/target/context types" PSE._freeze_environment_binding_schema(merged)
+end
+
+
+struct InitializingOwner{C} <: AbstractEnvironment_Shell_OwnerModel
+    capture::C
+end
+PSE.inputs_(::InitializingOwner) = NamedTuple()
+PSE.outputs_(::InitializingOwner) = (created=false, initialized=-1f0)
+function PSE.run!(model::InitializingOwner, status, environment, constants, context)
+    status.created && return nothing
+    object = register_object!(runtime_model(context), Object(:newborn; scale=:Leaf,
+        parent=:scene, status=Status(seen=0f0, calls=0)))
+    initialized = run_initializer!(context, :newborn, object)
+    status.initialized = initialized.seen
+    status.created = true
+    model.capture[] = context
+    return nothing
+end
+
+function initialization_fixture(schema)
+    capture = Ref{Any}()
+    model = CompositeModel(Object(:scene; scale=:Scene);
+        applications=(
+            ModelSpec(InitializingOwner(capture); name=:create, on=One(id=:scene),
+                every=Hour(1), calls=(newborn=Initializer(One(scale=:Leaf, application=:leaf)),)),
+            ModelSpec(Leaf(0f0); name=:leaf, on=Many(scale=:Leaf), every=Hour(1)),
+        ), environment=(T=10f0, duration=Hour(1)))
+    simulation = PSE._prepare_simulation!(model; steps=1, outputs=:all,
+        constants=PSE.Constants(), environment_schema=schema)
+    return (; model, simulation, capture)
+end
+
+@testset "newborn targeted initialization collects before fresh closed preparations" begin
+    evidence = PSE._collecting_environment_binding_schema()
+    a = initialization_fixture(evidence)
+    initial_owner = a.simulation.environment_bindings
+    @test :leaf in map(plan -> plan.application_id, initial_owner.application_plans)
+    @test !haskey(initial_owner.by_target, (:leaf, ObjectId(:newborn)))
+    initial_binding_types = copy(evidence.bindings)
+    E = typeof(initial_owner)
+    step!(a.simulation)
+    @test typeof(a.simulation.environment_bindings) === E
+    @test a.simulation.environment_bindings.environment_schema === evidence
+    newborn = a.simulation.environment_bindings.by_target[(:leaf, ObjectId(:newborn))]
+    @test typeof(newborn) in evidence.bindings
+    @test all(B -> B in evidence.bindings, initial_binding_types)
+    @test model_status(a.model, :scene).initialized === 10f0
+    @test model_status(a.model, :newborn).seen === 10f0
+    fixed = PSE._freeze_environment_binding_schema(evidence)
+    # Both worlds start from the scenario source, before their own caches and
+    # calls exist. Only Val{Type} witnesses cross from A to B/P.
+    b, p = initialization_fixture(fixed), initialization_fixture(fixed)
+    @test b.model !== p.model !== a.model
+    @test b.simulation.environment_bindings !== p.simulation.environment_bindings
+    for fresh in (b, p)
+        @test fresh.simulation.environment_bindings.environment_schema === fixed
+        step!(fresh.simulation)
+        @test fresh.simulation.environment_bindings.environment_schema === fixed
+        @test typeof(fresh.simulation.environment_bindings.by_target[(:leaf, ObjectId(:newborn))]) in evidence.bindings
+        @test final_state(fresh.simulation, Many()) == final_state(a.simulation, Many())
+        @test isequal(collect_outputs(fresh.simulation), collect_outputs(a.simulation))
     end
 end
 

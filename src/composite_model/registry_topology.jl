@@ -890,11 +890,11 @@ function _mark_environment_bindings_dirty!(
     ids = _lifecycle_object_ids(object_ids)
     if isnothing(ids) || isnothing(model.environment_binding_cache)
         cached = model.environment_binding_cache
-        # Retain a closed owner's fixed policy while dirty; full_environment
+        # Keep explicit collection/frozen evidence while dirty; full_environment
         # still forces every handle to be rebuilt before the next execution.
-        closed = cached isa CompiledEnvironmentBindings &&
-                 getfield(cached, :application_plan_schema) isa CompiledMetadataTable
-        model.environment_binding_cache = closed ? cached : nothing
+        preserve_schema = cached isa CompiledEnvironmentBindings &&
+                          !_is_open_environment_schema(getfield(cached, :environment_schema))
+        model.environment_binding_cache = preserve_schema ? cached : nothing
         delta.full_environment = true
     elseif !delta.full_environment
         union!(delta.environment_dirty_ids, ids)

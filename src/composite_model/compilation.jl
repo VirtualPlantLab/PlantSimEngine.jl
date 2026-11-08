@@ -1760,6 +1760,21 @@ struct CompiledEnvironmentBinding{P,H,C}
     geometry_source::Symbol
 end
 
+"""Type-only environment policy: open, collecting, or explicitly frozen."""
+struct EnvironmentBindingSchema{P,EB}
+    plans::P
+    bindings::EB
+    function EnvironmentBindingSchema(plans::P, bindings::EB) where {P,EB}
+        valid = (plans isa Nothing && bindings isa Nothing) ||
+                (plans isa Vector{DataType} && bindings isa Vector{DataType}) ||
+                (plans isa NamedTuple && bindings isa NamedTuple)
+        valid || throw(ArgumentError("An environment schema needs two matching open, collecting, or frozen type collections."))
+        return new{P,EB}(plans, bindings)
+    end
+end
+
+EnvironmentBindingSchema() = EnvironmentBindingSchema(nothing, nothing)
+
 @inline function Base.getproperty(
     binding::CompiledEnvironmentBinding,
     name::Symbol,
@@ -1804,8 +1819,8 @@ mutable struct CompiledEnvironmentBindings{SC,AP,API,B,I,PI,OI,C,S}
     const model::SC
     const application_plans::AP
     const application_plans_by_id::API
-    # nothing is the stable open policy; closed metadata holds only Val{PlanType}.
-    const application_plan_schema::S
+    # Only plan/binding TYPES enter this policy, never targets or live contexts.
+    const environment_schema::S
     const bindings::B
     const by_target::I
     const positions_by_target::PI

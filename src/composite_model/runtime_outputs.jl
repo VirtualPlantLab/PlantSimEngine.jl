@@ -803,7 +803,8 @@ function _synchronize_tracked_call_targets!(targets::CallTargets{CS,EB}) where {
     candidate_environment = topology_dirty ?
         _prebarrier_environment_bindings(model,current_compiled,targets.environment_bindings) :
         _refresh_environment_bindings!(model,current_compiled,
-            _current_environment_binding_owner(model,targets.environment_bindings))
+            _current_environment_binding_owner(model,targets.environment_bindings);
+            environment_schema=targets.environment_bindings.environment_schema)
     if isnothing(candidate_environment)
         current_compiled = targets.compiled
         current_environment_bindings = targets.environment_bindings
@@ -1669,7 +1670,9 @@ _compiled_application_by_id(compiled::CompiledCompositeModel, id::Symbol) =
     _compiled_application_by_id(identity, compiled, id)
 
 function _environment_binding_for(env_bindings::CompiledEnvironmentBindings, application_id::Symbol, object_id::ObjectId)
-    return get(env_bindings.by_target, (application_id, object_id), nothing)::Union{Nothing,CompiledEnvironmentBinding}
+    binding = get(env_bindings.by_target, (application_id, object_id), nothing)::Union{Nothing,CompiledEnvironmentBinding}
+    isnothing(binding) && return nothing
+    return _with_environment_binding(identity, env_bindings.environment_schema, binding)
 end
 
 function _model_object_status(model::CompositeModel, object_id::ObjectId)
@@ -5778,11 +5781,11 @@ function _targeted_call_environment_bindings(
         model,
         applications,
         cached.application_plans_by_id;
-        plan_schema=cached.application_plan_schema,
+        environment_schema=cached.environment_schema,
     )
     _validate_model_environment_inputs!(partial, applications_by_id,
         keytype(model.registry.objects);
-        plan_schema=cached.application_plan_schema)
+        environment_schema=cached.environment_schema)
     by_target = _index_environment_bindings(partial, keytype(model.registry.objects))
     return _compiled_environment_bindings(
         model,
@@ -5792,7 +5795,7 @@ function _targeted_call_environment_bindings(
         partial,
         by_target,
         cached.sample_cache;
-        plan_schema=cached.application_plan_schema,
+        environment_schema=cached.environment_schema,
     )
 end
 
@@ -7185,7 +7188,8 @@ function _refresh_simulation_runtime!(simulation::Simulation)
         simulation.environment_bindings = _refresh_environment_bindings!(
             model,
             simulation.compiled,
-            environment_owner,
+            environment_owner;
+            environment_schema=simulation.environment_bindings.environment_schema,
         )
         _runtime_performance_finish!(
             simulation.performance,
@@ -7306,7 +7310,8 @@ function _refresh_simulation_runtime!(simulation::Simulation)
         simulation.environment_bindings = _refresh_environment_bindings!(
             model,
             simulation.compiled,
-            environment_owner,
+            environment_owner;
+            environment_schema=simulation.environment_bindings.environment_schema,
         )
         _runtime_performance_finish!(
             simulation.performance,
@@ -7826,7 +7831,7 @@ function _prepare_simulation!(
     constants,
     outputs,
     performance::Bool=false,
-    environment_plan_schema=nothing,
+    environment_schema=_environment_schema(getfield(model, :environment_binding_cache)),
 )
     performance_counters = performance ? RuntimePerformanceCounters() : nothing
     initial_composite_started_at =
@@ -7897,8 +7902,7 @@ function _prepare_simulation!(
     )
     started_at = _runtime_performance_start(performance_counters)
     cached_environment = getfield(model, :environment_binding_cache)::Union{Nothing,CompiledEnvironmentBindings}
-    plan_schema = _preparation_environment_plan_schema(environment_plan_schema, cached_environment)
-    env_bindings = _refresh_environment_bindings!(model, compiled, cached_environment; plan_schema)
+    env_bindings = _refresh_environment_bindings!(model, compiled, cached_environment; environment_schema)
     _runtime_performance_finish!(
         performance_counters,
         :initial_environment_compile,
