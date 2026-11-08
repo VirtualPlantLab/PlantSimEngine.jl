@@ -92,27 +92,41 @@ function _model_environment_entities(model::CompositeModel, object_ids=nothing)
     return entities
 end
 
-function _model_environment_backends(model::CompositeModel, compiled::CompiledCompositeModel)
-    backends = Any[]
+function _model_environment_backends(model::CompositeModel,
+    applications::CompiledMetadataTable{T},
+) where {T}
+    slots = Int[]
     seen = Set{UInt}()
-    for application in compiled.applications
-        backend = _environment_backend_from_config(model, environment_config(application.spec))
-        isnothing(backend) && continue
-        id = objectid(backend)
-        id in seen && continue
-        push!(seen, id)
-        push!(backends, backend)
+    # Preserve actual discovery values, independently of the later plan pass.
+    # The entry count is already encoded in the fixed application metadata.
+    backends = ntuple(Val(fieldcount(T))) do slot
+        _with_metadata_entry(applications, slot) do application
+            backend = _environment_backend_from_config(model, environment_config(application.spec))
+            if !isnothing(backend)
+                id = objectid(backend)
+                if !(id in seen)
+                    push!(seen, id)
+                    push!(slots, slot)
+                end
+            end
+            return backend
+        end
     end
-    return backends
+    return CompiledMetadataTable(NamedTuple{fieldnames(T)}(backends)), slots
 end
 
 function _update_model_environment_indices!(
+    with_backend,
     model::CompositeModel,
-    backends,
-    dirty_object_ids=nothing,
+    entries,
+    dirty_object_ids,
 )
-    filter!(backend -> !(backend isa GlobalConstant), backends)
-    isempty(backends) && return nothing
+    filter!(entries) do entry
+        with_backend(entry) do backend
+            !(backend isa GlobalConstant)
+        end
+    end
+    isempty(entries) && return nothing
     entities = _model_environment_entities(model, dirty_object_ids)
     removed_object_ids = isnothing(dirty_object_ids) ?
                          ObjectId[] :
@@ -120,10 +134,18 @@ function _update_model_environment_indices!(
         object_id for object_id in dirty_object_ids
         if !haskey(model.registry.objects, object_id)
     ]
-    for backend in backends
-        update_index!(backend, entities, removed_object_ids)
+    for entry in entries
+        with_backend(entry) do backend
+            update_index!(backend, entities, removed_object_ids)
+        end
     end
     return nothing
+end
+
+function _update_model_environment_indices!(model::CompositeModel, backends, dirty_object_ids=nothing)
+    return _update_model_environment_indices!(model, backends, dirty_object_ids) do consume, backend
+        consume(backend)
+    end
 end
 
 function _update_model_environment_indices!(
@@ -131,11 +153,10 @@ function _update_model_environment_indices!(
     compiled::CompiledCompositeModel,
     dirty_object_ids=nothing,
 )
-    return _update_model_environment_indices!(
-        model,
-        _model_environment_backends(model, compiled),
-        dirty_object_ids,
-    )
+    backends, slots = _model_environment_backends(model, compiled.applications_by_id)
+    return _update_model_environment_indices!(model, slots, dirty_object_ids) do consume, slot
+        _with_metadata_entry(consume, backends, slot)
+    end
 end
 
 function _update_model_environment_indices_for_objects!(
@@ -145,7 +166,8 @@ function _update_model_environment_indices_for_objects!(
     dirty_object_ids,
 )
     application_ids = Set{Symbol}()
-    for object_id in dirty_object_ids
+    for dirty_id in dirty_object_ids
+        object_id = _index_object_id(cached.targets_by_object, dirty_id)
         _foreach_object_application(compiled, object_id) do application
             push!(application_ids, application.id)
         end
@@ -153,22 +175,26 @@ function _update_model_environment_indices_for_objects!(
             push!(application_ids, target[1])
         end
     end
-    backends = Any[]
+    plans = CompiledEnvironmentApplicationPlan[]
     seen = Set{UInt}()
     for application_id in application_ids
         plan = cached.application_plans_by_id[application_id]
-        backend = plan.backend
-        isnothing(backend) && continue
-        id = objectid(backend)
-        id in seen && continue
-        push!(seen, id)
-        push!(backends, backend)
+        _with_environment_plan(cached.application_plan_schema, plan) do admitted_plan
+            backend = admitted_plan.backend
+            isnothing(backend) && return nothing
+            id = objectid(backend)
+            id in seen && return nothing
+            push!(seen, id)
+            push!(plans, admitted_plan)
+        end
     end
-    return _update_model_environment_indices!(
-        model,
-        backends,
-        dirty_object_ids,
-    )
+    # Plans are immutable snapshots. Index callbacks may replace the owner's
+    # dictionary entries, so consume these selected plans without rereading it.
+    return _update_model_environment_indices!(model, plans, dirty_object_ids) do consume, plan
+        _with_environment_plan(cached.application_plan_schema, plan) do admitted_plan
+            consume(admitted_plan.backend)
+        end
+    end
 end
 
 function _environment_variable_names(vars)
@@ -569,6 +595,13 @@ function _same_environment_context(a, b)
            a.process == b.process
 end
 
+function _same_environment_plan_configuration(
+    a::CompiledEnvironmentApplicationPlan, b::CompiledEnvironmentApplicationPlan,
+)
+    return _same_environment_backend(a.backend, b.backend) &&
+           isequal(a.config, b.config)
+end
+
 function _same_environment_application_plan(a, b)
     return _same_environment_backend(a.backend, b.backend) &&
            isequal(a.config, b.config) &&
@@ -598,16 +631,23 @@ function _reconciled_environment_application_plans(
     )
     plans = CompiledEnvironmentApplicationPlan[]
     plans_by_id = Dict{Symbol,CompiledEnvironmentApplicationPlan}()
+    plan_schema = cached.application_plan_schema
     for candidate in candidates
-        old = get(cached.application_plans_by_id, candidate.application_id, nothing)
-        if !isnothing(old)
-            _same_environment_backend(old.backend, candidate.backend) ||
-                return nothing
-            isequal(old.config, candidate.config) || return nothing
+        application_id = candidate.application_id
+        old = get(cached.application_plans_by_id, application_id, nothing)
+        plan = if isnothing(old)
+            _with_environment_plan(identity, plan_schema, candidates_by_id[application_id])
+        else
+            _with_environment_plan(plan_schema, old) do admitted_old
+                _with_environment_plan(plan_schema, candidates_by_id[application_id]) do admitted_candidate
+                    _same_environment_plan_configuration(admitted_old, admitted_candidate) ||
+                        return nothing
+                    return _same_environment_application_plan(admitted_old, admitted_candidate) ?
+                           admitted_old : _with_environment_plan(identity, plan_schema, candidates_by_id[application_id])
+                end
+            end
         end
-        plan = !isnothing(old) &&
-               _same_environment_application_plan(old, candidate) ?
-               old : candidates_by_id[candidate.application_id]
+        isnothing(plan) && return nothing
         push!(plans, plan)
         plans_by_id[plan.application_id] = plan
     end
@@ -631,18 +671,25 @@ function _reconcile_environment_binding_metadata(
 
     bindings = CompiledEnvironmentBinding[]
     changed = false
+    plan_schema = cached.application_plan_schema
     for application in compiled.applications
-        plan = application_plans_by_id[application.id]
+        application_id = application.id
+        plan = application_plans_by_id[application_id]
         for object_id in application.target_ids
-            key = (application.id, object_id)
+            key = (application_id, object_id)
             old = get(cached.by_target, key, nothing)::Union{Nothing,CompiledEnvironmentBinding}
             isnothing(old) && return nothing
             object = _model_object(model, object_id)
             context = _object_environment_context(application.id, application.process, object, object_id)
             _, geometry_source_object_id, geometry_source =
                 _environment_binding_object(model, object)
-            _same_environment_backend(old.backend, plan.backend) || return nothing
-            isequal(old.config, plan.config) || return nothing
+            old_plan = getfield(old, :plan)::CompiledEnvironmentApplicationPlan
+            same_configuration = _with_environment_plan(plan_schema, old_plan) do admitted_old
+                _with_environment_plan(plan_schema, application_plans_by_id[application_id]) do admitted_current
+                    _same_environment_plan_configuration(admitted_old, admitted_current)
+                end
+            end
+            same_configuration || return nothing
             old.geometry_source_object_id == geometry_source_object_id ||
                 return nothing
             old.geometry_source == geometry_source || return nothing
@@ -700,7 +747,14 @@ function _refresh_environment_bindings_for_objects(
     cached::CompiledEnvironmentBindings,
     dirty_object_ids,
 )
-    dirty_ids = ObjectId[dirty_object_ids...]
+    I = keytype(cached.targets_by_object)
+    dirty_ids = I[]
+    if Base.IteratorSize(typeof(dirty_object_ids)) isa Union{Base.HasLength,Base.HasShape}
+        sizehint!(dirty_ids, length(dirty_object_ids))
+    end
+    for dirty_id in dirty_object_ids
+        push!(dirty_ids, _index_object_id(cached.targets_by_object, dirty_id))
+    end
     _sort_object_ids!(dirty_ids)
     _update_model_environment_indices_for_objects!(
         model,
@@ -708,11 +762,14 @@ function _refresh_environment_bindings_for_objects(
         cached,
         dirty_ids,
     )
-    stale_targets = Set{Tuple{Symbol,ObjectId}}()
-    replacements = Dict{Tuple{Symbol,ObjectId},CompiledEnvironmentBinding}()
-    for object_id in dirty_ids
+    K = keytype(cached.by_target)
+    stale_targets = Set{K}()
+    replacements = Dict{K,Any}()
+    empty_targets = K[]
+    for dirty_id in dirty_ids
+        object_id = _index_object_id(cached.targets_by_object, dirty_id)
         current_applications = _application_membership_slots(compiled, object_id)
-        previous_targets = get(cached.targets_by_object, object_id, ())
+        previous_targets = get(cached.targets_by_object, object_id, empty_targets)
         isempty(current_applications) && isempty(previous_targets) && continue
         current_application_ids = Set{Symbol}()
         for slot in current_applications
@@ -727,23 +784,20 @@ function _refresh_environment_bindings_for_objects(
         haskey(model.registry.objects, object_id) || continue
         for slot in current_applications
             _with_metadata_entry(current_applications.applications, slot) do application
-                partial_application = _partial_model_application(application, ObjectId[object_id])
+                partial_application = _partial_model_application(application, I[object_id])
                 for binding in _compile_environment_bindings_for_applications(
                     model,
                     (partial_application,),
                     cached.application_plans_by_id;
                     plan_schema=cached.application_plan_schema,
                 )
-                    replacements[(
-                        binding.application_id,
-                        binding.object_id,
-                    )] = binding
+                    replacements[_environment_binding_target_key(binding, I)] = binding
                 end
             end
         end
     end
     _validate_model_environment_inputs!(
-        values(replacements),
+        (binding::CompiledEnvironmentBinding for binding in values(replacements)),
         compiled.applications_by_id,
         keytype(model.registry.objects);
         plan_schema=cached.application_plan_schema,
@@ -755,10 +809,7 @@ function _refresh_environment_bindings_for_objects(
         if position != last_position
             moved_binding = cached.bindings[last_position]
             cached.bindings[position] = moved_binding
-            cached.positions_by_target[(
-                moved_binding.application_id,
-                moved_binding.object_id,
-            )] = position
+            cached.positions_by_target[_environment_binding_target_key(moved_binding, I)] = position
         end
         pop!(cached.bindings)
         delete!(cached.by_target, target)
@@ -767,15 +818,16 @@ function _refresh_environment_bindings_for_objects(
         isnothing(target_index) || deleteat!(object_targets, target_index)
         isempty(object_targets) && delete!(cached.targets_by_object, target[2])
     end
-    for (target, binding) in replacements
+    for (target, value) in replacements
+        binding = value::CompiledEnvironmentBinding
         position = get(cached.positions_by_target, target, nothing)
         if isnothing(position)
             push!(cached.bindings, binding)
             cached.positions_by_target[target] =
                 lastindex(cached.bindings)
             push!(
-                get!(cached.targets_by_object, binding.object_id) do
-                    Tuple{Symbol,ObjectId}[]
+                get!(cached.targets_by_object, target[2]) do
+                    K[]
                 end,
                 target,
             )

@@ -8670,7 +8670,7 @@ end
 @inline _with_metadata_entry(f, entries::AbstractVector, key::Integer) = f(entries[key])
 @inline _with_metadata_entry(f, entries::AbstractDict, key::Symbol) = f(entries[key])
 
-function _foreach_object_application(f, compiled::CompiledCompositeModel, object_id::ObjectId)
+function _foreach_object_application(f::F, compiled::CompiledCompositeModel, object_id::ObjectId) where {F}
     slots = _application_membership_slots(compiled, object_id)
     for slot in slots
         _with_metadata_entry(f, slots.applications, slot)
