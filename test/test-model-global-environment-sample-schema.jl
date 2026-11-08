@@ -361,4 +361,128 @@ Base.Symbol(source::SamplingRuleSource) = (push!(source.visits, source.name); so
     @test isempty(visits)
 end
 
+mutable struct MemoPreparationSource{T}
+    T::T
+    U::T
+    duration::Hour
+    sampler_preparations::Int
+    source_preparations::Int
+end
+PSE.DataFormat(::Type{<:MemoPreparationSource}) = PSE.SingletonAlike()
+PSE._prepare_environment_sampler(source::MemoPreparationSource) =
+    (source.sampler_preparations += 1; nothing)
+PSE._prepare_global_environment(source::MemoPreparationSource) =
+    (source.source_preparations += 1; source)
+
+function memo_source_model(source)
+    return CompositeModel(Object(:a; scale=:Leaf), Object(:b; scale=:Leaf);
+        applications=(
+            ModelSpec(Probe(0f0); name=:raw, on=One(id=:a)),
+            ModelSpec(Probe(0f0); name=:mapped, on=One(id=:b),
+                environment=Environment(sources=(T=:U,)))), environment=source)
+end
+memo_preparations(source) = (source.sampler_preparations, source.source_preparations)
+
+@testset "source-plan memo shares preparation and preserves current application metadata" begin
+    observed_source = MemoPreparationSource(10f0, 20f0, Hour(1), 0, 0)
+    observed = run!(memo_source_model(observed_source); steps=0, outputs=:none)
+    schema = PSE._environment_plan_schema_from_types(typeof.(observed.environment_bindings.application_plans))
+    for fixed in (false, true)
+        source = MemoPreparationSource(10f0, 20f0, Hour(1), 0, 0)
+        model = memo_source_model(source)
+        simulation = PSE._prepare_simulation!(model; steps=0, outputs=:none,
+            constants=PSE.Constants(), environment_plan_schema=fixed ? schema : nothing)
+        compiled, owner = simulation.compiled, simulation.environment_bindings
+        @test memo_preparations(source) == (1, 1)
+        raw, mapped = owner.application_plans_by_id[:raw], owner.application_plans_by_id[:mapped]
+        @test raw.application_id === :raw && mapped.application_id === :mapped
+        @test raw.prepared_source === mapped.prepared_source === source
+        @test raw.sampler === mapped.sampler === nothing
+        @test raw.sampling_rules == (:T => :T,)
+        @test mapped.sampling_rules == (:T => :U,)
+        @test raw.uses_raw_global_source && !mapped.uses_raw_global_source
+        @test raw.sample_schema isa PSE.GlobalEnvironmentSampleSchema{typeof(source)}
+        @test mapped.sample_schema isa PSE.GlobalEnvironmentSampleSchema{Any}
+        current, by_id = PSE._compile_environment_application_plans(model,
+            compiled.applications, compiled.applications_by_id;
+            previous_plans_by_id=owner.application_plans_by_id,
+            plan_schema=owner.application_plan_schema)
+        @test memo_preparations(source) == (1, 1)
+        @test map(plan -> plan.application_id, current) == [:raw, :mapped]
+        for original in (raw, mapped)
+            reused = by_id[original.application_id]
+            @test reused.sampler === original.sampler
+            @test reused.prepared_source === original.prepared_source
+            @test reused.config === original.config
+            @test reused.compiled_sampling_rules === original.compiled_sampling_rules
+            @test reused.sample_schema === original.sample_schema
+        end
+        disabled, _ = PSE._compile_environment_application_plans(model,
+            compiled.applications, compiled.applications_by_id;
+            previous_plans_by_id=owner.application_plans_by_id, prepare_runtime=false)
+        @test memo_preparations(source) == (1, 1)
+        @test all(plan -> isnothing(plan.sampler) && isnothing(plan.prepared_source) &&
+            plan.sample_schema isa PSE.GlobalEnvironmentSampleSchema{Any}, disabled)
+        for (id, object_id, expected) in ((:raw, :a, 11f0), (:mapped, :b, 21f0))
+            source.T, source.U = 11f0, 21f0
+            application = compiled.applications_by_id[id]
+            binding = owner.by_target[(id, ObjectId(object_id))]
+            @test PSE._model_environment_for_binding(owner, application, binding, 1, source).T === expected
+            source.T, source.U = 12f0, 22f0
+            @test PSE._model_environment_for_binding(owner, application, binding, 1, source).T === expected + 1f0
+        end
+        @test memo_preparations(source) == (1, 1)
+        if fixed
+            @test all(plan -> PSE._with_environment_plan(identity, schema, plan) === plan, current)
+            mapped_schema = PSE._environment_plan_schema_from_types([typeof(mapped)])
+            @test_throws "raw` is outside its prepared family schema" PSE._refresh_environment_bindings!(
+                model, compiled, owner; plan_schema=mapped_schema)
+            @test model.environment_binding_cache === owner
+            alternate = PSE.Advanced.compile_composite_model(model, (model.applications[2],))
+            replacement = PSE._refresh_environment_bindings!(model, alternate, owner;
+                plan_schema=mapped_schema)
+            @test replacement.application_plan_schema === mapped_schema
+            @test only(replacement.application_plans).application_id === :mapped
+            @test memo_preparations(source) == (2, 2)
+            again, _ = PSE._compile_environment_application_plans(model,
+                alternate.applications, alternate.applications_by_id;
+                previous_plans_by_id=replacement.application_plans_by_id,
+                plan_schema=replacement.application_plan_schema)
+            @test only(again).prepared_source === source
+            @test memo_preparations(source) == (2, 2)
+        end
+    end
+end
+
+@testset "previous source plans retain the last sampler and prepared-source pair" begin
+    weather = PSE.PlantMeteo.Weather([
+        PSE.PlantMeteo.Atmosphere(date=DateTime(2025, 1, 1), T=10.0,
+            Wind=1.0, Rh=0.5, duration=Hour(1)),
+        PSE.PlantMeteo.Atmosphere(date=DateTime(2025, 1, 1, 1), T=20.0,
+            Wind=1.0, Rh=0.5, duration=Hour(1))])
+    for source in (DataFrame(T=Float32[10, 20], duration=fill(Hour(1), 2)), weather)
+        data = prepared(source; shared=true)
+        compiled, owner = data.simulation.compiled, data.simulation.environment_bindings
+        fresh, fresh_by_id = PSE._compile_environment_application_plans(data.model,
+            compiled.applications, compiled.applications_by_id)
+        initial = owner.application_plans_by_id[:probe]
+        newer = fresh_by_id[:other]
+        if source isa DataFrame
+            @test initial.prepared_source.rows !== newer.prepared_source.rows
+        else
+            @test initial.sampler !== newer.sampler
+        end
+        previous = Dict(:initial => initial, :newer => newer)
+        expected = last(collect(values(previous)))
+        for schema in (nothing, PSE._environment_plan_schema_from_types(typeof.(fresh)))
+            reused, _ = PSE._compile_environment_application_plans(data.model,
+                compiled.applications, compiled.applications_by_id;
+                previous_plans_by_id=previous, plan_schema=schema)
+            @test map(plan -> plan.application_id, reused) == [:probe, :other]
+            @test all(plan -> plan.sampler === expected.sampler, reused)
+            @test all(plan -> plan.prepared_source === expected.prepared_source, reused)
+        end
+    end
+end
+
 end # module GlobalEnvironmentSampleSchemaChecks

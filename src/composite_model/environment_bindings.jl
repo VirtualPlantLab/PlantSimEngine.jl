@@ -178,10 +178,12 @@ end
 # retain Any until their result schema is known; preparation never samples a
 # custom source merely to discover its return type.
 function _global_environment_sample_schema(backend, source, sampler, uses_raw::Bool, prepare_runtime::Bool)
-    R = prepare_runtime && isnothing(sampler) && uses_raw &&
-        backend isa GlobalConstant &&
-        DataFormat(environment_source(backend)) isa SingletonAlike ? typeof(source) : Any
-    return GlobalEnvironmentSampleSchema{R}()
+    if prepare_runtime && isnothing(sampler) && uses_raw &&
+       backend isa GlobalConstant &&
+       DataFormat(environment_source(backend)) isa SingletonAlike
+        return GlobalEnvironmentSampleSchema{typeof(source)}()
+    end
+    return GlobalEnvironmentSampleSchema{Any}()
 end
 
 function _compile_environment_application_plans(
@@ -194,14 +196,12 @@ function _compile_environment_application_plans(
 )
     plans = CompiledEnvironmentApplicationPlan[]
     plans_by_id = Dict{Symbol,CompiledEnvironmentApplicationPlan}()
-    samplers_by_source = IdDict{Any,Any}()
-    prepared_by_source = IdDict{Any,Any}()
+    plans_by_source = IdDict{Any,CompiledEnvironmentApplicationPlan}()
     if !isnothing(previous_plans_by_id)
         for plan in values(previous_plans_by_id)
             plan.backend isa GlobalConstant || continue
             source = environment_source(plan.backend)
-            samplers_by_source[source] = plan.sampler
-            prepared_by_source[source] = plan.prepared_source
+            plans_by_source[source] = plan
         end
     end
     for candidate in applications
@@ -217,38 +217,46 @@ function _compile_environment_application_plans(
             )
             source_inputs = _environment_source_variable_names(sampling_rules)
             produced_outputs = _model_environment_output_names(application)
-            sampler = nothing
-            prepared_source = nothing
-            if prepare_runtime && backend isa GlobalConstant
-                source = environment_source(backend)
-                sampler = get!(samplers_by_source, source) do
-                    _prepare_environment_sampler(source)
-                end
-                prepared_source = get!(prepared_by_source, source) do
-                    _prepare_global_environment(source)
-                end
+            function build_plan(sampler, prepared_source)
+                has_bindings = !isempty(keys(bindings))
+                has_source_overrides = !isempty(keys(environment_sources))
+                uses_raw_global_source = backend isa GlobalConstant &&
+                                         isnothing(sampler) &&
+                                         !has_bindings && !has_source_overrides
+                return CompiledEnvironmentApplicationPlan(
+                    application.id,
+                    backend,
+                    config,
+                    required_inputs,
+                    source_inputs,
+                    produced_outputs,
+                    sampling_rules,
+                    compiled_sampling_rules,
+                    sampler,
+                    prepared_source,
+                    uses_raw_global_source,
+                    _global_environment_sample_schema(
+                        backend, prepared_source, sampler, uses_raw_global_source, prepare_runtime,
+                    ),
+                )
             end
-            has_bindings = !isempty(keys(bindings))
-            has_source_overrides = !isempty(keys(environment_sources))
-            uses_raw_global_source = backend isa GlobalConstant &&
-                                     isnothing(sampler) &&
-                                     !has_bindings && !has_source_overrides
-            plan = CompiledEnvironmentApplicationPlan(
-                application.id,
-                backend,
-                config,
-                required_inputs,
-                source_inputs,
-                produced_outputs,
-                sampling_rules,
-                compiled_sampling_rules,
-                sampler,
-                prepared_source,
-                uses_raw_global_source,
-                _global_environment_sample_schema(
-                    backend, prepared_source, sampler, uses_raw_global_source, prepare_runtime,
-                ),
-            )
+            plan = if prepare_runtime && backend isa GlobalConstant
+                source = environment_source(backend)
+                cached_plan = get(plans_by_source, source, nothing)
+                if isnothing(cached_plan)
+                    sampler = _prepare_environment_sampler(source)
+                    prepared_source = _prepare_global_environment(source)
+                    prepared_plan = build_plan(sampler, prepared_source)
+                    plans_by_source[source] = prepared_plan
+                    prepared_plan
+                else
+                    _with_environment_plan(plan_schema, cached_plan) do admitted_plan
+                        build_plan(admitted_plan.sampler, admitted_plan.prepared_source)
+                    end
+                end
+            else
+                build_plan(nothing, nothing)
+            end
             _with_environment_plan(identity, plan_schema, plan)
             push!(plans, plan)
             haskey(plans_by_id, application.id) && error(
