@@ -186,7 +186,8 @@ end
 
 function _compile_environment_application_plans(
     model::CompositeModel,
-    applications;
+    applications,
+    applications_by_id;
     previous_plans_by_id=nothing,
     prepare_runtime::Bool=true,
     plan_schema=nothing,
@@ -203,56 +204,58 @@ function _compile_environment_application_plans(
             prepared_by_source[source] = plan.prepared_source
         end
     end
-    for application in applications
-        config = environment_config(application.spec)
-        backend = _environment_backend_from_config(model, config)
-        bindings, environment_sources = _environment_sampling_configuration(application.spec)
-        required_inputs = _model_environment_input_names(application)
-        sampling_rules = Tuple(_environment_sampling_rules(bindings, environment_sources, required_inputs))
-        compiled_sampling_rules = Tuple(
-            CompiledEnvironmentSamplingRule(target, source)
-            for (target, source) in sampling_rules
-        )
-        source_inputs = _environment_source_variable_names(sampling_rules)
-        produced_outputs = _model_environment_output_names(application)
-        sampler = nothing
-        prepared_source = nothing
-        if prepare_runtime && backend isa GlobalConstant
-            source = environment_source(backend)
-            sampler = get!(samplers_by_source, source) do
-                _prepare_environment_sampler(source)
+    for candidate in applications
+        _with_metadata_entry(applications_by_id, candidate.id) do application
+            config = environment_config(application.spec)
+            backend = _environment_backend_from_config(model, config)
+            bindings, environment_sources = _environment_sampling_configuration(application.spec)
+            required_inputs = _model_environment_input_names(application)
+            sampling_rules = Tuple(_environment_sampling_rules(bindings, environment_sources, required_inputs))
+            compiled_sampling_rules = Tuple(
+                CompiledEnvironmentSamplingRule(target, source)
+                for (target, source) in sampling_rules
+            )
+            source_inputs = _environment_source_variable_names(sampling_rules)
+            produced_outputs = _model_environment_output_names(application)
+            sampler = nothing
+            prepared_source = nothing
+            if prepare_runtime && backend isa GlobalConstant
+                source = environment_source(backend)
+                sampler = get!(samplers_by_source, source) do
+                    _prepare_environment_sampler(source)
+                end
+                prepared_source = get!(prepared_by_source, source) do
+                    _prepare_global_environment(source)
+                end
             end
-            prepared_source = get!(prepared_by_source, source) do
-                _prepare_global_environment(source)
-            end
+            has_bindings = !isempty(keys(bindings))
+            has_source_overrides = !isempty(keys(environment_sources))
+            uses_raw_global_source = backend isa GlobalConstant &&
+                                     isnothing(sampler) &&
+                                     !has_bindings && !has_source_overrides
+            plan = CompiledEnvironmentApplicationPlan(
+                application.id,
+                backend,
+                config,
+                required_inputs,
+                source_inputs,
+                produced_outputs,
+                sampling_rules,
+                compiled_sampling_rules,
+                sampler,
+                prepared_source,
+                uses_raw_global_source,
+                _global_environment_sample_schema(
+                    backend, prepared_source, sampler, uses_raw_global_source, prepare_runtime,
+                ),
+            )
+            _with_environment_plan(identity, plan_schema, plan)
+            push!(plans, plan)
+            haskey(plans_by_id, application.id) && error(
+                "Environment application-plan compilation produced duplicate application id `$(application.id)`.",
+            )
+            plans_by_id[application.id] = plan
         end
-        has_bindings = !isempty(keys(bindings))
-        has_source_overrides = !isempty(keys(environment_sources))
-        uses_raw_global_source = backend isa GlobalConstant &&
-                                 isnothing(sampler) &&
-                                 !has_bindings && !has_source_overrides
-        plan = CompiledEnvironmentApplicationPlan(
-            application.id,
-            backend,
-            config,
-            required_inputs,
-            source_inputs,
-            produced_outputs,
-            sampling_rules,
-            compiled_sampling_rules,
-            sampler,
-            prepared_source,
-            uses_raw_global_source,
-            _global_environment_sample_schema(
-                backend, prepared_source, sampler, uses_raw_global_source, prepare_runtime,
-            ),
-        )
-        _with_environment_plan(identity, plan_schema, plan)
-        push!(plans, plan)
-        haskey(plans_by_id, application.id) && error(
-            "Environment application-plan compilation produced duplicate application id `$(application.id)`.",
-        )
-        plans_by_id[application.id] = plan
     end
     return plans, plans_by_id
 end
@@ -516,7 +519,8 @@ function _compile_environment_binding_owner(model::CompositeModel,
 )
     _update_model_environment_indices!(model, compiled)
     application_plans, application_plans_by_id =
-        _compile_environment_application_plans(model, compiled.applications; plan_schema)
+        _compile_environment_application_plans(model, compiled.applications,
+            compiled.applications_by_id; plan_schema)
     bindings = _compile_environment_bindings(
         model,
         compiled,
@@ -574,7 +578,8 @@ function _reconciled_environment_application_plans(
 )
     candidates, candidates_by_id = _compile_environment_application_plans(
         model,
-        compiled.applications;
+        compiled.applications,
+        compiled.applications_by_id;
         previous_plans_by_id=cached.application_plans_by_id,
         plan_schema=cached.application_plan_schema,
     )

@@ -4837,7 +4837,8 @@ function explain_initialization(model::CompositeModel)
 
     _, environment_plans_by_id = _compile_environment_application_plans(
         model,
-        compiled.applications;
+        compiled.applications,
+        compiled.applications_by_id;
         prepare_runtime=false,
     )
     environment_bindings = Dict(

@@ -97,7 +97,8 @@ end
     applications = PSE._compile_model_applications(model, model.applications, PSE._model_timeline(model))
     destinations = PSE._resolve_model_output_destination_plans(model, PSE._scenario_preparation(model), applications)
     PSE._resolve_model_input_plans(model, PSE._scenario_preparation(model), applications, destinations)
-    PSE._compile_environment_application_plans(model, applications; prepare_runtime=false)
+    PSE._compile_environment_application_plans(model, applications,
+        PSE._applications_by_id(applications); prepare_runtime=false)
     @test a.counter[] == before_a
     @test b.counter[] == before_b
     if all(recipe -> hasproperty(recipe, :ports), recipes)
@@ -278,7 +279,8 @@ end
         destinations = PSE._resolve_model_output_destination_plans(model, PSE._scenario_preparation(model), applications)
         @test_throws message PSE._resolve_model_input_plans(model, PSE._scenario_preparation(model), applications, destinations)
         @test counter[] == 1 # even empty contracts validate all declared port names
-        @test_throws message PSE._compile_environment_application_plans(model, applications; prepare_runtime=false)
+        @test_throws message PSE._compile_environment_application_plans(model, applications,
+            PSE._applications_by_id(applications); prepare_runtime=false)
         @test counter[] == 1
         @test_throws message run!(model; steps=0)
         @test counter[] == 1

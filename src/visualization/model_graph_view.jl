@@ -331,7 +331,8 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
     _model_graph_phase!(diagnostics, :environment_bindings, nothing) do
         _, environment_plans_by_id = _compile_environment_application_plans(
             model,
-            applications;
+            applications,
+            _applications_by_id(applications);
             prepare_runtime=false,
         )
         environment_bindings = _compile_environment_bindings_for_applications(
@@ -1371,7 +1372,9 @@ function _model_graph_environment_edges(report, level, environment_catalog)
     environment_bindings = try
         _, environment_plans_by_id = _compile_environment_application_plans(
             report.model,
-            report.applications;
+            report.applications,
+            isnothing(report.compiled) ? _applications_by_id(report.applications) :
+                report.compiled.applications_by_id;
             prepare_runtime=false,
         )
         _compile_environment_bindings_for_applications(

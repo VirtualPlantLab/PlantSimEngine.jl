@@ -137,7 +137,8 @@ cache_hit_allocations(data, count) = @allocated cached_temperature(data, count)
     @test Set(keys(shared.simulation.environment_bindings.sample_cache)) ==
           Set(((:probe, 1), (:other, 1)))
     plans, _ = PSE._compile_environment_application_plans(shared.model,
-        shared.simulation.compiled.applications; prepare_runtime=false)
+        shared.simulation.compiled.applications,
+        shared.simulation.compiled.applications_by_id; prepare_runtime=false)
     @test all(plan -> plan.sample_schema isa PSE.GlobalEnvironmentSampleSchema{Any}, plans)
     @test counted.reads == Dict(1 => 2)
 end

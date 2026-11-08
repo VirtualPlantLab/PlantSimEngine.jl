@@ -173,7 +173,9 @@ function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.GraphEdit
         _, environment_plans_by_id =
             PlantSimEngine._compile_environment_application_plans(
                 candidate,
-                report.applications;
+                report.applications,
+                isnothing(report.compiled) ? PlantSimEngine._applications_by_id(report.applications) :
+                    report.compiled.applications_by_id;
                 prepare_runtime=false,
             )
         bindings = PlantSimEngine._compile_environment_bindings_for_applications(

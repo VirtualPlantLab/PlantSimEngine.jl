@@ -538,7 +538,8 @@ end
             applications=(ModelSpec(Leaf(0f0); name=:leaf, on=Many(scale=:Leaf),
                 environment=config),), environment=backend)
         compiled = PSE.Advanced.refresh_bindings!(model)
-        _, plans = PSE._compile_environment_application_plans(model, compiled.applications)
+        _, plans = PSE._compile_environment_application_plans(model,
+            compiled.applications, compiled.applications_by_id)
         bindings = PSE._compile_environment_bindings_for_applications(
             model, compiled.applications, plans)
         tables = (compiled.applications_by_id,
