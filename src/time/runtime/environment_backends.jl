@@ -363,8 +363,7 @@ function _environment_sampling_configuration(model_spec::ModelSpec)
 end
 
 function _environment_sampling_rules(bindings, environment_sources, input_names)
-    rules = Pair{Symbol,Symbol}[]
-    for target in input_names
+    return map(input_names) do target
         source = target
         if haskey(bindings, target)
             rule = bindings[target]
@@ -373,9 +372,8 @@ function _environment_sampling_rules(bindings, environment_sources, input_names)
         if haskey(environment_sources, target)
             source = Symbol(environment_sources[target])
         end
-        push!(rules, target => source)
+        return convert(Pair{Symbol,Symbol}, target => source)
     end
-    return rules
 end
 
 function _environment_source_overrides(model_spec::ModelSpec)

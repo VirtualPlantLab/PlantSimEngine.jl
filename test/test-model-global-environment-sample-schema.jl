@@ -334,4 +334,31 @@ end
     @test final_state(simulation) == (seen=7.75f0, visits=1)
 end
 
+struct SamplingRuleSource
+    name::Symbol
+    visits::Vector{Symbol}
+end
+Base.Symbol(source::SamplingRuleSource) = (push!(source.visits, source.name); source.name)
+
+@testset "environment rules retain tuple arity and remapping order" begin
+    for names in ((:T, :RH, :CO2), [:T, :RH, :CO2])
+        visits = Symbol[]
+        bindings = (T=(source=SamplingRuleSource(:bound_T, visits),),
+            RH=(source=SamplingRuleSource(:bound_RH, visits),))
+        sources = (T=SamplingRuleSource(:override_T, visits),
+            CO2=SamplingRuleSource(:override_CO2, visits))
+        rules = PSE._environment_sampling_rules(bindings, sources, names)
+        @test collect(rules) == [:T => :override_T, :RH => :bound_RH, :CO2 => :override_CO2]
+        @test visits == [:bound_T, :override_T, :bound_RH, :override_CO2]
+        @test eltype(rules) === Pair{Symbol,Symbol}
+        @test names isa Tuple ? rules isa Tuple : rules isa Vector
+    end
+    @test (@inferred PSE._environment_sampling_rules((;), (;), ())) === ()
+    @test (@inferred PSE._environment_sampling_rules((;), (;), Symbol[])) == Pair{Symbol,Symbol}[]
+    visits = Symbol[]
+    unused = (unused=(source=SamplingRuleSource(:not_read, visits),),)
+    @test PSE._environment_sampling_rules(unused, (;), ()) === ()
+    @test isempty(visits)
+end
+
 end # module GlobalEnvironmentSampleSchemaChecks
