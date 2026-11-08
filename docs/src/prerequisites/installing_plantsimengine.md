@@ -10,7 +10,7 @@ environment (a folder that records the packages used for this simulation), open 
 ```julia
 using Pkg
 Pkg.activate(".")
-Pkg.add(["PlantMeteo", "DataFrames", "CairoMakie", "PlantSimEngine.jl"])
+Pkg.add(["PlantMeteo", "DataFrames", "CairoMakie", "PlantSimEngine"])
 ```
 
 PlantMeteo supplies weather data, DataFrames organizes the results, and
