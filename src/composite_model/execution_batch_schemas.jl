@@ -61,7 +61,7 @@ function _validate_prepared_context_calls(::Type{C}) where {C<:Tuple}
         BT = only(S.parameters)
         _prepared_execution_batch_types(BT)
         actual = fieldtype(CT, :execution_batches)
-        expected = _prepared_call_mode(fieldtype(CT, :binding)) === :initializer ? Tuple{} : BT
+        expected = _prepared_call_batch_storage_type(fieldtype(CT, :binding), BT)
         actual === expected || throw(ArgumentError("Prepared call container and explicit batch schema disagree."))
     end
     return nothing
@@ -212,6 +212,22 @@ function _prepared_application_schema_order(compiled::CompiledCompositeModel, sc
     return Tuple(order)
 end
 
+@inline _materialize_call_execution_batches!(::OpenExecutionBatchSchema, targets::CallTargets) =
+    _materialize_open_call_execution_batches!(targets)
+
+function _prepared_call_batch_storage_type(::Type{B}, ::Type{BT}) where {B, BT}
+    _prepared_call_mode(B) === :initializer && return Tuple{}
+    Selector = fieldtype(fieldtype(B, :plan), :selector)
+    return BT <: Tuple && Selector <: Many ? Union{Nothing, BT} : BT
+end
+@inline _call_execution_batch_storage_type(::OpenExecutionBatchSchema, binding, batches) = typeof(batches)
+@inline _call_execution_batch_storage_type(::PreparedExecutionBatchSchema{BT}, binding, batches) where {BT} =
+    _prepared_call_batch_storage_type(typeof(binding), BT)
+
+@inline _call_execution_batches_start_materialized(::OpenExecutionBatchSchema, binding) = true
+@inline _call_execution_batches_start_materialized(::PreparedExecutionBatchSchema, binding) =
+    _compiled_call_mode(binding) === :initializer || binding.multiplicity !== :many
+
 Base.@nospecializeinfer function _call_execution_batches_for_schema(
     ::OpenExecutionBatchSchema, compiled, environment_bindings, binding,
     temporal_streams, output_retention, constants, tracks_full_membership,
@@ -231,6 +247,12 @@ function _call_execution_batches_for_schema(schema::PreparedExecutionBatchSchema
     output_retention, constants, tracks_full_membership,
 )
     _compiled_call_mode(binding) === :initializer && return ()
+    # The full membership stays cold until the same materialization entry point
+    # is requested. Explicit objects= calls do not admit unused existing rows.
+    if binding.multiplicity === :many
+        BT = only(typeof(schema).parameters)
+        return BT <: Tuple ? nothing : _execution_batch_buffer(schema)
+    end
     if tracks_full_membership
         _observe_compiled_call_membership!(compiled, binding;
             resolve_current=!bindings_dirty(compiled.model))
@@ -293,15 +315,22 @@ end
 
 @inline _clone_call_execution_batches(batches::Vector{B}) where {B<:CompiledExecutionBatch} = copy(batches)
 
-function _materialize_prepared_call_execution_batches!(schema::PreparedExecutionBatchSchema,
+@inline function _cached_call_execution_batches(
+    targets::CallTargets{CS, EB, B, TS, OR, C, BT, S},
+) where {CS, EB, B, TS, OR, C, BT, S<:PreparedExecutionBatchSchema}
+    return targets.execution_batches_materialized ? something(targets.execution_batches) : nothing
+end
+
+function _materialize_call_execution_batches!(schema::PreparedExecutionBatchSchema,
     targets::CallTargets,
 )
     if targets.tracks_full_membership
         _synchronize_tracked_call_targets!(targets)
     end
-    _call_targets_preparation_is_current(targets, targets.compiled,
-        targets.environment_bindings, targets.temporal_streams,
-        targets.output_retention, targets.constants) && return targets.execution_batches
+    targets.execution_batches_materialized &&
+        _call_targets_preparation_is_current(targets, targets.compiled,
+            targets.environment_bindings, targets.temporal_streams,
+            targets.output_retention, targets.constants) && return something(targets.execution_batches)
     if targets.tracks_full_membership
         _observe_compiled_call_membership!(targets.compiled, targets.binding;
             resolve_current=!bindings_dirty(targets.compiled.model))
@@ -314,12 +343,15 @@ function _materialize_prepared_call_execution_batches!(schema::PreparedExecution
         _retire_call_cohort_targets!(targets.temporal_streams, targets.binding, batches;
             schema=_execution_cohort_schema(schema), batch_schema=schema)
     end
-    # Publish a complete validated replacement, preserving retained lease shells.
-    targets.execution_batches = batches
-    targets.last_single_snapshot = nothing
-    targets.preparation = _call_targets_preparation(targets.compiled,
+    preparation = _call_targets_preparation(targets.compiled,
         targets.environment_bindings, targets.binding, targets.temporal_streams,
         targets.output_retention, targets.constants)
+    # Publish only the complete validated replacement; no call separates these
+    # stores. A retained lease keeps its own shell and shared execution payloads.
+    targets.execution_batches = batches
+    targets.preparation = preparation
+    targets.last_single_snapshot = nothing
+    targets.execution_batches_materialized = true
     return batches
 end
 
@@ -593,7 +625,7 @@ function _execution_batch_type_with_call_schemas(::Type{B}, schemas::NamedTuple)
         schema = getproperty(schemas,_prepared_call_name(Binding))
         schema isa PreparedExecutionBatchSchema || throw(ArgumentError("Calls need explicit batch schemas."))
         BT = only(typeof(schema).parameters)
-        actual_batches = _prepared_call_mode(Binding) === :initializer ? Tuple{} : BT
+        actual_batches = _prepared_call_batch_storage_type(Binding, BT)
         return CallTargets{fieldtype(CT,:compiled),fieldtype(CT,:environment_bindings),Binding,
             fieldtype(CT,:temporal_streams),fieldtype(CT,:output_retention),
             fieldtype(CT,:constants),actual_batches,typeof(schema)}

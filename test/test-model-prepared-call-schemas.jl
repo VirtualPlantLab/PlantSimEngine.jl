@@ -144,7 +144,10 @@ function assert_prepared_tree(simulation)
     @test middle_calls.batch_schema isa PSE.PreparedExecutionBatchSchema
     @test middle_calls.execution_batches isa Vector
     @test middle_calls.tracks_full_membership
-    for middle_batch in middle_calls.execution_batches, middle in middle_batch.targets
+    middle_batches = PSE._materialize_call_execution_batches!(middle_calls)
+    @test middle_calls.execution_batches_materialized
+    @test middle_batches === middle_calls.execution_batches
+    for middle_batch in middle_batches, middle in middle_batch.targets
         @test middle_batch.targets.store === simulation.execution_plan.cohorts
         @test middle.status_view.canonical_status === model_status(simulation.model, middle.object_id)
         @test !middle.call_context_cache.in_use
@@ -152,7 +155,10 @@ function assert_prepared_tree(simulation)
         @test leaves.batch_schema isa PSE.PreparedExecutionBatchSchema
         @test leaves.execution_batches isa Vector
         @test leaves.tracks_full_membership
-        for leaf_batch in leaves.execution_batches, leaf in leaf_batch.targets
+        leaf_batches = PSE._materialize_call_execution_batches!(leaves)
+        @test leaves.execution_batches_materialized
+        @test leaf_batches === leaves.execution_batches
+        for leaf_batch in leaf_batches, leaf in leaf_batch.targets
             @test leaf_batch.targets.store === simulation.execution_plan.cohorts
             @test leaf.status_view.canonical_status === model_status(simulation.model, leaf.object_id)
             @test PSE.refvalue(leaf.status_view.status, :value) ===
@@ -194,8 +200,216 @@ end
     @test Set(keys(outputs(prepared))) == Set(keys(streams))
     @test all(outputs(prepared)[key] === stream for (key, stream) in streams)
     assert_same_cells(data.model, cells)
-    assert_prepared_tree(prepared)
+    pending = call_targets(root_target(prepared).context, :middle)
+    @test pending.execution_batches isa Vector{learned.MiddleB}
+    @test isempty(pending.execution_batches)
+    @test !pending.execution_batches_materialized
+    @test !PSE._call_execution_batches_materialized(pending)
+    @test PSE._cached_call_execution_batches(pending) === nothing
+    @test PSE._call_targets_preparation_is_current(pending, pending.compiled,
+        pending.environment_bindings, pending.temporal_streams, pending.output_retention, pending.constants)
+    # Retrieving or explaining the call does not request the complete view.
+    @test call_targets(root_target(prepared).context, :middle) === pending
+    PSE.Diagnostics.explain_calls(prepared.compiled)
+    @test !PSE._call_execution_batches_materialized(pending)
+    # A full Middle request constructs its contexts, not their Leaf memberships.
+    middle_batches = PSE._materialize_call_execution_batches!(pending)
+    for batch in middle_batches, middle in batch.targets
+        leaves = call_targets(middle.context, :leaf)
+        @test !PSE._call_execution_batches_materialized(leaves)
+        @test PSE._cached_call_execution_batches(leaves) === nothing
+        @test call_targets(middle.context, :leaf) === leaves
+        PSE.Diagnostics.explain_calls(prepared.compiled)
+        @test !PSE._call_execution_batches_materialized(leaves)
+    end
+    assert_prepared_tree(prepared) # Full inspection is explicit and still metadata-only.
+    @test scientific_state(data.model) == before
+    @test rng_probe(data.rng) == random_state
+    assert_same_cells(data.model, cells)
     @test typeof(root_target(prepared)) === eltype(fieldtype(learned.RootB, :targets))
+end
+
+@testset "prepared Many selection and cloned shells leave complete membership cold" begin
+    witness = fixture()
+    learned = observed_schemas(witness.simulation)
+    ordinary, activated = fixture(), fixture() # No membership/cache/RNG owner is borrowed.
+    prepared = PSE._prepare_execution_batch_schemas(activated.simulation, learned.schemas)
+    prototype = call_targets(root_target(prepared).context, :middle)
+    @test !PSE._call_execution_batches_materialized(prototype)
+    @test !PSE._compiled_call_membership_is_observed(prototype.binding)
+    owner = root_target(prepared).context
+    cloned_calls = @inferred PSE._clone_runtime_call_targets(owner.calls,
+        owner.compiled, owner.environment_bindings, owner.temporal_streams,
+        owner.output_retention, owner.time, owner.constants, owner.publication_allowed, owner.environment)
+    cloned = only(cloned_calls)
+    @test typeof(cloned_calls) === typeof(owner.calls)
+    @test cloned !== prototype && cloned.binding === prototype.binding
+    @test cloned.execution_batches !== prototype.execution_batches
+    @test !cloned.execution_batches_materialized
+    @test PSE._cached_call_execution_batches(cloned) === nothing
+    @test isnothing(cloned.evaluation) && isnothing(cloned.target_buffer_cache)
+
+    for (data, simulation) in ((ordinary, ordinary.simulation), (activated, prepared))
+        step!(simulation)
+        full = call_targets(data.capture[], :middle)
+        selected = only(call_targets(data.capture[], :middle; objects=(:middle_a,)))
+        @test !PSE._call_execution_batches_materialized(full)
+        @test !PSE._compiled_call_membership_is_observed(full.binding)
+        run_call!(selected; publish=false)
+        @test data.kernels == Dict(:root => 1, :middle => 1, :leaf => 1)
+        @test model_status(data.model, :middle_b).visits == 0
+        @test model_status(data.model, :leaf_b).visits == 0
+        @test !selected.context_cache.in_use
+        @test call_targets(data.capture[], :middle) === full
+        @test !PSE._call_execution_batches_materialized(full)
+        @test !PSE._compiled_call_membership_is_observed(full.binding)
+        state, random_state = scientific_state(data.model), rng_probe(data.rng)
+        @test getproperty.(collect(full), :object_id) == ObjectId[ObjectId(:middle_a), ObjectId(:middle_b)]
+        @test PSE._call_execution_batches_materialized(full)
+        @test PSE._compiled_call_membership_is_observed(full.binding)
+        @test scientific_state(data.model) == state
+        @test rng_probe(data.rng) == random_state
+    end
+    @test scientific_state(ordinary.model) == scientific_state(activated.model)
+    @test rng_probe(ordinary.rng) == rng_probe(activated.rng)
+    @test history(ordinary.simulation) == history(prepared)
+
+    warm = call_targets(activated.capture[], :middle)
+    warm_owner = activated.capture[]
+    warm_clone = only(@inferred PSE._clone_runtime_call_targets(warm_owner.calls,
+        warm_owner.compiled, warm_owner.environment_bindings, warm_owner.temporal_streams,
+        warm_owner.output_retention, warm_owner.time, warm_owner.constants,
+        warm_owner.publication_allowed, warm_owner.environment))
+    @test warm_clone.execution_batches_materialized
+    @test warm_clone.execution_batches !== warm.execution_batches
+    @test length(PSE._cached_call_execution_batches(warm_clone)) == length(warm.execution_batches)
+    @test isnothing(warm_clone.evaluation) && isnothing(warm_clone.target_buffer_cache)
+end
+
+@testset "prepared Many stays cold through growth removal and newborn selection" begin
+    witness = fixture()
+    learned = observed_schemas(witness.simulation)
+    ordinary, activated = fixture(), fixture()
+    prepared = PSE._prepare_execution_batch_schemas(activated.simulation, learned.schemas)
+    for (data, simulation) in ((ordinary, ordinary.simulation), (activated, prepared))
+        step!(simulation)
+        retained = call_targets(data.capture[], :middle)
+        @test !PSE._call_execution_batches_materialized(retained)
+        @test !PSE._compiled_call_membership_is_observed(retained.binding)
+        register_object!(data.model, Object(:middle_new; scale=:Branch, parent=:root,
+            status=Status(visits=0, total=0.0)))
+        register_object!(data.model, Object(:leaf_new; scale=:Leaf, parent=:middle_new,
+            status=Status(visits=0, value=0.0, payload=zeros(2))))
+        remove_object!(data.model, :leaf_b)
+        remove_object!(data.model, :middle_b)
+        continue!(simulation; steps=1)
+        full = call_targets(data.capture[], :middle)
+        @test full === retained
+        @test !PSE._call_execution_batches_materialized(full)
+        @test !PSE._compiled_call_membership_is_observed(full.binding)
+        newborn = only(call_targets(data.capture[], :middle; objects=(:middle_new,)))
+        @test newborn.object_id == ObjectId(:middle_new)
+        @test newborn.status === model_status(data.model, :middle_new)
+        run_call!(newborn; publish=true)
+        @test data.kernels == Dict(:root => 2, :middle => 1, :leaf => 1)
+        @test model_status(data.model, :middle_a).visits == 0
+        @test model_status(data.model, :leaf_a).visits == 0
+        @test !newborn.context_cache.in_use
+        @test !PSE._call_execution_batches_materialized(full)
+        @test !PSE._compiled_call_membership_is_observed(full.binding)
+        state, random_state, streams = scientific_state(data.model), rng_probe(data.rng), history(simulation)
+        @test getproperty.(collect(full), :object_id) == ObjectId[ObjectId(:middle_a), ObjectId(:middle_new)]
+        @test PSE._call_execution_batches_materialized(full)
+        @test PSE._compiled_call_membership_is_observed(full.binding)
+        @test scientific_state(data.model) == state
+        @test rng_probe(data.rng) == random_state
+        @test history(simulation) == streams
+    end
+    @test scientific_state(ordinary.model) == scientific_state(activated.model)
+    @test rng_probe(ordinary.rng) == rng_probe(activated.rng)
+    @test history(ordinary.simulation) == history(prepared)
+end
+
+@testset "pending prepared Many does not admit an unselected Status variant" begin
+    witness = fixture()
+    learned = observed_schemas(witness.simulation)
+    data = fixture()
+    # A real registered object, never a fabricated Type witness. The existing
+    # Middle kernel is unchanged; its extra canonical field is outside learned.
+    register_object!(data.model, Object(:middle_z_extra; scale=:Branch, parent=:root,
+        status=Status(visits=0, total=0.0, unselected_marker=0)))
+    fresh = run!(data.model; steps=0, outputs=:all)
+    # Check owner compatibility before activation: only the real Status variant
+    # is outside the learned target schema, not another owner/ABI fixture.
+    ExpectedTarget = eltype(fieldtype(learned.MiddleB, :targets))
+    ExpectedContext = fieldtype(ExpectedTarget, :context)
+    fresh_owner = root_target(fresh).context
+    @test fresh.compiled.applications_by_id[:middle] isa fieldtype(ExpectedContext, :application)
+    for name in (:compiled, :environment_bindings, :temporal_streams,
+        :output_retention, :constants, :environment)
+        @test getfield(fresh_owner, name) isa fieldtype(ExpectedContext, name)
+    end
+    prepared = PSE._prepare_execution_batch_schemas(fresh, learned.schemas)
+    step!(prepared)
+    full = call_targets(data.capture[], :middle)
+    PSE.Diagnostics.explain_calls(prepared.compiled)
+    @test !PSE._call_execution_batches_materialized(full)
+    selected = only(call_targets(data.capture[], :middle; objects=(:middle_a,)))
+    run_call!(selected; publish=false)
+    @test data.kernels == Dict(:root => 1, :middle => 1, :leaf => 1)
+    @test model_status(data.model, :middle_z_extra).visits == 0
+    @test !PSE._call_execution_batches_materialized(full)
+    @test PSE._cached_call_execution_batches(full) === nothing
+    state, random_state, cells = scientific_state(data.model), rng_probe(data.rng), status_cells(data.model)
+    @test_throws ArgumentError PSE._materialize_call_execution_batches!(full)
+    @test !full.execution_batches_materialized
+    @test PSE._cached_call_execution_batches(full) === nothing
+    @test isempty(full.execution_batches) # No partial vector is published on rejection.
+    @test scientific_state(data.model) == state
+    @test rng_probe(data.rng) == random_state
+    assert_same_cells(data.model, cells)
+end
+
+@testset "a nonempty Tuple batch schema keeps prepared Many pending" begin
+    witness = fixture()
+    learned = observed_schemas(witness.simulation)
+    leaf_schema = PSE.PreparedExecutionBatchSchema{Tuple{learned.LeafB}}()
+    MiddleB = PSE._execution_batch_type_with_call_schemas(learned.MiddleB, (leaf=leaf_schema,))
+    middle_schema = PSE.PreparedExecutionBatchSchema{Tuple{MiddleB}}()
+    RootB = PSE._execution_batch_type_with_call_schemas(learned.RootB, (middle=middle_schema,))
+    schemas = (root=PSE.PreparedExecutionBatchSchema{Vector{RootB}}(),
+        middle=middle_schema, leaf=leaf_schema)
+    ordinary, activated = fixture(), fixture()
+    prepared = PSE._prepare_execution_batch_schemas(activated.simulation, schemas)
+    owner = root_target(prepared).context
+    pending = call_targets(owner, :middle)
+    @test pending.batch_schema === middle_schema
+    @test !pending.execution_batches_materialized
+    @test PSE._cached_call_execution_batches(pending) === nothing
+    cloned = only(@inferred PSE._clone_runtime_call_targets(owner.calls,
+        owner.compiled, owner.environment_bindings, owner.temporal_streams,
+        owner.output_retention, owner.time, owner.constants, owner.publication_allowed, owner.environment))
+    @test typeof(cloned) === typeof(pending)
+    @test !cloned.execution_batches_materialized
+    @test PSE._cached_call_execution_batches(cloned) === nothing
+    for (data, simulation) in ((ordinary, ordinary.simulation), (activated, prepared))
+        step!(simulation)
+        run_call!(data.capture[], :middle; publish=true)
+        @test data.kernels == Dict(:root => 1, :middle => 2, :leaf => 2)
+    end
+    warm_owner = activated.capture[]
+    warm = call_targets(warm_owner, :middle)
+    @test warm.execution_batches_materialized
+    @test warm.execution_batches isa Tuple{MiddleB}
+    warm_clone = only(@inferred PSE._clone_runtime_call_targets(warm_owner.calls,
+        warm_owner.compiled, warm_owner.environment_bindings, warm_owner.temporal_streams,
+        warm_owner.output_retention, warm_owner.time, warm_owner.constants,
+        warm_owner.publication_allowed, warm_owner.environment))
+    @test warm_clone.execution_batches_materialized
+    @test PSE._cached_call_execution_batches(warm_clone) === warm.execution_batches
+    @test scientific_state(ordinary.model) == scientific_state(activated.model)
+    @test rng_probe(ordinary.rng) == rng_probe(activated.rng)
+    @test history(ordinary.simulation) == history(prepared)
 end
 
 @testset "cold real Many calls retain public evaluation, history and lease behavior" begin
@@ -297,13 +511,20 @@ end
     @test empty.kernels == Dict(:root => 0, :middle => 0, :leaf => 0)
     @test isempty(object_ids(empty.model; scale=:Leaf))
     assert_same_cells(empty.model, cells)
-    assert_prepared_tree(prepared)
-    for batch in call_targets(root_target(prepared).context, :middle).execution_batches,
-        target in batch.targets
+    middle_calls = call_targets(root_target(prepared).context, :middle)
+    @test !PSE._call_execution_batches_materialized(middle_calls)
+    for batch in PSE._materialize_call_execution_batches!(middle_calls), target in batch.targets
         leaves = call_targets(target.context, :leaf)
         @test isempty(leaves.execution_batches)
         @test eltype(leaves.execution_batches) === real_leaf_batch
+        @test !leaves.execution_batches_materialized
+        @test PSE._cached_call_execution_batches(leaves) === nothing
+        @test isempty(PSE._materialize_call_execution_batches!(leaves))
+        @test leaves.execution_batches_materialized
+        @test PSE._call_execution_batches_materialized(leaves)
+        @test isempty(PSE._cached_call_execution_batches(leaves))
     end
+    assert_prepared_tree(prepared)
     step!(prepared)
     evaluation = evaluate_call!(empty.capture[], :middle)
     @test empty.kernels == Dict(:root => 1, :middle => 2, :leaf => 0)

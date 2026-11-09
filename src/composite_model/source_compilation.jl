@@ -1107,19 +1107,29 @@ function _compiled_source_run_call!(
     selected_environment = environment isa NoEnvironmentOverride ?
                            context.environment :
                            environment
+    return _compiled_source_run_call_targets!(source_id, targets, publish,
+        sampled_environment, selected_environment)
+end
+
+function _compiled_source_run_call_targets!(source_id::Val, targets::CallTargets,
+    publish::Bool, sampled_environment, selected_environment,
+)
     frame = _active_call_evaluation()
-    for batch in targets.execution_batches
-        for target in batch.targets
-            _compiled_source_run_call_target!(
-                source_id,
-                targets,
-                batch.application,
-                target,
-                publish,
-                sampled_environment,
-                selected_environment,
-                frame,
-            )
+    batches = _materialize_call_execution_batches!(targets)
+    for index in eachindex(batches)
+        _with_call_execution_batch(targets, batches, index) do batch
+            for target in batch.targets
+                _compiled_source_run_call_target!(
+                    source_id,
+                    targets,
+                    batch.application,
+                    target,
+                    publish,
+                    sampled_environment,
+                    selected_environment,
+                    frame,
+                )
+            end
         end
     end
     if publish && targets.publication_allowed
@@ -1128,6 +1138,18 @@ function _compiled_source_run_call!(
             _record_evaluated_call_clock!(
                 frame, targets.output_retention, application_id, targets.time,
             )
+        end
+    end
+    return targets
+end
+
+function _compiled_source_run_call_targets!(source_id::Val,
+    targets::AbstractVector{<:CallTarget}, publish::Bool, sampled_environment, selected_environment,
+)
+    for target in targets
+        _with_call_target_entry(targets, target) do actual
+            _compiled_source_run_call_target!(source_id, actual, publish,
+                sampled_environment, selected_environment)
         end
     end
     return targets
@@ -1150,6 +1172,13 @@ function _compiled_source_run_call!(
     end
     selected_environment = environment isa NoEnvironmentOverride ?
                            target.environment : environment
+    return _compiled_source_run_call_target!(source_id, target, publish,
+        sampled_environment, selected_environment)
+end
+
+function _compiled_source_run_call_target!(source_id::Val, target::CallTarget,
+    publish::Bool, sampled_environment, selected_environment,
+)
     frame = _record_call_execution!(target.context_cache)
     status = _materialize_model_inputs!(
         target.status,

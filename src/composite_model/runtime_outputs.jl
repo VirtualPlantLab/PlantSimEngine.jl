@@ -640,6 +640,10 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C,BT,S} <: AbstractVector{CallTarget}
     # may legitimately change its concrete type between invocations.
     environment::Any
     execution_batches::BT
+    # Readiness of prepared storage only; ordinary Lazy batches retain their
+    # existing cache state. A strict empty buffer may be cold, independently of
+    # context freshness, so targeted calls do not invalidate pending full Many.
+    execution_batches_materialized::Bool
     const batch_schema::S
     const tracks_full_membership::Bool
     preparation::CallTargetsPreparation{CS,EB,TS,OR,C}
@@ -673,7 +677,8 @@ function CallTargets(
         output_retention, constants, tracks_full_membership)
     return _prepared_call_targets(compiled, environment_bindings, binding,
         temporal_streams, output_retention, time, constants, publication_allowed,
-        environment, execution_batches, batch_schema, tracks_full_membership)
+        environment, execution_batches, batch_schema, tracks_full_membership,
+        _call_execution_batches_start_materialized(batch_schema, binding))
 end
 
 # Both graph preparation and a leased context's clone use this fully specified
@@ -682,12 +687,17 @@ end
 @inline function _prepared_call_targets(
     compiled, environment_bindings, binding, temporal_streams, output_retention,
     time, constants, publication_allowed, environment, execution_batches,
-    batch_schema, tracks_full_membership::Bool,
+    batch_schema, tracks_full_membership::Bool, execution_batches_materialized::Bool,
 )
-    targets = CallTargets(
+    Storage = _call_execution_batch_storage_type(batch_schema, binding, execution_batches)
+    targets = CallTargets{
+        typeof(compiled), typeof(environment_bindings), typeof(binding),
+        typeof(temporal_streams), typeof(output_retention), typeof(constants),
+        Storage, typeof(batch_schema)
+    }(
         compiled, environment_bindings, binding, temporal_streams, output_retention,
         float(time), constants, publication_allowed, environment, execution_batches,
-        batch_schema, tracks_full_membership,
+        execution_batches_materialized, batch_schema, tracks_full_membership,
         _call_targets_preparation(
             compiled, environment_bindings, binding, temporal_streams, output_retention, constants,
         ),
@@ -732,6 +742,7 @@ end
 end
 
 @inline _clone_call_execution_batches(batches::Tuple) = batches
+@inline _clone_call_execution_batches(::Nothing) = nothing
 
 @inline function _clone_call_execution_batches(batches::LazyCallExecutionBatches)
     # A lazy wrapper points at its owning CallTargets. Share its prepared state,
@@ -753,6 +764,7 @@ end
         output_retention, time, constants, publication_allowed, environment,
         _clone_call_execution_batches(prototype.execution_batches),
         prototype.batch_schema, prototype.tracks_full_membership,
+        prototype.execution_batches_materialized,
     )
     remaining = _clone_runtime_call_targets(
         Base.tail(calls), compiled, environment_bindings, temporal_streams,
@@ -923,9 +935,10 @@ function _record_extended_call_execution_batch_cache!(
     return targets
 end
 
-function _materialize_call_execution_batches!(targets::CallTargets)
-    targets.batch_schema isa PreparedExecutionBatchSchema &&
-        return _materialize_prepared_call_execution_batches!(targets.batch_schema, targets)
+@inline _materialize_call_execution_batches!(targets::CallTargets) =
+    _materialize_call_execution_batches!(targets.batch_schema, targets)
+
+function _materialize_open_call_execution_batches!(targets::CallTargets)
     cached = targets.execution_batches
     cached isa LazyCallExecutionBatches || return cached
     if targets.tracks_full_membership

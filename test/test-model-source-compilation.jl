@@ -627,6 +627,129 @@ end
 end
 
 
+
+@testset "Readable source prepared Many and newborn selection parity" begin
+    PSE = PlantSimEngine
+    # Reuse the maintained kernels; only the application wiring differs.
+    make_simulation = function (; leaves=true)
+        objects = Object[Object(:scene; scale=:Scene)]
+        if leaves
+            append!(objects, (Object(:leaf_a; scale=:Leaf, parent=:scene,
+                status=Status(grandchild_value=0.0)),
+                Object(:leaf_b; scale=:Leaf, parent=:scene,
+                    status=Status(grandchild_value=0.0))))
+        end
+        model = CompositeModel(objects...; applications=(
+            ModelSpec(SourceCompilerSignalModel(); name=:owner, on=One(id=:scene),
+                calls=(children=Many(scale=:Leaf, within=Subtree(),
+                    application=:grandchild),)),
+            ModelSpec(SourceCompilerGrandchildModel(); name=:grandchild,
+                on=Many(scale=:Leaf)),
+        ), environment=(T=0.0, duration=Hour(1)))
+        request = OutputRequest(Many(scale=:Leaf), :grandchild_value;
+            name=:seen, application=:grandchild, policy=HoldLast(), clock=Hour(1))
+        return run!(model; steps=0, outputs=[request])
+    end
+    root_target = sim -> only(only(only(sim.execution_plan.groups).batches).targets)
+    # A concrete inherited environment must remain distinct from an explicit
+    # override when the caller supplies an already sampled row.
+    inherited_context = function (sim)
+        target = root_target(sim)
+        context = target.context
+        return PSE._prepare_model_execution_context!(context, sim.compiled,
+            sim.environment_bindings, context.application, target.object_id,
+            target.bound_inputs, target.output_targets, target.call_bindings,
+            sim.temporal_streams, sim.output_retention, context.time,
+            sim.constants, true, (T=99.0,); fresh=true)
+    end
+
+    witness = make_simulation()
+    witnessed_calls = call_targets(inherited_context(witness), :children)
+    ChildB = typeof(only(PSE._materialize_call_execution_batches!(witnessed_calls)))
+    child_schema = PSE.PreparedExecutionBatchSchema{Vector{ChildB}}()
+    RootB = PSE._execution_batch_type_with_call_schemas(
+        typeof(only(only(witness.execution_plan.groups).batches)),
+        (children=child_schema,))
+    schemas = (owner=PSE.PreparedExecutionBatchSchema{Vector{RootB}}(),
+        grandchild=child_schema)
+    source = Authoring.compiled_model_source(witness;
+        function_name=:prepared_many_source_model!)
+    source_path = tempname() * ".jl"
+    write(source_path, source)
+    Base.include(Module(gensym(:PreparedManySourceModel)), source_path)
+    source_id = Val(PSE._compiled_source_id(
+        PSE._compiled_source_scenario_signature(witness.compiled)))
+
+    for leaves in (true, false)
+        ordinary = make_simulation(; leaves)
+        generated = make_simulation(; leaves)
+        generated = PSE._prepare_execution_batch_schemas(generated, schemas)
+        step!(ordinary)
+        step!(generated) # Signal never asks for children; the Many remains cold.
+        ordinary_context = inherited_context(ordinary)
+        generated_context = inherited_context(generated)
+        prepared_calls = call_targets(generated_context, :children)
+        @test !PSE._call_execution_batches_materialized(prepared_calls)
+        @test isnothing(PSE._cached_call_execution_batches(prepared_calls))
+
+        # The full call must materialize a cold prepared Many, including the
+        # genuinely empty case and its accepted-call clock.
+        actual = Base.invokelatest(PSE._compiled_source_run_call!, source_id,
+            generated_context, :children; sampled_environment=(T=3.0,), publish=true)
+        expected = run_call!(ordinary_context, :children;
+            sampled_environment=(T=3.0,), publish=true)
+        @test [target.object_id for target in actual] ==
+              [target.object_id for target in expected]
+        @test PSE._call_execution_batches_materialized(prepared_calls)
+        @test generated.output_retention.accepted_call_times ==
+              ordinary.output_retention.accepted_call_times
+        if leaves
+            @test model_status(runtime_model(generated), :leaf_a).grandchild_value == 3.0
+            @test model_status(runtime_model(generated), :leaf_b).grandchild_value == 3.0
+            stream = outputs(generated)[(:grandchild, ObjectId(:leaf_a), :grandchild_value)]
+            @test !isempty(stream) && last(stream)[2] == 3.0
+            @test isequal(stream, outputs(ordinary)[(:grandchild, ObjectId(:leaf_a), :grandchild_value)])
+        end
+
+        @test isequal(collect_outputs(generated; sink=nothing),
+            collect_outputs(ordinary; sink=nothing))
+    end
+
+    # This independent Open pair exercises the private newborn Vector path.
+    # Its inherited environment is not part of the full prepared batch family.
+    ordinary, generated = make_simulation(), make_simulation()
+    step!(ordinary)
+    step!(generated)
+    ordinary_context = inherited_context(ordinary)
+    generated_context = inherited_context(generated)
+    full = call_targets(generated_context, :children)
+    @test !PSE._call_execution_batches_materialized(full)
+    generated_newborn = register_object!(runtime_model(generated),
+        Object(:newborn; scale=:Leaf, parent=:scene,
+            status=Status(grandchild_value=0.0)))
+    ordinary_newborn = register_object!(runtime_model(ordinary),
+        Object(:newborn; scale=:Leaf, parent=:scene,
+            status=Status(grandchild_value=0.0)))
+    selected = Base.invokelatest(PSE._compiled_source_run_call!, source_id,
+        generated_context, :children; objects=generated_newborn,
+        sampled_environment=(T=7.0,), publish=true)
+    reference = run_call!(ordinary_context, :children; objects=ordinary_newborn,
+        sampled_environment=(T=7.0,), publish=true)
+    @test selected isa Vector{<:CallTarget}
+    @test only(selected).object_id == only(reference).object_id == ObjectId(:newborn)
+    @test model_status(runtime_model(generated), :newborn).grandchild_value == 7.0
+    stream = outputs(generated)[(:grandchild, ObjectId(:newborn), :grandchild_value)]
+    @test !isempty(stream) && last(stream)[2] == 7.0
+    @test isequal(stream, outputs(ordinary)[(:grandchild, ObjectId(:newborn), :grandchild_value)])
+    @test generated.output_retention.accepted_call_times ==
+          ordinary.output_retention.accepted_call_times
+    @test isequal(final_state(generated, :newborn), final_state(ordinary, :newborn))
+    @test isequal(collect_outputs(generated; sink=nothing),
+        collect_outputs(ordinary; sink=nothing))
+
+    @test !PSE._call_execution_batches_materialized(full)
+end
+
 @testset "Readable source newborn initializer parity" begin
     model = source_compiler_initializer_fixture()
     signature = PlantSimEngine._compiled_source_scenario_signature(
