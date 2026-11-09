@@ -110,8 +110,19 @@ function extend!(algorithm, target, owners, simulation)
         simulation.temporal_streams, simulation.output_retention, simulation.constants)
 end
 
+# These tests inspect/extend concrete memberships, rather than merely obtain
+# a lazy CallTargets wrapper. Initializer bindings are deliberately untouched.
+function materialize_manual_calls!(target)
+    for calls in target.context.calls
+        PSE._compiled_call_mode(calls.binding) === :manual || continue
+        PSE._materialize_call_execution_batches!(calls)
+    end
+    return nothing
+end
+
 function call_snapshot(simulation)
     target = root_target(simulation)
+    materialize_manual_calls!(target)
     return [(calls=calls, binding=calls.binding, preparation=calls.preparation,
         batches=calls.execution_batches,
         rows=[(rows=batch.targets, indices=copy(batch.targets.indices),
@@ -140,6 +151,7 @@ random_state(rng) = rand(copy(rng), UInt64, 8)
         ordinary, data = fixture(; prepared=false, wide), fixture(; wide)
         simulation = data.simulation
         target = root_target(simulation)
+        materialize_manual_calls!(target)
         scope = PSE._context_call_schema(target.context)
         @test scope isa PSE.PreparedContextCallSchema
         append_buffer = PSE._execution_append_intent_buffer(scope)
@@ -207,6 +219,7 @@ end
         data = fixture(; prepared, wide=true)
         simulation = data.simulation
         target = root_target(simulation)
+        materialize_manual_calls!(target)
         add_leaves!(data)
         @test extend!(:prefix, target, refreshed_owners(data), simulation) === true
         rows = [only(call_targets(target.context, name).execution_batches).targets
@@ -307,8 +320,8 @@ end
     target = root_target(data.simulation)
     scope = PSE._context_call_schema(target.context)
     left, right = call_targets(target.context, :a), call_targets(target.context, :alias_a)
-    rows = only(right.execution_batches).targets
-    candidate = only(only(left.execution_batches).targets)
+    rows = only(PSE._materialize_call_execution_batches!(right)).targets
+    candidate = only(only(PSE._materialize_call_execution_batches!(left)).targets)
     staged = PSE._execution_append_intent_buffer(scope)
     @test !PSE._stage_execution_append!(staged, scope, left, left.binding, rows, candidate)
     @test isempty(staged)
