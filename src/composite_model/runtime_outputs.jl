@@ -3529,6 +3529,17 @@ function _model_execution_batches(
     membership::ExecutionCohortMembership,output_retention,previous_group=nothing;
     batch_schema=OpenExecutionBatchSchema(),
 )
+    # An empty membership has no publication. Validate the future publication
+    # schema when an actual batch is needed.
+    if isempty(membership.runs)
+        empty_batches = if !isnothing(previous_group) && previous_group.application === application &&
+                           isempty(previous_group.batches)
+            previous_group.batches
+        else
+            _execution_batch_buffer(batch_schema)
+        end
+        return (batches=empty_batches,batches_constructed=0)
+    end
     publication = _batch_output_publication(batch_schema,output_retention,application)
     if _execution_batches_match_membership(env_bindings,application,membership,
         publication,previous_group,batch_schema)
