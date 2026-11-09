@@ -2923,7 +2923,7 @@ end
             _model_publish_runtime_outputs!(target.output_bindings, time)
         _runtime_performance_finish!(performance, :output_publication, started_at)
     end
-    return status
+    return nothing
 end
 
 @inline _model_execution_batch_environment(

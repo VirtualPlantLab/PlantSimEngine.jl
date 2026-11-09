@@ -2736,7 +2736,10 @@ end
         simulation.constants,
     ))
     float32_target = first(original_leaf_batch.targets)
-    @test PlantSimEngine._run_model_execution_target!(
+    original_status = float32_target.status_view.status
+    original_signal = original_status.signal
+    original_samples = copy(outputs(simulation)[(:leaf_source, ObjectId(:leaf_1), :signal)])
+    @test isnothing(PlantSimEngine._run_model_execution_target!(
         simulation.compiled,
         simulation.environment_bindings,
         original_leaf_batch.application,
@@ -2747,7 +2750,10 @@ end
         simulation.output_retention,
         nothing,
         false,
-    ) === float32_target.status_view.status
+    ))
+    @test float32_target.status_view.status === original_status
+    @test original_status.signal == original_signal + 1
+    @test outputs(simulation)[(:leaf_source, ObjectId(:leaf_1), :signal)] == original_samples
     @test float32_target.context.time == Float64(float32_time)
 end
 
