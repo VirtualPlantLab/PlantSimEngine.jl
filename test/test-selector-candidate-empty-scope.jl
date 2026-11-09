@@ -91,3 +91,43 @@ using Test
         end
     end
 end
+
+@testset "Typed selector buckets preserve numeric and mixed identities" begin
+    for ids in ((10, 11, 12, 13), (0, :plant, "axis", 17))
+        scene_id, plant_id, axis_id, leaf_id = ids
+        for (kind, species) in ((:photosynthetic, :rauh), (nothing, nothing))
+            model = CompositeModel(
+                Object(scene_id; scale=:Scene),
+                Object(plant_id; scale=:Plant, parent=scene_id),
+                Object(axis_id; scale=:Axis, parent=plant_id),
+                Object(leaf_id; scale=:Leaf, kind, species, parent=axis_id),
+            )
+            index = PlantSimEngine._selector_candidate_index()
+            selectors = (
+                Many(id=leaf_id),
+                Many(scale=(:Leaf, :Fruit)),
+                Many(kind=:photosynthetic),
+                Many(species=:rauh),
+                Many(scale=:Leaf, within=Subtree()),
+                Many(within=Subtree()),
+                Many(id=scene_id),
+            )
+            for (position, selector) in pairs(selectors)
+                matcher = PlantSimEngine._compile_selector_matcher(model, selector)
+                PlantSimEngine._index_selector_candidate!(
+                    index, model, matcher, position; context=ObjectId(plant_id),
+                )
+            end
+            expected = Set([1, 2, 5, 6])
+            isnothing(kind) || push!(expected, 3)
+            isnothing(species) || push!(expected, 4)
+            for candidate_index in (index, PlantSimEngine._freeze_selector_candidate_index(index))
+                candidates = Set([99])
+                @test PlantSimEngine._union_selector_candidates!(
+                    candidates, candidate_index, model, ObjectId(leaf_id),
+                ) === candidates
+                @test candidates == union(expected, Set([99]))
+            end
+        end
+    end
+end

@@ -555,6 +555,18 @@ function _index_selector_candidate!(
     return index
 end
 
+# Keep each dictionary/key pair concrete at its lookup rather than joining
+# heterogeneous label buckets inside this growth-time query.
+@inline function _union_selector_bucket!(candidates, groups, value)
+    isnothing(value) || union!(candidates, get(groups, value, ()))
+    return candidates
+end
+
+@inline function _union_selector_bucket!(candidates, groups, anchor, label, value)
+    isnothing(value) || _union_selector_bucket!(candidates, groups, (anchor, label, value))
+    return candidates
+end
+
 function _union_selector_candidates!(
     candidates::Set{Int},
     index::SelectorCandidateIndex,
@@ -563,33 +575,20 @@ function _union_selector_candidates!(
 )
     union!(candidates, index.wildcard)
     object = _model_object(model, object_id)
-    for (groups, value) in (
-        (index.by_id, object.id),
-        (index.by_scale, object.scale),
-        (index.by_kind, object.kind),
-        (index.by_species, object.species),
-    )
-        isnothing(value) || union!(candidates, get(groups, value, ()))
-    end
+    id, scale, kind, species = object.id, object.scale, object.kind, object.species
+    _union_selector_bucket!(candidates, index.by_id, id)
+    _union_selector_bucket!(candidates, index.by_scale, scale)
+    _union_selector_bucket!(candidates, index.by_kind, kind)
+    _union_selector_bucket!(candidates, index.by_species, species)
     # Ancestors cannot contribute without any scoped selector entries.
     isempty(index.by_scope_anchor) && return candidates
     for anchor in _object_ancestor_ids(model.registry, object_id)
-        union!(candidates, get(index.by_scope_anchor, anchor, ()))
-        for (label, value) in (
-            (:id, object.id),
-            (:scale, object.scale),
-            (:kind, object.kind),
-            (:species, object.species),
-        )
-            isnothing(value) || union!(
-                candidates,
-                get(
-                    index.by_scope_anchor,
-                    (anchor, label, value),
-                    (),
-                ),
-            )
-        end
+        _union_selector_bucket!(candidates, index.by_scope_anchor, anchor)
+        id, scale, kind, species = object.id, object.scale, object.kind, object.species
+        _union_selector_bucket!(candidates, index.by_scope_anchor, anchor, :id, id)
+        _union_selector_bucket!(candidates, index.by_scope_anchor, anchor, :scale, scale)
+        _union_selector_bucket!(candidates, index.by_scope_anchor, anchor, :kind, kind)
+        _union_selector_bucket!(candidates, index.by_scope_anchor, anchor, :species, species)
     end
     return candidates
 end
@@ -7505,7 +7504,7 @@ function _matching_input_source_applications(
     else
         resolved = Symbol[]
         for source_id in source_ids
-            for application in get(applications_by_object, source_id, Any[])
+            for application in get(applications_by_object, source_id, ())
                 source_var in _model_output_names(application) || continue
                 isnothing(process_filter) || application.process == process_filter || continue
                 isnothing(application_filter) || application.id == application_filter || continue
