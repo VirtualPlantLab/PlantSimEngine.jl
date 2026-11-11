@@ -130,6 +130,31 @@ end
     return closed ? :(PreparedContextCallSchema{$C}()) : :(OpenContextCallSchema())
 end
 
+# Recover the prepared group schema from its real views. Several variables of
+# one group share one binding and assignment cache; group/variable order matters.
+function _output_target_binding_groups_type(::Type{T}) where {T<:NamedTuple}
+    groups, bindings, names, views = Symbol[], Type[], Symbol[], Type[]
+    for View in fieldtypes(T)
+        View <: OutputTargets && isconcretetype(View) ||
+            throw(ArgumentError("Prepared output destinations require concrete OutputTargets views."))
+        Binding = fieldtype(View, :binding)
+        Plan = fieldtype(Binding, :plan)
+        group, variables = Plan.parameters[1], Plan.parameters[2]
+        if group in groups
+            Binding === bindings[findfirst(==(group), groups)] ||
+                throw(ArgumentError("A prepared output group has inconsistent binding types."))
+            continue
+        end
+        push!(groups, group)
+        push!(bindings, Binding)
+        append!(names, variables)
+        append!(views, fill(View, length(variables)))
+    end
+    Tuple(names) === fieldnames(T) && Tuple(views) === fieldtypes(T) ||
+        throw(ArgumentError("Prepared output views must retain their group and variable order."))
+    return NamedTuple{Tuple(groups),Tuple{bindings...}}
+end
+
 # Admit the real status view before reading its parameterized fields. The
 # ordinary function barrier specializes its actual V; prepared execution uses
 # the same existing finite target schema before assembling the same fields.
@@ -138,7 +163,7 @@ end
 ) where {F,V<:CompiledModelStatusView}
     actual_fields = (object_id=fields.object_id, model=fields.model,
         status_view=status_view, bound_inputs=status_view.bound_inputs,
-        output_targets=fields.output_targets, call_bindings=fields.call_bindings,
+        output_targets=_runtime_model_output_targets(fields.output_groups), call_bindings=fields.call_bindings,
         environment_binding=fields.environment_binding)
     return f(Val{nothing}(), application, actual_fields, owners, OpenContextCallSchema())
 end
@@ -158,18 +183,23 @@ end
         closed_calls && _validate_prepared_context_calls(Calls)
         CallSchema = closed_calls ? PreparedContextCallSchema{Calls} : OpenContextCallSchema
         V = fieldtype(Target, :status_view)
-        checks = Expr[:(application isa $(fieldtype(Context, :application)))]
+        Views = fieldtype(Target, :output_targets)
+        Groups = _output_target_binding_groups_type(Views)
+        checks = Expr[:(application isa $(fieldtype(Context, :application))),
+            :(getproperty(fields, :output_groups) isa $Groups)]
         values = Expr[]
         for name in names
             value = if name === :status_view
                 :status_view
+            elseif name === :output_targets
+                :(_runtime_model_output_targets(getproperty(fields, :output_groups)::$Groups)::$Views)
             elseif name === :bound_inputs
                 # The earlier status_view check short-circuits before this read.
                 :((status_view::$V).bound_inputs)
             else
                 :(getproperty(fields, $(QuoteNode(name))))
             end
-            push!(checks, :($value isa $(fieldtype(Target, name))))
+            name === :output_targets || push!(checks, :($value isa $(fieldtype(Target, name))))
             push!(values, :($value::$(fieldtype(Target, name))))
         end
         for name in (:compiled, :environment_bindings, :temporal_streams, :output_retention, :constants, :environment)

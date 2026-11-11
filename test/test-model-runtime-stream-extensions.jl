@@ -143,6 +143,115 @@ end
     check_append_allocations!(Any[first(first_streams)], Any[last(first(original_vectors))])
 end
 
+struct SplitDistributor <: AbstractStream_Extension_DistributorModel
+    runs::Base.RefValue{Int}
+end
+PSE.inputs_(::SplitDistributor) = NamedTuple()
+PSE.outputs_(::SplitDistributor) = (a=Distributed(Default(0f0)),
+    b=Distributed(Default(0f0)), z=Distributed(Default(0.0)))
+function PSE.run!(model::SplitDistributor, status, environment, constants, context)
+    model.runs[] += 1
+    leaves = output_targets(context, (:a, :b))
+    for index in eachindex(leaves)
+        leaves.columns.a[index] = Float32(context.time)
+        leaves.columns.b[index] = 2f0 * Float32(context.time)
+    end
+    first_leaf = output_targets(context, (:z,))
+    for index in eachindex(first_leaf)
+        first_leaf.columns.z[index] = 10.0 * context.time
+    end
+    return nothing
+end
+
+function split_fixture(; split=true)
+    runs = Ref(0)
+    routes = split ? (
+        OutputTo(Many(scale=:Leaf, within=Subtree()); vars=(:a, :b)),
+        OutputTo(One(id=1, within=SceneScope()); vars=(:z,)),
+    ) : (OutputTo(Many(scale=:Leaf, within=Subtree()); vars=(:a, :b, :z)),)
+    model = CompositeModel(Object(0; scale=:Scene),
+        Object(1; scale=:Leaf, parent=0, status=Status(a=0f0, b=0f0, z=0.0));
+        applications=(ModelSpec(SplitDistributor(runs); name=:split,
+            on=One(id=0), outputs_to=routes),))
+    return (; model, runs, simulation=run!(model; steps=1, outputs=:all))
+end
+
+function check_reconstructed_groups(data, alignment)
+    simulation = data.simulation
+    target = execution_target(simulation, :split, 0)
+    application = target.context.application
+    before = histories(simulation)
+    runs = data.runs[]
+    @test PSE._model_execution_output_targets_match(target.output_targets,
+        simulation.compiled, application, target.object_id)
+    schema = PSE._closed_execution_cohort_schema(Tuple{typeof(target)})
+    for admission in (PSE.OpenExecutionCohortSchema(), schema)
+        rebuilt = PSE._new_model_execution_target(simulation.compiled,
+            simulation.environment_bindings, application, target.object_id,
+            simulation.temporal_streams, simulation.output_retention,
+            simulation.constants; target_schema=admission)
+        views = rebuilt.output_targets
+        @test typeof(rebuilt) === typeof(target)
+        @test keys(views) == (:a, :b, :z)
+        @test views.a === views.b
+        @test views.a !== views.z
+        @test views.a.assignment_cache === views.b.assignment_cache
+        @test (views.a.alignment_id, views.z.alignment_id) == alignment
+        for variable in keys(views)
+            actual, original = getproperty(views, variable), getproperty(target.output_targets, variable)
+            @test actual.binding === original.binding
+            @test actual.columns === original.columns
+            @test collect(object_ids(actual)) == collect(object_ids(original))
+        end
+        for (actual, original) in zip(rebuilt.output_bindings, target.output_bindings)
+            @test actual.binding === original.binding
+            @test actual.references === original.references
+            @test length(actual.streams) == length(original.streams)
+            @test all(left === right for (left, right) in zip(actual.streams, original.streams))
+        end
+        @test data.runs[] == runs
+        @test histories(simulation) == before
+    end
+    return target
+end
+
+@testset "typed output groups preserve ownership and changing destination alignment" begin
+    data = split_fixture()
+    original = check_reconstructed_groups(data, (1, 1))
+    @test collect(object_ids(output_targets(original.context, (:a, :z)))) == [ObjectId(1)]
+    a_reference = PSE.refvalue(model_status(data.model, 1), :a)
+
+    register_object!(data.model, Object(2; scale=:Leaf, parent=0,
+        status=Status(a=0f0, b=0f0, z=0.0)))
+    step!(data.simulation)
+    grown = check_reconstructed_groups(data, (1, 2))
+    @test grown !== original
+    @test_throws ArgumentError output_targets(grown.context, (:a, :z))
+    @test PSE.refvalue(model_status(data.model, 1), :a) === a_reference
+    @test model_status(data.model, 2).a === 2f0
+    @test outputs(data.simulation)[(:split, ObjectId(2), :a)] == [(2.0, 2f0)]
+
+    remove_object!(data.model, 2)
+    step!(data.simulation)
+    reduced = check_reconstructed_groups(data, (1, 1))
+    @test reduced !== grown
+    @test collect(object_ids(output_targets(reduced.context, (:a, :z)))) == [ObjectId(1)]
+    @test PSE.refvalue(model_status(data.model, 1), :a) === a_reference
+    @test outputs(data.simulation)[(:split, ObjectId(2), :a)] == [(2.0, 2f0)]
+    @test data.runs[] == 3
+
+    # Real bindings from another owner must fail even when their schema matches.
+    foreign = split_fixture()
+    @test !PSE._model_execution_output_targets_match(reduced.output_targets,
+        foreign.simulation.compiled,
+        execution_target(foreign.simulation, :split, 0).context.application, ObjectId(0))
+    # A different genuine grouping is rejected before accessing its columns.
+    regrouped = split_fixture(; split=false)
+    @test !PSE._model_execution_output_targets_match(reduced.output_targets,
+        regrouped.simulation.compiled,
+        execution_target(regrouped.simulation, :split, 0).context.application, ObjectId(0))
+end
+
 @testset "prepared local outputs keep concrete owners in a distributed scene" begin
     for retention in (:none, :all)
         runs = Ref(0)

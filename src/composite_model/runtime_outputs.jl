@@ -3349,50 +3349,46 @@ function _runtime_model_distributed_output_streams(
     )
 end
 
-_runtime_model_output_targets(
-    compiled,
-    application,
-    object_id,
-    ::NoCompiledDistributedOutputs,
-) = NamedTuple()
+_runtime_model_output_groups(application, object_id, ::NoCompiledDistributedOutputs) = NamedTuple()
 
-function _runtime_model_output_targets(
-    compiled,
-    application,
-    object_id,
-    distributed_outputs::CompiledDistributedOutputs,
-)
-    groups = get(
-        distributed_outputs.by_execution_target,
-        (application.id, object_id),
-        nothing,
-    )
-    isnothing(groups) && return NamedTuple()
-    names = Symbol[]
-    targets = Any[]
-    anchors = Any[]
-    for binding in values(groups)
-        alignment_id = findfirst(anchor -> anchor.destination_ids == binding.destination_ids, anchors)
-        if isnothing(alignment_id)
-            push!(anchors, binding)
-            alignment_id = length(anchors)
+function _runtime_model_output_groups(application, object_id, outputs::CompiledDistributedOutputs)
+    isempty(_model_distributed_output_names(application)) && return NamedTuple()
+    return get(outputs.by_execution_target, (application.id, object_id), NamedTuple())
+end
+
+_runtime_model_output_groups(compiled, application, object_id) =
+    _runtime_model_output_groups(application, object_id, compiled.distributed_outputs)
+
+@generated function _runtime_model_output_targets(groups::G) where {G<:NamedTuple}
+    names, targets, statements = Symbol[], Symbol[], Expr[]
+    binding_vars, target_vars = Symbol[], Symbol[]
+    for (index, Binding) in enumerate(fieldtypes(G))
+        Plan = fieldtype(Binding, :plan)
+        group, variables = Plan.parameters[1], Plan.parameters[2]
+        group === fieldnames(G)[index] || error("An output group does not match its binding plan.")
+        binding, target = gensym(:binding), gensym(:target)
+        alignment = :(alignment_count + 1)
+        for previous in reverse(eachindex(binding_vars))
+            alignment = :( $binding.destination_ids == $(binding_vars[previous]).destination_ids ?
+                $(target_vars[previous]).alignment_id : $alignment )
         end
-        target = OutputTargets(binding, alignment_id)
-        for name in binding.plan.variable_names
-            push!(names, name)
-            push!(targets, target)
-        end
+        push!(statements, :($binding = getfield(groups, $index)))
+        push!(statements, :($target = OutputTargets($binding, $alignment)))
+        push!(statements, :(alignment_count = max(alignment_count, $target.alignment_id)))
+        append!(names, variables)
+        append!(targets, fill(target, length(variables)))
+        push!(binding_vars, binding)
+        push!(target_vars, target)
     end
-    return NamedTuple{Tuple(names)}(Tuple(targets))
+    return quote
+        alignment_count = 0
+        $(statements...)
+        return NamedTuple{$(QuoteNode(Tuple(names)))}($(Expr(:tuple, targets...)))
+    end
 end
 
 _runtime_model_output_targets(compiled, application, object_id) =
-    _runtime_model_output_targets(
-        compiled,
-        application,
-        object_id,
-        compiled.distributed_outputs,
-    )
+    _runtime_model_output_targets(_runtime_model_output_groups(compiled, application, object_id))
 
 function _compiled_model_execution_target(
     compiled::CompiledCompositeModel,
@@ -3438,10 +3434,10 @@ function _new_model_execution_target(
 )
     status_view = _model_status_view_for_application(compiled, application, object_id)
     model = _application_model(application, object_id)
-    distributed_targets = _runtime_model_output_targets(compiled, application, object_id)
+    output_groups = _runtime_model_output_groups(compiled, application, object_id)
     call_bindings = get(compiled.call_bindings_by_target, (application.id, object_id), ())
     environment_binding = _environment_binding_for(env_bindings, application.id, object_id)
-    fields = (object_id=object_id, model=model, output_targets=distributed_targets,
+    fields = (object_id=object_id, model=model, output_groups=output_groups,
         call_bindings=call_bindings, environment_binding=environment_binding)
     owners = (compiled=compiled, environment_bindings=env_bindings,
         temporal_streams=temporal_streams,
@@ -3880,41 +3876,37 @@ function _model_execution_output_targets_match(
     return isempty(targets)
 end
 
-function _model_execution_output_targets_match(
-    targets,
-    compiled,
-    application,
-    object_id,
+@generated function _model_execution_output_targets_match(
+    targets::T, compiled, application, object_id,
     distributed_outputs::CompiledDistributedOutputs,
-)
-    bindings = get(
-        distributed_outputs.by_execution_target,
-        (application.id, object_id),
-        nothing,
-    )
-    isnothing(bindings) && return isempty(targets)
-    count = 0
-    ordered_bindings = values(bindings)
-    for (index, binding) in enumerate(ordered_bindings)
-        for name in binding.plan.variable_names
-            hasproperty(targets, name) || return false
-            target = getproperty(targets, name)
-            target.binding === binding || return false
-            count += 1
+) where {T<:NamedTuple}
+    G = _output_target_binding_groups_type(T)
+    checks = Expr[]
+    for (index, Binding) in enumerate(fieldtypes(G))
+        variables = fieldtype(Binding, :plan).parameters[2]
+        binding = :(getfield(bindings, $index))
+        current = :(getproperty(targets, $(QuoteNode(first(variables)))))
+        for name in variables
+            push!(checks, :(getproperty(targets, $(QuoteNode(name))).binding === $binding || return false))
         end
-        # A monotonic addition can extend existing columns and streams in place.
-        # Rebuild only if it changes which destination declarations are aligned.
-        current = getproperty(targets, first(binding.plan.variable_names))
-        for previous_index in 1:(index - 1)
-            previous = ordered_bindings[previous_index]
-            previous_target = getproperty(targets, first(previous.plan.variable_names))
-            was_aligned = current.alignment_id == previous_target.alignment_id
-            now_aligned = binding.destination_ids == previous.destination_ids
-            was_aligned == now_aligned || return false
+        # In-place growth preserves the view only while group alignments agree.
+        for previous in 1:(index - 1)
+            previous_name = first(fieldtype(fieldtype(G, previous), :plan).parameters[2])
+            previous_target = :(getproperty(targets, $(QuoteNode(previous_name))))
+            previous_binding = :(getfield(bindings, $previous))
+            push!(checks, quote
+                ($current.alignment_id == $previous_target.alignment_id) ==
+                    ($binding.destination_ids == $previous_binding.destination_ids) || return false
+            end)
         end
     end
-    length(targets) == count || return false
-    return true
+    return quote
+        bindings = _runtime_model_output_groups(application, object_id, distributed_outputs)
+        bindings isa $G || return false
+        bindings = bindings::$G
+        $(checks...)
+        return true
+    end
 end
 
 function _model_execution_output_targets_match(
@@ -6077,11 +6069,11 @@ function _append_targeted_newborn_targets!(
                 object_id,get(targeted_input_bindings,key,()),compiled.applications_by_id,
                 targeted_runtime.application_positions,compiled.distributed_outputs;
                 execution_stamp=stamp)::CompiledModelStatusView
-            output_targets = _runtime_model_output_targets(compiled,application,object_id)
+            output_groups = _runtime_model_output_groups(compiled,application,object_id)
             environment_binding = _environment_binding_for(environment_bindings,application.id,object_id)
             call_bindings = () # targeted admission has rejected nested callees
             fields = (object_id=object_id,model=_application_model(application,object_id),
-                output_targets=output_targets,call_bindings=call_bindings,
+                output_groups=output_groups,call_bindings=call_bindings,
                 environment_binding=environment_binding)
             owners = (compiled=compiled,environment_bindings=environment_bindings,
                 temporal_streams=context.temporal_streams,

@@ -265,7 +265,8 @@ call_key(target) = (target.application.id, target.object_id.value)
             foreign_owner = foreign.simulation.environment_bindings
             @test !(foreign_owner isa typeof(partial_owner))
             fields = (object_id=target.object_id, model=target.model,
-                output_targets=target.output_targets,
+                output_groups=PSE._runtime_model_output_groups(target.compiled,
+                    target.application, target.object_id),
                 call_bindings=target.execution_target.call_bindings,
                 environment_binding=target.environment_binding)
             owners = (compiled=target.compiled, environment_bindings=foreign_owner,
