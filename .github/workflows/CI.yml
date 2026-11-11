@@ -130,7 +130,7 @@ jobs:
         run: npm run build
       - name: Check committed graph editor assets
         run: |
-          git diff --exit-code -- frontend/dist || {
+          git -c safe.directory="$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" diff --exit-code -- frontend/dist || {
             echo "frontend/dist is stale. Run npm run build in frontend/ and commit the rebuilt assets.";
             exit 1;
           }
