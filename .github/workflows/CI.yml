@@ -132,7 +132,10 @@ jobs:
           }
       - name: Install Playwright browser
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: |
+          # Avoid the Azure mirror that intermittently fails DNS on hosted runners.
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+          npx playwright install --with-deps chromium
       - name: Run graph editor E2E tests
         working-directory: frontend
         run: npm run test:e2e
