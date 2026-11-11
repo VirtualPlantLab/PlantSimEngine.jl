@@ -91,6 +91,10 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || !inputs.juliac_safe }}
     name: Graph editor E2E
     runs-on: ubuntu-latest
+    container:
+      # Keep the browser image aligned with frontend/package-lock.json.
+      image: mcr.microsoft.com/playwright:v1.60.0-noble
+      options: --ipc=host
     timeout-minutes: 30
     permissions:
       actions: write
@@ -130,12 +134,6 @@ jobs:
             echo "frontend/dist is stale. Run npm run build in frontend/ and commit the rebuilt assets.";
             exit 1;
           }
-      - name: Install Playwright browser
-        working-directory: frontend
-        run: |
-          # Avoid the Azure mirror that intermittently fails DNS on hosted runners.
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
-          npx playwright install --with-deps chromium
       - name: Run graph editor E2E tests
         working-directory: frontend
         run: npm run test:e2e
