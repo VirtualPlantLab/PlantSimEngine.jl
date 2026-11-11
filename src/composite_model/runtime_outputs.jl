@@ -3002,6 +3002,32 @@ end
         batch_time,
         constants,
     )
+    return _run_model_execution_batch_targets!(
+        batch,
+        compiled,
+        env_bindings,
+        batch_time,
+        constants,
+        temporal_streams,
+        output_retention,
+        shared_environment,
+        performance,
+    )
+end
+
+# Weather sampling may return different row schemas. Cross that dispatch
+# boundary once per batch, so every target kernel receives a concrete row.
+@noinline function _run_model_execution_batch_targets!(
+    batch::CompiledExecutionBatch,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    time::Real,
+    constants,
+    temporal_streams,
+    output_retention,
+    shared_environment,
+    performance::Union{Nothing,RuntimePerformanceCounters},
+)
     publish_outputs = batch.output_publication.enabled
     for target in batch.targets
         _run_model_execution_target!(
@@ -3009,7 +3035,7 @@ end
             env_bindings,
             batch.application,
             target,
-            batch_time,
+            time,
             constants,
             temporal_streams,
             output_retention,

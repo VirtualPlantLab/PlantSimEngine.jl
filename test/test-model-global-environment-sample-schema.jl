@@ -271,6 +271,78 @@ function table_probe(source; remap=false)
     return run!(model; steps=3, outputs=:all)
 end
 
+@testset "shared batches accept changing environment row schemas" begin
+    source = Any[
+        (T=1.25f0, duration=Hour(1)),
+        (T=4.5, duration=Hour(1)),
+        (T=2.5f0, duration=Hour(1)),
+    ]
+    model = CompositeModel(Object(:a; scale=:Leaf), Object(:b; scale=:Leaf);
+        applications=(ModelSpec(Probe(0.0); name=:probe, on=Many(scale=:Leaf)),),
+        environment=source)
+    simulation = run!(model; steps=3, outputs=:all)
+    for id in (:a, :b)
+        @test model_status(model, id).seen === 2.5
+        @test model_status(model, id).visits == 3
+        @test outputs(simulation)[(:probe, ObjectId(id), :seen)] ==
+              [(1.0, 1.25), (2.0, 4.5), (3.0, 2.5)]
+    end
+end
+
+function prepared_environment_batch(object_count)
+    source = Any[(T=1.25f0, duration=Hour(1)), (T=4.5, duration=Hour(1))]
+    model = CompositeModel(
+        (Object(id; scale=:Leaf) for id in 1:object_count)...;
+        applications=(ModelSpec(Probe(0.0); name=:probe, on=Many(scale=:Leaf)),),
+        environment=source,
+    )
+    simulation = run!(model; steps=0, outputs=:none)
+    return (; model, simulation, batch=only(simulation.execution_plan.batches))
+end
+
+@noinline function execute_environment_batch!(simulation, batch, time)
+    PSE._run_model_execution_batch!(
+        batch,
+        simulation.compiled,
+        simulation.environment_bindings,
+        time,
+        simulation.constants,
+        simulation.temporal_streams,
+        simulation.output_retention,
+    )
+    return nothing
+end
+
+environment_batch_allocations(simulation, batch, time) =
+    @allocated execute_environment_batch!(simulation, batch, time)
+
+@testset "sampled rows cross the allocation boundary once per batch" begin
+    small = prepared_environment_batch(8)
+    large = prepared_environment_batch(128)
+    for data in (small, large), time in (1.0, 2.0), _ in 1:2
+        execute_environment_batch!(data.simulation, data.batch, time)
+        environment_batch_allocations(data.simulation, data.batch, time)
+    end
+    visits_before = model_status(small.model, 1).visits
+    @test model_status(large.model, 1).visits == visits_before
+
+    for (time, expected) in ((1.0, 1.25), (2.0, 4.5))
+        small_allocations = environment_batch_allocations(
+            small.simulation, small.batch, time,
+        )
+        large_allocations = environment_batch_allocations(
+            large.simulation, large.batch, time,
+        )
+        @test large_allocations <= small_allocations + 1024
+        for data in (small, large)
+            @test all(object -> object.status.seen === expected, model_objects(data.model))
+        end
+    end
+    for data in (small, large)
+        @test all(object -> object.status.visits == visits_before + 2, model_objects(data.model))
+    end
+end
+
 @testset "DataFrame preparation keeps table samples Any and preserves every Float32 row" begin
     temperatures = Float32[1.25, 2.5, 4]
     unused = Int32[11, 22, 33]
