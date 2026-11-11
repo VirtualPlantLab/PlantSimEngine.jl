@@ -463,7 +463,7 @@ end
 end
 
 @generated function _prepared_runtime_outputs(::Type{O}, status_view::CompiledModelStatusView, output_targets,
-    application, object_id, compiled, streams, retention, initialize_missing,
+    application, object_id, streams, retention, initialize_missing,
 ) where {O<:Tuple}
     entries = Expr[]
     for R in fieldtypes(O)
@@ -496,7 +496,7 @@ end
             local_count == length(outputs) ||
                 throw(ArgumentError("Prepared newborn retained output count changed."))
         else
-            _model_execution_outputs_match(outputs,status_view,compiled,application,object_id,
+            _model_execution_outputs_match(outputs,status_view,output_targets,application,object_id,
                 retention,streams) || throw(ArgumentError("Prepared retained output names or ownership changed."))
         end
         return outputs

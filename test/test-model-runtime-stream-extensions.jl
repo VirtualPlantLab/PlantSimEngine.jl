@@ -103,14 +103,14 @@ end
     # Both genuine owners have staged additions, then this extra genuine entry
     # makes the final shape check fail. Neither vector may change on rejection.
     extra_entry = (staged..., first(staged))
-    @test !PSE._model_execution_outputs_match(extra_entry, target.status_view, simulation.compiled,
+    @test !PSE._model_execution_outputs_match(extra_entry, target.status_view, target.output_targets,
         target.context.application, target.object_id, simulation.output_retention,
         simulation.temporal_streams)
     @test all(length(streams) == 1 for streams in original_vectors)
     @test all(first(streams) === first_stream for (streams, first_stream) in
         zip(original_vectors, first_streams))
 
-    @test PSE._model_execution_outputs_match(staged, target.status_view, simulation.compiled,
+    @test PSE._model_execution_outputs_match(staged, target.status_view, target.output_targets,
         target.context.application, target.object_id, simulation.output_retention,
         simulation.temporal_streams)
     for (index, output) in enumerate(staged)
@@ -121,12 +121,63 @@ end
         @test length(streams) == 2
         @test streams[2] === outputs(simulation)[(:writer, ObjectId(2), variable)]
     end
+    # Recreate prepared descriptors after real growth without replaying kernels.
+    # Their source vectors may be fresh; each binding, column and stream stays live.
+    prepared = @inferred PSE._prepared_runtime_outputs(typeof(target.output_bindings),
+        target.status_view, target.output_targets, target.context.application,
+        target.object_id, simulation.temporal_streams, simulation.output_retention, false)
+    @test typeof(prepared) === typeof(target.output_bindings)
+    @test Tuple(PSE._runtime_output_variable(output) for output in prepared) == (:a, :z)
+    @test first(prepared).binding === last(prepared).binding
+    for (actual, original) in zip(prepared, target.output_bindings)
+        @test actual.binding === original.binding
+        @test actual.references === original.references
+        @test length(actual.streams) == length(original.streams) == 2
+        @test all(current === previous for (current, previous) in zip(actual.streams, original.streams))
+    end
     @test histories(simulation) == before_history
     @test runs[] == 2
     @test outputs(simulation)[(:writer, ObjectId(2), :a)] == [(2.0, 4f0)]
     check_append_allocations!(copy(first(original_vectors)), Any[last(first(original_vectors))])
     # Heterogeneous storage keeps the same bulk-copy representation as before.
     check_append_allocations!(Any[first(first_streams)], Any[last(first(original_vectors))])
+end
+
+@testset "prepared local outputs keep concrete owners in a distributed scene" begin
+    for retention in (:none, :all)
+        runs = Ref(0)
+        model = CompositeModel(Object(0; scale=:Scene),
+            Object(1; scale=:Leaf, parent=0, status=Status(a=0f0, z=0.0)),
+            Object(2; scale=:Source, parent=0, status=Status(a=1f0, z=10.0));
+            applications=(
+                ModelSpec(Distributor(Ref(0)); name=:writer, on=One(id=0),
+                    outputs_to=(OutputTo(Many(scale=:Leaf, within=Subtree())),)),
+                ModelSpec(Source(runs); name=:source, on=One(id=2)),
+            ))
+        simulation = run!(model; steps=1, outputs=retention)
+        target = execution_target(simulation, :source, 2)
+        @test simulation.compiled.distributed_outputs isa PSE.CompiledDistributedOutputs
+        @test isempty(target.output_targets)
+        before = histories(simulation)
+        prepared = @inferred PSE._prepared_runtime_outputs(typeof(target.output_bindings),
+            target.status_view, target.output_targets, target.context.application,
+            target.object_id, simulation.temporal_streams,
+            simulation.output_retention, false)
+        @test typeof(prepared) === typeof(target.output_bindings)
+        @test PSE._model_execution_outputs_match(prepared, target.status_view,
+            target.output_targets, target.context.application, target.object_id,
+            simulation.output_retention, simulation.temporal_streams)
+        for (actual, original) in zip(prepared, target.output_bindings)
+            @test actual.stream === original.stream
+            @test actual.reference === original.reference
+        end
+        @test histories(simulation) == before
+        @test runs[] == 1
+        step!(simulation)
+        @test runs[] == 2
+        @test model_status(model, 2).a === 3f0
+        @test model_status(model, 2).z === 30.0
+    end
 end
 
 @testset "temporal stream extension retains validation atomicity and live owners" begin
@@ -190,10 +241,10 @@ end
     other_target = execution_target(simulation, :source, 2)
     application = source_target.context.application
     @test PSE._model_execution_outputs_match(source_target.output_bindings,
-        source_target.status_view, simulation.compiled, application,
+        source_target.status_view, source_target.output_targets, application,
         source_target.object_id, simulation.output_retention, simulation.temporal_streams)
     @test !PSE._model_execution_outputs_match(source_target.output_bindings,
-        other_target.status_view, simulation.compiled, application,
+        other_target.status_view, source_target.output_targets, application,
         source_target.object_id, simulation.output_retention, simulation.temporal_streams)
 
     # Missing-view handling stays at the two existing gateways. Restore the

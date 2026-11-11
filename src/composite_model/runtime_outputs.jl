@@ -3466,7 +3466,7 @@ function _new_model_execution_target(::Val{Target}, actual_application, actual, 
         (local_outputs...,distributed_outputs...)
     else
         _prepared_runtime_outputs(fieldtype(Target,:output_bindings),actual.status_view,
-            actual.output_targets,actual_application,actual.object_id,owner.compiled,
+            actual.output_targets,actual_application,actual.object_id,
             owner.temporal_streams,owner.output_retention,false)
     end
     context = if isnothing(owner.temporal_streams) && isempty(actual.output_targets)
@@ -3781,7 +3781,7 @@ end
 function _model_execution_outputs_match(
     runtime_outputs::Tuple,
     status_view::CompiledModelStatusView,
-    compiled::CompiledCompositeModel,
+    output_targets::NamedTuple,
     application::CompiledModelApplication,
     object_id::ObjectId,
     output_retention,
@@ -3819,66 +3819,41 @@ function _model_execution_outputs_match(
     end
 
     additions = Tuple{Int,Vector{Any}}[]
-    if compiled.distributed_outputs isa CompiledDistributedOutputs
-        groups = get(
-            compiled.distributed_outputs.by_execution_target,
-            (application.id, object_id),
-            nothing,
-        )
-        if !isnothing(groups)
-            isnothing(temporal_streams) && return false
-            for binding in values(groups)
-                for variable_ in binding.plan.variable_names
-                    variable = Symbol(variable_)
-                    variable in variables || continue
-                    output_index += 1
-                    output_index <= length(runtime_outputs) || return false
-                    output = runtime_outputs[output_index]
-                    output isa RuntimeDistributedOutputStream || return false
-                    _runtime_output_variable(output) == variable || return false
-                    output.binding === binding || return false
-                    output.references ===
-                    getproperty(binding.columns, variable) || return false
-                    expected_horizon = isnothing(dependency_horizons) ?
-                                       0.0 :
-                                       get(
-                        dependency_horizons,
-                        (application.id, variable),
-                        0.0,
-                    )
-                    output.dependency_horizon == expected_horizon || return false
-                    destination_ids = binding.destination_ids
-                    runtime_streams = output.streams
-                    length(runtime_streams) <= length(destination_ids) ||
-                        return false
-                    for index in eachindex(runtime_streams)
-                        key = _model_stream_key(
-                            application.id,
-                            destination_ids[index],
-                            variable,
-                        )
-                        runtime_streams[index] ===
-                        get(temporal_streams, key, nothing) || return false
-                    end
-                    length(runtime_streams) == length(destination_ids) &&
-                        continue
-                    runtime_streams isa Vector || return false
-                    new_streams = Any[]
-                    for index in (length(runtime_streams) + 1):length(destination_ids)
-                        key = _model_stream_key(
-                            application.id,
-                            destination_ids[index],
-                            variable,
-                        )
-                        stream = get(temporal_streams, key, nothing)
-                        isnothing(stream) && return false
-                        stream isa eltype(runtime_streams) || return false
-                        push!(new_streams, stream)
-                    end
-                    push!(additions, (output_index, new_streams))
-                end
-            end
+    # These views have already admitted the current destination bindings. Their
+    # names retain the compiler's group/variable order, including shared bindings.
+    for variable in keys(output_targets)
+        variable in variables || continue
+        isnothing(temporal_streams) && return false
+        binding = getproperty(output_targets, variable).binding
+        output_index += 1
+        output_index <= length(runtime_outputs) || return false
+        output = runtime_outputs[output_index]
+        output isa RuntimeDistributedOutputStream || return false
+        _runtime_output_variable(output) == variable || return false
+        output.binding === binding || return false
+        output.references === getproperty(binding.columns, variable) || return false
+        expected_horizon = isnothing(dependency_horizons) ?
+                           0.0 :
+                           get(dependency_horizons, (application.id, variable), 0.0)
+        output.dependency_horizon == expected_horizon || return false
+        destination_ids = binding.destination_ids
+        runtime_streams = output.streams
+        length(runtime_streams) <= length(destination_ids) || return false
+        for index in eachindex(runtime_streams)
+            key = _model_stream_key(application.id, destination_ids[index], variable)
+            runtime_streams[index] === get(temporal_streams, key, nothing) || return false
         end
+        length(runtime_streams) == length(destination_ids) && continue
+        runtime_streams isa Vector || return false
+        new_streams = Any[]
+        for index in (length(runtime_streams) + 1):length(destination_ids)
+            key = _model_stream_key(application.id, destination_ids[index], variable)
+            stream = get(temporal_streams, key, nothing)
+            isnothing(stream) && return false
+            stream isa eltype(runtime_streams) || return false
+            push!(new_streams, stream)
+        end
+        push!(additions, (output_index, new_streams))
     end
     output_index == length(runtime_outputs) || return false
     for addition in additions
@@ -4022,7 +3997,7 @@ function _model_execution_target_change_reason(
     _model_execution_outputs_match(
         target.output_bindings,
         status_view,
-        compiled,
+        target.output_targets,
         application,
         object_id,
         output_retention,
@@ -6130,7 +6105,7 @@ function _append_targeted_newborn_target!(::Val{Target}, actual_application, act
             actual.object_id,owner.temporal_streams,owner.output_retention,true) :
         _prepared_runtime_outputs(fieldtype(Target,:output_bindings),
             actual.status_view,actual.output_targets,actual_application,
-            actual.object_id,owner.compiled,owner.temporal_streams,
+            actual.object_id,owner.temporal_streams,
             owner.output_retention,true)
     # Narrow a retained cache before use; no new owner is published
     # until all real fields have passed the same target admission.
