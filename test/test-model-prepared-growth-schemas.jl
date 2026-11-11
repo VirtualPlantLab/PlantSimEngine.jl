@@ -264,11 +264,6 @@ call_key(target) = (target.application.id, target.object_id.value)
             foreign = prepare_schema_growth(; environment=(T=3f0,))
             foreign_owner = foreign.simulation.environment_bindings
             @test !(foreign_owner isa typeof(partial_owner))
-            fields = (object_id=target.object_id, model=target.model,
-                output_groups=PSE._runtime_model_output_groups(target.compiled,
-                    target.application, target.object_id),
-                call_bindings=target.execution_target.call_bindings,
-                environment_binding=target.environment_binding)
             owners = (compiled=target.compiled, environment_bindings=foreign_owner,
                 temporal_streams=target.temporal_streams,
                 output_retention=target.output_retention, constants=target.constants,
@@ -277,7 +272,10 @@ call_key(target) = (target.application.id, target.object_id.value)
                 PSE.OpenExecutionCohortSchema())
             @test_throws ArgumentError PSE._with_execution_target_type(
                 (args...) -> error("foreign owner entered target factory"), admission,
-                target.application, target.execution_target.status_view, fields, owners)
+                target.application, target.execution_target.status_view,
+                target.object_id, target.model,
+                PSE._runtime_model_output_groups(target.compiled, target.application, target.object_id),
+                target.execution_target.call_bindings, target.environment_binding, owners)
             @test canonical.visits == 0 && canonical.value == 0.0
             @test isempty(PSE.lifecycle_delta(simulation.model).initialized_targets)
         end

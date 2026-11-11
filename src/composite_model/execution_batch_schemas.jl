@@ -159,17 +159,21 @@ end
 # ordinary function barrier specializes its actual V; prepared execution uses
 # the same existing finite target schema before assembling the same fields.
 @inline function _with_execution_target_type(f::F, ::OpenExecutionCohortSchema,
-    application, status_view::V, fields, owners,
+    application, status_view::V, object_id, model, output_groups, call_bindings,
+    environment_binding, owners,
 ) where {F,V<:CompiledModelStatusView}
-    actual_fields = (object_id=fields.object_id, model=fields.model,
+    actual_fields = (object_id=object_id, model=model,
         status_view=status_view, bound_inputs=status_view.bound_inputs,
-        output_targets=_runtime_model_output_targets(fields.output_groups), call_bindings=fields.call_bindings,
-        environment_binding=fields.environment_binding)
+        output_targets=_runtime_model_output_targets(output_groups), call_bindings=call_bindings,
+        environment_binding=environment_binding)
     return f(Val{nothing}(), application, actual_fields, owners, OpenContextCallSchema())
 end
 
+# Incoming metadata can be abstract: callers inline these finite checks before
+# dispatching the typed factory, without a runtime generated-method fallback.
 @generated function _with_execution_target_type(f, ::ClosedExecutionCohortSchema{T},
-    application, status_view::CompiledModelStatusView, fields, owners,
+    application, status_view::CompiledModelStatusView, object_id, model, output_groups,
+    call_bindings, environment_binding, owners,
 ) where {T}
     branches = Expr[]
     names = (:object_id, :model, :status_view, :bound_inputs,
@@ -186,18 +190,18 @@ end
         Views = fieldtype(Target, :output_targets)
         Groups = _output_target_binding_groups_type(Views)
         checks = Expr[:(application isa $(fieldtype(Context, :application))),
-            :(getproperty(fields, :output_groups) isa $Groups)]
+            :(output_groups isa $Groups)]
         values = Expr[]
         for name in names
             value = if name === :status_view
                 :status_view
             elseif name === :output_targets
-                :(_runtime_model_output_targets(getproperty(fields, :output_groups)::$Groups)::$Views)
+                :(_runtime_model_output_targets(output_groups::$Groups)::$Views)
             elseif name === :bound_inputs
                 # The earlier status_view check short-circuits before this read.
                 :((status_view::$V).bound_inputs)
             else
-                :(getproperty(fields, $(QuoteNode(name))))
+                name
             end
             name === :output_targets || push!(checks, :($value isa $(fieldtype(Target, name))))
             push!(values, :($value::$(fieldtype(Target, name))))

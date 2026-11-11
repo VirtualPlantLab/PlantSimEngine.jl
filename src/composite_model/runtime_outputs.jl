@@ -3437,14 +3437,13 @@ function _new_model_execution_target(
     output_groups = _runtime_model_output_groups(compiled, application, object_id)
     call_bindings = get(compiled.call_bindings_by_target, (application.id, object_id), ())
     environment_binding = _environment_binding_for(env_bindings, application.id, object_id)
-    fields = (object_id=object_id, model=model, output_groups=output_groups,
-        call_bindings=call_bindings, environment_binding=environment_binding)
     owners = (compiled=compiled, environment_bindings=env_bindings,
         temporal_streams=temporal_streams,
         output_retention=output_retention, constants=constants,
         environment=_NO_ENVIRONMENT_OVERRIDE)
-    return _with_execution_target_type(_new_model_execution_target, target_schema,
-        application, status_view, fields, owners)
+    return Base.@inline _with_execution_target_type(_new_model_execution_target, target_schema,
+        application, status_view, object_id, model, output_groups, call_bindings,
+        environment_binding, owners)
 end
 
 function _new_model_execution_target(::Val{Target}, actual_application, actual, owner,
@@ -6072,14 +6071,13 @@ function _append_targeted_newborn_targets!(
             output_groups = _runtime_model_output_groups(compiled,application,object_id)
             environment_binding = _environment_binding_for(environment_bindings,application.id,object_id)
             call_bindings = () # targeted admission has rejected nested callees
-            fields = (object_id=object_id,model=_application_model(application,object_id),
-                output_groups=output_groups,call_bindings=call_bindings,
-                environment_binding=environment_binding)
+            model = _application_model(application,object_id)
             owners = (compiled=compiled,environment_bindings=environment_bindings,
                 temporal_streams=context.temporal_streams,
                 output_retention=context.output_retention,constants=context.constants,
                 environment=context.environment)
-            _with_execution_target_type(admission,application,status_view,fields,owners) do target_type,actual_application,actual,owner,call_schema
+            Base.@inline _with_execution_target_type(admission,application,status_view,object_id,model,
+                output_groups,call_bindings,environment_binding,owners) do target_type,actual_application,actual,owner,call_schema
                 _append_targeted_newborn_target!(target_type,actual_application,actual,owner,
                     call_schema,targets,context,cache,stamp,targeted_runtime,key)
             end
