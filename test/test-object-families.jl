@@ -19,6 +19,19 @@ const PSE = PlantSimEngine
     @test store.catalog isa PSE.OpenObjectFamilyCatalog
     @test length(store.catalog.families) == 3
     @test model_object(model, 1) === first
+    for object in (first, second, empty)
+        @test model_object(model, object.id) === object
+        @test model_object(model, object.id.value) === object
+    end
+    for id in (17, :absent, (:plant, 4)), query in (id, ObjectId(id))
+        failure = try
+            model_object(model, query)
+        catch exception
+            exception
+        end
+        @test failure isa ErrorException
+        @test sprint(showerror, failure) == "No model object with id `$(id)`."
+    end
     @test model_status(model, 1) === supplied
     @test PSE.refvalue(model_status(model, supplied), :value) === reference
     @test isnothing(model_status(model, (:plant, 3)))

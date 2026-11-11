@@ -1124,8 +1124,9 @@ end
 
 function _model_object(model::CompositeModel, id)
     oid = ObjectId(id)
-    haskey(model.registry.objects, oid) || error("No model object with id `$(oid.value)`.")
-    return model.registry.objects[oid]
+    object = get(model.registry.objects, oid, nothing)
+    isnothing(object) && error("No model object with id `$(oid.value)`.")
+    return object
 end
 
 """
