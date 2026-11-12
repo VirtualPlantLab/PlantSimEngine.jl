@@ -573,6 +573,13 @@ function recipe_weather()
     ])
 end
 
+@testset "missing Weather sources identify the application, input and available names" begin
+    model = CompositeModel(Object(:leaf; scale=:Leaf); environment=recipe_weather(),
+        applications=(ModelSpec(Probe(0.0); name=:probe, on=One(id=:leaf),
+            environment=Environment(sources=(T=:absent,))),))
+    @test_throws r"probe/leaf .*needs `T` from source `absent`; available=\([^)]*\bT\b" run!(model; steps=1)
+end
+
 @testset "prepared raw Weather rows stay inferred and share the window sampler" begin
     weather = recipe_weather()
     available = @inferred Nothing PSE.EnvironmentAPI.environment_variables(

@@ -538,6 +538,15 @@ function _compile_environment_bindings(
     )
 end
 
+function _missing_model_environment_input_detail(
+    application_id, process, object_id, target, source, available,
+)
+    location = string(application_id, "/", object_id.value, " (", process, ")")
+    variables = join(sort!(collect(available); by=string), ", ")
+    return string(location, " needs `", target, "` from source `", source,
+        "`; available=(", variables, ")")
+end
+
 function _validate_model_environment_inputs!(bindings, applications_by_id,
     ::Type{I}; environment_schema=EnvironmentBindingSchema(),
 ) where {I<:ObjectId}
@@ -556,18 +565,8 @@ function _validate_model_environment_inputs!(bindings, applications_by_id,
             application = applications_by_id[application_id]
             for (target, source) in plan.sampling_rules
                 source in available && continue
-                push!(missing_details, string(
-                    application_id,
-                    "/",
-                    object_id.value,
-                    " (",
-                    application.process,
-                    ") needs `",
-                    target,
-                    "` from source `",
-                    source,
-                    "`; available=",
-                    Tuple(sort!(collect(available); by=string)),
+                push!(missing_details, _missing_model_environment_input_detail(
+                    application_id, application.process, object_id, target, source, available,
                 ))
             end
         end
