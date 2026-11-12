@@ -66,7 +66,7 @@ function _check_target(application, target)
     # Validate the same environment row that the canonical batch sampler uses.
     binding = target.environment_binding
     environment = isnothing(binding) ? nothing :
-                  PSE._sample_compiled_global_environment(binding, application, 1)
+                  PSE._sample_compiled_global_environment(binding, 1)
     isbits(environment) ||
         _unsupported(application.id, "sampled environment must be an immutable bits-valued row")
     return nothing

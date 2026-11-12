@@ -2713,11 +2713,7 @@ function _model_environment_for_binding(
             return _global_environment_sample_value(
                 binding.plan.sample_schema, env_bindings.sample_cache[key],
             )
-        sampled = _sample_compiled_global_environment(
-            binding,
-            application,
-            step,
-        )
+        sampled = _sample_compiled_global_environment(binding, step)
         env_bindings.sample_cache[key] = sampled
         return _global_environment_sample_value(binding.plan.sample_schema, sampled)
     end
@@ -2729,27 +2725,33 @@ function _model_environment_for_binding(
     )
 end
 
-@inline function _sample_compiled_global_environment(
-    binding,
-    application,
-    step::Int,
-)
+@inline function _sample_compiled_global_environment(binding, step::Int)
     raw_row = _environment_row_at_step(binding.prepared_source, step)
-    sampler = binding.sampler
-    if !isnothing(sampler)
-        return _sample_environment_for_model(
-            sampler,
-            raw_row,
-            step,
-            application.clock,
-            application.spec,
-        )
-    end
-    binding.uses_raw_global_source && return raw_row
-    return _sample_compiled_global_environment_row(
-        raw_row,
-        binding.compiled_sampling_rules,
+    return _sample_compiled_global_environment(
+        binding.plan.sample_schema, binding, raw_row, step,
     )
+end
+
+@inline function _sample_compiled_global_environment(
+    schema::GlobalEnvironmentSampleSchema{R,:raw}, binding, raw_row, step::Int,
+) where {R}
+    return _global_environment_sample_value(schema, raw_row)
+end
+
+@inline function _sample_compiled_global_environment(
+    schema::GlobalEnvironmentSampleSchema{R,:projected}, binding, raw_row, step::Int,
+) where {R}
+    return _global_environment_sample_value(schema, _sample_compiled_global_environment_row(
+        raw_row, binding.compiled_sampling_rules,
+    ))
+end
+
+@inline function _sample_compiled_global_environment(
+    schema::GlobalEnvironmentSampleSchema{R,:window}, binding, raw_row, step::Int,
+) where {R}
+    return _global_environment_sample_value(schema, PlantMeteo.sample_weather(
+        binding.sampler, step; window=schema.window, transforms=schema.transforms,
+    ))
 end
 
 # The execution payload owns the already resolved current call bindings.
@@ -2968,11 +2970,7 @@ end
     application,
     time,
 )
-    return _sample_compiled_global_environment(
-        provider.binding,
-        application,
-        Int(round(time)),
-    )
+    return _sample_compiled_global_environment(provider.binding, Int(round(time)))
 end
 
 @inline function _run_model_execution_batch!(

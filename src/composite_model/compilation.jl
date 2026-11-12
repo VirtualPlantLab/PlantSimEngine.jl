@@ -1730,9 +1730,12 @@ struct CompiledEnvironmentSamplingRule{T,S} end
 CompiledEnvironmentSamplingRule(target::Symbol, source::Symbol) =
     CompiledEnvironmentSamplingRule{target,source}()
 
-# A value-type witness narrows the existing shared Any-valued sample memo.
-# It carries no sampled state and does not change cache ownership or resets.
-struct GlobalEnvironmentSampleSchema{R} end
+# The result witness admits the existing shared Any-valued sample memo.
+# Kind, window and transforms are prepared metadata, never sampled values.
+struct GlobalEnvironmentSampleSchema{R,Kind,W,T}
+    window::W
+    transforms::T
+end
 @inline _global_environment_sample_value(::GlobalEnvironmentSampleSchema{R}, value) where {R} = value::R
 
 struct CompiledEnvironmentApplicationPlan{B,C,RI,SI,PO,R,CR,S,P,GS}
@@ -5133,7 +5136,7 @@ function _model_environment_bindings_with_environment_sources(
     resolved = Pair{Symbol,Any}[]
     for target in targets
         rule = haskey(bindings, target) ?
-               _normalize_environment_binding_rule(target, bindings[target]) :
+               _normalize_environment_binding_rule(target, bindings[target], _normalize_environment_reducer) :
                (source=target, reducer=PlantMeteo.MeanWeighted())
         source = haskey(sources, target) ? Symbol(sources[target]) : rule.source
         push!(resolved, target => (source=source, reducer=rule.reducer))

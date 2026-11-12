@@ -343,7 +343,7 @@ environment_batch_allocations(simulation, batch, time) =
     end
 end
 
-@testset "DataFrame preparation keeps table samples Any and preserves every Float32 row" begin
+@testset "DataFrame preparation admits raw row types and preserves every Float32 row" begin
     temperatures = Float32[1.25, 2.5, 4]
     unused = Int32[11, 22, 33]
     durations = fill(Hour(1), 3)
@@ -359,7 +359,8 @@ end
         control = table_probe(rows; remap)
         plan = simulation.environment_bindings.application_plans_by_id[:probe]
         @test plan.prepared_source isa PSE.PreparedGlobalEnvironmentRows
-        @test plan.sample_schema isa PSE.GlobalEnvironmentSampleSchema{Any}
+        R = remap ? Any : eltype(rows)
+        @test plan.sample_schema isa PSE.GlobalEnvironmentSampleSchema{R}
         @test current_step(simulation) == current_step(control) == 3
         @test final_state(simulation) == final_state(control) == (seen=4f0, visits=3)
         @test outputs(simulation)[(:probe, ObjectId(:a), :seen)] ==
@@ -561,6 +562,135 @@ end
             @test all(plan -> plan.prepared_source === expected.prepared_source, reused)
         end
     end
+end
+
+
+function recipe_weather()
+    return PSE.PlantMeteo.Weather([
+        PSE.PlantMeteo.Atmosphere(date=DateTime(2025, 1, 1) + Hour(index - 1),
+            T=temperature, Wind=1.0, Rh=0.5, duration=Hour(1))
+        for (index, temperature) in enumerate((10.0, 20.0, 30.0, 40.0))
+    ])
+end
+
+@testset "prepared raw Weather rows stay inferred and share the window sampler" begin
+    weather = recipe_weather()
+    specs = (
+        ModelSpec(Probe(0.0); name=:raw, on=One(id=:a), every=Hour(1)),
+        ModelSpec(Probe(0.0); name=:window, on=One(id=:b), every=Hour(2)),
+    )
+    make_model() = CompositeModel(Object(:a; scale=:Leaf), Object(:b; scale=:Leaf);
+        applications=specs, environment=weather)
+    collected = PSE._collecting_environment_binding_schema()
+    PSE._prepare_simulation!(make_model(); steps=0, outputs=:none,
+        constants=PSE.Constants(), environment_schema=collected)
+    frozen = PSE._freeze_environment_binding_schema(collected)
+    for schema in (PSE.EnvironmentBindingSchema(), frozen)
+        model = make_model()
+        simulation = PSE._prepare_simulation!(model; steps=0, outputs=:none,
+            constants=PSE.Constants(), environment_schema=schema)
+        owner = simulation.environment_bindings
+        raw = owner.by_target[(:raw, ObjectId(:a))]
+        window = owner.by_target[(:window, ObjectId(:b))]
+        raw_batch = only(batch for batch in simulation.execution_plan.batches
+            if batch.application.id === :raw)
+        @test raw.sampler === window.sampler
+        @test raw.prepared_source === window.prepared_source === weather
+        @test raw.plan.sample_schema isa PSE.GlobalEnvironmentSampleSchema{eltype(weather)}
+        for time in (1, 2, 4)
+            row = @inferred PSE._model_execution_batch_environment(
+                raw_batch.environment_provider, owner, raw_batch.application, time,
+            )
+            @test row === weather[time]
+            @test parent(row) === weather
+            @test row.T === (10.0, 20.0, 30.0, 40.0)[time]
+        end
+        cached_row = @inferred PSE._model_environment_for_binding(
+            owner, raw_batch.application, raw, 2.0,
+        )
+        @test cached_row === weather[2]
+        PSE.continue!(simulation; steps=4)
+        @test model_status(model, :a).seen === 40.0
+        @test model_status(model, :a).visits == 4
+        @test model_status(model, :b).seen === 25.0
+        @test model_status(model, :b).visits == 2
+        @test raw.sampler === window.sampler
+    end
+end
+
+struct RecipeOffsetReducer <: PSE.PlantMeteo.AbstractTimeReducer
+    offset::Float64
+end
+(reducer::RecipeOffsetReducer)(values, durations) =
+    PSE.PlantMeteo.MeanWeighted()(values, durations) + reducer.offset
+
+mutable struct RecipeCountingReducer <: PSE.PlantMeteo.AbstractTimeReducer
+    calls::Int
+end
+RecipeCountingReducer() = RecipeCountingReducer(0)
+function (reducer::RecipeCountingReducer)(values, durations)
+    reducer.calls += 1
+    return PSE.PlantMeteo.MeanWeighted()(values, durations) + reducer.calls
+end
+
+function recipe_window_spec(width, offset)
+    return ModelSpec(Probe(0.0); name=:probe, on=One(id=:a), every=Hour(3),
+        environment_window=PSE.PlantMeteo.RollingWindow(width),
+        environment_bindings=(T=(source=:T, reducer=RecipeOffsetReducer(offset)),))
+end
+
+@testset "reconciled same-type Weather recipes use new window and transform values" begin
+    weather = recipe_weather()
+    initial_spec = recipe_window_spec(2.0, 0.0)
+    make_model() = CompositeModel(Object(:a; scale=:Leaf);
+        applications=(initial_spec,), environment=weather)
+    collected = PSE._collecting_environment_binding_schema()
+    PSE._prepare_simulation!(make_model(); steps=0, outputs=:none,
+        constants=PSE.Constants(), environment_schema=collected)
+    frozen = PSE._freeze_environment_binding_schema(collected)
+    for schema in (PSE.EnvironmentBindingSchema(), frozen),
+        (width, offset, expected) in ((3.0, 0.0, 20.0), (2.0, 7.0, 32.0))
+        model = make_model()
+        simulation = PSE._prepare_simulation!(model; steps=0, outputs=:none,
+            constants=PSE.Constants(), environment_schema=schema)
+        owner = simulation.environment_bindings
+        old = owner.by_target[(:probe, ObjectId(:a))]
+        # Bypass the app/time memo here: this must test recipe reconciliation,
+        # while keeping the source sampler and its own window-keyed cache live.
+        @test PSE._sample_compiled_global_environment(old, 3).T === 25.0
+        replacement = recipe_window_spec(width, offset)
+        @test typeof(replacement) === typeof(initial_spec)
+        compiled = PSE.Advanced.compile_composite_model(model, (replacement,))
+        refreshed = PSE._refresh_environment_bindings!(model, compiled, owner)
+        current = refreshed.by_target[(:probe, ObjectId(:a))]
+        @test model.environment_binding_cache === refreshed
+        @test refreshed.environment_schema === schema
+        @test current.plan !== old.plan
+        @test typeof(current.plan.sample_schema) === typeof(old.plan.sample_schema)
+        @test current.sampler === old.sampler
+        @test current.prepared_source === old.prepared_source === weather
+        @test current.sampling_rules == old.sampling_rules
+        @test isempty(refreshed.sample_cache)
+        @test PSE._sample_compiled_global_environment(current, 3).T === expected
+        application = compiled.applications_by_id[:probe]
+        @test PSE._model_environment_for_binding(
+            refreshed, application, current, 3.0,
+        ).T === expected
+    end
+
+    # A type requests a fresh reducer for every sample. An explicit instance
+    # shares its state between samples, as before recipe preparation.
+    instance = RecipeCountingReducer()
+    for (reducer, expected) in ((RecipeCountingReducer, 26.0), (instance, 27.0))
+        model = CompositeModel(Object(:a; scale=:Leaf); environment=recipe_weather(),
+            applications=(ModelSpec(Probe(0.0); name=:probe, on=One(id=:a),
+                every=Hour(2), environment_bindings=(T=reducer,)),))
+        simulation = run!(model; steps=3, outputs=:all)
+        @test outputs(simulation)[(:probe, ObjectId(:a), :seen)] ==
+              [(1.0, 11.0), (3.0, expected)]
+        @test model_status(model, :a).seen === expected
+    end
+    @test instance.calls == 2
 end
 
 end # module GlobalEnvironmentSampleSchemaChecks

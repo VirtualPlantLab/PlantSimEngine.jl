@@ -30,13 +30,18 @@ end
 
 _normalize_environment_reducer(reducer) = _normalize_policy_reducer(reducer)
 
-function _normalize_environment_binding_rule(target::Symbol, rule)
+# Keep a declared reducer type as a factory. PlantMeteo instantiates it for
+# each sampled window, while an authored instance retains its own live state.
+_environment_reducer_recipe(reducer::Type{<:PlantMeteo.AbstractTimeReducer}) = reducer
+_environment_reducer_recipe(reducer) = _normalize_environment_reducer(reducer)
+
+function _normalize_environment_binding_rule(target::Symbol, rule, normalize_reducer)
     if rule isa NamedTuple
         src = haskey(rule, :source) ? Symbol(rule.source) : target
-        reducer = haskey(rule, :reducer) ? _normalize_environment_reducer(rule.reducer) : PlantMeteo.MeanWeighted()
+        reducer = haskey(rule, :reducer) ? normalize_reducer(rule.reducer) : PlantMeteo.MeanWeighted()
         return (source=src, reducer=reducer)
     elseif rule isa Function || rule isa PlantMeteo.AbstractTimeReducer || rule isa DataType
-        return (source=target, reducer=_normalize_environment_reducer(rule))
+        return (source=target, reducer=normalize_reducer(rule))
     end
 
     error(
@@ -178,38 +183,9 @@ function _environment_transforms_for_model(model_spec)
 
     pairs_out = Pair{Symbol,Any}[]
     for (target, rule) in pairs(bindings)
-        push!(pairs_out, target => _normalize_environment_binding_rule(target, rule))
+        push!(pairs_out, target => _normalize_environment_binding_rule(
+            target, rule, _environment_reducer_recipe,
+        ))
     end
     return (; pairs_out...)
-end
-
-function _sample_environment_for_model(
-    environment_sampler,
-    environment,
-    i::Int,
-    model_clock::ClockSpec,
-    model_spec
-)
-    transforms = _environment_transforms_for_model(model_spec)
-    window = _runtime_environment_window(environment_window(model_spec))
-
-    isnothing(environment_sampler) && begin
-        if !isnothing(transforms) || !isnothing(window)
-            @warn string(
-                "Environment sampling rules were provided but the weather sampler API is unavailable or the source is not TimeStepTable{Atmosphere}. ",
-                "Falling back to raw environment rows."
-            ) maxlog = 1
-        end
-        return environment
-    end
-
-    # Fast-path: default 1:1 weather step with no custom transforms.
-    if float(model_clock.dt) <= 1.0 &&
-       isnothing(transforms) &&
-       (isnothing(window) || window isa PlantMeteo.RollingWindow)
-        return environment
-    end
-
-    window = _environment_sampling_window(model_clock, model_spec)
-    return PlantMeteo.sample_weather(environment_sampler, i; window=window, transforms=transforms)
 end

@@ -205,16 +205,32 @@ function _environment_source_variable_names(sampling_rules)
     return Tuple(Symbol(source) for (_, source) in sampling_rules)
 end
 
-# Raw singleton sampling returns the source itself. Other sampling recipes
-# retain Any until their result schema is known; preparation never samples a
-# custom source merely to discover its return type.
-function _global_environment_sample_schema(backend, source, sampler, uses_raw::Bool, prepare_runtime::Bool)
-    if prepare_runtime && isnothing(sampler) && uses_raw &&
-       backend isa GlobalConstant &&
-       DataFormat(environment_source(backend)) isa SingletonAlike
-        return GlobalEnvironmentSampleSchema{typeof(source)}()
+# Resolve the same raw/window decision once per application. Source samplers
+# stay shared across applications, including applications with different clocks.
+function _global_environment_sample_schema(
+    backend, source, sampler, uses_raw::Bool, prepare_runtime::Bool, application,
+)
+    window = nothing
+    transforms = nothing
+    kind = if isnothing(sampler)
+        uses_raw ? :raw : :projected
+    else
+        transforms = _environment_transforms_for_model(application.spec)
+        window = _runtime_environment_window(environment_window(application.spec))
+        if float(application.clock.dt) <= 1.0 && isnothing(transforms) &&
+           (isnothing(window) || window isa PlantMeteo.RollingWindow)
+            window = nothing
+            :raw
+        else
+            window = _environment_sampling_window(application.clock, application.spec)
+            :window
+        end
     end
-    return GlobalEnvironmentSampleSchema{Any}()
+    R = prepare_runtime && backend isa GlobalConstant && kind === :raw ?
+        _global_environment_raw_sample_type(source) : Any
+    return GlobalEnvironmentSampleSchema{R,kind,typeof(window),typeof(transforms)}(
+        window, transforms,
+    )
 end
 
 function _compile_environment_application_plans(
@@ -267,7 +283,7 @@ function _compile_environment_application_plans(
                     prepared_source,
                     uses_raw_global_source,
                     _global_environment_sample_schema(
-                        backend, prepared_source, sampler, uses_raw_global_source, prepare_runtime,
+                        backend, prepared_source, sampler, uses_raw_global_source, prepare_runtime, application,
                     ),
                 )
             end
@@ -570,6 +586,12 @@ end
     step::Int,
 ) = @inbounds prepared.rows[step]
 
+# These are row-type declarations, not calls to sample arbitrary providers.
+_global_environment_raw_sample_type(source) =
+    DataFormat(source) isa SingletonAlike ? typeof(source) : Any
+_global_environment_raw_sample_type(source::TimeStepTable) = eltype(source)
+_global_environment_raw_sample_type(source::PreparedGlobalEnvironmentRows) = eltype(source.rows)
+
 # Rule names are fixed in the compiled plan's tuple type. Materializing this
 # zero-size schema is a compiler constant, not a scan or a sampled-value cache.
 @generated function _prepared_environment_inputs(::R) where {R<:Tuple}
@@ -735,7 +757,9 @@ function _same_environment_application_plan(a, b)
            a.sampler === b.sampler &&
            a.prepared_source === b.prepared_source &&
            a.uses_raw_global_source == b.uses_raw_global_source &&
-           typeof(a.sample_schema) === typeof(b.sample_schema)
+           typeof(a.sample_schema) === typeof(b.sample_schema) &&
+           isequal(a.sample_schema.window, b.sample_schema.window) &&
+           isequal(a.sample_schema.transforms, b.sample_schema.transforms)
 end
 
 function _reconciled_environment_application_plans(
