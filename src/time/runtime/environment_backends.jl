@@ -102,7 +102,7 @@ end
 function _available_environment_variables(source)
     row = _first_environment_row(source)
     isnothing(row) && return nothing
-    return Set(Symbol.(propertynames(row)))
+    return Set{Symbol}(Symbol.(propertynames(row)))
 end
 
 """

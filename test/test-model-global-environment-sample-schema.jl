@@ -575,6 +575,10 @@ end
 
 @testset "prepared raw Weather rows stay inferred and share the window sampler" begin
     weather = recipe_weather()
+    available = @inferred Nothing PSE.EnvironmentAPI.environment_variables(
+        PSE.GlobalConstant(weather),
+    )
+    @test :T in available
     specs = (
         ModelSpec(Probe(0.0); name=:raw, on=One(id=:a), every=Hour(1)),
         ModelSpec(Probe(0.0); name=:window, on=One(id=:b), every=Hour(2)),
