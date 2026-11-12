@@ -549,13 +549,13 @@ end
         expected = if local_backend
             "Composite model environment is missing required source inputs: leaf/one " *
             "(environment_shell_leaf) needs `T` from source `missing`; " *
-            "available=(:other,); leaf/two (environment_shell_leaf) needs `T` from source" *
-            " `missing`; available=(:other,)"
+            "available=(other); leaf/two (environment_shell_leaf) needs `T` from source" *
+            " `missing`; available=(other)"
         else
             "Composite model environment is missing required source inputs: leaf/one " *
-            "(environment_shell_leaf) needs `T` from source `missing`; available=(:T,); " *
+            "(environment_shell_leaf) needs `T` from source `missing`; available=(T); " *
             "leaf/two (environment_shell_leaf) needs `T` from source `missing`; " *
-            "available=(:T,)"
+            "available=(T)"
         end
         for table in tables
             failure = try

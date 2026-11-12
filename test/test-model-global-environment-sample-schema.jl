@@ -704,4 +704,69 @@ end
     @test instance.calls == 2
 end
 
+@testset "closed plan factories distinguish same-type source remaps" begin
+    source = (T=10f0, U=20f0, V=30f0, duration=Hour(1))
+    specs = map((:T, :U, :V)) do name
+        ModelSpec(Probe(0f0); name=:probe, on=One(id=:a),
+            environment=Environment(sources=(T=name,)))
+    end
+    make_model(spec) = CompositeModel(Object(:a; scale=:Leaf);
+        applications=(spec,), environment=source)
+    @test all(spec -> typeof(spec) === typeof(first(specs)), specs)
+    @test all(spec -> typeof(PSE.environment_config(spec)) ===
+        typeof(PSE.environment_config(first(specs))), specs)
+
+    collected = PSE._collecting_environment_binding_schema()
+    observed = map(specs[1:2]) do spec
+        PSE._prepare_simulation!(make_model(spec); steps=0, outputs=:none,
+            constants=PSE.Constants(), environment_schema=collected)
+    end
+    plans = map(simulation -> only(simulation.environment_bindings.application_plans), observed)
+    @test plans[1].sampling_rules == (:T => :T,)
+    @test plans[2].sampling_rules == (:T => :U,)
+    @test typeof(plans[1].sampling_rules) === typeof(plans[2].sampling_rules) ===
+        typeof((:T => :V,))
+    @test typeof(plans[1].config) === typeof(plans[2].config)
+    @test typeof(plans[1].compiled_sampling_rules) !== typeof(plans[2].compiled_sampling_rules)
+    schema = PSE._freeze_environment_binding_schema(collected)
+
+    fresh = PSE._prepare_simulation!(make_model(specs[2]); steps=0, outputs=:none,
+        constants=PSE.Constants(), environment_schema=schema)
+    continue!(fresh; steps=1)
+    @test model_status(fresh.model, :a).seen === 20f0
+
+    model = make_model(specs[1])
+    simulation = PSE._prepare_simulation!(model; steps=0, outputs=:none,
+        constants=PSE.Constants(), environment_schema=schema)
+    owner = simulation.environment_bindings
+    application = simulation.compiled.applications_by_id[:probe]
+    binding = owner.by_target[(:probe, ObjectId(:a))]
+    @test PSE._model_environment_for_binding(owner, application, binding, 1.0).T === 10f0
+
+    compiled = PSE.Advanced.compile_composite_model(model, (specs[2],))
+    refreshed = PSE._refresh_environment_bindings!(model, compiled, owner)
+    binding = refreshed.by_target[(:probe, ObjectId(:a))]
+    @test model.environment_binding_cache === refreshed
+    @test refreshed.environment_schema === schema
+    @test isempty(refreshed.sample_cache)
+    @test binding.plan.sampling_rules == (:T => :U,)
+    @test typeof(binding.plan.compiled_sampling_rules) === typeof(plans[2].compiled_sampling_rules)
+    @test binding.prepared_source === source
+    @test PSE._model_environment_for_binding(refreshed,
+        compiled.applications_by_id[:probe], binding, 1.0).T === 20f0
+
+    admitted_application = compiled.applications_by_id[:probe]
+    unadmitted = PSE.Advanced.compile_composite_model(model, (specs[3],))
+    @test_throws "probe` is outside its prepared family schema" PSE._refresh_environment_bindings!(
+        model, unadmitted, refreshed)
+    @test model.environment_binding_cache === refreshed
+    @test refreshed.compiled_applications === compiled.applications
+    @test refreshed.compiled_applications !== unadmitted.applications
+    @test compiled.applications_by_id[:probe] === admitted_application
+    @test refreshed.by_target[(:probe, ObjectId(:a))] === binding
+    @test refreshed.application_plans_by_id[:probe] === binding.plan
+    @test PSE._model_environment_for_binding(refreshed,
+        admitted_application, binding, 1.0).T === 20f0
+end
+
 end # module GlobalEnvironmentSampleSchemaChecks

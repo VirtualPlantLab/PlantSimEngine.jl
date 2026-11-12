@@ -202,35 +202,144 @@ function _environment_variable_names(vars)
 end
 
 function _environment_source_variable_names(sampling_rules)
-    return Tuple(Symbol(source) for (_, source) in sampling_rules)
+    return map(rule -> Symbol(last(rule)), Tuple(sampling_rules))
 end
 
-# Resolve the same raw/window decision once per application. Source samplers
-# stay shared across applications, including applications with different clocks.
-function _global_environment_sample_schema(
+# Construct only after any closed-schema admission of these argument types.
+@inline function _global_environment_sample_schema(
+    ::Type{R}, ::Val{Kind}, window::W, transforms::T,
+) where {R,Kind,W,T}
+    return GlobalEnvironmentSampleSchema{R,Kind,W,T}(window, transforms)
+end
+
+# Select prepared metadata without constructing a schema or a plan. The caller
+# admits its raw fields before invoking the shared schema/plan constructors.
+function _prepare_environment_application_plan(
     backend, source, sampler, uses_raw::Bool, prepare_runtime::Bool, application,
+    schema, config, required_inputs, produced_outputs, sampling_rules,
 )
-    window = nothing
-    transforms = nothing
-    kind = if isnothing(sampler)
-        uses_raw ? :raw : :projected
+    if isnothing(sampler)
+        if !uses_raw
+            return Base.@inline _new_environment_application_plan(schema,
+                application.id, backend, config, required_inputs, produced_outputs,
+                sampling_rules, sampler, source, uses_raw, Any,
+                Val(:projected), nothing, nothing)
+        end
     else
         transforms = _environment_transforms_for_model(application.spec)
         window = _runtime_environment_window(environment_window(application.spec))
-        if float(application.clock.dt) <= 1.0 && isnothing(transforms) &&
-           (isnothing(window) || window isa PlantMeteo.RollingWindow)
-            window = nothing
-            :raw
-        else
+        if !(float(application.clock.dt) <= 1.0 && isnothing(transforms) &&
+             (isnothing(window) || window isa PlantMeteo.RollingWindow))
             window = _environment_sampling_window(application.clock, application.spec)
-            :window
+            return Base.@inline _new_environment_application_plan(schema,
+                application.id, backend, config, required_inputs, produced_outputs,
+                sampling_rules, sampler, source, uses_raw, Any,
+                Val(:window), window, transforms)
         end
     end
-    R = prepare_runtime && backend isa GlobalConstant && kind === :raw ?
-        _global_environment_raw_sample_type(source) : Any
-    return GlobalEnvironmentSampleSchema{R,kind,typeof(window),typeof(transforms)}(
-        window, transforms,
-    )
+    if prepare_runtime && backend isa GlobalConstant
+        return Base.@inline _new_environment_application_plan(schema,
+            application.id, backend, config, required_inputs, produced_outputs,
+            sampling_rules, sampler, source, uses_raw,
+            _global_environment_raw_sample_type(source), Val(:raw), nothing, nothing)
+    end
+    return Base.@inline _new_environment_application_plan(schema,
+        application.id, backend, config, required_inputs, produced_outputs,
+        sampling_rules, sampler, source, uses_raw, Any, Val(:raw), nothing, nothing)
+end
+
+# Open preparation derives the rule family from current routing values. Frozen
+# preparation reaches the same assembly with a previously admitted plan type.
+_compiled_environment_sampling_rules(::Val{nothing}, rules::Tuple) =
+    map(rule -> CompiledEnvironmentSamplingRule(first(rule), last(rule)), rules)
+
+@generated function _compiled_environment_sampling_rules(::Val{P}, rules::Tuple) where {P}
+    CR = fieldtype(P, :compiled_sampling_rules)
+    return Expr(:tuple, [:( $(Rule)() ) for Rule in fieldtypes(CR)]...)
+end
+
+function _construct_environment_application_plan(
+    schema, witness::Val{P}, application_id, backend, config, required_inputs,
+    produced_outputs, sampling_rules, sampler, prepared_source, uses_raw,
+    row_type::Type{R}, kind::Val{Kind}, window, transforms,
+) where {P,R,Kind}
+    source_inputs = _environment_source_variable_names(sampling_rules)
+    compiled_rules = _compiled_environment_sampling_rules(witness, sampling_rules)
+    sample_schema = _global_environment_sample_schema(row_type, kind, window, transforms)
+    plan = CompiledEnvironmentApplicationPlan(application_id, backend, config,
+        required_inputs, source_inputs, produced_outputs, sampling_rules,
+        compiled_rules, sampler, prepared_source, uses_raw, sample_schema)
+    if P === nothing
+        return _with_environment_plan(identity, schema, plan)
+    end
+    typeof(plan) === P || throw(ArgumentError("Environment-plan fields changed after admission."))
+    return plan::P
+end
+
+function _new_environment_application_plan(
+    schema::Union{EnvironmentBindingSchema{Nothing,Nothing},EnvironmentBindingSchema{Vector{DataType},Vector{DataType}}},
+    application_id, backend, config, required_inputs, produced_outputs,
+    sampling_rules, sampler, prepared_source, uses_raw, row_type, kind, window, transforms,
+)
+    return _construct_environment_application_plan(schema, Val(nothing),
+        application_id, backend, config, required_inputs, produced_outputs,
+        sampling_rules, sampler, prepared_source, uses_raw, row_type, kind, window, transforms)
+end
+
+# Admit actual fields and routing before constructing any parameterized rule,
+# sample schema or plan. A widened old record is not a new-constructor family.
+@generated function _new_environment_application_plan(
+    schema::EnvironmentBindingSchema{PT,BT}, application_id::Symbol,
+    backend, config, required_inputs, produced_outputs, sampling_rules,
+    sampler, prepared_source, uses_raw::Bool, row_type, kind, window, transforms,
+) where {PT<:NamedTuple,BT<:NamedTuple}
+    branches = Expr[]
+    names = (:backend, :config, :required_inputs, :produced_outputs,
+        :sampling_rules, :sampler, :prepared_source)
+    for Witness in fieldtypes(PT)
+        Witness <: Val || error("Environment-plan metadata must contain type witnesses only.")
+        P = only(Witness.parameters)
+        P isa DataType && isconcretetype(P) && P <: CompiledEnvironmentApplicationPlan ||
+            error("Environment-plan metadata needs actual concrete normalized plan types.")
+        fields = [fieldtype(P, name) for name in names]
+        SI, CR, GS = (fieldtype(P, name) for name in
+            (:source_inputs, :compiled_sampling_rules, :sample_schema))
+        all(isconcretetype, (fields..., SI, CR, GS)) || continue
+        CR <: Tuple && GS <: GlobalEnvironmentSampleSchema || continue
+        N = fieldcount(CR)
+        fieldtype(P, :required_inputs) === NTuple{N,Symbol} || continue
+        SI === NTuple{N,Symbol} || continue
+        Rules = fieldtype(P, :sampling_rules)
+        Rules <: Tuple && fieldcount(Rules) == N || continue
+        tags = fieldtypes(CR)
+        all(T -> T <: CompiledEnvironmentSamplingRule &&
+            length(T.parameters) == 2 && all(x -> x isa Symbol, T.parameters), tags) || continue
+        R, Kind, W, T = GS.parameters
+        all(isconcretetype, (W, T)) || continue
+        checks = Expr[:($(name) isa $(Type)) for (name, Type) in zip(names, fields)]
+        append!(checks, [:(row_type === $R), :(kind isa Val{$(QuoteNode(Kind))}),
+            :(window isa $W), :(transforms isa $T)])
+        for (index, Tag) in enumerate(tags)
+            target, source = Tag.parameters
+            push!(checks, :(getfield(sampling_rules::$Rules, $index) ==
+                $(QuoteNode(target => source))))
+        end
+        values = [:( $(name)::$(Type) ) for (name, Type) in zip(names, fields)]
+        condition = foldl((a,b) -> :($a && $b), checks)
+        b, c, ri, po, rules, s, ps = values
+        push!(branches, quote
+            if $condition
+                return _construct_environment_application_plan(schema, Val{$P}(),
+                    application_id, $b, $c, $ri, $po, $rules, $s, $ps,
+                    uses_raw, $R, Val{$(QuoteNode(Kind))}(), window::$W, transforms::$T)
+            end
+        end)
+    end
+    return quote
+        $(branches...)
+        throw(ArgumentError(string("The normalized environment plan for application `",
+            application_id, "` is outside its prepared family schema. Prepare a new compilation schema for this configuration.")))
+    end
 end
 
 function _compile_environment_application_plans(
@@ -258,53 +367,37 @@ function _compile_environment_application_plans(
             bindings, environment_sources = _environment_sampling_configuration(application.spec)
             required_inputs = _model_environment_input_names(application)
             sampling_rules = Tuple(_environment_sampling_rules(bindings, environment_sources, required_inputs))
-            compiled_sampling_rules = Tuple(
-                CompiledEnvironmentSamplingRule(target, source)
-                for (target, source) in sampling_rules
-            )
-            source_inputs = _environment_source_variable_names(sampling_rules)
             produced_outputs = _model_environment_output_names(application)
-            function build_plan(sampler, prepared_source)
-                has_bindings = !isempty(keys(bindings))
-                has_source_overrides = !isempty(keys(environment_sources))
-                uses_raw_global_source = backend isa GlobalConstant &&
-                                         isnothing(sampler) &&
-                                         !has_bindings && !has_source_overrides
-                return CompiledEnvironmentApplicationPlan(
-                    application.id,
-                    backend,
-                    config,
-                    required_inputs,
-                    source_inputs,
-                    produced_outputs,
-                    sampling_rules,
-                    compiled_sampling_rules,
-                    sampler,
-                    prepared_source,
-                    uses_raw_global_source,
-                    _global_environment_sample_schema(
-                        backend, prepared_source, sampler, uses_raw_global_source, prepare_runtime, application,
-                    ),
-                )
-            end
+            uses_raw_global_source = backend isa GlobalConstant &&
+                isempty(keys(bindings)) && isempty(keys(environment_sources))
             plan = if prepare_runtime && backend isa GlobalConstant
                 source = environment_source(backend)
                 cached_plan = get(plans_by_source, source, nothing)
                 if isnothing(cached_plan)
                     sampler = _prepare_environment_sampler(source)
                     prepared_source = _prepare_global_environment(source)
-                    prepared_plan = build_plan(sampler, prepared_source)
+                    prepared_plan = _prepare_environment_application_plan(
+                        backend, prepared_source,
+                        sampler, uses_raw_global_source && isnothing(sampler), prepare_runtime,
+                        application, environment_schema, config, required_inputs,
+                        produced_outputs, sampling_rules)
                     plans_by_source[source] = prepared_plan
                     prepared_plan
                 else
-                    _with_environment_plan(environment_schema, cached_plan) do admitted_plan
-                        build_plan(admitted_plan.sampler, admitted_plan.prepared_source)
+                    Base.@inline _with_environment_plan(environment_schema, cached_plan) do admitted_plan
+                        _prepare_environment_application_plan(
+                            backend, admitted_plan.prepared_source,
+                            admitted_plan.sampler, uses_raw_global_source && isnothing(admitted_plan.sampler),
+                            prepare_runtime, application, environment_schema, config,
+                            required_inputs, produced_outputs, sampling_rules)
                     end
                 end
             else
-                build_plan(nothing, nothing)
+                _prepare_environment_application_plan(
+                    backend, nothing, nothing,
+                    uses_raw_global_source, prepare_runtime, application,
+                    environment_schema, config, required_inputs, produced_outputs, sampling_rules)
             end
-            _with_environment_plan(identity, environment_schema, plan)
             push!(plans, plan)
             haskey(plans_by_id, application.id) && error(
                 "Environment application-plan compilation produced duplicate application id `$(application.id)`.",
