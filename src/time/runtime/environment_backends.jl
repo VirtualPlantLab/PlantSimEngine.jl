@@ -102,7 +102,11 @@ end
 function _available_environment_variables(source)
     row = _first_environment_row(source)
     isnothing(row) && return nothing
-    return Set{Symbol}(Symbol.(propertynames(row)))
+    variables = Set{Symbol}()
+    for name in propertynames(row)
+        push!(variables, Symbol(name))
+    end
+    return variables
 end
 
 """
