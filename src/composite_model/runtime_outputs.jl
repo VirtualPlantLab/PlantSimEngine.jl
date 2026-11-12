@@ -1953,12 +1953,13 @@ function _initialize_model_output_streams!(
                     application,
                     variable,
                 )
+                    id = _index_object_id(compiled.model.registry.objects, object_id)
                     _initialize_model_output_stream!(
                         streams,
                         compiled,
                         retention,
                         application,
-                        object_id,
+                        id,
                         variable,
                         sizehint_steps,
                     )
@@ -6191,7 +6192,12 @@ function _current_topology_call_targets(
     )
     isnothing(targeted) || return targeted
     compiled = _refresh_runtime_bindings!(model, context.compiled)
-    environment_bindings = refresh_environment_bindings!(model, compiled)
+    environment_bindings = _refresh_environment_bindings!(
+        model,
+        compiled,
+        _current_environment_binding_owner(model, context.environment_bindings);
+        environment_schema=context.environment_bindings.environment_schema,
+    )
     bindings = get(
         compiled.call_bindings_by_target,
         (context.application.id, context.object_id),

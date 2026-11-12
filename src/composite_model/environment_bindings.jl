@@ -478,7 +478,7 @@ function _compile_environment_bindings_for_applications(
         application_id = application.id
         application_process = application.process
         target_ids = application.target_ids
-        _with_environment_plan(environment_schema, plans_by_id[application_id]) do plan
+        Base.@inline _with_environment_plan(environment_schema, plans_by_id[application_id]) do plan
             for object_id in target_ids
                 object = _model_object(model, object_id)
                 context = _object_environment_context(application_id, application_process, object, object_id)
