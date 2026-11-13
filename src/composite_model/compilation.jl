@@ -4535,20 +4535,22 @@ function _extend_compiled_scene(
         rebuild_dynamic_input_index |= rebuilt
     end
     previous_binding_count = length(input_bindings)
-    recorder = _AddedConsumerInputBindings(
-        model, many_binding_cache, changed_bindings, input_bindings_by_target,
-    )
-    for partial in added_applications
-        isempty(partial.target_ids) && continue
-        _with_model_application(applications_by_id, partial) do application
-            _with_metadata_entry(
-                compiled.scenario_plan.input_recipes_by_application, application.id,
-            ) do recipe
-                _compile_application_consumer_bindings!(
-                    input_bindings, model, application, recipe, manual_application_ids,
-                    applications_by_object, applications_by_id, distributed_outputs,
-                    many_binding_cache, performance, recorder,
-                )
+    let many_binding_cache = many_binding_cache
+        recorder = _AddedConsumerInputBindings(
+            model, many_binding_cache, changed_bindings, input_bindings_by_target,
+        )
+        for partial in added_applications
+            isempty(partial.target_ids) && continue
+            _with_model_application(applications_by_id, partial) do application
+                _with_metadata_entry(
+                    compiled.scenario_plan.input_recipes_by_application, application.id,
+                ) do recipe
+                    _compile_application_consumer_bindings!(
+                        input_bindings, model, application, recipe, manual_application_ids,
+                        applications_by_object, applications_by_id, distributed_outputs,
+                        many_binding_cache, performance, recorder,
+                    )
+                end
             end
         end
     end
