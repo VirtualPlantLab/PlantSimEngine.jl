@@ -4774,7 +4774,6 @@ function _extend_compiled_scene(
         added_applications
     else
         rewired_applications = copy(added_applications)
-        I = keytype(model.registry.objects)
         targets_by_application = Dict{Symbol,Vector{I}}()
         for raw_id in rewired_consumer_ids
             object_id = _index_object_id(model.registry.objects, raw_id)
