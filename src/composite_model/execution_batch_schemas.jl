@@ -533,7 +533,7 @@ end
             _model_execution_outputs_match(outputs,status_view,output_targets,application,object_id,
                 retention,streams) || throw(ArgumentError("Prepared retained output names or ownership changed."))
         end
-        return outputs
+        return _prepare_runtime_output_capacity!(outputs)
     end
 end
 

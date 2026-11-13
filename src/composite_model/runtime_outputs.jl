@@ -165,6 +165,33 @@ end
 
 _runtime_output_variable(::RuntimeDistributedOutputStream{V}) where {V} = V
 
+# Capacity changes belong to the already admitted runtime output carriers.
+# All readers/publishers retain the same buffer when its horizon grows.
+_prepare_runtime_output_capacity!(outputs::Tuple{}) = outputs
+function _prepare_runtime_output_capacity!(outputs::Tuple)
+    _prepare_runtime_output_capacity!(first(outputs))
+    _prepare_runtime_output_capacity!(Base.tail(outputs))
+    return outputs
+end
+
+function _prepare_runtime_output_capacity!(output::RuntimeOutputStream)
+    _prepare_runtime_stream_capacity!(output.stream, output.dependency_horizon)
+    return output
+end
+
+function _prepare_runtime_output_capacity!(output::RuntimeDistributedOutputStream)
+    for stream in output.streams
+        _prepare_runtime_stream_capacity!(stream, output.dependency_horizon)
+    end
+    return output
+end
+
+_prepare_runtime_stream_capacity!(stream, horizon::Float64) = nothing
+function _prepare_runtime_stream_capacity!(stream::TemporalDependencyBuffer, horizon::Float64)
+    _grow_temporal_dependency_buffer!(stream, _model_dependency_capacity(horizon))
+    return nothing
+end
+
 struct CompiledOutputPublication{V}
     variables::V
     enabled::Bool
@@ -1734,13 +1761,15 @@ end
 _model_dependency_only_output(::Nothing, application_id::Symbol, variable::Symbol) =
     false
 
+_model_dependency_capacity(horizon::Float64) = max(1, ceil(Int, horizon))
+
 function _model_dependency_capacity(
     retention::OutputRetentionPlan,
     application_id::Symbol,
     variable::Symbol,
 )
     horizon = get(retention.dependency_horizons, (application_id, variable), 0.0)
-    return max(1, ceil(Int, horizon))
+    return _model_dependency_capacity(horizon)
 end
 
 function _model_new_output_stream(
@@ -1828,16 +1857,7 @@ function _initialize_model_output_stream!(
     sizehint_steps::Integer,
 )
     key = _model_stream_key(application.id, object_id, variable)
-    if haskey(streams, key)
-        stream = streams[key]
-        if stream isa TemporalDependencyBuffer
-            _grow_temporal_dependency_buffer!(
-                stream,
-                _model_dependency_capacity(retention, application.id, variable),
-            )
-        end
-        return streams
-    end
+    haskey(streams, key) && return streams
     reference = _model_output_reference(
         compiled,
         application,
@@ -1879,7 +1899,8 @@ function _initialize_changed_model_output_streams!(
     sizehint_steps::Integer,
     target_keys,
 )
-    for (application_id, object_id) in target_keys
+    for (application_id, target_id) in target_keys
+        object_id = _index_object_id(compiled.model.registry.objects, target_id)
         variables = get(
             retention.retained_outputs_by_application,
             application_id,
@@ -1914,12 +1935,13 @@ function _initialize_changed_model_output_streams!(
                     variable = Symbol(variable_)
                     variable in variables || continue
                     for destination_id in binding.destination_ids
+                        id = _index_object_id(compiled.model.registry.objects, destination_id)
                         _initialize_model_output_stream!(
                             streams,
                             compiled,
                             retention,
                             application,
-                            destination_id,
+                            id,
                             variable,
                             sizehint_steps,
                         )
@@ -3206,7 +3228,7 @@ Base.@nospecializeinfer function _runtime_model_output_streams(
         )
         push!(runtime_streams, runtime_stream)
     end
-    return Tuple(runtime_streams)
+    return _prepare_runtime_output_capacity!(Tuple(runtime_streams))
 end
 
 function _runtime_model_output_streams(
@@ -3328,7 +3350,7 @@ function _runtime_model_distributed_output_streams(
             )
         end
     end
-    return Tuple(outputs)
+    return _prepare_runtime_output_capacity!(Tuple(outputs))
 end
 
 function _runtime_model_distributed_output_streams(
