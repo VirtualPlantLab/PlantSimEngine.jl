@@ -54,7 +54,7 @@ spec(model::Probe) = ModelSpec(model; name=model.key, on=Many(kind=model.key, sc
     outputs_to=(OutputTo(One(Self())),))
 
 function inventory_is_value_free(value)
-    value isa Union{Nothing,Symbol,VariableContract} && return true
+    value isa Union{Nothing,Symbol,VariableContract,Type} && return true
     value isa Tuple && return all(inventory_is_value_free, value)
     value isa NamedTuple && return all(inventory_is_value_free, values(value))
     value isa Union{Default,Required,Distributed,AbstractArray,Ref,AbstractModel} && return false
@@ -80,6 +80,11 @@ end
             ports = recipe.ports
             @test (@inferred PSE._authored_port_names(ports.inputs)) === (input_name(process_model),)
             @test ports.input_names === (input_name(process_model),)
+            @test getproperty(ports.input_types, input_name(process_model)) === Vector{Float32}
+            @test fieldtype(typeof(ports.input_types), 1) === Type{Vector{Float32}}
+            @test getproperty(ports.output_types, output_name(process_model)) === Float32
+            @test getproperty(ports.output_types, distributed_name(process_model)) === Vector{Float32}
+            @test fieldtypes(typeof(ports.output_types)) === (Type{Float32}, Type{Vector{Float32}})
             @test ports.outputs.all_names === (output_name(process_model), distributed_name(process_model))
             @test ports.outputs.local_names === (output_name(process_model),)
             @test ports.outputs.distributed_names === (distributed_name(process_model),)
@@ -225,6 +230,34 @@ function PSE.variable_contracts_(model::Ordered)
     return (first=VariableContract(unit=:first), second=VariableContract(unit=:wrong))
 end
 PSE.run!(::Ordered, status, environment, constants, context) = nothing
+
+@testset "constructor retains future application types before targets exist" begin
+    calls = Ref(0)
+    model = CompositeModel(Object(:scene; scale=:Scene); applications=(
+        ModelSpec(Ordered(calls); name=:future_reader, on=Many(scale=:FutureLeaf)),
+    ))
+    ports = only(model.scenario_plan_cache.authored).ports
+    @test values(ports.input_types) === (Float32, Float32)
+    @test fieldtypes(typeof(ports.input_types)) === (Type{Float32}, Type{Float32})
+    @test values(ports.output_types) === (Float32,)
+    @test fieldtypes(typeof(ports.output_types)) === (Type{Float32},)
+    @test calls[] == 1
+    @test isnothing(model_status(model, :scene))
+    @test inventory_is_value_free(ports)
+    for seed in (1f0, 1.0)
+        future = Probe(:future, Ref(hook_zero), Ref(seed))
+        future_model = CompositeModel(Object(:scene; scale=:Scene);
+            applications=(spec(future),))
+        future_ports = only(future_model.scenario_plan_cache.authored).ports
+        T = typeof(seed)
+        @test future_ports.input_types.buffer_future === Vector{T}
+        @test fieldtypes(typeof(future_ports.input_types)) === (Type{Vector{T}},)
+        @test values(future_ports.output_types) === (Float32, Vector{T})
+        @test fieldtypes(typeof(future_ports.output_types)) === (Type{Float32}, Type{Vector{T}})
+        @test future.counter[] == map(_ -> 1, hook_zero)
+        @test inventory_is_value_free(future_ports)
+    end
+end
 
 @testset "earlier live route scope still wins over a later pure contract error" begin
     calls = Ref(0)

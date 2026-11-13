@@ -43,10 +43,12 @@ end
 Base.propertynames(::AuthoredOutputPorts) = (:all_names, :local_names, :distributed_names, :canonical_names)
 
 # One stable owner is shared by the authored recipe and compiled application.
-# Name carriers preserve static schemas without retaining initialization values.
-mutable struct AuthoredPortInventory{I,O,EI,EO,C}
+# Name and type carriers preserve declarations without retaining initialization values.
+mutable struct AuthoredPortInventory{I,O,IT,OT,EI,EO,C}
     const inputs::I
     const outputs::O
+    const input_types::IT
+    const output_types::OT
     const environment_inputs::EI
     const environment_outputs::EO
     const contracts::C
@@ -72,8 +74,7 @@ function _capture_authored_metadata(operation, phase::Symbol, application_id::Un
     end
 end
 
-function _authored_output_ports(spec::ModelSpec)
-    schema = _output_schema(spec)
+function _authored_output_ports(spec::ModelSpec, schema::NamedTuple)
     all_names = Tuple(Symbol(name) for name in keys(schema))
     local_names = Tuple(Symbol(name) for name in keys(schema) if !(schema[name] isa Distributed))
     distributed_names = Tuple(Symbol(name) for name in keys(schema) if schema[name] isa Distributed)
@@ -82,13 +83,31 @@ function _authored_output_ports(spec::ModelSpec)
     return AuthoredOutputPorts(all_names, local_names, distributed_names, canonical_names)
 end
 
+# Preparation retains the exact declaration types in the existing inventory.
+# Explicit Type{T} fields prevent NamedTuple construction from widening them to
+# DataType/UnionAll; later factories can read the witnesses from the owner type.
+function _authored_port_types(type_for, schema::NamedTuple{Names}) where {Names}
+    types = map(type_for, values(schema))
+    fields = Tuple{map(T -> Type{T}, types)...}
+    return NamedTuple{Names,fields}(types)
+end
+
 function _prepare_authored_ports(spec::ModelSpec, application_id::Symbol)
     # This is the constructor's existing output read. A failed output hook
     # retains its existing top-level authoring failure and application recovery.
-    output_ports = _authored_output_ports(spec)
+    output_schema = _output_schema(spec)
+    output_ports = _authored_output_ports(spec, output_schema)
+    output_types = _authored_port_types(_output_value_type, output_schema)
     model = model_(spec)
-    inputs = _capture_authored_metadata(:input_ports, application_id) do
-        AuthoredPortNames(Tuple(Symbol(name) for name in keys(_input_schema(model))))
+    input_metadata = _capture_authored_metadata(:input_ports, application_id) do
+        schema = _input_schema(model)
+        (AuthoredPortNames(Tuple(Symbol(name) for name in keys(schema))),
+            _authored_port_types(_input_expected_type, schema))
+    end
+    inputs, input_types = if input_metadata isa ScenarioPreparationFailure
+        input_metadata, input_metadata
+    else
+        input_metadata
     end
     environment_inputs = _capture_authored_metadata(:environment_input_ports, application_id) do
         AuthoredPortNames(Tuple(Symbol(name) for name in keys(environment_inputs_(model))))
@@ -115,5 +134,6 @@ function _prepare_authored_ports(spec::ModelSpec, application_id::Symbol)
             _validate_variable_contract_names(spec, declared_contracts, declared)
         end
     end
-    return AuthoredPortInventory(inputs, output_ports, environment_inputs, environment_outputs, contracts)
+    return AuthoredPortInventory(inputs, output_ports, input_types, output_types,
+        environment_inputs, environment_outputs, contracts)
 end
