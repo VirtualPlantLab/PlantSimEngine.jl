@@ -197,4 +197,80 @@ end
     @test isempty(prototype)
 end
 
+@testset "observed manual call owners keep the real closed identity domain" begin
+    ordinary = fixture(; called=true)
+    baseline = prepare(ordinary.model)
+    @test advance!(ordinary, baseline) == (3.0, 3.0)
+    expected_index = baseline.compiled.observed_manual_call_binding_indices_by_callee_target
+
+    data = fixture(; called=true)
+    prepare(data.model) # Close only the actual complete statuses on these objects.
+    previous = data.model.registry
+    registry = PSE.ObjectRegistry(PSE._closed_object_family_store(previous.objects),
+        previous.by_scale, previous.by_kind, previous.by_species,
+        previous.ancestor_ids_by_object)
+    original = data.model
+    model = PSE.CompositeModel(registry, original.applications, original.environment,
+        original.instances, original.source_adapter, original.status_conversion,
+        original.status_conversion_records, original.status_source_owners,
+        original.status_source_identities, nothing, nothing, nothing, true,
+        true, original.lifecycle_delta,
+        original.input_default_status_variables, original.runtime_revision,
+        original.revision, original.environment_revision)
+    @test all(model_object(model, id) === model_object(original, id)
+        for id in (:scene, :anchor, :a, :b))
+    closed = merge(data, (; model))
+    simulation = prepare(model)
+    @test advance!(closed, simulation) == (3.0, 3.0)
+    index = simulation.compiled.observed_manual_call_binding_indices_by_callee_target
+    @test keytype(index) === Tuple{Symbol,ObjectId{Symbol}}
+    @test Set(keys(index)) == Set(keys(expected_index))
+    @test all(index[key] == values for (key, values) in expected_index)
+    @test Set(keys(index)) == Set(((:reader, ObjectId(:a)), (:reader, ObjectId(:b))))
+    check_carriers(closed, simulation)
+
+    before = (model_status(model, :a).total, model_status(model, :b).total,
+        model_status(model, :scene).visits, model_status(model, :anchor).x)
+    changed = Set{Tuple{Symbol,ObjectId{Symbol}}}()
+    callees = Set(((:reader, ObjectId(:a)),))
+    @test PSE._propagate_changed_manual_call_owners!(model.registry.objects,
+        changed, callees, simulation.compiled.call_bindings, index) === changed
+    @test changed == Set(((:capture, ObjectId(:scene)),))
+    @test (model_status(model, :a).total, model_status(model, :b).total,
+        model_status(model, :scene).visits, model_status(model, :anchor).x) === before
+    check_carriers(closed, simulation)
+end
+
+@testset "partial applications retain their exact target selection and metadata owner" begin
+    data = fixture()
+    simulation = prepare(data.model)
+    owner = simulation.compiled.applications_by_id
+    current = owner[:reader]
+    partial = PSE._partial_model_application(current, [ObjectId(:a)])
+    targets = partial.target_ids
+    @test typeof(partial) === typeof(current)
+    @test PSE._with_model_application(identity, owner, partial) === partial
+    @test partial.target_ids === targets
+    @test partial.target_ids == [ObjectId(:a)]
+    @test current.target_ids == [ObjectId(:a), ObjectId(:b)]
+
+    # Keep exactly the same application type and ID while changing the plan.
+    plan = current.plan
+    fields = ntuple(index -> index == 1 ? plan.slot + 1 : getfield(plan, index),
+        fieldcount(typeof(plan)))
+    foreign_plan = typeof(plan)(fields...)
+    foreign = typeof(current)(foreign_plan, targets)
+    @test typeof(foreign) === typeof(current)
+    @test foreign.id === current.id
+    @test foreign.plan !== current.plan
+    visits = Ref(0)
+    @test_throws "outside its compiled metadata owner" PSE._with_model_application(
+        owner, foreign) do application
+        visits[] += 1
+    end
+    @test visits[] == 0
+    @test partial.target_ids === targets
+    check_carriers(data, simulation)
+end
+
 end # module ModelInputBindingStorageChecks

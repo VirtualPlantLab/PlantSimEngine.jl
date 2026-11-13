@@ -205,6 +205,7 @@ function _model_graph_compiled(
         _index_observed_manual_call_bindings_by_callee_target(
             call_bindings,
             applications_by_id,
+            model.registry.objects,
         ),
         many_input_binding_cache,
         distributed_outputs,
@@ -426,7 +427,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         )
     end
     _model_graph_phase!(diagnostics, :input_status, nothing) do
-        _prepare_model_input_defaults!(model, applications)
+        _prepare_model_input_defaults!(model, applications, _applications_by_id(applications))
         _wire_model_input_carriers!(model, input_bindings)
     end
 

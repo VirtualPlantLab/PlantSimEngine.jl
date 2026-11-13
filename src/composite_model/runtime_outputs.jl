@@ -6031,12 +6031,14 @@ function _prepare_targeted_newborn_targets(
     _prepare_model_input_statuses_batched!(
         model,
         callee_applications,
+        compiled.applications_by_id,
         input_bindings;
         final_references=final_input_references,
     )
     _validate_model_required_inputs!(
         model,
         callee_applications,
+        compiled.applications_by_id,
         input_bindings,
     )
     unsupported_temporal_inputs = Symbol[
