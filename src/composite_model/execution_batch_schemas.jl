@@ -450,7 +450,8 @@ function _prepared_local_runtime_output(::Type{O}, status, application, object_i
     stream = get(streams, key, nothing)
     if isnothing(stream)
         initialize_missing || throw(ArgumentError("A prepared retained output has no initialized stream."))
-        stream = _model_new_output_stream(getproperty(status,V), retention, application.id, V)
+        stream = _model_new_output_stream(getproperty(status,V), retention,
+            application.id, V, 0, application.clock.dt)
         stream isa S || throw(ArgumentError("A newborn output stream is outside its prepared schema."))
         streams[key] = stream
     end

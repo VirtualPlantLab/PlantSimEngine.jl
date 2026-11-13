@@ -1773,16 +1773,22 @@ function _model_dependency_capacity(
 end
 
 function _model_new_output_stream(
-    value,
+    value::T,
     retention,
     application_id::Symbol,
     variable::Symbol,
-)
+    sizehint_steps::Integer,
+    clock_dt::Real,
+) where {T}
     if _model_dependency_only_output(retention, application_id, variable)
         capacity = _model_dependency_capacity(retention, application_id, variable)
-        return TemporalDependencyBuffer{typeof(value)}(capacity)
+        return TemporalDependencyBuffer{T}(capacity)
     end
-    return Tuple{Float64,typeof(value)}[]
+    stream = Tuple{Float64,T}[]
+    if sizehint_steps > 0
+        sizehint!(stream, max(1, ceil(Int, float(sizehint_steps) / float(clock_dt))))
+    end
+    return stream
 end
 
 function _model_output_object_ids(
@@ -1876,20 +1882,9 @@ function _initialize_model_output_stream!(
         retention,
         application.id,
         variable,
+        sizehint_steps,
+        application.clock.dt,
     )
-    if stream isa Vector && sizehint_steps > 0
-        sizehint!(
-            stream,
-            max(
-                1,
-                ceil(
-                    Int,
-                    float(sizehint_steps) /
-                    float(application.clock.dt),
-                ),
-            ),
-        )
-    end
     streams[key] = stream
     return streams
 end
@@ -3215,6 +3210,8 @@ Base.@nospecializeinfer function _runtime_model_output_streams(
                 output_retention,
                 application.id,
                 variable,
+                0,
+                application.clock.dt,
             )
             streams[key] = stream
         end
@@ -4737,7 +4734,7 @@ function _model_output_retention_covers_binding(
     binding::CompiledModelInputBinding,
 )
     plan.retain_all && return true
-    return _with_model_temporal_retention(compiled, binding) do source_application_id, source_var, required
+    return Base.@inline _with_model_temporal_retention(compiled, binding) do source_application_id, source_var, required
         key = (source_application_id, source_var)
         key in plan.temporal_dependencies && get(plan.dependency_horizons, key, -Inf) >= required
     end
@@ -4845,7 +4842,7 @@ function compile_model_output_retention(
     dependency_horizons = Dict{Tuple{Symbol,Symbol},Float64}()
     for binding in compiled.input_bindings
         binding.carrier_hint == :temporal_stream || continue
-        _with_model_temporal_retention(compiled, binding) do source_application_id, source_var, required
+        Base.@inline _with_model_temporal_retention(compiled, binding) do source_application_id, source_var, required
             key = (source_application_id, source_var)
             push!(temporal_dependencies, key)
             dependency_horizons[key] = max(get(dependency_horizons, key, 0.0), required)

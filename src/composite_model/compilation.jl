@@ -4244,12 +4244,13 @@ function _extend_compiled_scene(
     )
 
     started_at = _runtime_performance_start(performance)
-    added_input_binding_capacity = sum(
-        length(_model_input_names(application)) *
-        length(application.target_ids)
-        for application in added_applications;
-        init=0,
-    )
+    added_input_binding_capacity = 0
+    for application in added_applications
+        input_count = _compiled_application_by_id(compiled, application.id) do current
+            length(_model_input_names(current))
+        end
+        added_input_binding_capacity += input_count * length(application.target_ids)
+    end
     input_bindings = compiled.input_bindings
     sizehint!(
         input_bindings,
@@ -4286,12 +4287,14 @@ function _extend_compiled_scene(
     end
     if !isempty(forced_input_binding_keys)
         for (binding_index, binding) in pairs(input_bindings)
-            key = (binding.application_id, binding.consumer_id, binding.input)
+            consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
+            key = (binding.application_id, consumer_id, binding.input)
             key in forced_input_binding_keys &&
                 push!(candidate_binding_indices, binding_index)
         end
     end
-    for object_id in added_ids
+    for target_id in added_ids
+        object_id = _index_object_id(model.registry.objects, target_id)
         _union_selector_candidates!(
             candidate_binding_indices,
             compiled.dynamic_input_binding_indices,
@@ -4311,14 +4314,16 @@ function _extend_compiled_scene(
         index = pending_binding_indices[pending_binding_position]
         pending_binding_position += 1
         binding = input_bindings[index]
-        binding_key = (binding.application_id, binding.consumer_id, binding.input)
+        consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
+        source_ids = _input_binding_source_ids(model.registry.objects, binding.source_ids)
+        binding_key = (binding.application_id, consumer_id, binding.input)
         force_rebuild = !isempty(forced_input_binding_keys) &&
                         binding_key in forced_input_binding_keys
         if !force_rebuild &&
            binding.multiplicity == :many &&
            haskey(processed_many_sources, binding.source_ids)
             if binding.carrier_hint == :temporal_stream
-                key = (binding.application_id, binding.consumer_id)
+                key = (binding.application_id, consumer_id)
                 push!(affected_temporal_keys, key)
                 previous_temporal_sources[(
                     key...,
@@ -4328,12 +4333,12 @@ function _extend_compiled_scene(
             continue
         end
         previous_source_ids = binding.carrier_hint == :temporal_stream ?
-                              copy(binding.source_ids) :
+                              copy(source_ids) :
                               ObjectId[]
         binding.multiplicity == :many &&
             binding.carrier_hint == :temporal_stream &&
-            (previous_shared_many_sources[binding.source_ids] = copy(binding.source_ids))
-        default_scope = _default_dependency_scope(model, binding.consumer_id)
+            (previous_shared_many_sources[binding.source_ids] = copy(source_ids))
+        default_scope = _default_dependency_scope(model, consumer_id)
         if !pure_addition &&
            (isnothing(writer_rebind_keys) || !(binding_key in writer_rebind_keys))
             structural_update = _update_structural_many_sources!(
@@ -4354,7 +4359,7 @@ function _extend_compiled_scene(
                 model,
                 binding.matcher,
                 added_ids;
-                context=binding.consumer_id,
+                context=consumer_id,
                 default_to_context=true,
                 default_scope=default_scope,
             ) || continue
@@ -4376,7 +4381,7 @@ function _extend_compiled_scene(
         if appended_sources
             if binding.carrier_hint == :temporal_stream &&
                previous_source_ids != binding.source_ids
-                key = (binding.application_id, binding.consumer_id)
+                key = (binding.application_id, consumer_id)
                 push!(affected_temporal_keys, key)
                 previous_temporal_sources[(
                     key...,
@@ -4407,7 +4412,7 @@ function _extend_compiled_scene(
             model,
             application.id,
             application.process,
-            binding.consumer_id,
+            consumer_id,
             binding.plan,
             applications_by_object,
             applications_by_id,
@@ -4426,16 +4431,16 @@ function _extend_compiled_scene(
         )
         input_bindings[index] = replacement_binding
         push!(changed_bindings, replacement_binding)
-        push!(rewired_consumer_ids, binding.consumer_id)
+        push!(rewired_consumer_ids, consumer_id)
         if binding.carrier_hint == :temporal_stream
-            key = (binding.application_id, binding.consumer_id)
+            key = (binding.application_id, consumer_id)
             push!(affected_temporal_keys, key)
             previous_temporal_sources[(
                 key...,
                 binding.input,
             )] = previous_source_ids
         end
-        target = (binding.application_id, binding.consumer_id)
+        target = (binding.application_id, consumer_id)
         input_bindings_by_target[target] = Tuple(
             existing === binding ? replacement_binding : existing
             for existing in get(input_bindings_by_target, target, ())
