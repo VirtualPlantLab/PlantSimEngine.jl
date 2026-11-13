@@ -680,21 +680,33 @@ function _execution_batch_type_with_call_schemas(::Type{B}, schemas::NamedTuple)
         fieldtype(B,:environment_provider),fieldtype(B,:output_publication)}
 end
 
-@generated function _current_call_binding_for_application(compiled,
-    application::CompiledModelApplication{P}, binding::B,
-) where {P,B<:CompiledModelCallBinding}
-    plans = fieldtype(P,:call_plans)
-    Plan = fieldtype(B,:plan)
-    index = findfirst(==(Plan),collect(fieldtypes(plans)))
-    isnothing(index) && return :(throw(ArgumentError("A retained call no longer has its prepared declaration.")))
-    CallerId = fieldtype(B,:consumer_id)
-    CalleeId = eltype(fieldtype(B,:callee_object_ids))
-    Bindings = Tuple{[CompiledModelCallBinding{T,CallerId,CalleeId} for T in fieldtypes(plans)]...}
+@generated function _current_call_binding_for_application(compiled::CS,
+    application::CompiledModelApplication, binding::B,
+) where {CS<:CompiledCompositeModel,B<:CompiledModelCallBinding}
+    Owner = fieldtype(fieldtype(CS, :scenario_plan), :call_plans_by_application)
+    Entries = fieldtype(Owner, :entries)
+    Plan = fieldtype(B, :plan)
+    CallerId = fieldtype(B, :consumer_id)
+    CalleeId = eltype(fieldtype(B, :callee_object_ids))
+    branches = Expr[]
+    for (position, application_id) in enumerate(fieldnames(Entries))
+        Plans = fieldtype(Entries, position)
+        index = findfirst(==(Plan), fieldtypes(Plans))
+        isnothing(index) && continue
+        Bindings = Tuple{[CompiledModelCallBinding{T,CallerId,CalleeId} for T in fieldtypes(Plans)]...}
+        push!(branches, quote
+            if application_id === $(QuoteNode(application_id))
+                bindings = get(compiled.call_bindings_by_target,
+                    (application_id, binding.consumer_id), ())
+                bindings isa $Bindings || _unprepared_runtime_configuration()
+                return getfield(bindings::$Bindings, $index)::$B
+            end
+        end)
+    end
     return quote
-        bindings = get(compiled.call_bindings_by_target,
-            (binding.application_id,binding.consumer_id),())
-        bindings isa $Bindings || _unprepared_runtime_configuration()
-        return getfield(bindings::$Bindings,$index)::$B
+        application_id = getfield(getfield(application, :plan), :id)::Symbol
+        $(branches...)
+        throw(ArgumentError("A retained call no longer has its prepared declaration."))
     end
 end
 

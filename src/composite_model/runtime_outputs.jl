@@ -6014,7 +6014,7 @@ function _prepare_targeted_newborn_targets(
     output_applications = application_set.applications
     applications_by_object = application_set.applications_by_object
     if !application_set.outputs_prepared
-        _prepare_model_output_statuses_batched!(model, output_applications)
+        _prepare_model_output_statuses!(model, output_applications, compiled.applications_by_id)
         application_set.outputs_prepared = true
     end
     input_bindings = similar(compiled.input_bindings, 0)

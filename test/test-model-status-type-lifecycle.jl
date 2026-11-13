@@ -522,3 +522,26 @@ end
     @test all(value -> value isa Float32, last.(retained_consumer_stream))
     @test length(retained_consumer_stream) == 3
 end
+
+@testset "reparented output targets stage every default before publishing" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant_a; scale=:Plant, parent=:scene),
+        Object(:plant_b; scale=:Plant, parent=:scene),
+        Object(:late_leaf; scale=:Leaf, parent=:plant_b);
+        applications=(ModelSpec(StatusTypeLifecycleOutputTransactionModel();
+            name=:rewired_outputs,
+            on=Many(scale=:Leaf, within=Scope(ObjectId(:plant_a)))),),
+        environment=(duration=Hour(1),),
+        status_transform=StatusTypeLifecycleFailOn(:failing_output),
+    )
+    simulation = run!(model; steps=0, outputs=:none)
+    records = copy(model.status_conversion_records)
+    @test model_object(model, :late_leaf).status === nothing
+
+    reparent_object!(model, :late_leaf, :plant_a)
+    @test_throws "intentional conversion failure" continue!(simulation; steps=1)
+    @test model_object(model, :late_leaf).parent === ObjectId(:plant_a)
+    @test model_object(model, :late_leaf).status === nothing
+    @test model.status_conversion_records == records
+end

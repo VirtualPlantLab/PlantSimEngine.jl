@@ -374,25 +374,27 @@ struct SelectorCandidateIndex{W,S,K,SP,I,A,R,L,C}
     application_target_templates::C
 end
 
-function _selector_candidate_index(; application_targets::Bool=false)
+function _selector_candidate_index(model::CompositeModel; application_targets::Bool=false)
+    I = keytype(model.registry.objects)
     return SelectorCandidateIndex(
         Int[],
         Dict{Symbol,Vector{Int}}(),
         Dict{Symbol,Vector{Int}}(),
         Dict{Symbol,Vector{Int}}(),
-        Dict{ObjectId,Vector{Int}}(),
+        Dict{I,Vector{Int}}(),
         Dict{
-            Union{ObjectId,Tuple{ObjectId,Symbol,Union{Symbol,ObjectId}}},
+            Union{I,Tuple{I,Symbol,Union{Symbol,I}}},
             Vector{Int},
         }(),
-        Set{ObjectId}(),
-        Dict{Symbol,Set{Union{Symbol,ObjectId}}}(),
+        Set{I}(),
+        Dict{Symbol,Set{Union{Symbol,I}}}(),
         application_targets ? Dict{Any,Any}() : nothing,
     )
 end
 
 function _freeze_selector_candidate_index(index::SelectorCandidateIndex)
-    freeze(groups) = Dict(key => Tuple(values) for (key, values) in groups)
+    freeze(groups::AbstractDict{K}) where {K} =
+        Dict{K,Tuple{Vararg{Int}}}(key => Tuple(values) for (key, values) in groups)
     return SelectorCandidateIndex(
         Tuple(index.wildcard),
         freeze(index.by_scale),
@@ -482,7 +484,11 @@ function _selector_candidate_destination(
         default_scope=default_scope,
     )
     if !isnothing(anchor)
+        I = keytype(index.by_id)
         anchor_id = ObjectId(anchor)
+        # An out-of-family anchor cannot acquire an object in this registry.
+        anchor_id isa I || return nothing
+        anchor_id = anchor_id::I
         for (label, value) in (
             (:id, matcher.id),
             (:scale, matcher.scale),
@@ -525,10 +531,12 @@ function _index_selector_candidate!(
         for label in (:scale, :kind, :species, :id)
             value = getproperty(matcher, label)
             isnothing(value) && continue
-            union!(
-                get!(index.template_label_values, label, Set{Union{Symbol,ObjectId}}()),
-                _selector_candidate_values(value),
-            )
+            I = keytype(index.by_id)
+            labels = get!(index.template_label_values, label, Set{Union{Symbol,I}}())
+            for candidate in _selector_candidate_values(value)
+                candidate isa eltype(labels) || continue
+                push!(labels, candidate)
+            end
         end
     end
     destination = _selector_candidate_destination(
@@ -544,6 +552,9 @@ function _index_selector_candidate!(
         push!(index.wildcard, candidate_index)
     else
         for value in values
+            # Selectors may name future/missing IDs, including an ID family
+            # that this closed registry cannot ever register. Keep them empty.
+            value isa keytype(groups) || continue
             push!(get!(groups, value, Int[]), candidate_index)
             tracks_application_targets &&
                 groups === index.by_scope_anchor && push!(
@@ -575,16 +586,17 @@ function _union_selector_candidates!(
 )
     union!(candidates, index.wildcard)
     object = _model_object(model, object_id)
-    id, scale, kind, species = object.id, object.scale, object.kind, object.species
+    id = _index_object_id(model.registry.objects, object_id)
+    scale, kind, species = object.scale, object.kind, object.species
     _union_selector_bucket!(candidates, index.by_id, id)
     _union_selector_bucket!(candidates, index.by_scale, scale)
     _union_selector_bucket!(candidates, index.by_kind, kind)
     _union_selector_bucket!(candidates, index.by_species, species)
     # Ancestors cannot contribute without any scoped selector entries.
     isempty(index.by_scope_anchor) && return candidates
-    for anchor in _object_ancestor_ids(model.registry, object_id)
+    for raw_anchor in _object_ancestor_ids(model.registry, id)
+        anchor = _index_object_id(model.registry.objects, raw_anchor)
         _union_selector_bucket!(candidates, index.by_scope_anchor, anchor)
-        id, scale, kind, species = object.id, object.scale, object.kind, object.species
         _union_selector_bucket!(candidates, index.by_scope_anchor, anchor, :id, id)
         _union_selector_bucket!(candidates, index.by_scope_anchor, anchor, :scale, scale)
         _union_selector_bucket!(candidates, index.by_scope_anchor, anchor, :kind, kind)
@@ -594,7 +606,7 @@ function _union_selector_candidates!(
 end
 
 function _application_target_candidate_index(model, application_plans)
-    index = _selector_candidate_index(; application_targets=true)
+    index = _selector_candidate_index(model; application_targets=true)
     for plan in application_plans
         _index_selector_candidate!(
             index,
@@ -1534,7 +1546,7 @@ function _compiled_scenario_plan(
         input_plans_by_application,
         _compiled_application_input_recipes(input_plans_by_application),
         Tuple(call_plans),
-        _plans_by_application(applications, call_plans),
+        CompiledMetadataTable(_plans_by_application(applications, call_plans)),
         distributed_output_plans,
         call_owners,
         manual_application_ids,
@@ -2108,7 +2120,7 @@ function _index_dynamic_input_bindings(
     bindings,
     many_binding_cache,
 )
-    index = _selector_candidate_index()
+    index = _selector_candidate_index(model)
     for (binding_index, binding) in pairs(bindings)
         _index_dynamic_input_binding!(
             index,
@@ -2145,7 +2157,7 @@ function _index_dynamic_call_binding!(
 end
 
 function _index_dynamic_call_bindings(model::CompositeModel, bindings)
-    index = _selector_candidate_index()
+    index = _selector_candidate_index(model)
     for (binding_index, binding) in pairs(bindings)
         _index_dynamic_call_binding!(
             index,
@@ -2374,20 +2386,21 @@ function _index_model_input_bindings(bindings::AbstractVector{B}, ::Type{I}) whe
     return Dict{K,Tuple{Vararg{B}}}(key => Tuple(values) for (key, values) in grouped)
 end
 
-# Hard-call cardinality is fixed by each application's authored call-plan tuple.
-# Admit the application before materializing the per-target binding tuple.
+# Cardinality and binding types come from the actual resolved runtime plans.
+# Authored declarations remain unchanged when Scope/potential callees resolve.
 @generated function _index_model_call_bindings_for_application!(
-    application::CompiledModelApplication{P}, index, object_id::I, bindings,
+    plans::Plans, index, application_id::Symbol, object_id::I, bindings,
     ::Type{J},
-) where {P,I<:ObjectId,J<:ObjectId}
-    Plans = fieldtype(P, :call_plans)
+) where {Plans<:Tuple,I<:ObjectId,J<:ObjectId}
     Types = [CompiledModelCallBinding{Plan,I,J} for Plan in fieldtypes(Plans)]
     names = [gensym(:binding) for _ in Types]
     admissions = [quote
         $(names[position]) = bindings[$position]
-        $(names[position]) isa $(Types[position]) || throw(ArgumentError(
-            "A hard-call binding is outside its prepared application declaration.",
-        ))
+        $(names[position]) isa $(Types[position]) &&
+            getfield($(names[position]), :plan) === getfield(plans, $position) ||
+            throw(ArgumentError(
+                "A hard-call binding is outside its prepared application declaration.",
+            ))
     end for position in eachindex(Types)]
     values = Expr(:tuple, [:( $(names[i])::$(Types[i]) ) for i in eachindex(Types)]...)
     return quote
@@ -2395,22 +2408,22 @@ end
             "Hard-call binding count differs from its prepared application declaration.",
         ))
         $(admissions...)
-        index[(application.id, object_id)] = $values
+        index[(application_id, object_id)] = $values
         return index
     end
 end
 
-function _index_model_call_bindings!(index, bindings, applications_by_id, ::Type{I}) where {I<:ObjectId}
+function _index_model_call_bindings!(index, bindings, plans_by_application, ::Type{I}) where {I<:ObjectId}
     for ((application_id, object_id), values) in _group_model_bindings(bindings, I)
         Base.@inline _with_metadata_entry(_index_model_call_bindings_for_application!,
-            applications_by_id, application_id, index, object_id, values, I)
+            plans_by_application, application_id, index, application_id, object_id, values, I)
     end
     return index
 end
 
-function _index_model_call_bindings(bindings, applications_by_id, ::Type{I}) where {I<:ObjectId}
+function _index_model_call_bindings(bindings, plans_by_application, ::Type{I}) where {I<:ObjectId}
     index = Dict{Tuple{Symbol,I},Tuple{Vararg{CompiledModelCallBinding}}}()
-    return _index_model_call_bindings!(index, bindings, applications_by_id, I)
+    return _index_model_call_bindings!(index, bindings, plans_by_application, I)
 end
 
 """
@@ -2628,7 +2641,7 @@ function _compile_scene(
         input_bindings, keytype(model.registry.objects),
     )
     call_bindings_by_target = _index_model_call_bindings(
-        call_bindings, applications_by_id, keytype(model.registry.objects),
+        call_bindings, scenario_plan.call_plans_by_application, keytype(model.registry.objects),
     )
     call_owners = scenario_plan.call_owners
     application_children = scenario_plan.application_children
@@ -2711,20 +2724,21 @@ function _application_target_template_key(
     object_id::ObjectId,
 )
     object = _model_object(model, object_id)
+    id = _index_object_id(model.registry.objects, object_id)
     scope_roots = if isempty(index.scope_roots)
         ()
     else
-        ancestors = _object_ancestor_ids(model.registry, object_id)
+        ancestors = _object_ancestor_ids(model.registry, id)
         Tuple(
-            ancestor_id for ancestor_id in ancestors
-            if ancestor_id in index.scope_roots
+            _index_object_id(model.registry.objects, ancestor_id) for ancestor_id in ancestors
+            if _index_object_id(model.registry.objects, ancestor_id) in index.scope_roots
         )
     end
     return (
         _application_target_template_label(index, :scale, object.scale),
         _application_target_template_label(index, :kind, object.kind),
         _application_target_template_label(index, :species, object.species),
-        _application_target_template_label(index, :id, object.id),
+        _application_target_template_label(index, :id, id),
         scope_roots,
     )
 end
@@ -4039,7 +4053,7 @@ function _prepare_structural_compiled_delta(
         )
     end
     call_bindings_by_target = _index_model_call_bindings(
-        call_bindings, compiled.applications_by_id, keytype(model.registry.objects),
+        call_bindings, compiled.scenario_plan.call_plans_by_application, keytype(model.registry.objects),
     )
     many_input_binding_cache =
         _many_input_binding_cache(model, input_bindings)
@@ -4228,7 +4242,8 @@ function _refresh_scene_call_bindings!(
             plans_by_application=compiled.scenario_plan.call_plans_by_application,
         )
     replacement_call_bindings_by_target = _index_model_call_bindings(
-        replacement_call_bindings, applications_by_id, keytype(model.registry.objects),
+        replacement_call_bindings, compiled.scenario_plan.call_plans_by_application,
+        keytype(model.registry.objects),
     )
     call_bindings = compiled.call_bindings
     for key in rebuilt_existing_call_targets
@@ -4571,15 +4586,12 @@ function _extend_compiled_scene(
         added_ids,
         compiled.scenario_plan.manual_application_ids,
     )
-    if pure_addition
-        _prepare_model_output_statuses_batched!(
-            model,
-            added_applications;
-            performance=performance,
-        )
-    else
-        _prepare_model_output_statuses!(model, added_applications)
-    end
+    _prepare_model_output_statuses!(
+        model,
+        added_applications,
+        applications_by_id;
+        performance=performance,
+    )
     _runtime_performance_finish!(
         performance,
         :call_binding_refresh,
@@ -4782,7 +4794,7 @@ function _extend_compiled_scene(
     )
     call_bindings_by_target = compiled.call_bindings_by_target
     isempty(new_call_bindings) || _index_model_call_bindings!(
-        call_bindings_by_target, new_call_bindings, applications_by_id,
+        call_bindings_by_target, new_call_bindings, compiled.scenario_plan.call_plans_by_application,
         keytype(model.registry.objects),
     )
     call_owners = compiled.scenario_plan.call_owners
@@ -6415,83 +6427,63 @@ function _ensure_model_object_status!(model::CompositeModel, object_id::ObjectId
     return Base.@inline _with_registered_status(identity, model.registry.objects.catalog, status)
 end
 
-function _prepare_model_output_statuses!(model::CompositeModel, applications)
-    for application in applications
-        defaults = _local_output_schema(application.spec)
-        for object_id in application.target_ids
-            status = _ensure_model_object_status!(model, object_id)
-            for (variable, value) in pairs(defaults)
-                _publish_mode_for_output(application.spec, variable) ==
-                    :canonical || continue
-                status = _status_with_default(
-                    model,
-                    status,
-                    object_id,
-                    variable,
-                    value;
-                    application_id=application.id,
-                    origin=:model_output_default,
-                )
-            end
-            _replace_model_object_status!(model, object_id, status)
-        end
-    end
-    return model
-end
-
-function _prepare_model_output_statuses_batched!(
+function _prepare_model_output_statuses!(
     model::CompositeModel,
-    applications;
+    applications,
+    applications_by_id;
     performance=nothing,
 )
+    isempty(applications) && return model
     I = keytype(model.registry.objects)
     recipes = Dict{I,_CanonicalStatusRecipe}()
     recipe_order = I[]
-    conversion_records = _no_status_conversion(model.status_conversion) ?
-                         model.status_conversion_records :
-                         Dict{Any,Any}()
-    for application in applications
-        defaults = _local_output_schema(application.spec)
-        for object_id in application.target_ids
-            preparation = _status_preparation_for_object!(
-                recipes,
-                recipe_order,
-                model,
-                object_id,
-            )
-            for (variable, value) in pairs(defaults)
-                _publish_mode_for_output(application.spec, variable) ==
-                    :canonical || continue
-                if preparation isa Status
-                    variable in propertynames(preparation) && continue
-                    preparation = _status_recipe_for_object!(
-                        recipes,
-                        recipe_order,
+    record_conversions = !_no_status_conversion(model.status_conversion)
+    conversion_records = record_conversions ? Dict{Any,Any}() : model.status_conversion_records
+    for partial in applications
+        Base.@inline _with_model_application(applications_by_id, partial) do application
+            defaults = _local_output_schema(application.spec)
+            for object_id in application.target_ids
+                preparation = _status_preparation_for_object!(
+                    recipes,
+                    recipe_order,
+                    model,
+                    object_id,
+                )
+                for (variable, value) in pairs(defaults)
+                    _publish_mode_for_output(application.spec, variable) ==
+                        :canonical || continue
+                    if preparation isa Status
+                        variable in propertynames(preparation) && continue
+                        preparation = _status_recipe_for_object!(
+                            recipes,
+                            recipe_order,
+                            model,
+                            object_id,
+                        )
+                    end
+                    _status_recipe_add_default!(
                         model,
+                        preparation,
                         object_id,
+                        variable,
+                        value;
+                        application_id=application.id,
+                        origin=:model_output_default,
+                        conversion_records=conversion_records,
                     )
                 end
-                _status_recipe_add_default!(
-                    model,
-                    preparation,
-                    object_id,
-                    variable,
-                    value;
-                    application_id=application.id,
-                    origin=:model_output_default,
-                    conversion_records=conversion_records,
-                )
             end
         end
     end
+    # Publish each final canonical Status and its conversion records after the
+    # ordered defaults have all been staged, in every lifecycle mode.
     result = _apply_status_recipes!(
         model,
         recipes,
         recipe_order;
         performance=performance,
     )
-    conversion_records === model.status_conversion_records ||
-        merge!(model.status_conversion_records, conversion_records)
+    record_conversions && merge!(model.status_conversion_records, conversion_records)
     return result
 end
 
@@ -6730,7 +6722,7 @@ function _compile_model_distributed_outputs(
     _validate_model_writer_groups!(
         _model_writer_groups(applications, manual_application_ids),
     )
-    _prepare_model_output_statuses_batched!(model, applications)
+    _prepare_model_output_statuses!(model, applications, applications_by_id)
     return NoCompiledDistributedOutputs()
 end
 
@@ -6757,7 +6749,7 @@ function _compile_model_distributed_outputs(
     # destination state behind.
     _validate_model_output_destination_statuses!(model, resolved)
     _validate_required_model_output_destinations!(model, resolved)
-    _prepare_model_output_statuses_batched!(model, applications)
+    _prepare_model_output_statuses!(model, applications, applications_by_id)
     _prepare_model_output_destination_statuses!(model, resolved)
     bindings, by_execution_target =
         _compile_model_output_destination_bindings(model, resolved)

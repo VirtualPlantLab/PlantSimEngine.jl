@@ -160,7 +160,6 @@ function _model_graph_compiled(
     isempty(diagnostics) || return nothing
     applications_by_id = _applications_by_id(applications)
     input_by_target = _index_model_input_bindings(input_bindings, keytype(model.registry.objects))
-    call_by_target = _index_model_call_bindings(call_bindings, applications_by_id, keytype(model.registry.objects))
     timeline = _model_timeline(model)
     scenario_plan = _compiled_scenario_plan(
         model,
@@ -171,6 +170,8 @@ function _model_graph_compiled(
         distributed_output_plans,
         timeline,
     )
+    call_by_target = _index_model_call_bindings(call_bindings,
+        scenario_plan.call_plans_by_application, keytype(model.registry.objects))
     ordered_applications = Tuple(
         applications_by_id[application_id]
         for application_id in scenario_plan.application_order

@@ -4303,7 +4303,7 @@ end
     @test initializing_growth_plan.manual_application_ids ==
           (:dynamic_initializer,)
     @test only(
-        initializing_growth_plan.call_plans_by_application.initializing_growth,
+        initializing_growth_plan.call_plans_by_application[:initializing_growth],
     ).potential_callee_application_ids == (:dynamic_initializer,)
     initializing_schedule = Dict(
         row.application_id => row

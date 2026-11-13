@@ -17,7 +17,7 @@ using Test
         Object(:other_leaf; scale=:Leaf, parent=:other_plant),
     )
     leaf_id = ObjectId(:leaf)
-    index = PlantSimEngine._selector_candidate_index()
+    index = PlantSimEngine._selector_candidate_index(model)
     push!(index.wildcard, 1)
     index.by_id[leaf_id] = [2]
     index.by_scale[:Leaf] = [3]
@@ -38,7 +38,7 @@ using Test
             @test result === candidates
             @test candidates == Set([1, 2, 3, 4, 5, 99])
         end
-        empty_index = PlantSimEngine._selector_candidate_index()
+        empty_index = PlantSimEngine._selector_candidate_index(model)
         candidates = Set([99])
         @test PlantSimEngine._union_selector_candidates!(
             candidates, empty_index, model, leaf_id,
@@ -72,7 +72,7 @@ using Test
     end
 
     @testset "Missing IDs are rejected before any label or scope lookup" begin
-        empty_scope_index = PlantSimEngine._selector_candidate_index()
+        empty_scope_index = PlantSimEngine._selector_candidate_index(model)
         push!(empty_scope_index.wildcard, 1)
         for candidate_index in (
             empty_scope_index,
@@ -92,8 +92,24 @@ using Test
     end
 end
 
+# Close only the actual existing fixture families. No future family is invented.
+function _closed_selector_candidate_fixture(model)
+    previous = model.registry
+    registry = PlantSimEngine.ObjectRegistry(
+        PlantSimEngine._closed_object_family_store(previous.objects),
+        previous.by_scale, previous.by_kind, previous.by_species,
+        previous.ancestor_ids_by_object)
+    fields = map(fieldnames(typeof(model))) do name
+        name === :registry && return registry
+        name in (:scenario_plan_cache, :binding_cache, :environment_binding_cache) && return nothing
+        name in (:bindings_dirty, :environment_bindings_dirty) && return true
+        getfield(model, name)
+    end
+    return CompositeModel(fields...)
+end
+
 @testset "Typed selector buckets preserve numeric and mixed identities" begin
-    for ids in ((10, 11, 12, 13), (0, :plant, "axis", 17))
+    for ids in ((10, 11, 12, 13), (0, :plant, "axis", 17)), closed in (false, true)
         scene_id, plant_id, axis_id, leaf_id = ids
         for (kind, species) in ((:photosynthetic, :rauh), (nothing, nothing))
             model = CompositeModel(
@@ -102,7 +118,16 @@ end
                 Object(axis_id; scale=:Axis, parent=plant_id),
                 Object(leaf_id; scale=:Leaf, kind, species, parent=axis_id),
             )
-            index = PlantSimEngine._selector_candidate_index()
+            closed && (model = _closed_selector_candidate_fixture(model))
+            @test (model.registry.objects.catalog isa PlantSimEngine.ClosedObjectFamilyCatalog) === closed
+            I = keytype(model.registry.objects)
+            index = PlantSimEngine._selector_candidate_index(model)
+            frozen_empty = PlantSimEngine._freeze_selector_candidate_index(index)
+            @test keytype(index.by_id) === keytype(frozen_empty.by_id) === I
+            @test keytype(index.by_scope_anchor) === keytype(frozen_empty.by_scope_anchor) ===
+                Union{I,Tuple{I,Symbol,Union{Symbol,I}}}
+            @test eltype(index.scope_roots) === eltype(frozen_empty.scope_roots) === I
+            @test isempty(frozen_empty.by_id) && isempty(frozen_empty.by_scope_anchor)
             selectors = (
                 Many(id=leaf_id),
                 Many(scale=(:Leaf, :Fruit)),
@@ -127,6 +152,49 @@ end
                     candidates, candidate_index, model, ObjectId(leaf_id),
                 ) === candidates
                 @test candidates == union(expected, Set([99]))
+            end
+
+            # Both reverse indexes exist BEFORE the selected future object.
+            # Open accepts every identity family; Closed keeps its actual union.
+            for raw_future in (leaf_id + 1000, :future_leaf, 1.5)
+                future_id = ObjectId(raw_future)
+                @test !haskey(model.registry.objects, future_id)
+                future_index = PlantSimEngine._selector_candidate_index(model)
+                for (slot, selector) in pairs((Many(id=raw_future),
+                    Many(id=raw_future, within=Subtree())))
+                    matcher = PlantSimEngine._compile_selector_matcher(model, selector)
+                    @test PlantSimEngine._index_selector_candidate!(future_index, model,
+                        matcher, slot; context=ObjectId(plant_id)) === future_index
+                end
+                frozen_future = PlantSimEngine._freeze_selector_candidate_index(future_index)
+                for candidate_index in (future_index, frozen_future)
+                    @test isempty(PlantSimEngine._union_selector_candidates!(Set{Int}(),
+                        candidate_index, model, ObjectId(leaf_id)))
+                end
+                if future_id isa I
+                    @test haskey(future_index.by_id, future_id)
+                    @test haskey(future_index.by_scope_anchor,
+                        (ObjectId(plant_id), :id, future_id))
+                    register_object!(model, Object(raw_future; scale=:Leaf,
+                        parent=axis_id, kind, species))
+                    for candidate_index in (future_index, frozen_future)
+                        candidates = Set{Int}()
+                        @test PlantSimEngine._union_selector_candidates!(candidates,
+                            candidate_index, model, future_id) === candidates
+                        @test candidates == Set([1, 2])
+                    end
+                else
+                    # This type can never be registered in the closed store.
+                    # Its otherwise valid selector must stay an empty match.
+                    @test closed
+                    @test isempty(future_index.by_id)
+                    @test isempty(future_index.by_scope_anchor)
+                    @test isempty(future_index.wildcard)
+                    for candidate_index in (future_index, frozen_future)
+                        @test isempty(PlantSimEngine._union_selector_candidates!(Set{Int}(),
+                            candidate_index, model, ObjectId(leaf_id)))
+                    end
+                end
             end
         end
     end

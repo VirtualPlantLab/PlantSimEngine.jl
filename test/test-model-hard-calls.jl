@@ -417,12 +417,12 @@ end
         plan -> plan ===
                 only(
             candidate for candidate in
-            scenario_plan.call_plans_by_application.controller
+            scenario_plan.call_plans_by_application[:controller]
             if candidate.call == plan.call
         ),
         call_plans,
     )
-    @test isempty(scenario_plan.call_plans_by_application.leaf_calls)
+    @test isempty(scenario_plan.call_plans_by_application[:leaf_calls])
     one_binding = only(
         binding for binding in simulation.compiled.call_bindings
         if binding.call == :one

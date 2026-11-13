@@ -78,7 +78,7 @@ end
 rebuild_index(compiled, bindings::AbstractVector{<:PSE.CompiledModelInputBinding}, I) =
     PSE._index_model_input_bindings(bindings, I)
 rebuild_index(compiled, bindings::AbstractVector{<:PSE.CompiledModelCallBinding}, I) =
-    PSE._index_model_call_bindings(bindings, compiled.applications_by_id, I)
+    PSE._index_model_call_bindings(bindings, compiled.scenario_plan.call_plans_by_application, I)
 
 function check_index(model, compiled, bindings, index)
     I = keytype(model.registry.objects)
@@ -121,7 +121,7 @@ end
             Tuple(bindings)
         repeated = [bindings; first(bindings)]
         @test_throws "Hard-call binding count differs from its prepared application declaration" PSE._index_model_call_bindings(
-            repeated, simulation.compiled.applications_by_id, I)
+            repeated, simulation.compiled.scenario_plan.call_plans_by_application, I)
         @test_throws TypeError PSE._model_binding_target_key(first(bindings), ObjectId{String})
         one = call_targets(data.context, :one)
         many = call_targets(data.context, :many)

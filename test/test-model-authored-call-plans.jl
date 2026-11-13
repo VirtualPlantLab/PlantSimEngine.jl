@@ -78,6 +78,27 @@ end
     resolved = only(simulation.compiled.scenario_plan.call_plans)
     @test resolved.matcher.scope isa PSE.CompiledNamedScope
     @test resolved.matcher.scope.root_id === ObjectId(:future_root)
+    runtime_plans = simulation.compiled.scenario_plan.call_plans_by_application
+    @test only(runtime_plans[:driver]) === resolved
+    binding = only(simulation.compiled.call_bindings)
+    @test binding.plan === resolved
+    @test PSE._current_call_binding_for_application(simulation.compiled,
+        simulation.compiled.applications_by_id[:driver], binding) === binding
+
+    # Same type, different resolved scope: only the actual runtime declaration
+    # may own a binding, even when the current target set happens to overlap.
+    with_field(value, name, replacement) = typeof(value)(ntuple(
+        index -> fieldnames(typeof(value))[index] === name ? replacement : getfield(value, index),
+        fieldcount(typeof(value)))...)
+    foreign_scope = with_field(resolved.matcher.scope, :root_id, ObjectId(:scene))
+    foreign_matcher = with_field(resolved.matcher, :scope, foreign_scope)
+    foreign_plan = with_field(resolved, :matcher, foreign_matcher)
+    foreign_binding = PSE.CompiledModelCallBinding(foreign_plan, binding.consumer_id,
+        binding.callee_object_ids, binding.callee_application_ids)
+    @test typeof(foreign_binding) === typeof(binding)
+    @test_throws "outside its prepared application declaration" PSE._index_model_call_bindings(
+        [foreign_binding], runtime_plans, keytype(data.model.registry.objects))
+    @test resolved.matcher.scope.root_id === ObjectId(:future_root)
     @test only(recipe.call_plans).matcher.scope isa Scope
     @test model_status(data.model, :leaf).value === 7f0
     @test model_status(data.model, :leaf).calls == 2
