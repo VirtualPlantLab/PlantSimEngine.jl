@@ -66,6 +66,10 @@ function finish_static_export(build_dir=joinpath(@__DIR__, "build"))
         html = replace(html, versions_tag => version_loader)
         extras = "<base href=\"$base\">" *
                  "<link rel=\"icon\" type=\"image/png\" href=\"assets/logo.png\">"
+        # Keep scripts out of Markdown: Bonito embeds page text in an inline search index.
+        if page_url in ("index.html", "agent_skill.html")
+            extras *= "<script defer src=\"assets/connect-agent.js\"></script>"
+        end
         count("<head>", html) == 1 || error("Expected one HTML head in $page")
         html = replace(html, "<head>" => "<head>" * extras; count=1)
         html = replace(html, "</body>" => "<link rel=\"stylesheet\" href=\"assets/brand.css\"></body>"; count=1)

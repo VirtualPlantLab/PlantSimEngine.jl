@@ -18,3 +18,9 @@ end
     @test occursin("1\ny", html)
     @test occursin("<table", html)
 end
+
+@testset "README copies the same setup prompt as the documentation" begin
+    prompt = chomp(read(joinpath(@__DIR__, "..", "src", "assets", "connect-agent.txt"), String))
+    readme = read(joinpath(@__DIR__, "..", "..", "README.md"), String)
+    @test occursin("```text\n" * prompt * "\n```", readme)
+end

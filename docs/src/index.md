@@ -162,6 +162,12 @@ alternatives and check whether their inputs require different connections.
 
 ## Work with an AI coding agent
 
+```@example
+Main.DocsSources.connect_agent() # hide
+```
+
+Copy the setup prompt and paste it into your coding agent to get started.
+
 An **AI coding agent** is software that can read and edit code and run tests
 with your development tools. With a recent frontier coding or reasoning model,
 access to Julia, and the relevant papers and data, you can ask it to implement
