@@ -75,16 +75,11 @@ function call_fixture(closed)
     return (; model, simulation, capture, context=target.context)
 end
 
-rebuild_index(compiled, bindings::AbstractVector{<:PSE.CompiledModelInputBinding}, I) =
-    PSE._index_model_input_bindings(bindings, I)
-rebuild_index(compiled, bindings::AbstractVector{<:PSE.CompiledModelCallBinding}, I) =
-    PSE._index_model_call_bindings(bindings, compiled.scenario_plan.call_plans_by_application, I)
-
-function check_index(model, compiled, bindings, index)
+function check_index(model, compiled, bindings, index, rebuild_index)
     I = keytype(model.registry.objects)
     @test keytype(index) === Tuple{Symbol,I}
     @test valtype(index) === Tuple{Vararg{eltype(bindings)}}
-    rebuilt = rebuild_index(compiled, bindings, I)
+    rebuilt = rebuild_index(bindings, I)
     @test keytype(rebuilt) === Tuple{Symbol,I}
     @test valtype(rebuilt) === Tuple{Vararg{eltype(bindings)}}
     @test Set(keys(rebuilt)) == Set(keys(index))
@@ -95,7 +90,7 @@ function check_index(model, compiled, bindings, index)
         @test index[key] === expected
         @test all(PSE._model_binding_target_key(binding, I) === key for binding in values)
     end
-    empty_index = rebuild_index(compiled, empty(bindings), I)
+    empty_index = rebuild_index(empty(bindings), I)
     @test isempty(empty_index)
     @test keytype(empty_index) === Tuple{Symbol,I}
     @test valtype(empty_index) === Tuple{Vararg{eltype(bindings)}}
@@ -104,8 +99,15 @@ end
 
 function check_indexes(model, simulation)
     compiled = simulation.compiled
-    check_index(model, compiled, compiled.input_bindings, compiled.input_bindings_by_target)
-    check_index(model, compiled, compiled.call_bindings, compiled.call_bindings_by_target)
+    check_index(model, compiled, compiled.input_bindings, compiled.input_bindings_by_target,
+        PSE._index_model_input_bindings)
+    check_index(model, compiled, compiled.call_bindings, compiled.call_bindings_by_target,
+        (bindings, I) -> PSE._index_model_call_bindings(
+            bindings, compiled.scenario_plan.call_plans_by_application, I))
+    if all(isempty, values(compiled.scenario_plan.call_plans_by_application.entries))
+        @test eltype(compiled.call_bindings) === Union{}
+        @test valtype(compiled.call_bindings_by_target) === Tuple{}
+    end
 end
 
 @testset "binding indexes keep registry identities for cold and observed calls" begin
@@ -116,6 +118,7 @@ end
         @test I === (closed ? Union{ObjectId{Int},ObjectId{Symbol}} : ObjectId)
         check_indexes(model, simulation)
         bindings = simulation.compiled.call_bindings
+        closed && @test all(isconcretetype, Base.uniontypes(eltype(bindings)))
         @test Tuple(binding.call for binding in bindings) == (:one, :many)
         @test simulation.compiled.call_bindings_by_target[(:capture, ObjectId(:root))] ===
             Tuple(bindings)

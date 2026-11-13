@@ -1754,6 +1754,23 @@ function CompiledModelCallBinding(
     )
 end
 
+# Resolved plan types and the registry identity family determine every call
+# binding, including future targets. Empty real plan tuples need no bindings.
+@generated function _model_call_binding_storage(
+    ::P, ::Type{I},
+) where {P<:Union{NamedTuple,CompiledMetadataTable},I<:ObjectId}
+    T = P <: CompiledMetadataTable ? fieldtype(P, :entries) : P
+    families = Any[]
+    for Plans in fieldtypes(T), Plan in fieldtypes(Plans), CallerI in Base.uniontypes(I)
+        B = isconcretetype(CallerI) ?
+            CompiledModelCallBinding{Plan,CallerI,I} :
+            (CompiledModelCallBinding{Plan,C,I} where {C<:CallerI})
+        push!(families, B)
+    end
+    B = isempty(families) ? Union{} : Union{families...}
+    return :(Vector{$B}())
+end
+
 @inline function Base.getproperty(
     binding::CompiledModelCallBinding,
     name::Symbol,
@@ -2421,8 +2438,8 @@ function _index_model_call_bindings!(index, bindings, plans_by_application, ::Ty
     return index
 end
 
-function _index_model_call_bindings(bindings, plans_by_application, ::Type{I}) where {I<:ObjectId}
-    index = Dict{Tuple{Symbol,I},Tuple{Vararg{CompiledModelCallBinding}}}()
+function _index_model_call_bindings(bindings::AbstractVector{B}, plans_by_application, ::Type{I}) where {B,I<:ObjectId}
+    index = Dict{Tuple{Symbol,I},Tuple{Vararg{B}}}()
     return _index_model_call_bindings!(index, bindings, plans_by_application, I)
 end
 
@@ -4039,7 +4056,7 @@ function _prepare_structural_compiled_delta(
         input_bindings, keytype(model.registry.objects),
     )
 
-    call_bindings = CompiledModelCallBinding[]
+    call_bindings = similar(compiled.call_bindings, 0)
     sizehint!(call_bindings, length(compiled.call_bindings))
     for binding in compiled.call_bindings
         consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
@@ -4211,7 +4228,7 @@ function _refresh_scene_call_bindings!(
         ;
         by_object=applications_by_object,
         plans_by_application=compiled.scenario_plan.call_plans_by_application,
-    ) : CompiledModelCallBinding[]
+    ) : similar(compiled.call_bindings, 0)
     affected_call_applications = CompiledModelApplication[]
     if !isempty(rebuilt_existing_call_targets)
         target_ids_by_application = Dict{Symbol,Vector{ObjectId}}()
@@ -4239,7 +4256,7 @@ function _refresh_scene_call_bindings!(
         end
     end
     replacement_call_bindings = isempty(affected_call_applications) ?
-                                CompiledModelCallBinding[] :
+                                similar(compiled.call_bindings, 0) :
         _compile_model_call_bindings(
             model,
             affected_call_applications,
@@ -8925,7 +8942,9 @@ function _compile_model_call_bindings(
             _compile_model_call_plans(model, applications),
         )
     end
-    bindings = CompiledModelCallBinding[]
+    bindings = _model_call_binding_storage(
+        plans_by_application, keytype(model.registry.objects),
+    )
     for application in applications
         for consumer_id in application.target_ids
             for plan in _application_plans(
