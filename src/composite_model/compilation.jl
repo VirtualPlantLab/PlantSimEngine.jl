@@ -3898,7 +3898,8 @@ function _remove_stale_status_views!(
     candidate_keys,
 )
     for key in candidate_keys
-        application_id, object_id = key
+        application_id, target_id = key
+        object_id = _index_object_id(compiled.model.registry.objects, target_id)
         application = compiled.applications_by_id[application_id]
         first(
             _sorted_object_id_position(
@@ -3906,7 +3907,7 @@ function _remove_stale_status_views!(
                 object_id,
             ),
         ) && continue
-        delete!(compiled.status_views_by_target, key)
+        delete!(compiled.status_views_by_target, (application_id, object_id))
     end
     return compiled
 end
