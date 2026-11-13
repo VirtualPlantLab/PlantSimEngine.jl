@@ -392,6 +392,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         _compile_model_call_bindings(
             model,
             applications;
+            applications_by_id=_applications_by_id(applications),
             plans_by_application=_plans_by_application(
                 applications,
                 call_plans,
