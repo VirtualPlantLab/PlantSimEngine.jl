@@ -1675,23 +1675,31 @@ function _model_status_view_family_types(V)
     return families
 end
 
-@generated function _with_model_status_view_family(prototype::AbstractVector{V}, f::F,
-    view, args::Vararg{Any,N},
-) where {V,F,N}
-    families = _model_status_view_family_types(V)
-    branches = [:(view isa $T && return f(view::$T, args...)) for T in families]
-    return quote
-        isempty(prototype) || throw(ArgumentError("Status view family prototypes must be empty."))
-        $(branches...)
-        throw(ArgumentError("The status view is outside its prepared application family."))
-    end
-end
-
-@inline function _with_model_status_view(f::F, schema::CompiledMetadataTable,
+# Select the application and its exact view in one generated boundary. The raw
+# Any-valued dictionary payload never crosses another metadata callback first.
+@generated function _with_model_status_view(f::F, schema::CompiledMetadataTable{T},
     application_id::Symbol, view, args::Vararg{Any,N},
-) where {F,N}
-    return Base.@inline _with_metadata_entry(_with_model_status_view_family,
-        schema, application_id, f, view, args...)
+) where {F,T,N}
+    branches = Expr[]
+    for (index, application) in enumerate(fieldnames(T))
+        Prototype = fieldtype(T, index)
+        Prototype <: AbstractVector || throw(ArgumentError(
+            "Status view family prototypes require vector storage."))
+        families = _model_status_view_family_types(eltype(Prototype))
+        admitted = [:(view isa $V && return f(view::$V, args...)) for V in families]
+        push!(branches, quote
+            if application_id === $(QuoteNode(application))
+                prototype = getfield(getfield(schema, :entries), $index)
+                isempty(prototype) || throw(ArgumentError("Status view family prototypes must be empty."))
+                $(admitted...)
+                throw(ArgumentError("The status view is outside its prepared application family."))
+            end
+        end)
+    end
+    return quote
+        $(branches...)
+        throw(KeyError(application_id))
+    end
 end
 
 # This hook is also called for newly constructed ephemeral/private views.
@@ -4717,7 +4725,8 @@ function _extend_compiled_scene(
         added_applications
     else
         rewired_applications = copy(added_applications)
-        targets_by_application = Dict{Symbol,Vector{ObjectId}}()
+        I = keytype(model.registry.objects)
+        targets_by_application = Dict{Symbol,Vector{I}}()
         for raw_id in rewired_consumer_ids
             object_id = _index_object_id(model.registry.objects, raw_id)
             _foreach_object_application(compiled, object_id) do application
@@ -4725,7 +4734,7 @@ function _extend_compiled_scene(
                     get!(
                         targets_by_application,
                         application.id,
-                        ObjectId[],
+                        I[],
                     ),
                     object_id,
                 )
@@ -6210,9 +6219,10 @@ function _status_recipe_add_default!(
     return _status_recipe_set_reference!(recipe, variable, Ref(initial))
 end
 
-# Private application views do not become canonical registry rows. Keep their
-# construction independent of the canonical ownership/admission catalog.
-function _finish_status_recipe(f, cache, recipe::_CanonicalStatusRecipe)
+# Open canonical construction discovers the reference layout in the same cache.
+function _finish_canonical_status_recipe(f::Callback, ::OpenObjectFamilyCatalog,
+    cache, recipe::_CanonicalStatusRecipe,
+) where {Callback}
     recipe.changed || return f(recipe.original)
     original = recipe.original
     existing_names = isnothing(original) ? () : propertynames(original)
@@ -6225,15 +6235,16 @@ function _finish_status_recipe(f, cache, recipe::_CanonicalStatusRecipe)
     return f(_construct_status(construction, existing_references, Tuple(recipe.edit_references)))
 end
 
-function _finish_canonical_status_recipe(f, model::CompositeModel, recipe::_CanonicalStatusRecipe)
-    return _finish_canonical_status_recipe(f, model.registry.objects.catalog,
+function _finish_canonical_status_recipe(f::Callback, model::CompositeModel,
+    recipe::_CanonicalStatusRecipe,
+) where {Callback}
+    return Base.@inline _finish_canonical_status_recipe(f, model.registry.objects.catalog,
         model.registry.objects.layout_cache, recipe)
 end
 
-_finish_canonical_status_recipe(f, ::OpenObjectFamilyCatalog, cache, recipe::_CanonicalStatusRecipe) =
-    _finish_status_recipe(f, cache, recipe)
-
-function _finish_canonical_status_recipe(f, catalog::ClosedObjectFamilyCatalog, cache, recipe::_CanonicalStatusRecipe)
+function _finish_canonical_status_recipe(f::Callback, catalog::ClosedObjectFamilyCatalog,
+    cache, recipe::_CanonicalStatusRecipe,
+) where {Callback}
     return _with_registered_status(catalog, recipe.original) do original
         recipe.changed || return f(original)
         _finish_admitted_status_recipe(f, catalog, original, recipe.edit_names, recipe.edit_references)
@@ -6258,7 +6269,7 @@ end
 
 # Select and consume actual references in the exact branch. Result schema
 # alternatives never escape as a large union before registration/view creation.
-@generated function _finish_admitted_status_recipe(f, ::ClosedObjectFamilyCatalog{F}, original::S, edit_names, edit_references) where {F,S}
+@generated function _finish_admitted_status_recipe(f::Callback, ::ClosedObjectFamilyCatalog{F}, original::S, edit_names, edit_references) where {Callback,F,S}
     original_names = _status_schema_names(S)
     results = unique(family.parameters[2] for family in fieldtypes(F) if family.parameters[2] <: Status)
     branches = Expr[]
@@ -6302,11 +6313,12 @@ function _model_object_status_for_preparation(
 end
 
 function _status_recipe_for_object!(
-    recipes::Dict{ObjectId,_CanonicalStatusRecipe},
-    recipe_order::Vector{ObjectId},
+    recipes::AbstractDict{I,_CanonicalStatusRecipe},
+    recipe_order::AbstractVector{I},
     model::CompositeModel,
     object_id::ObjectId,
-)
+) where {I<:ObjectId}
+    object_id = _index_object_id(recipes, object_id)
     return get!(recipes, object_id) do
         status = _model_object_status_for_preparation(model, object_id)
         push!(recipe_order, object_id)
@@ -6315,11 +6327,12 @@ function _status_recipe_for_object!(
 end
 
 function _status_preparation_for_object!(
-    recipes::Dict{ObjectId,_CanonicalStatusRecipe},
-    recipe_order::Vector{ObjectId},
+    recipes::AbstractDict{I,_CanonicalStatusRecipe},
+    recipe_order::AbstractVector{I},
     model::CompositeModel,
     object_id::ObjectId,
-)
+) where {I<:ObjectId}
+    object_id = _index_object_id(recipes, object_id)
     recipe = get(recipes, object_id, nothing)
     isnothing(recipe) || return recipe
     status = _model_object_status_for_preparation(model, object_id)
@@ -6331,10 +6344,10 @@ end
 
 function _apply_status_recipes!(
     model::CompositeModel,
-    recipes::Dict{ObjectId,_CanonicalStatusRecipe},
-    recipe_order::Vector{ObjectId};
+    recipes::AbstractDict{I,_CanonicalStatusRecipe},
+    recipe_order::AbstractVector{I};
     performance=nothing,
-)
+) where {I<:ObjectId}
     for object_id in recipe_order
         recipe = recipes[object_id]
         recipe.changed || continue
@@ -6438,8 +6451,9 @@ function _prepare_model_output_statuses_batched!(
     applications;
     performance=nothing,
 )
-    recipes = Dict{ObjectId,_CanonicalStatusRecipe}()
-    recipe_order = ObjectId[]
+    I = keytype(model.registry.objects)
+    recipes = Dict{I,_CanonicalStatusRecipe}()
+    recipe_order = I[]
     conversion_records = _no_status_conversion(model.status_conversion) ?
                          model.status_conversion_records :
                          Dict{Any,Any}()
@@ -6560,8 +6574,9 @@ function _prepare_model_output_destination_statuses!(
     model::CompositeModel,
     resolved_destinations,
 )
-    recipes = Dict{ObjectId,_CanonicalStatusRecipe}()
-    recipe_order = ObjectId[]
+    I = keytype(model.registry.objects)
+    recipes = Dict{I,_CanonicalStatusRecipe}()
+    recipe_order = I[]
     records_before = copy(model.status_conversion_records)
     try
         for resolved in resolved_destinations
@@ -7243,15 +7258,15 @@ function _prepare_model_input_statuses_batched!(
     final_references=nothing,
     performance=nothing,
 )
-    recipes = Dict{ObjectId,_CanonicalStatusRecipe}()
-    recipe_order = ObjectId[]
+    I = keytype(model.registry.objects)
+    recipes = Dict{I,_CanonicalStatusRecipe}()
+    recipe_order = I[]
     record_conversions = !_no_status_conversion(model.status_conversion)
     conversion_records = record_conversions ? Dict{Any,Any}() : model.status_conversion_records
-    I = keytype(model.registry.objects)
     default_status_updates = Dict{Tuple{I,Symbol},Bool}()
     input_default_rewrites_avoided = 0
     for partial in applications
-        input_default_rewrites_avoided += _with_model_application(applications_by_id, partial) do application
+        input_default_rewrites_avoided += Base.@inline _with_model_application(applications_by_id, partial) do application
             rewrites_avoided = 0
             schema = _model_input_schema(application)
             defaults = _input_default_values(schema)

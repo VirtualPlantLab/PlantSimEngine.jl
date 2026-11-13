@@ -1110,10 +1110,11 @@ function _replace_model_object_status!(
     )
     object.status === status && return status
     store = model.registry.objects
+    object_id = object.id::keytype(store)
     return _with_registered_status(store.catalog, status) do admitted
-        _store_object_family_row!(store, object, object.id::keytype(store), admitted)
+        _store_object_family_row!(store, object, object_id, admitted)
         setfield!(object, :status, admitted)
-        _set_status_source_identity!(model, object.id, admitted)
+        _set_status_source_identity!(model, object_id, admitted)
         return admitted
     end
 end
