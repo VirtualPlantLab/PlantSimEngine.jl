@@ -13,6 +13,8 @@ const PSE = PlantSimEngine
     replacement = Ref(3.0f0)
     tail = Ref([4.0])
     edits = PSE._CanonicalStatusRecipe(original)
+    @test fieldtype(typeof(edits), :original) === typeof(original)
+    @test (@inferred PSE._status_recipe_has_variable(edits, :keep))
     @test isempty(edits.edit_names)
     @test isempty(edits.edit_references)
     @test !PSE._status_recipe_set_reference!(edits, :keep, keep)
@@ -60,6 +62,17 @@ const PSE = PlantSimEngine
     projected = PSE._closed_object_family_store(model.registry.objects)
     @test projected.layout_cache == cache
     @test projected.layout_cache !== cache
+    recipes = @inferred PSE._canonical_status_recipe_storage(projected.catalog, keytype(projected))
+    Original = typeof(model_status(model, :object))
+    @test valtype(typeof(recipes)) === Union{PSE._CanonicalStatusRecipe{Nothing},
+        PSE._CanonicalStatusRecipe{Original}}
+    @test isempty(recipes)
+    order = keytype(projected)[]
+    staged = PSE._status_recipe_for_object!(recipes, order, model, ObjectId(:object))
+    @test staged.original === model_status(model, :object)
+    @test typeof(staged) === PSE._CanonicalStatusRecipe{Original}
+    @test PSE._status_recipe_for_object!(recipes, order, model, ObjectId(:object)) === staged
+    @test order == [ObjectId(:object)]
     @test isempty(CompositeModel(Object(:other)).registry.objects.layout_cache)
     discarded = PSE.ObjectFamilyStore()
     merge!(discarded.layout_cache, cache)

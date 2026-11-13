@@ -368,10 +368,46 @@ struct _ApplicationTargetTemplate
     matched_slots::Vector{Int}
 end
 
+struct _ApplicationTargetTemplateKey{I<:ObjectId}
+    scale::Union{Nothing,Symbol}
+    kind::Union{Nothing,Symbol}
+    species::Union{Nothing,Symbol}
+    id::Union{Nothing,I}
+    scope_roots::Union{Nothing,Vector{I}}
+end
+
+function Base.hash(key::_ApplicationTargetTemplateKey, seed::UInt)
+    result = hash(key.scale, seed)
+    result = hash(key.kind, result)
+    result = hash(key.species, result)
+    result = hash(key.id, result)
+    roots = key.scope_roots
+    result = hash(isnothing(roots) ? 0 : length(roots), result)
+    if !isnothing(roots)
+        for root in roots
+            result = hash(root, result)
+        end
+    end
+    return result
+end
+
+function Base.isequal(left::_ApplicationTargetTemplateKey, right::_ApplicationTargetTemplateKey)
+    isequal(left.scale, right.scale) && isequal(left.kind, right.kind) &&
+        isequal(left.species, right.species) && isequal(left.id, right.id) || return false
+    a, b = left.scope_roots, right.scope_roots
+    isnothing(a) && return isnothing(b)
+    isnothing(b) && return false
+    length(a) == length(b) || return false
+    for index in eachindex(a)
+        isequal(a[index], b[index]) || return false
+    end
+    return true
+end
+Base.:(==)(left::_ApplicationTargetTemplateKey, right::_ApplicationTargetTemplateKey) =
+    isequal(left, right)
+
 function _application_target_template_cache(::Type{I}) where {I<:ObjectId}
-    K = Tuple{Union{Nothing,Symbol},Union{Nothing,Symbol},Union{Nothing,Symbol},
-        Union{Nothing,I},Tuple{Vararg{I}}}
-    return Dict{K,_ApplicationTargetTemplate}()
+    return Dict{_ApplicationTargetTemplateKey{I},_ApplicationTargetTemplate}()
 end
 
 """Reverse candidate index for compiled selector matchers."""
@@ -407,9 +443,9 @@ end
 
 function _freeze_selector_candidate_index(index::SelectorCandidateIndex)
     freeze(groups::AbstractDict{K}) where {K} =
-        Dict{K,Tuple{Vararg{Int}}}(key => Tuple(values) for (key, values) in groups)
+        Dict{K,Vector{Int}}(key => copy(values) for (key, values) in groups)
     return SelectorCandidateIndex(
-        Tuple(index.wildcard),
+        copy(index.wildcard),
         freeze(index.by_scale),
         freeze(index.by_kind),
         freeze(index.by_species),
@@ -2751,16 +2787,22 @@ function _application_target_template_key(
 )
     object = _model_object(model, object_id)
     id = _index_object_id(model.registry.objects, object_id)
-    scope_roots = if isempty(index.scope_roots)
-        ()
-    else
+    I = keytype(model.registry.objects)
+    scope_roots = nothing
+    if !isempty(index.scope_roots)
         ancestors = _object_ancestor_ids(model.registry, id)
-        Tuple(
-            _index_object_id(model.registry.objects, ancestor_id) for ancestor_id in ancestors
-            if _index_object_id(model.registry.objects, ancestor_id) in index.scope_roots
-        )
+        for raw_ancestor in ancestors
+            ancestor = _index_object_id(model.registry.objects, raw_ancestor)
+            ancestor in index.scope_roots || continue
+            if isnothing(scope_roots)
+                scope_roots = I[ancestor]
+            else
+                push!(scope_roots, ancestor)
+            end
+        end
     end
-    return (
+    # This vector is owned by the immutable key and is never changed afterwards.
+    return _ApplicationTargetTemplateKey{I}(
         _application_target_template_label(index, :scale, object.scale),
         _application_target_template_label(index, :kind, object.kind),
         _application_target_template_label(index, :species, object.species),
@@ -6174,22 +6216,36 @@ Sparse reference edits staged before committing one canonical object status.
 Unchanged fields remain in the original status. A model-owned construction
 recipe supplies their order when the staged edits are committed.
 """
-mutable struct _CanonicalStatusRecipe
-    original::Union{Nothing,Status}
+mutable struct _CanonicalStatusRecipe{S<:Union{Nothing,Status}}
+    original::S
     edit_names::Vector{Symbol}
     edit_references::Vector{Ref}
     changed::Bool
     field_changes::Int
 end
 
-function _CanonicalStatusRecipe(status::Union{Nothing,Status})
-    return _CanonicalStatusRecipe(
+function _CanonicalStatusRecipe(status::S) where {S<:Union{Nothing,Status}}
+    return _CanonicalStatusRecipe{S}(
         status,
         Symbol[],
         Ref[],
         isnothing(status),
         0,
     )
+end
+
+# The finite catalog witnesses every original status type before sparse edits.
+# Open preparation keeps the same recipe algorithm behind its ordinary JIT barrier.
+_canonical_status_recipe_storage(::OpenObjectFamilyCatalog, ::Type{I}) where {I<:ObjectId} =
+    Dict{I,_CanonicalStatusRecipe}()
+
+@generated function _canonical_status_recipe_storage(::ClosedObjectFamilyCatalog{F},
+    ::Type{I},
+) where {F,I<:ObjectId}
+    schemas = unique([Nothing; [family.parameters[2] for family in fieldtypes(F)
+        if family.parameters[2] <: Status]])
+    R = Union{map(S -> _CanonicalStatusRecipe{S}, schemas)...}
+    return :(Dict{$I,$R}())
 end
 
 @inline function _status_recipe_has_variable(recipe::_CanonicalStatusRecipe, variable::Symbol)
@@ -6353,25 +6409,27 @@ function _model_object_status_for_preparation(
 end
 
 function _status_recipe_for_object!(
-    recipes::AbstractDict{I,_CanonicalStatusRecipe},
+    recipes::AbstractDict{I,R},
     recipe_order::AbstractVector{I},
     model::CompositeModel,
     object_id::ObjectId,
-) where {I<:ObjectId}
+) where {I<:ObjectId,R<:_CanonicalStatusRecipe}
     object_id = _index_object_id(recipes, object_id)
     return get!(recipes, object_id) do
         status = _model_object_status_for_preparation(model, object_id)
-        push!(recipe_order, object_id)
-        _CanonicalStatusRecipe(status)
+        Base.@inline _with_registered_status(model.registry.objects.catalog, status) do original
+            push!(recipe_order, object_id)
+            _CanonicalStatusRecipe(original)
+        end
     end
 end
 
 function _status_preparation_for_object!(
-    recipes::AbstractDict{I,_CanonicalStatusRecipe},
+    recipes::AbstractDict{I,R},
     recipe_order::AbstractVector{I},
     model::CompositeModel,
     object_id::ObjectId,
-) where {I<:ObjectId}
+) where {I<:ObjectId,R<:_CanonicalStatusRecipe}
     object_id = _index_object_id(recipes, object_id)
     recipe = get(recipes, object_id, nothing)
     isnothing(recipe) || return recipe
@@ -6384,10 +6442,10 @@ end
 
 function _apply_status_recipes!(
     model::CompositeModel,
-    recipes::AbstractDict{I,_CanonicalStatusRecipe},
+    recipes::AbstractDict{I,R},
     recipe_order::AbstractVector{I};
     performance=nothing,
-) where {I<:ObjectId}
+) where {I<:ObjectId,R<:_CanonicalStatusRecipe}
     for object_id in recipe_order
         recipe = recipes[object_id]
         recipe.changed || continue
@@ -6507,7 +6565,7 @@ function _prepare_model_output_statuses!(
 )
     isempty(applications) && return model
     I = keytype(model.registry.objects)
-    recipes = Dict{I,_CanonicalStatusRecipe}()
+    recipes = _canonical_status_recipe_storage(model.registry.objects.catalog, I)
     recipe_order = I[]
     record_conversions = !_no_status_conversion(model.status_conversion)
     conversion_records = record_conversions ? Dict{Any,Any}() : model.status_conversion_records
@@ -6614,7 +6672,7 @@ function _prepare_model_output_destination_statuses!(
     resolved_destinations,
 )
     I = keytype(model.registry.objects)
-    recipes = Dict{I,_CanonicalStatusRecipe}()
+    recipes = _canonical_status_recipe_storage(model.registry.objects.catalog, I)
     recipe_order = I[]
     records_before = copy(model.status_conversion_records)
     try
@@ -7300,7 +7358,7 @@ function _prepare_model_input_statuses_batched!(
     performance=nothing,
 )
     I = keytype(model.registry.objects)
-    recipes = Dict{I,_CanonicalStatusRecipe}()
+    recipes = _canonical_status_recipe_storage(model.registry.objects.catalog, I)
     recipe_order = I[]
     record_conversions = !_no_status_conversion(model.status_conversion)
     conversion_records = record_conversions ? Dict{Any,Any}() : model.status_conversion_records

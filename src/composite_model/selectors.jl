@@ -738,7 +738,7 @@ _compile_selector_matcher(model::CompositeModel, selector::AbstractObjectMultipl
 
 function _scope_object_ids(model::CompositeModel, scope, context)
     if isnothing(scope) || scope isa SceneScope
-        return ObjectId[keys(model.registry.objects)...]
+        return collect(keys(model.registry.objects))
     end
 
     current_id = _object_id_from_context(context)
