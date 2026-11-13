@@ -2304,19 +2304,19 @@ end
     return (getfield(plan, :application_id), getfield(binding, :consumer_id)::I)
 end
 
-function _index_model_bindings(bindings, ::Type{I}) where {I<:ObjectId}
+function _index_model_bindings(bindings::AbstractVector{B}, ::Type{I}) where {B,I<:ObjectId}
     K = Tuple{Symbol,I}
-    grouped = Dict{K,Vector{Any}}()
+    grouped = Dict{K,Vector{B}}()
     for binding in bindings
         key = _model_binding_target_key(binding, I)
         values = get!(grouped, key) do
-            Any[]
+            B[]
         end
         push!(values, binding)
     end
-    # Lifecycle changes may replace a binding tuple with a new carrier schema.
-    # Only values are open; every consumer identity belongs to this registry.
-    return Dict{K,Any}(key => Tuple(values) for (key, values) in grouped)
+    # Membership length remains dynamic; records retain the same current/future
+    # family as their canonical storage, including all families in open scenes.
+    return Dict{K,Tuple{Vararg{B}}}(key => Tuple(values) for (key, values) in grouped)
 end
 
 """
@@ -3592,7 +3592,6 @@ function _extend_model_status_views(
     compiled::CompiledCompositeModel,
     applications,
     applications_by_id,
-    applications_by_object,
     input_bindings_by_target,
     application_order,
     new_targets,
@@ -3603,15 +3602,23 @@ function _extend_model_status_views(
     previous_views=compiled.status_views_by_target,
 )
     views = compiled.status_views_by_target
-    affected_keys = Set{Tuple{Symbol,ObjectId}}(affected_temporal_keys)
+    Key = Tuple{Symbol,keytype(model.registry.objects)}
+    affected_keys = Set{Key}()
+    for (application_id, raw_id) in affected_temporal_keys
+        object_id = _index_object_id(model.registry.objects, raw_id)
+        push!(affected_keys, (application_id, object_id))
+    end
     for application in applications
-        for object_id in get(new_targets, application.id, ObjectId[])
+        for raw_id in get(new_targets, application.id, ObjectId[])
+            object_id = _index_object_id(model.registry.objects, raw_id)
             push!(affected_keys, (application.id, object_id))
         end
     end
-    for object_id in rewired_consumer_ids
-        for application in get(applications_by_object, object_id, ())
-            push!(affected_keys, (application.id, object_id))
+    for raw_id in rewired_consumer_ids
+        let object_id = _index_object_id(model.registry.objects, raw_id)
+            _foreach_object_application(compiled, object_id) do application
+                push!(affected_keys, (application.id, object_id))
+            end
         end
     end
 
@@ -3619,7 +3626,9 @@ function _extend_model_status_views(
         application_id => index
         for (index, application_id) in pairs(application_order)
     )
-    for key in affected_temporal_keys
+    for (application_id, raw_id) in affected_temporal_keys
+        object_id = _index_object_id(model.registry.objects, raw_id)
+        key = (application_id, object_id)
         view = get(views, key, nothing)
         isnothing(view) && continue
         if _extend_temporal_many_inputs_in_place!(
@@ -3785,20 +3794,30 @@ function _propagate_changed_manual_call_owners!(
     return changed_target_ids
 end
 
+@inline function _is_previous_time_step_binding(binding::CompiledModelInputBinding, input::Symbol)
+    return binding.carrier_hint === :temporal_stream && binding.input === input &&
+           binding.policy isa PreviousTimeStep
+end
+
 function _changed_previous_time_step_targets(
+    objects::ObjectFamilyStore{I},
     previous_temporal_sources,
     status_views_by_target,
-)
-    changed_target_ids = Set{Tuple{Symbol,ObjectId}}()
-    for (application_id, object_id, input) in keys(previous_temporal_sources)
+    input_bindings,
+    input_bindings_by_target,
+) where {I<:ObjectId}
+    changed_target_ids = Set{Tuple{Symbol,I}}()
+    for (application_id, raw_id, input) in keys(previous_temporal_sources)
+        object_id = _index_object_id(objects, raw_id)
         target_key = (application_id, object_id)
-        view = get(status_views_by_target, target_key, nothing)
-        isnothing(view) && continue
-        any(view.temporal_inputs) do temporal_input
-            temporal_input.binding.input == input &&
-                temporal_input.binding.policy isa PreviousTimeStep
-        end || continue
-        push!(changed_target_ids, target_key)
+        isnothing(get(status_views_by_target, target_key, nothing)) && continue
+        for raw_binding in get(input_bindings_by_target, target_key, ())
+            previous = Base.@inline _with_model_input_binding(
+                _is_previous_time_step_binding, input_bindings, raw_binding, input)
+            previous || continue
+            push!(changed_target_ids, target_key)
+            break
+        end
     end
     return changed_target_ids
 end
@@ -4400,11 +4419,11 @@ function _extend_compiled_scene(
             new_targets,
             pure_addition,
         )
-    union!(changed_target_ids_seed, changed_distributed_output_target_ids)
-    union!(
-        changed_application_ids_seed,
-        (first(key) for key in changed_distributed_output_target_ids),
-    )
+    for (application_id, raw_id) in changed_distributed_output_target_ids
+        object_id = _index_object_id(model.registry.objects, raw_id)
+        push!(changed_target_ids_seed, (application_id, object_id))
+        push!(changed_application_ids_seed, application_id)
+    end
     _runtime_performance_finish!(
         performance,
         :application_target_refresh,
@@ -4578,9 +4597,9 @@ function _extend_compiled_scene(
 
     affected_input_applications = if pure_addition ||
                                      isempty(rewired_consumer_ids)
-        Tuple(added_applications)
+        added_applications
     else
-        rewired_applications = CompiledModelApplication[]
+        rewired_applications = copy(added_applications)
         targets_by_application = Dict{Symbol,Vector{ObjectId}}()
         for raw_id in rewired_consumer_ids
             object_id = _index_object_id(model.registry.objects, raw_id)
@@ -4607,7 +4626,7 @@ function _extend_compiled_scene(
                 _partial_model_application(application, target_ids),
             )
         end
-        (added_applications..., rewired_applications...)
+        rewired_applications
     end
     if pure_addition
         final_input_references = _model_input_status_references(changed_bindings)
@@ -4658,7 +4677,6 @@ function _extend_compiled_scene(
         compiled,
         applications,
         applications_by_id,
-        applications_by_object,
         input_bindings_by_target,
         application_order,
         new_targets,
@@ -4673,32 +4691,43 @@ function _extend_compiled_scene(
         :status_view_refresh,
         started_at,
     )
-    changed_execution_target_ids = Set{Tuple{Symbol,ObjectId}}(
-        (application_id, object_id)
-        for (application_id, object_ids) in new_targets
-        for object_id in object_ids
-    )
-    union!(
-        changed_execution_target_ids,
-        affected_temporal_keys,
-    )
-    union!(changed_execution_target_ids, changed_target_ids_seed)
-    union!(changed_execution_target_ids, changed_call_target_keys)
-    for raw_id in rewired_consumer_ids
-        object_id = _index_object_id(model.registry.objects, raw_id)
-        _foreach_object_application(compiled, object_id) do application
-            push!(changed_execution_target_ids, (application.id, object_id))
+    # Keep the published owner's storage type, while admitting each incoming
+    # identity before constructing the key consumed by its Set operations.
+    changed_execution_target_ids = Set{Tuple{Symbol,ObjectId}}()
+    for (application_id, object_ids) in new_targets
+        for raw_id in object_ids
+            object_id = _index_object_id(model.registry.objects, raw_id)
+            push!(changed_execution_target_ids, (application_id, object_id))
         end
     end
-    changed_manual_target_ids = Set{Tuple{Symbol,ObjectId}}(
-        key for key in changed_execution_target_ids
-        if first(key) in manual_application_ids
-    )
+    for incoming in (affected_temporal_keys, changed_target_ids_seed, changed_call_target_keys)
+        for (application_id, raw_id) in incoming
+            object_id = _index_object_id(model.registry.objects, raw_id)
+            push!(changed_execution_target_ids, (application_id, object_id))
+        end
+    end
+    for raw_id in rewired_consumer_ids
+        let object_id = _index_object_id(model.registry.objects, raw_id)
+            _foreach_object_application(compiled, object_id) do application
+                push!(changed_execution_target_ids, (application.id, object_id))
+            end
+        end
+    end
+    Key = Tuple{Symbol,keytype(model.registry.objects)}
+    changed_manual_target_ids = Set{Key}()
+    for (application_id, raw_id) in changed_execution_target_ids
+        application_id in manual_application_ids || continue
+        object_id = _index_object_id(model.registry.objects, raw_id)
+        push!(changed_manual_target_ids, (application_id, object_id))
+    end
     union!(
         changed_manual_target_ids,
         _changed_previous_time_step_targets(
+            model.registry.objects,
             previous_temporal_sources,
             status_views_by_target,
+            input_bindings,
+            input_bindings_by_target,
         ),
     )
     _propagate_changed_manual_call_owners!(

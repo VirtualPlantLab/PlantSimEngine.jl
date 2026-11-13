@@ -78,10 +78,10 @@ end
 function check_index(model, bindings, index)
     I = keytype(model.registry.objects)
     @test keytype(index) === Tuple{Symbol,I}
-    @test valtype(index) === Any
+    @test valtype(index) === Tuple{Vararg{eltype(bindings)}}
     rebuilt = PSE._index_model_bindings(bindings, I)
     @test keytype(rebuilt) === Tuple{Symbol,I}
-    @test valtype(rebuilt) === Any
+    @test valtype(rebuilt) === Tuple{Vararg{eltype(bindings)}}
     @test Set(keys(rebuilt)) == Set(keys(index))
     for (key, values) in rebuilt
         expected = Tuple(binding for binding in bindings
@@ -93,7 +93,7 @@ function check_index(model, bindings, index)
     empty_index = PSE._index_model_bindings(empty(bindings), I)
     @test isempty(empty_index)
     @test keytype(empty_index) === Tuple{Symbol,I}
-    @test valtype(empty_index) === Any
+    @test valtype(empty_index) === Tuple{Vararg{eltype(bindings)}}
     return nothing
 end
 

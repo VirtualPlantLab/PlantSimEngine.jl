@@ -118,6 +118,8 @@ end
     prototype = storage_prototype(control.families)
     data = fixture()
     simulation = prepare(data.model, prototype)
+    input_cache = simulation.compiled.input_bindings_by_target
+    @test valtype(input_cache) === Tuple{Vararg{eltype(prototype)}}
     @test simulation.compiled.input_bindings !== prototype
     @test eltype(simulation.compiled.input_bindings) === eltype(prototype)
     @test isempty(check_carriers(data, simulation).carrier)
@@ -125,6 +127,8 @@ end
     first_reference = birth!(data.model, :leaf_1, 7.0)
     push!(totals, advance!(data, simulation))
     first = check_carriers(data, simulation)
+    @test simulation.compiled.input_bindings_by_target === input_cache
+    @test any(cached -> cached === first, input_cache[(:reader, ObjectId(:a))])
     @test only(parent(first.carrier)) === first_reference
     carrier, source_ids = first.carrier, first.source_ids
     second_reference = birth!(data.model, :leaf_2, 11.0)
