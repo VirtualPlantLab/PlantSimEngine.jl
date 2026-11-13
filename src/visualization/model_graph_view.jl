@@ -432,8 +432,8 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         )
     end
     _model_graph_phase!(diagnostics, :input_status, nothing) do
-        _prepare_model_input_defaults!(model, applications, _applications_by_id(applications))
-        _wire_model_input_carriers!(model, input_bindings)
+        _prepare_model_input_statuses_batched!(
+            model, applications, _applications_by_id(applications), input_bindings)
     end
 
     children = Dict{Symbol,Set{Symbol}}(

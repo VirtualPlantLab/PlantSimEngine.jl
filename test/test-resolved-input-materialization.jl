@@ -564,18 +564,12 @@ end
     @test model_status(model, :b_override).offset === model_status(model, :d_override).offset === 7.0
     @test model_status(model, :a_base).seen === 0.0
     @test model_status(model, :b_override).seen === 0f0
-    for batched in (false, true)
-        base.input_reads[] = replacement.input_reads[] = 0
-        if batched
-            PSE._prepare_model_input_statuses_batched!(model, (application,),
-                compiled.applications_by_id, compiled.input_bindings)
-        else
-            PSE._prepare_model_input_defaults!(model, (application,), compiled.applications_by_id)
-        end
-        @test (base.input_reads[], replacement.input_reads[]) == (1, 1)
-        @test all(PSE.refvalue(model_status(model, id), :offset) === reference
-            for (id, reference) in references)
-    end
+    base.input_reads[] = replacement.input_reads[] = 0
+    PSE._prepare_model_input_statuses_batched!(model, (application,),
+        compiled.applications_by_id, compiled.input_bindings)
+    @test (base.input_reads[], replacement.input_reads[]) == (1, 1)
+    @test all(PSE.refvalue(model_status(model, id), :offset) === reference
+        for (id, reference) in references)
     step!(simulation)
     @test model_status(model, :a_base).seen === 4.0
     @test model_status(model, :b_override).seen === 8f0

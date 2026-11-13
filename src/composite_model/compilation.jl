@@ -4840,28 +4840,15 @@ function _extend_compiled_scene(
         end
         rewired_applications
     end
-    if pure_addition
-        final_input_references = _model_input_status_references(changed_bindings)
-        _prepare_model_input_statuses_batched!(
-            model,
-            affected_input_applications,
-            applications_by_id,
-            changed_bindings;
-            final_references=final_input_references,
-            performance=performance,
-        )
-    else
-        _prepare_model_input_defaults!(
-            model,
-            affected_input_applications,
-            applications_by_id;
-            performance=performance,
-        )
-        _wire_model_input_carriers!(
-            model,
-            changed_bindings,
-        )
-    end
+    final_input_references = _model_input_status_references(changed_bindings)
+    _prepare_model_input_statuses_batched!(
+        model,
+        affected_input_applications,
+        applications_by_id,
+        changed_bindings;
+        final_references=final_input_references,
+        performance=performance,
+    )
     _validate_model_required_inputs!(
         model,
         affected_input_applications,
@@ -6497,42 +6484,6 @@ function _apply_status_recipes!(
     return model
 end
 
-function _status_with_reference(status::Status, variable::Symbol, reference::Base.RefValue)
-    names = propertynames(status)
-    if variable in names
-        references = ntuple(
-            index -> names[index] == variable ? reference : refvalue(status, names[index]),
-            length(names),
-        )
-        return Status(NamedTuple{names}(references))
-    end
-    extended_names = (names..., variable)
-    references = (ntuple(index -> refvalue(status, names[index]), length(names))..., reference)
-    return Status(NamedTuple{extended_names}(references))
-end
-
-function _status_with_default(
-    model::CompositeModel,
-    status::Status,
-    object_id::ObjectId,
-    variable::Symbol,
-    value;
-    application_id=nothing,
-    origin=:model_default,
-)
-    variable in propertynames(status) && return status
-    initial, _, _ = _materialize_status_value(
-        model,
-        variable,
-        value;
-        object_id=object_id,
-        application_id=application_id,
-        origin=origin,
-        private_copy=true,
-    )
-    return _status_with_reference(status, variable, Ref(initial))
-end
-
 function _ensure_model_object_status!(model::CompositeModel, object_id::ObjectId)
     object = _model_object(model, object_id)
     status = object.status
@@ -7244,138 +7195,6 @@ function _model_input_status_references(bindings)
         )] = _model_input_status_reference(binding)
     end
     return references
-end
-
-function _prepare_model_input_defaults!(
-    model::CompositeModel,
-    applications,
-    applications_by_id;
-    final_references=nothing,
-    performance=nothing,
-)
-    for partial in applications
-        _with_model_application(applications_by_id, partial) do application
-            _model_input_names(application)
-            schemas = _application_default_schemas(application, Val(:inputs))
-            for object_id in application.target_ids
-                Base.@inline _with_application_defaults(application, object_id, schemas, Val(:inputs)) do defaults
-                    status = _ensure_model_object_status!(model, object_id)
-                    for (variable, value) in pairs(defaults)
-                        variable = Symbol(variable)
-                        variable in propertynames(status) && continue
-                        reference = isnothing(final_references) ?
-                                    nothing :
-                                    get(
-                            final_references,
-                            (application.id, object_id, variable),
-                            nothing,
-                        )
-                        if !isnothing(reference)
-                            # Preserve conversion callbacks, validation, and diagnostic
-                            # records while avoiding a default Status that the resolved
-                            # carrier would replace immediately below.
-                            _no_status_conversion(model.status_conversion) ||
-                                _materialize_status_value(
-                                    model,
-                                    variable,
-                                    value;
-                                    object_id=object_id,
-                                    application_id=application.id,
-                                    origin=:model_input_default,
-                                    private_copy=true,
-                                )
-                            status = _status_with_reference(
-                                status,
-                                variable,
-                                reference,
-                            )
-                            _runtime_performance_count!(
-                                performance,
-                                :input_default_status_rewrites_avoided,
-                            )
-                            continue
-                        end
-                        status = _status_with_default(
-                            model,
-                            status,
-                            object_id,
-                            variable,
-                            value;
-                            application_id=application.id,
-                            origin=:model_input_default,
-                        )
-                        push!(
-                            get!(
-                                model.input_default_status_variables,
-                                object_id,
-                                Set{Symbol}(),
-                            ),
-                            variable,
-                        )
-                    end
-                    _replace_model_object_status!(model, object_id, status)
-                    return nothing
-                end
-            end
-            return nothing
-        end
-    end
-    return model
-end
-
-function _wire_model_input_carriers!(
-    model::CompositeModel,
-    bindings;
-    final_references=nothing,
-)
-    for binding in bindings
-        binding.carrier_hint == :temporal_stream && continue
-        isnothing(binding.carrier) && continue
-        object = _model_object(model, binding.consumer_id)
-        status = object.status
-        status isa Status || continue
-        reference = if isnothing(final_references)
-            _model_input_status_reference(binding)
-        else
-            get(
-                final_references,
-                (
-                    binding.application_id,
-                    binding.consumer_id,
-                    binding.input,
-                ),
-                nothing,
-            )
-        end
-        isnothing(reference) &&
-            (reference = _model_input_status_reference(binding))
-        if binding.input in propertynames(status) &&
-           refvalue(status, binding.input) === reference
-            delete!(
-                get!(
-                    model.input_default_status_variables,
-                    binding.consumer_id,
-                    Set{Symbol}(),
-                ),
-                binding.input,
-            )
-            continue
-        end
-        _replace_model_object_status!(
-            model,
-            object,
-            _status_with_reference(status, binding.input, reference),
-        )
-        delete!(
-            get!(
-                model.input_default_status_variables,
-                binding.consumer_id,
-                Set{Symbol}(),
-            ),
-            binding.input,
-        )
-    end
-    return model
 end
 
 function _prepare_model_input_statuses_batched!(
