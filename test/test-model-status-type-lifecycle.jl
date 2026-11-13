@@ -545,3 +545,21 @@ end
     @test model_object(model, :late_leaf).status === nothing
     @test model.status_conversion_records == records
 end
+
+@testset "rejected supplied status leaves registration receipts unpublished" begin
+    model = CompositeModel(Object(:parent; scale=:Plant);
+        status_transform=StatusTypeLifecycleFailOn(:failing_output),
+        type_promotion=Dict(Float64 => Float32))
+    source = Status(first_output=1.0, failing_output=2.0)
+    object = Object(:rejected; scale=:Leaf, parent=:parent, status=source)
+    records = copy(model.status_conversion_records)
+    children = copy(model_object(model, :parent).children)
+    @test_throws "intentional conversion failure" register_object!(model, object)
+    @test ObjectId(:rejected) ∉ object_ids(model)
+    @test model.status_conversion_records == records
+    @test model_object(model, :parent).children == children
+    @test object.status === source
+    @test source.first_output === 1.0
+    @test source.failing_output === 2.0
+    @test !haskey(model.status_source_identities, ObjectId(:rejected))
+end

@@ -1394,10 +1394,13 @@ function _register_object_status!(model, object, parent_id, source_status, statu
             _register_converted_object!(model, object, parent_id, status, status)
         end
     end
-    status = _convert_registered_status(model, object.id, source_status)
-    return _with_registered_status(catalog, status) do converted
+    conversion_records = Dict{Any,Any}()
+    status = _convert_registered_status(model, object.id, source_status; conversion_records)
+    registered = _with_registered_status(catalog, status) do converted
         _register_converted_object!(model, object, parent_id, source_status, converted)
     end
+    merge!(model.status_conversion_records, conversion_records)
+    return registered
 end
 
 function _register_converted_object!(model, object, parent_id, source_status, status)

@@ -374,7 +374,7 @@ function _materialize_status_value(
     return effective, details.storage_changed, details.mapping_rule
 end
 
-function _convert_registered_status(model, object_id, status)
+function _convert_registered_status(model, object_id, status; conversion_records)
     status isa Status || return status
     _no_status_conversion(model.status_conversion) && return status
     names = propertynames(status)
@@ -388,6 +388,7 @@ function _convert_registered_status(model, object_id, status)
             reference[];
             object_id=object_id,
             origin=:supplied_status,
+            conversion_records=conversion_records,
         )
         changed |= variable_changed
         return variable_changed ? Ref(converted) : reference
