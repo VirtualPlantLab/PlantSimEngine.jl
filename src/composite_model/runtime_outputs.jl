@@ -1830,6 +1830,7 @@ function _model_output_reference(
     variable::Symbol,
 )
     if variable in _model_output_names(application) &&
+       !(variable in _model_canonical_output_names(application)) &&
        haskey(
            compiled.status_views_by_target,
            (application.id, object_id),
@@ -1842,7 +1843,7 @@ function _model_output_reference(
         return refvalue(status, variable)
     end
     return refvalue(
-        _model_object(compiled.model, object_id).status,
+        model_status(compiled.model, object_id),
         variable,
     )
 end
