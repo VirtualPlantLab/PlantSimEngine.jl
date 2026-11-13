@@ -183,7 +183,7 @@ function check_memberships(simulation)
     scientific_rows = [(row.object_id, row.timestep, row.value) for row in rows]
     @info "selective force authority" scientific_rows
     @test scientific_rows == [(:leaf1, 1, 1), (:leaf2, 2, 1)]
-    targets = simulation.output_request_targets[:chosen][2]
+    targets = simulation.output_requests[:chosen].targets
     @test [(membership.start_time, membership.end_time)
         for membership in targets[ObjectId(:leaf1)].memberships] == [(0.0, 1.0)]
     @test haskey(targets, ObjectId(:leaf2))

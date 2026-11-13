@@ -606,8 +606,8 @@ function _prepare_execution_batch_schemas(simulation::Simulation, schemas::Named
         plan.batches,closed_slots,plan.schedule,plan.model_revision,plan.environment_revision)
     return Simulation(simulation.model,simulation.compiled,simulation.environment_bindings,
         closed,simulation.output_retention,storage,simulation.output_datetimes,
-        simulation.output_requests,simulation.output_request_matchers,
-        simulation.output_request_targets,simulation.output_request_model_revision,
+        _prepare_output_request_schemas(simulation.output_requests, schemas),
+        simulation.output_request_model_revision,
         simulation.runtime_revision,simulation.current_step,simulation.constants,
         simulation.performance)
 end

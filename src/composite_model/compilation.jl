@@ -373,6 +373,16 @@ struct _ApplicationTargetTemplateKey{I<:ObjectId}
     species::Union{Nothing,Symbol}
     id::Union{Nothing,I}
     scope_roots::Union{Nothing,Vector{I}}
+
+    # The registry always supplies I. There is no inferred constructor: both
+    # identity-bearing fields can be nothing, which cannot determine I.
+    function _ApplicationTargetTemplateKey{I}(
+        scale::Union{Nothing,Symbol}, kind::Union{Nothing,Symbol},
+        species::Union{Nothing,Symbol}, id::Union{Nothing,I},
+        scope_roots::Union{Nothing,Vector{I}},
+    ) where {I<:ObjectId}
+        return new{I}(scale, kind, species, id, scope_roots)
+    end
 end
 
 function Base.hash(key::_ApplicationTargetTemplateKey, seed::UInt)
@@ -7869,8 +7879,10 @@ function _prepare_many_reference_types(model, consumer, input, selector,
     source_var, producer_ids, applications_by_id, distributed_output_plans)
     references = Any[]
     add(R) = R in references || push!(references, R)
-    declared_input = getproperty(_application_ports(consumer).input_types, input)
-    fallback = declared_input <: AbstractVector ? eltype(declared_input) : Union{}
+    declared_input = _configured_status_value_type(model.status_conversion,
+        getproperty(_application_ports(consumer).input_types, input), nothing)
+    fallback = !isnothing(declared_input) && declared_input <: AbstractVector ?
+        eltype(declared_input) : Union{}
     isconcretetype(fallback) || (fallback = Union{})
     producers = isempty(producer_ids) ? (nothing,) : producer_ids
     for producer_id in producers

@@ -46,10 +46,10 @@ function _export_clock(request::OutputRequest, timeline::TimelineContext)
 end
 
 function _normalize_output_requests(requests)
-    isnothing(requests) && return OutputRequest[]
-    requests isa OutputRequest && return OutputRequest[requests]
+    isnothing(requests) && return ()
+    requests isa OutputRequest && return (requests,)
     requests isa AbstractVector{<:OutputRequest} || error(
         "`outputs` must be `:all`, `:none`, an `OutputRequest`, or a vector of `OutputRequest`."
     )
-    return collect(requests)
+    return Tuple(requests)
 end

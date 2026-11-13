@@ -423,9 +423,7 @@ end
     @test getproperty.(rows, :timestep) == [1, 2, 5, 6]
     @test getproperty.(rows, :value) == [1, 2, 5, 6]
     @test all(row -> row.object_id == :leaf, rows)
-    target = simulation.output_request_targets[
-        :plant_1_leaves
-    ][2][ObjectId(:leaf)]
+    target = simulation.output_requests[:plant_1_leaves].targets[ObjectId(:leaf)]
     @test [
         (membership.start_time, membership.end_time)
         for membership in target.memberships

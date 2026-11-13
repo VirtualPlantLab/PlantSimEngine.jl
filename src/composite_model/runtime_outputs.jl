@@ -28,6 +28,21 @@ mutable struct OutputRequestMembership{T}
     initial::T
 end
 
+struct OutputRequestTarget{T}
+    scale::Union{Nothing,Symbol}
+    memberships::Vector{OutputRequestMembership{T}}
+end
+
+struct CompiledOutputRequest{R,M,D,RF,VF,SF}
+    request::R
+    matcher::M
+    application_id::Symbol
+    targets::D
+    reference_types::Type{RF}
+    value_types::Type{VF}
+    stream_types::Type{SF}
+end
+
 """
     TemporalDependencyBuffer{T} <: AbstractVector{Tuple{Float64,T}}
 
@@ -1437,7 +1452,7 @@ end
 Result of running a [`CompositeModel`](@ref). Use `outputs`, `collect_outputs`,
 [`final_state`](@ref), and `PlantSimEngine.Diagnostics` to inspect it.
 """
-mutable struct Simulation{S,CS,EB,EP,OR,TS,DT,R,RM,RT,C,P}
+mutable struct Simulation{S,CS,EB,EP,OR,TS,DT,R,C,P}
     model::S
     compiled::CS
     environment_bindings::EB
@@ -1446,8 +1461,6 @@ mutable struct Simulation{S,CS,EB,EP,OR,TS,DT,R,RM,RT,C,P}
     temporal_streams::TS
     output_datetimes::DT
     output_requests::R
-    output_request_matchers::RM
-    output_request_targets::RT
     output_request_model_revision::Int
     runtime_revision::Int
     current_step::Int
@@ -1831,31 +1844,30 @@ _model_output_object_ids(compiled, application, variable::Symbol) =
         compiled.distributed_outputs,
     )
 
-function _model_output_reference(
-    compiled,
-    application,
-    object_id::ObjectId,
-    variable::Symbol,
-)
+@inline function _output_reference_from_view(view, operation::F, variable, args::Vararg{Any,N}) where {F,N}
+    return operation(refvalue(view.status, variable), args...)
+end
+
+function _with_model_output_reference(operation::F, compiled, application,
+    object_id::ObjectId, variable::Symbol, args::Vararg{Any,N},
+) where {F,N}
+    id = _index_object_id(compiled.model.registry.objects, object_id)
     if _model_output_names(application) !== _model_canonical_output_names(application) &&
        variable in _model_output_names(application) &&
        !(variable in _model_canonical_output_names(application)) &&
-       haskey(
-           compiled.status_views_by_target,
-           (application.id, object_id),
-       )
-        status = _model_status_view_for_application(
-            compiled,
-            application,
-            object_id,
-        ).status
-        return refvalue(status, variable)
+       haskey(compiled.status_views_by_target, (application.id, id))
+        return Base.@inline _with_model_status_view(_output_reference_from_view,
+            compiled.status_view_schema, application.id,
+            compiled.status_views_by_target[(application.id, id)], operation, variable, args...)
     end
-    return refvalue(
-        model_status(compiled.model, object_id),
-        variable,
-    )
+    return Base.@inline _with_registered_status(compiled.model.registry.objects.catalog,
+        model_status(compiled.model, id)) do status
+        operation(refvalue(status, variable), args...)
+    end
 end
+
+_model_output_reference(compiled, application, object_id::ObjectId, variable::Symbol) =
+    _with_model_output_reference(identity, compiled, application, object_id, variable)
 
 function _initialize_model_output_stream!(
     streams,
@@ -4857,7 +4869,7 @@ function compile_model_output_retention(
 
     requested_outputs = Set{Tuple{Symbol,Symbol}}()
     names = Set{Symbol}()
-    for request in output_requests
+    _foreach_output_request(output_requests) do request
         request.name in names && error(
             "Duplicate output request name `$(request.name)`. Request names must be unique."
         )
@@ -7651,223 +7663,345 @@ function _continue_scene!(simulation::Simulation, steps::Integer)
     return simulation
 end
 
-function _output_request_target(
-    model,
-    compiled,
-    application,
-    object_id,
+# Lower the existing current/future output witness, without reading any value.
+function _prepared_request_container_members(::Type{C}) where {C}
+    C <: AbstractVector && return Tuple(Base.uniontypes(eltype(C)))
+    C <: Tuple && return fieldtypes(C)
+    throw(ArgumentError("A prepared output container must be a finite tuple or vector family."))
+end
+
+function _prepared_request_reference_family(::Type{R}) where {R}
+    references = if R <: Ref
+        (R,)
+    elseif R <: RefVector
+        _prepared_request_container_members(fieldtype(R, :v))
+    elseif R <: ObjectRefVector
+        _prepared_request_container_members(fieldtype(R, :refs))
+    else
+        throw(ArgumentError("An output request has no prepared reference witness."))
+    end
+    !isempty(references) && all(T -> T <: Ref && isconcretetype(T), references) ||
+        throw(ArgumentError("An output request needs exact finite reference types."))
+    return references
+end
+
+function _prepared_request_add_value_types!(types, ::Type{T}) where {T}
+    for Value in Base.uniontypes(T)
+        isconcretetype(Value) || throw(ArgumentError(
+            "An output-request value has no finite prepared type family."))
+        Value in types || push!(types, Value)
+    end
+    return nothing
+end
+
+function _prepared_request_output_families(::Type{Targets}) where {Targets<:Tuple}
+    families = Dict{Symbol,NamedTuple{(:references,:values,:streams),Tuple{Vector{Any},Vector{Any},Vector{Any}}}}()
+    for Target in fieldtypes(Targets)
+        Outputs = fieldtype(Target, :output_bindings)
+        Outputs <: Tuple && isconcretetype(Outputs) || throw(ArgumentError(
+            "Prepared output bindings need a concrete tuple schema."))
+        for Output in fieldtypes(Outputs)
+            variable = Output.parameters[1]
+            streams, Reference = if Output <: RuntimeOutputStream
+                ((fieldtype(Output, :stream),), fieldtype(Output, :reference))
+            elseif Output <: RuntimeDistributedOutputStream
+                (_prepared_request_container_members(fieldtype(Output, :streams)),
+                    fieldtype(Output, :references))
+            else
+                throw(ArgumentError("Invalid prepared runtime output witness."))
+            end
+            family = get!(families, variable) do
+                (references=Any[], values=Any[], streams=Any[])
+            end
+            for RefType in _prepared_request_reference_family(Reference)
+                RefType in family.references || push!(family.references, RefType)
+                # Membership initial values come from this fresh reference,
+                # and may be wider than the append-only stream's value type.
+                _prepared_request_add_value_types!(family.values, eltype(RefType))
+            end
+            for Stream in streams
+                Stream in family.streams || push!(family.streams, Stream)
+                Stream <: AbstractVector && isconcretetype(Stream) || throw(ArgumentError(
+                    "A retained stream needs a concrete prepared vector schema."))
+                Sample = eltype(Stream)
+                Sample <: Tuple && fieldcount(Sample) == 2 &&
+                    fieldtype(Sample, 1) === Float64 || throw(ArgumentError(
+                    "A retained stream must contain (Float64, value) samples."))
+                _prepared_request_add_value_types!(family.values, fieldtype(Sample, 2))
+            end
+        end
+    end
+    return families
+end
+
+@generated function _prepared_output_request_types(
+    ::ClosedExecutionCohortSchema{Targets}, variable::Symbol,
+) where {Targets}
+    branches = Expr[]
+    for (name, family) in _prepared_request_output_families(Targets)
+        Refs, Values, Streams = Tuple{family.references...}, Tuple{family.values...}, Tuple{family.streams...}
+        Witness = NamedTuple{(:references,:values,:streams),Tuple{Type{Refs},Type{Values},Type{Streams}}}
+        push!(branches, :(variable === $(QuoteNode(name)) &&
+            return $Witness(($Refs, $Values, $Streams))))
+    end
+    return quote
+        $(branches...)
+        throw(ArgumentError("The requested variable has no prepared retained-output witness."))
+    end
+end
+
+@inline _prepared_output_request_types(schema::PreparedExecutionBatchSchema,
     variable::Symbol,
-    start_time,
-)
-    initial = _model_output_reference(
-        compiled,
-        application,
-        object_id,
-        variable,
-    )[]
-    return (
-        scale=_model_object(model, object_id).scale,
-        memberships=[
-            OutputRequestMembership(
-                float(start_time),
-                nothing,
-                deepcopy(initial),
-            ),
-        ],
-    )
+) = _prepared_output_request_types(_execution_cohort_schema(schema), variable)
+
+@inline _visit_output_request(request, operation::F) where {F} = operation(request)
+@inline _visit_output_request(record::CompiledOutputRequest, operation::F) where {F} = operation(record.request)
+
+function _foreach_output_request(operation::F, requests) where {F}
+    for slot in 1:length(requests)
+        Base.@inline _with_metadata_entry(_visit_output_request, requests, slot, operation)
+    end
+    return nothing
+end
+
+@generated function _with_output_request_reference(f::F, record::CompiledOutputRequest{R,M,D,RF},
+    reference, args::Vararg{Any,N},
+) where {F,R,M,D,RF,N}
+    branches = [:(reference isa $RefType && return f(reference::$RefType, args...))
+        for RefType in fieldtypes(RF)]
+    return quote
+        $(branches...)
+        throw(ArgumentError("The output-request reference is outside its prepared family."))
+    end
+end
+
+@generated function _with_output_request_value(f::F, record::CompiledOutputRequest{R,M,D,RF,VF,SF},
+    value, args::Vararg{Any,N},
+) where {F,R,M,D,RF,VF,SF,N}
+    branches = [:(value isa $T && return f(value::$T, args...)) for T in fieldtypes(VF)]
+    return quote
+        $(branches...)
+        throw(ArgumentError("The output-request value is outside its prepared family."))
+    end
+end
+
+@generated function _with_output_request_target(f::F, record::CompiledOutputRequest{R,M,D,RF,VF,SF},
+    target, args::Vararg{Any,N},
+) where {F,R,M,D,RF,VF,SF,N}
+    fieldtypes(VF) === (Any,) && return :(f(target, args...))
+    branches = [:(target isa OutputRequestTarget{$T} &&
+        return f(target::OutputRequestTarget{$T}, args...)) for T in fieldtypes(VF)]
+    return quote
+        $(branches...)
+        throw(ArgumentError("The output-request target is outside its prepared family."))
+    end
+end
+
+function _new_output_request_target(initial::T, scale, start_time) where {T}
+    return OutputRequestTarget(scale,
+        OutputRequestMembership{T}[OutputRequestMembership(float(start_time), nothing, deepcopy(initial))])
+end
+
+function _output_request_reference_value(reference::R, record, operation::F,
+    args::Vararg{Any,N},
+) where {R,F,N}
+    return Base.@inline _with_output_request_value(operation, record, reference[], args...)
+end
+
+function _output_request_from_reference(reference, record, operation::F,
+    args::Vararg{Any,N},
+) where {F,N}
+    return Base.@inline _with_output_request_reference(_output_request_reference_value,
+        record, reference, record, operation, args...)
+end
+
+function _with_output_request_initial(operation::F, record, compiled, application,
+    object_id, args::Vararg{Any,N},
+) where {F,N}
+    return Base.@inline _with_model_output_reference(_output_request_from_reference,
+        compiled, application, object_id, record.request.var, record, operation, args...)
+end
+
+function _compile_output_request(model, compiled, request)
+    matcher = _compile_selector_matcher(model, request.selector)
+    application = _model_request_application(model, compiled, request)
+    I = keytype(typeof(model.registry.objects))
+    targets = Dict{I,Any}()
+    record = CompiledOutputRequest(request, matcher, application.id, targets, Tuple{Any}, Tuple{Any}, Tuple{Any})
+    owned_ids = Set{I}(_index_object_id(model.registry.objects, id)
+        for id in _model_output_object_ids(compiled, application, request.var))
+    for raw_id in _resolve_object_ids(model, request.selector, matcher; context=request.context)
+        object_id = _index_object_id(model.registry.objects, raw_id)
+        object_id in owned_ids || continue
+        targets[object_id] = _with_output_request_initial(_new_output_request_target,
+            record, compiled, application, object_id, _model_object(model, object_id).scale, 0.0)
+    end
+    return record
+end
+
+function _compile_output_requests(model, compiled, requests::Tuple)
+    names = map(request -> request.name, requests)
+    entries = map(request -> _compile_output_request(model, compiled, request), requests)
+    return CompiledMetadataTable(NamedTuple{names}(entries))
+end
+
+# Host lowering reuses all existing membership objects and snapshot values.
+# The schema also contains admitted future targets when a group is empty.
+function _prepare_output_request_record(record, schemas)
+    schema = getproperty(schemas, record.application_id)
+    types = _prepared_output_request_types(schema, record.request.var)
+    Target = Union{(OutputRequestTarget{T} for T in fieldtypes(types.values))...}
+    I = keytype(typeof(record.targets))
+    targets = Dict{I,Target}()
+    prepared = CompiledOutputRequest(record.request, record.matcher, record.application_id,
+        targets, types.references, types.values, types.streams)
+    for (id, target) in record.targets
+        targets[id] = _with_output_request_target(identity, prepared, target)
+    end
+    return prepared
+end
+
+function _prepare_output_request_schemas(owner::CompiledMetadataTable, schemas)
+    return CompiledMetadataTable(map(record -> _prepare_output_request_record(record, schemas),
+        owner.entries))
 end
 
 _output_request_target_is_active(target) =
-    !isempty(target.memberships) &&
-    isnothing(last(target.memberships).end_time)
+    !isempty(target.memberships) && isnothing(last(target.memberships).end_time)
 
-function _output_request_published_at(simulation, application_id, object_id, variable, time)
-    samples = get(simulation.temporal_streams, (application_id, object_id, variable), nothing)
-    return !isnothing(samples) && !isempty(samples) && first(last(samples)) == time
-end
-
-function _initial_output_request_targets(
-    model,
-    compiled,
-    output_requests,
-    output_request_matchers,
-)
-    targets = Dict{Symbol,Tuple{Symbol,Dict{ObjectId,Any}}}()
-    for request in output_requests
-        application = _model_request_application(model, compiled, request)
-        object_ids = _resolve_object_ids(
-            model,
-            request.selector,
-            output_request_matchers[request.name];
-            context=request.context,
-        )
-        owned_ids = Set(
-            _model_output_object_ids(
-                compiled,
-                application,
-                request.var,
-            ),
-        )
-        filter!(id -> id in owned_ids, object_ids)
-        targets[request.name] = (
-            application.id,
-            Dict(
-                id => _output_request_target(
-                    model,
-                    compiled,
-                    application,
-                    id,
-                    request.var,
-                    0.0,
-                )
-                for id in object_ids
-            ),
-        )
+@generated function _output_request_stream_published_at(record::CompiledOutputRequest{R,M,D,RF,VF,SF},
+    samples, time::Float64,
+) where {R,M,D,RF,VF,SF}
+    branches = [:(samples isa $S && return !isempty(samples::$S) && first(last(samples::$S)) == time)
+        for S in fieldtypes(SF)]
+    return quote
+        $(branches...)
+        throw(ArgumentError("The output-request stream is outside its prepared family."))
     end
-    return targets
 end
 
-function _refresh_output_request_targets!(
-    simulation::Simulation,
-    lifecycle=nothing,
+function _output_request_published_at(record, simulation, application_id, object_id, variable, time)
+    samples = get(simulation.temporal_streams, (application_id, object_id, variable), nothing)
+    isnothing(samples) && return false
+    return Base.@inline _output_request_stream_published_at(record, samples, time)
+end
+
+function _close_output_request_target!(target, end_time)
+    last(target.memberships).end_time = end_time
+    return nothing
+end
+
+function _reopen_output_request_target!(initial, target::OutputRequestTarget{T}, start_time) where {T}
+    push!(target.memberships, OutputRequestMembership(start_time, nothing, deepcopy(initial)))
+    return nothing
+end
+
+function _refresh_output_request_target!(target, record, simulation, application, object_id, start_time)
+    _output_request_target_is_active(target) && return nothing
+    return _with_output_request_initial(_reopen_output_request_target!, record,
+        simulation.compiled, application, object_id, target, start_time)
+end
+
+function _refresh_output_request_for_application!(application, record, simulation,
+    added_object_ids, completed_applications,
+)
+    request = record.request
+    object_targets = record.targets
+    application_id = record.application_id
+    objects = simulation.model.registry.objects
+    I = keytype(typeof(objects))
+    matched_ids = I[]
+    if isnothing(added_object_ids)
+        _runtime_performance_count!(simulation.performance, :output_request_selector_resolutions)
+        for raw_id in _resolve_object_ids(simulation.model, _selector_as_many(request.selector),
+            record.matcher; context=request.context)
+            push!(matched_ids, _index_object_id(objects, raw_id))
+        end
+    else
+        _runtime_performance_count!(simulation.performance,
+            :output_request_incremental_object_checks, length(added_object_ids))
+        for raw_id in added_object_ids
+            object_id = _index_object_id(objects, raw_id)
+            _selector_matches_object_id(simulation.model, record.matcher, object_id;
+                context=request.context) && push!(matched_ids, object_id)
+        end
+    end
+    owned_ids = Set{I}()
+    for raw_id in _model_output_object_ids(simulation.compiled, application, request.var)
+        push!(owned_ids, _index_object_id(objects, raw_id))
+    end
+    filter!(id -> id in owned_ids, matched_ids)
+    active_ids = Set{I}()
+    for (object_id, raw_target) in object_targets
+        Base.@inline _with_output_request_target(_output_request_target_is_active,
+            record, raw_target) && push!(active_ids, object_id)
+    end
+    matched_id_set = Set{I}(matched_ids)
+    current_ids = isnothing(added_object_ids) ? matched_id_set : union(active_ids, matched_id_set)
+    if request.selector isa Union{One,OptionalOne} && length(current_ids) > 1
+        error("Output request `$(request.name)` expected at most one current object for selector ",
+            "`$(request.selector)`, got $([id.value for id in current_ids]).")
+    end
+    publication_time = float(simulation.current_step + 1)
+    manual_application = application_id in simulation.compiled.scenario_plan.manual_application_ids
+    application_completed =
+        (!isnothing(completed_applications) && application_id in completed_applications) ||
+        get(simulation.output_retention.accepted_call_times, application_id, -Inf) == publication_time
+    membership_end_time = application_completed ?
+        float(simulation.current_step + 1) : float(simulation.current_step)
+    if isnothing(added_object_ids)
+        for object_id in active_ids
+            object_id in matched_id_set && continue
+            target_end_time = manual_application ?
+                (_output_request_published_at(record, simulation, application_id, object_id,
+                    request.var, publication_time) ? publication_time :
+                    float(simulation.current_step)) : membership_end_time
+            Base.@inline _with_output_request_target(_close_output_request_target!, record,
+                object_targets[object_id], target_end_time)
+        end
+    end
+    start_time = application_completed ? float(simulation.current_step + 2) : float(simulation.current_step + 1)
+    for object_id in matched_ids
+        # An accepted same-step publication wins over a completed/empty call.
+        target_start_time = manual_application &&
+            _output_request_published_at(record, simulation, application_id, object_id,
+                request.var, publication_time) ? publication_time : start_time
+        if haskey(object_targets, object_id)
+            Base.@inline _with_output_request_target(_refresh_output_request_target!, record,
+                object_targets[object_id], record, simulation, application, object_id, target_start_time)
+        else
+            object_targets[object_id] = _with_output_request_initial(_new_output_request_target,
+                record, simulation.compiled, application, object_id,
+                _model_object(simulation.model, object_id).scale, target_start_time)
+        end
+    end
+    return nothing
+end
+
+function _refresh_output_request_record!(record, simulation, added_object_ids, completed_applications)
+    return Base.@inline _with_metadata_entry(_refresh_output_request_for_application!,
+        simulation.compiled.applications_by_id, record.application_id,
+        record, simulation, added_object_ids, completed_applications)
+end
+
+function _refresh_output_request_targets!(simulation::Simulation, lifecycle=nothing,
     completed_applications=nothing,
 )
     current_revision = model_revision(simulation.model)
-    simulation.output_request_model_revision == current_revision &&
-        return simulation
+    simulation.output_request_model_revision == current_revision && return simulation
     if isempty(simulation.output_requests)
         simulation.output_request_model_revision = current_revision
         return simulation
     end
     started_at = _runtime_performance_start(simulation.performance)
-    _runtime_performance_count!(
-        simulation.performance,
-        :output_request_target_refreshes,
-    )
-    added_object_ids = simulation.output_request_model_revision == -1 ?
-                       nothing : _incremental_output_request_object_ids(lifecycle)
-    for request in simulation.output_requests
-        matcher = simulation.output_request_matchers[request.name]
-        application_id, object_targets =
-            simulation.output_request_targets[request.name]
-        matched_ids = if isnothing(added_object_ids)
-            _runtime_performance_count!(
-                simulation.performance,
-                :output_request_selector_resolutions,
-            )
-            _resolve_object_ids(
-                simulation.model,
-                _selector_as_many(request.selector),
-                matcher;
-                context=request.context,
-            )
-        else
-            _runtime_performance_count!(
-                simulation.performance,
-                :output_request_incremental_object_checks,
-                length(added_object_ids),
-            )
-            ObjectId[
-                object_id for object_id in added_object_ids
-                if _selector_matches_object_id(
-                    simulation.model,
-                    matcher,
-                    object_id;
-                    context=request.context,
-                )
-            ]
-        end
-        application = _compiled_application_by_id(
-            simulation.compiled,
-            application_id,
-        )
-        owned_ids = Set(
-            _model_output_object_ids(
-                simulation.compiled,
-                application,
-                request.var,
-            ),
-        )
-        filter!(id -> id in owned_ids, matched_ids)
-        active_ids = Set(
-            object_id for (object_id, target) in object_targets
-            if _output_request_target_is_active(target)
-        )
-        matched_id_set = Set(matched_ids)
-        current_ids = isnothing(added_object_ids) ?
-                      matched_id_set :
-                      union(active_ids, matched_id_set)
-        if request.selector isa Union{One,OptionalOne} && length(current_ids) > 1
-            error(
-                "Output request `$(request.name)` expected at most one current object for selector ",
-                "`$(request.selector)`, got $([id.value for id in current_ids]).",
-            )
-        end
-        publication_time = float(simulation.current_step + 1)
-        manual_application = application_id in simulation.compiled.scenario_plan.manual_application_ids
-        application_completed =
-            (!isnothing(completed_applications) && application_id in completed_applications) ||
-            get(simulation.output_retention.accepted_call_times, application_id, -Inf) == publication_time
-        membership_end_time = application_completed ?
-                              float(simulation.current_step + 1) :
-                              float(simulation.current_step)
-        if isnothing(added_object_ids)
-            for object_id in setdiff(active_ids, matched_id_set)
-                # A manual call may publish before removing an object, or may
-                # run only after removal. Preserve the last accepted sample in
-                # the former case without inventing a held sample in the latter.
-                target_end_time = manual_application ?
-                    (_output_request_published_at(simulation, application_id, object_id,
-                        request.var, publication_time) ? publication_time :
-                        float(simulation.current_step)) : membership_end_time
-                last(object_targets[object_id].memberships).end_time =
-                    target_end_time
-            end
-        end
-        start_time = application_completed ?
-                     float(simulation.current_step + 2) :
-                     float(simulation.current_step + 1)
-        for object_id in matched_ids
-            # Same-step accepted newborn publications take precedence over an
-            # already completed call. Newborns created after an accepted empty
-            # call instead join the following publication interval.
-            target_start_time = manual_application &&
-                _output_request_published_at(simulation, application_id, object_id,
-                    request.var, publication_time) ? publication_time : start_time
-            if haskey(object_targets, object_id)
-                target = object_targets[object_id]
-                _output_request_target_is_active(target) && continue
-                initial = _model_output_reference(
-                    simulation.compiled,
-                    application,
-                    object_id,
-                    request.var,
-                )[]
-                push!(
-                    target.memberships,
-                    OutputRequestMembership(
-                        target_start_time,
-                        nothing,
-                        deepcopy(initial),
-                    ),
-                )
-                continue
-            end
-            object_targets[object_id] = _output_request_target(
-                simulation.model,
-                simulation.compiled,
-                application,
-                object_id,
-                request.var,
-                target_start_time,
-            )
-        end
+    _runtime_performance_count!(simulation.performance, :output_request_target_refreshes)
+    added_object_ids = simulation.output_request_model_revision == -1 ? nothing :
+        _incremental_output_request_object_ids(lifecycle)
+    for slot in 1:length(simulation.output_requests)
+        Base.@inline _with_metadata_entry(_refresh_output_request_record!, simulation.output_requests,
+            slot, simulation, added_object_ids, completed_applications)
     end
-    _runtime_performance_finish!(
-        simulation.performance,
-        :output_request_target_refresh,
-        started_at,
-    )
+    _runtime_performance_finish!(simulation.performance, :output_request_target_refresh, started_at)
     simulation.output_request_model_revision = current_revision
     return simulation
 end
@@ -8034,16 +8168,7 @@ function _prepare_simulation!(
         length(execution_plan.batches),
     )
     started_at = _runtime_performance_start(performance_counters)
-    output_request_matchers = Dict(
-        request.name => _compile_selector_matcher(model, request.selector)
-        for request in output_requests
-    )
-    output_request_targets = _initial_output_request_targets(
-        model,
-        compiled,
-        output_requests,
-        output_request_matchers,
-    )
+    compiled_output_requests = _compile_output_requests(model, compiled, output_requests)
     _runtime_performance_finish!(
         performance_counters,
         :initial_output_target_compile,
@@ -8062,9 +8187,7 @@ function _prepare_simulation!(
         output_retention,
         temporal_streams,
         _model_output_datetimes(environment_backend(model.environment), env_bindings),
-        output_requests,
-        output_request_matchers,
-        output_request_targets,
+        compiled_output_requests,
         model_revision(model),
         model.runtime_revision,
         0,
@@ -8318,9 +8441,10 @@ end
 
 function _model_requested_output_rows(
     sim::Simulation,
-    request,
+    record::CompiledOutputRequest,
 )
-    application_id, requested_objects = sim.output_request_targets[request.name]
+    request = record.request
+    application_id, requested_objects = record.application_id, record.targets
     application = _compiled_application_by_id(sim.compiled, application_id)
     declared_scale = _selector_declared_scale(request.selector)
     timeline = _model_timeline(sim.model)
@@ -8402,12 +8526,13 @@ end
 
 function _collect_model_requested_outputs(sim::Simulation, sink)
     outputs = Dict{Symbol,Any}()
-    for request in sim.output_requests
+    for record in sim.output_requests
+        request = record.request
         haskey(outputs, request.name) && error(
             "Duplicate output request name `$(request.name)`. Request names must be unique."
         )
         outputs[request.name] = _materialize_model_output_rows(
-            _model_requested_output_rows(sim, request),
+            _model_requested_output_rows(sim, record),
             sink,
         )
     end
@@ -8452,17 +8577,13 @@ end
 
 function collect_outputs(sim::Simulation, name::Symbol; sink=DataFrames.DataFrame)
     started_at = _runtime_performance_start(sim.performance)
-    matches = [request for request in sim.output_requests if request.name == name]
-    isempty(matches) && error(
+    haskey(sim.output_requests, name) || error(
         "No model output request named `$(name)`. Available request names are ",
-        isempty(sim.output_requests) ? "none." : join((request.name for request in sim.output_requests), ", "),
+        isempty(sim.output_requests) ? "none." : join(keys(sim.output_requests), ", "),
     )
-    length(matches) == 1 || error(
-        "Duplicate model output request name `$(name)`. Request names must be unique."
-    )
-    request = only(matches)
+    record = sim.output_requests[name]
     collected = _materialize_model_output_rows(
-        _model_requested_output_rows(sim, request),
+        _model_requested_output_rows(sim, record),
         sink,
     )
     _runtime_performance_finish!(

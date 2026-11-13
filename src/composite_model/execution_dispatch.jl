@@ -56,8 +56,6 @@ function _simulation_with_execution_plan(simulation::Simulation, plan::CompiledE
         simulation.temporal_streams,
         simulation.output_datetimes,
         simulation.output_requests,
-        simulation.output_request_matchers,
-        simulation.output_request_targets,
         simulation.output_request_model_revision,
         simulation.runtime_revision,
         simulation.current_step,
