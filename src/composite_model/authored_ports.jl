@@ -44,11 +44,12 @@ Base.propertynames(::AuthoredOutputPorts) = (:all_names, :local_names, :distribu
 
 # One stable owner is shared by the authored recipe and compiled application.
 # Name and type carriers preserve declarations without retaining initialization values.
-mutable struct AuthoredPortInventory{I,O,IT,OT,EI,EO,C}
+mutable struct AuthoredPortInventory{I,O,IT,OT,OET,EI,EO,C}
     const inputs::I
     const outputs::O
     const input_types::IT
     const output_types::OT
+    const output_element_types::OET
     const environment_inputs::EI
     const environment_outputs::EO
     const contracts::C
@@ -92,12 +93,36 @@ function _authored_port_types(type_for, schema::NamedTuple{Names}) where {Names}
     return NamedTuple{Names,fields}(types)
 end
 
+# Only real numeric-array defaults have element evidence. Missing fields mean
+# no initializer value (e.g. Required), whereas Tuple{} means a real empty array.
+_output_element_types(value) = nothing
+_output_element_types(value::Distributed) = _output_element_types(value.declaration)
+_output_element_types(value::Default) = _output_element_types(value.value)
+function _output_element_types(value::Array{T}) where {T<:Number}
+    isempty(value) && return Tuple{}
+    isconcretetype(T) && return Tuple{T}
+    types = DataType[]
+    for element in value
+        element_type = typeof(element)
+        element_type in types || push!(types, element_type)
+    end
+    return Tuple{types...}
+end
+
+function _authored_output_element_types(schema::NamedTuple{Names}) where {Names}
+    types = map(_output_element_types, values(schema))
+    names = Tuple(Names[index] for index in eachindex(Names) if !isnothing(types[index]))
+    selected = NamedTuple{names}(Tuple(T for T in types if !isnothing(T)))
+    return _authored_port_types(identity, selected)
+end
+
 function _prepare_authored_ports(spec::ModelSpec, application_id::Symbol)
     # This is the constructor's existing output read. A failed output hook
     # retains its existing top-level authoring failure and application recovery.
     output_schema = _output_schema(spec)
     output_ports = _authored_output_ports(spec, output_schema)
     output_types = _authored_port_types(_output_value_type, output_schema)
+    output_element_types = _authored_output_element_types(output_schema)
     model = model_(spec)
     input_metadata = _capture_authored_metadata(:input_ports, application_id) do
         schema = _input_schema(model)
@@ -135,5 +160,5 @@ function _prepare_authored_ports(spec::ModelSpec, application_id::Symbol)
         end
     end
     return AuthoredPortInventory(inputs, output_ports, input_types, output_types,
-        environment_inputs, environment_outputs, contracts)
+        output_element_types, environment_inputs, environment_outputs, contracts)
 end

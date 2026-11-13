@@ -171,22 +171,46 @@ function ObjectInstance(
     )
 end
 
-struct ObjectModelOverrides{M,O} <: AbstractModel
-    base::M
-    overrides::O
+# Configured variants and their value-free port metadata have one typed owner.
+# The ID map stores only slots; numerical state remains in the actual models.
+struct ConfiguredModelVariants{V,I<:ObjectId} <: AbstractDict{I,AbstractModel}
+    entries::V
+    object_slots::Dict{I,Int}
+end
+Base.length(owner::ConfiguredModelVariants) = length(owner.object_slots)
+Base.keys(owner::ConfiguredModelVariants) = keys(owner.object_slots)
+Base.haskey(owner::ConfiguredModelVariants, id) = haskey(owner.object_slots, id)
+function Base.getindex(owner::ConfiguredModelVariants, id)
+    return _with_metadata_entry(entry -> entry.model, owner.entries, owner.object_slots[id])
+end
+function Base.get(owner::ConfiguredModelVariants, id, default)
+    slot = get(owner.object_slots, id, 0)
+    return iszero(slot) ? default :
+        _with_metadata_entry(entry -> entry.model, owner.entries, slot)
+end
+function Base.iterate(owner::ConfiguredModelVariants, state=nothing)
+    item = isnothing(state) ? iterate(owner.object_slots) : iterate(owner.object_slots, state)
+    isnothing(item) && return nothing
+    (id, _), next = item
+    return id => owner[id], next
 end
 
-process(model::ObjectModelOverrides) = process(model.base)
-inputs_(model::ObjectModelOverrides) = inputs_(model.base)
-outputs_(model::ObjectModelOverrides) = outputs_(model.base)
-dep(model::ObjectModelOverrides) = dep(model.base)
-timespec(model::ObjectModelOverrides) = timespec(model.base)
-output_policy(model::ObjectModelOverrides) = output_policy(model.base)
-timestep_hint(model::ObjectModelOverrides) = timestep_hint(model.base)
-environment_hint(model::ObjectModelOverrides) = environment_hint(model.base)
-environment_inputs_(model::ObjectModelOverrides) = environment_inputs_(model.base)
-environment_outputs_(model::ObjectModelOverrides) = environment_outputs_(model.base)
-variable_contracts_(model::ObjectModelOverrides) = variable_contracts_(model.base)
+struct ObjectModelOverrides{V} <: AbstractModel
+    variants::V
+end
+_object_override_base(model::ObjectModelOverrides) = first(model.variants.entries).model
+
+process(model::ObjectModelOverrides) = process(_object_override_base(model))
+inputs_(model::ObjectModelOverrides) = inputs_(_object_override_base(model))
+outputs_(model::ObjectModelOverrides) = outputs_(_object_override_base(model))
+dep(model::ObjectModelOverrides) = dep(_object_override_base(model))
+timespec(model::ObjectModelOverrides) = timespec(_object_override_base(model))
+output_policy(model::ObjectModelOverrides) = output_policy(_object_override_base(model))
+timestep_hint(model::ObjectModelOverrides) = timestep_hint(_object_override_base(model))
+environment_hint(model::ObjectModelOverrides) = environment_hint(_object_override_base(model))
+environment_inputs_(model::ObjectModelOverrides) = environment_inputs_(_object_override_base(model))
+environment_outputs_(model::ObjectModelOverrides) = environment_outputs_(_object_override_base(model))
+variable_contracts_(model::ObjectModelOverrides) = variable_contracts_(_object_override_base(model))
 
 function Object(
     id;

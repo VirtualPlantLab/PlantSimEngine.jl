@@ -134,8 +134,9 @@ end
 end
 
 @testset "future scopes, targets and overrides resolve only against the first run" begin
-    models = PSE.ObjectModelOverrides(ConstantProbe(1.0),
-        Dict(ObjectId(:future_leaf) => ConstantProbe(7.0)))
+    replacement = ConstantProbe(7.0)
+    models = PSE._prepare_object_model_overrides(ConstantProbe(1.0),
+        Dict(ObjectId(:future_leaf) => replacement); description="Test object override")
     model = CompositeModel(Object(:root; scale=:Plant); applications=(
         ModelSpec(models; name=:probe,
             on=One(scale=:Leaf, within=Scope(ObjectId(:future_root))), every=Hour(2)),),

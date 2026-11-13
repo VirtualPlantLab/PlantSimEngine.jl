@@ -930,14 +930,14 @@ function _model_graph_application_dict(
             )
             for update in updates(spec)
         ],
-        "modelStorage" => isnothing(application.model_overrides) ? "shared_application" : "per_object_override",
-        "objectOverrides" => isnothing(application.model_overrides) ? Any[] : [
+        "modelStorage" => isnothing(_application_model_overrides(application)) ? "shared_application" : "per_object_override",
+        "objectOverrides" => isnothing(_application_model_overrides(application)) ? Any[] : [
             Dict(
                 "objectId" => _model_graph_object_id_value(object_id.value),
                 "modelType" => string(typeof(override)),
                 "parameters" => _model_graph_model_parameters(override),
             )
-            for (object_id, override) in application.model_overrides
+            for (object_id, override) in _application_model_overrides(application)
         ],
     )
 end

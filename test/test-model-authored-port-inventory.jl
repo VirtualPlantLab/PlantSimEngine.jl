@@ -62,6 +62,26 @@ function inventory_is_value_free(value)
     return all(name -> inventory_is_value_free(getfield(value, name)), fieldnames(typeof(value)))
 end
 
+@testset "array element evidence stores types without initializer values" begin
+    value = Real[1.0, 2.0]
+    schema = (scalar=0f0, direct=value, distributed=Distributed(Default(value)),
+        empty=Real[], required=Distributed(Required(Vector{Real})))
+    elements = PSE._authored_output_element_types(schema)
+    @test keys(elements) === (:direct, :distributed, :empty)
+    @test values(elements) === (Tuple{Float64}, Tuple{Float64}, Tuple{})
+    @test fieldtypes(typeof(elements)) ===
+        (Type{Tuple{Float64}}, Type{Tuple{Float64}}, Type{Tuple{}})
+    @test !hasproperty(elements, :scalar) && !hasproperty(elements, :required)
+    @test inventory_is_value_free(elements)
+    push!(value, 3)
+    @test elements.direct === Tuple{Float64}
+    current = PSE._authored_output_element_types(schema)
+    @test current.direct === current.distributed === Tuple{Float64,Int}
+    @test value == Real[1.0, 2.0, 3]
+    @test PSE._output_element_types(Float32[1, 2]) === Tuple{Float32}
+    @test PSE._output_element_types(Float32[]) === Tuple{}
+end
+
 @testset "constructor owns one instance-specific value-free port inventory" begin
     a = Probe(:a, Ref(hook_zero), Ref(1f0))
     b = Probe(:b, Ref(hook_zero), Ref(2f0))
@@ -85,6 +105,9 @@ end
             @test getproperty(ports.output_types, output_name(process_model)) === Float32
             @test getproperty(ports.output_types, distributed_name(process_model)) === Vector{Float32}
             @test fieldtypes(typeof(ports.output_types)) === (Type{Float32}, Type{Vector{Float32}})
+            @test keys(ports.output_element_types) === (distributed_name(process_model),)
+            @test getproperty(ports.output_element_types, distributed_name(process_model)) === Tuple{Float32}
+            @test fieldtypes(typeof(ports.output_element_types)) === (Type{Tuple{Float32}},)
             @test ports.outputs.all_names === (output_name(process_model), distributed_name(process_model))
             @test ports.outputs.local_names === (output_name(process_model),)
             @test ports.outputs.distributed_names === (distributed_name(process_model),)

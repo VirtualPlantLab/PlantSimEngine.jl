@@ -176,11 +176,14 @@ end
     end
 end
 
-@testset "input binding tuple schemas may change without widening registry keys" begin
+@testset "prepared input binding tuple families retain registry keys after birth" begin
     first_status = Status(x=3f0)
     model = CompositeModel(Object(:root; scale=:Plant), Object(:other; scale=:Plant),
         Object(1; scale=:Leaf, parent=:root, status=first_status),
-        Object(:leaf; scale=:Leaf, parent=:root, status=Status(x=5f0));
+        Object(:leaf; scale=:Leaf, parent=:root, status=Status(x=5f0)),
+        # A real configured source outside the current subtree prepares the
+        # Float64 family before a compatible newborn enters that subtree.
+        Object(:other_family; scale=:Leaf, parent=:other, status=Status(x=0.0));
         applications=(ModelSpec(Reader(); name=:reader, on=One(id=:root), inputs=(
             single=One(id=1, within=Subtree(), var=:x, from_status=true),
             values=Many(scale=:Leaf, within=Subtree(), var=:x, from_status=true))),))
@@ -194,6 +197,8 @@ end
     @test single.carrier === first_ref
     @test model_status(model, :root).total === 11.0
     many = last(before).carrier
+    @test many isa PSE.ObjectRefVector
+    @test eltype(parent(many)) === Union{Base.RefValue{Float32},Base.RefValue{Float64}}
     @test all(reference === PSE.refvalue(model_status(model, id), :x)
         for (id, reference) in zip(last(before).source_ids, parent(many)))
     @test_throws TypeError PSE._model_binding_target_key(single, ObjectId{String})
@@ -202,7 +207,15 @@ end
     register_object!(model, Object(2; scale=:Leaf, parent=:root, status=new_status))
     step!(simulation)
     after = simulation.compiled.input_bindings_by_target[key]
-    @test typeof(after) !== typeof(before)
+    @test typeof(after) === typeof(before)
+    # The mixed-ID order inserts 2 before :leaf. A rebuilt column keeps the
+    # prepared representation and the original live references.
+    @test typeof(last(after).carrier) === typeof(many)
+    @test last(after).source_ids == [ObjectId(1), ObjectId(2), ObjectId(:leaf)]
+    @test parent(last(after).carrier)[1] === first_ref
+    @test parent(last(after).carrier)[2] === PSE.refvalue(new_status, :x)
+    @test parent(last(after).carrier)[3] ===
+        PSE.refvalue(model_status(model, :leaf), :x)
     @test last(after).carrier isa PSE.ObjectRefVector
     @test first(after).carrier === first_ref
     @test model_status(model, :root).total === 20.0
@@ -222,13 +235,15 @@ end
     check_indexes(model, simulation)
 end
 
-@testset "initially empty Many changes its real carrier schema after birth" begin
+@testset "initially empty Many keeps its prepared carrier schema after birth" begin
     model = CompositeModel(Object(:root; scale=:Plant);
         applications=(ModelSpec(ManyReader(); name=:reader, on=One(id=:root), inputs=(
             values=Many(scale=:Leaf, within=Subtree(), var=:x, from_status=true),)),))
     simulation = run!(model; steps=1, outputs=:all)
     key = (:reader, ObjectId(:root))
     previous = simulation.compiled.input_bindings_by_target[key]
+    prepared_carrier = only(previous).carrier
+    @test prepared_carrier isa PSE.RefVector{Float64}
     @test isempty(only(previous).source_ids)
     @test isempty(only(previous).carrier)
     @test model_status(model, :root).total === 0.0
@@ -238,7 +253,8 @@ end
     register_object!(model, Object(1; scale=:Leaf, parent=:root, status))
     step!(simulation)
     current = simulation.compiled.input_bindings_by_target[key]
-    @test typeof(current) !== typeof(previous)
+    @test typeof(current) === typeof(previous)
+    @test only(current).carrier === prepared_carrier
     @test only(current).source_ids == [ObjectId(1)]
     @test only(parent(only(current).carrier)) === reference
     @test model_status(model, :root).total === 7.0

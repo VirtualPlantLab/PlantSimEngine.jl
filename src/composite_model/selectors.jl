@@ -320,13 +320,45 @@ end
 function _validate_model_override_contract!(base, replacement; description)
     base_contract = model_interface(base)
     replacement_contract = model_interface(replacement)
-    isequal(base_contract, replacement_contract) && return nothing
+    isequal(base_contract, replacement_contract) && return (; base=base_contract, replacement=replacement_contract)
     error(
         "$(description) has an incompatible model contract. Expected ",
         "`$(base_contract)`, got `$(replacement_contract)`. Object and instance ",
         "overrides may change parameters or implementation, but not the full compiled " *
         "interface (port schemas, contracts, dependencies, or runtime traits)."
     )
+end
+
+function _configured_variant_ports(contract)
+    input_defaults = _input_default_values(contract.inputs)
+    output_defaults = _local_output_declarations(contract.outputs)
+    return (
+        input_types=_authored_port_types(_input_expected_type, contract.inputs),
+        output_types=_authored_port_types(_output_value_type, contract.outputs),
+        output_element_types=_authored_output_element_types(contract.outputs),
+        input_names=keys(contract.inputs), output_names=keys(contract.outputs),
+        input_default_names=keys(input_defaults), output_default_names=keys(output_defaults),
+        defaults_types=_authored_port_types(identity,
+            (inputs=typeof(input_defaults), outputs=typeof(output_defaults))),
+    )
+end
+
+function _prepare_object_model_overrides(base, object_models; description)
+    isempty(object_models) && throw(ArgumentError("Object overrides must not be empty."))
+    entries = Any[]
+    I = Union{map(typeof, collect(keys(object_models)))...}
+    slots = Dict{I,Int}()
+    for (object_id, replacement) in pairs(object_models)
+        contracts = _validate_model_override_contract!(base, replacement; description)
+        isempty(entries) && push!(entries, (model=base, ports=_configured_variant_ports(contracts.base)))
+        slot = findfirst(entry -> entry.model === replacement, entries)
+        if isnothing(slot)
+            push!(entries, (model=replacement, ports=_configured_variant_ports(contracts.replacement)))
+            slot = length(entries)
+        end
+        slots[object_id] = slot
+    end
+    return ObjectModelOverrides(ConfiguredModelVariants(Tuple(entries), slots))
 end
 
 function _object_override_models(instance::ObjectInstance, specs, instance_ids)
@@ -441,14 +473,8 @@ function _mount_object_instance_applications(instance::ObjectInstance, instance_
         mounted_model = get(instance_overrides, index, model_(spec))
         if haskey(object_overrides, index)
             object_models = object_overrides[index]
-            for replacement in values(object_models)
-                _validate_model_override_contract!(
-                    mounted_model,
-                    replacement;
-                    description="Object override for template application `$(base_name)`",
-                )
-            end
-            mounted_model = ObjectModelOverrides(mounted_model, object_models)
+            mounted_model = _prepare_object_model_overrides(mounted_model, object_models;
+                description="Object override for template application `$(base_name)`")
         end
         push!(
             mounted,
@@ -668,19 +694,24 @@ function _criteria_scope(criteria)
     return isnothing(keyword) ? positional : keyword
 end
 
-function _named_scope_root_id(model::CompositeModel, scope::Scope)
+# Resolve the authored root identity independently from current membership.
+# Preparation can retain a future scope without caching a missing-root failure.
+function _named_scope_root_candidate(model::CompositeModel, scope::Scope)
     if scope.root isa Symbol
         for instance in model.instances
             instance.name == scope.root || continue
-            root_id = _instance_root_id(instance)
-            haskey(model.registry.objects, root_id) || error(
-                "Object instance `$(instance.name)` has no current root object `$(root_id.value)`.",
-            )
-            return root_id
+            return _instance_root_id(instance), instance.name
         end
     end
-    root_id = ObjectId(scope.root)
+    return ObjectId(scope.root), nothing
+end
+
+function _named_scope_root_id(model::CompositeModel, scope::Scope)
+    root_id, instance_name = _named_scope_root_candidate(model, scope)
     haskey(model.registry.objects, root_id) && return root_id
+    isnothing(instance_name) || error(
+        "Object instance `$(instance_name)` has no current root object `$(root_id.value)`.",
+    )
     available_ids = [id.value for id in object_ids(model)]
     available_instances = sort!(Symbol[instance.name for instance in model.instances]; by=string)
     symbolic_ids = Symbol[id for id in available_ids if id isa Symbol]

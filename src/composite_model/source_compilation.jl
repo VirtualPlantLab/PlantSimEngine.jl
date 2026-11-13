@@ -208,9 +208,9 @@ end
 
 function _compiled_source_application_models(application::CompiledModelApplication)
     models = Any[_application_default_model(application)]
-    if !isnothing(application.model_overrides)
-        for object_id in sort!(collect(keys(application.model_overrides)); by=id -> string(id.value))
-            push!(models, application.model_overrides[object_id])
+    if !isnothing(_application_model_overrides(application))
+        for object_id in sort!(collect(keys(_application_model_overrides(application))); by=id -> string(id.value))
+            push!(models, _application_model_overrides(application)[object_id])
         end
     end
     unique_models = Any[]

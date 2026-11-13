@@ -2,7 +2,7 @@
 Immutable scenario-level metadata for one model application. Runtime object
 membership is stored separately in [`CompiledModelApplication`](@ref).
 """
-struct CompiledApplicationPlan{S,AT,TM,TS,CL,MO,P,CP}
+struct CompiledApplicationPlan{S,AT,TM,TS,CL,P,CP}
     slot::Int
     id::Symbol
     spec::S
@@ -12,7 +12,6 @@ struct CompiledApplicationPlan{S,AT,TM,TS,CL,MO,P,CP}
     target_matcher::TM
     timestep::TS
     clock::CL
-    model_overrides::MO
     ports::P
     call_plans::CP
 end
@@ -55,7 +54,6 @@ end
     name === :target_matcher && return getfield(plan, :target_matcher)
     name === :timestep && return getfield(plan, :timestep)
     name === :clock && return getfield(plan, :clock)
-    name === :model_overrides && return getfield(plan, :model_overrides)
     return getproperty(plan, name)
 end
 
@@ -69,7 +67,7 @@ _input_route_source(::InputRouteTag{INPUT,SOURCE}) where {INPUT,SOURCE} = Val(SO
 _input_route_from_status(::InputRouteTag{INPUT,SOURCE,FROM_STATUS}) where {INPUT,SOURCE,FROM_STATUS} = FROM_STATUS
 
 """Immutable authored input declaration and reference-access recipe."""
-struct CompiledModelInputPlan{TAG,SEL,M,OA,PSA,W}
+struct CompiledModelInputPlan{TAG,SEL,M,OA,PSA,W,RT<:Tuple}
     route::TAG
     slot::Int
     application_slot::Int
@@ -86,6 +84,7 @@ struct CompiledModelInputPlan{TAG,SEL,M,OA,PSA,W}
     potential_source_application_ids::PSA
     breaks_same_step_cycle::Bool
     window::W
+    reference_types::Type{RT}
 end
 
 """Fixed metadata schema whose scalar lookups stay inside its typed owner."""
@@ -906,7 +905,7 @@ function _prepare_authored_scenario(model::CompositeModel, raw_specs)
     authored_records = Tuple(authored)
     recipes = Tuple(record for record in authored_records
         if record isa AuthoredApplicationRecipe)
-    program = _prepare_authored_scenario_program(recipes)
+    program = _prepare_authored_scenario_program(model, recipes)
     return ScenarioPreparation(model, source_specs, authored_records, failure, program, nothing)
 end
 
@@ -1503,11 +1502,11 @@ function _prepare_authored_scenario_graph(application_records, input_records, ca
         frozen_children, order, failures)
 end
 
-function _prepare_authored_scenario_program(recipes)
+function _prepare_authored_scenario_program(model, recipes)
     applications = _graph_record_vector(AuthoredApplicationRecipe, recipes)
     output_records = _prepare_authored_output_records(applications)
     destinations = _authored_distributed_output_plans(applications, output_records)
-    input_records = _prepare_authored_input_records(applications, destinations)
+    input_records = _prepare_authored_input_records(model, applications, destinations)
     inputs = Tuple(record for record in input_records if record isa CompiledModelInputPlan)
     calls = Tuple(plan for application in applications for plan in application.call_plans)
     graph = _prepare_authored_scenario_graph(applications, inputs, calls, destinations)
@@ -1521,6 +1520,7 @@ function _authored_input_graph_matches(records::Tuple, plans)
             authored.application_id === resolved.application_id &&
             authored.input === resolved.input && authored.selector === resolved.selector &&
             authored.origin === resolved.origin &&
+            authored.reference_types === resolved.reference_types &&
             authored.potential_source_application_ids === resolved.potential_source_application_ids &&
             authored.order_after_application_ids === resolved.order_after_application_ids
     end
@@ -2701,10 +2701,6 @@ function _compile_scene(
         :input_binding_compile,
         started_at,
     )
-    # Lifecycle refresh may replace an initially empty `Many(...)` carrier
-    # with a concrete carrier type. Keep the per-target index type-stable
-    # across that replacement so an updated compiled scene can be stored in
-    # an existing `Simulation`.
     input_bindings_by_target = _index_model_input_bindings(
         input_bindings, keytype(model.registry.objects),
     )
@@ -3289,7 +3285,7 @@ end
 function _can_append_stable_many_sources(binding::CompiledModelInputBinding)
     binding.multiplicity == :many || return false
     binding.carrier_hint === :ref_vector || return false
-    binding.carrier isa RefVector || return false
+    binding.carrier isa Union{RefVector,ObjectRefVector} || return false
     potential_application_ids = binding.potential_source_application_ids
     source_application_ids = binding.source_application_ids
     length(source_application_ids) == length(potential_application_ids) ||
@@ -3398,7 +3394,7 @@ function _append_added_many_sources!(
         performance,
     ) && return true
 
-    new_carrier = _input_carrier(model, binding.selector, new_source_ids, _input_route_source(binding.plan.route))
+    new_carrier = _input_carrier(model, binding.selector, new_source_ids, _input_route_source(binding.plan.route), binding.plan.reference_types)
     isnothing(new_carrier) && return false
     existing_refs = parent(binding.carrier)
     new_refs = parent(new_carrier)
@@ -4702,11 +4698,6 @@ function _extend_compiled_scene(
         input_bindings,
         length(compiled.input_bindings) + added_input_binding_capacity,
     )
-    # A `Many(...)` binding that starts empty is compiled with an untyped
-    # `RefVector{Any}` carrier. Once matching objects are registered, the
-    # refreshed carrier becomes concrete (for example `RefVector{Float64}`).
-    # Keep this incremental index value-widened so that lifecycle refresh can
-    # replace an initially empty binding without rebuilding the whole scene.
     input_bindings_by_target = compiled.input_bindings_by_target
     many_binding_cache = compiled.many_input_binding_cache
     changed_bindings = similar(input_bindings, 0)
@@ -5408,13 +5399,13 @@ function _resolve_application_recipes(
             recipe.environment_hint, recipe.ports.environment_inputs;
             on_error=on_environment_error,
         )
-        model_overrides = _compiled_object_model_overrides(spec, target_ids, recipe.id)
+        _validate_compiled_object_overrides!(spec, target_ids, recipe.id)
         push!(applications, CompiledModelApplication(
             CompiledApplicationPlan(
                 recipe.slot, recipe.id, spec, recipe.process, recipe.name,
                 selector, target_matcher, timestep(spec),
                 _model_application_clock(model, spec, target_ids, timeline),
-                model_overrides, recipe.ports, recipe.call_plans,
+                recipe.ports, recipe.call_plans,
             ),
             target_ids,
         ))
@@ -5486,30 +5477,95 @@ function _model_environment_bindings_with_environment_sources(
     return (; resolved...)
 end
 
-function _compiled_object_model_overrides(spec, target_ids, application_id::Symbol)
+function _validate_compiled_object_overrides!(spec, target_ids, application_id::Symbol)
     model = model_(spec)
     model isa ObjectModelOverrides || return nothing
     target_set = Set(target_ids)
-    unmatched = ObjectId[id for id in keys(model.overrides) if !(id in target_set)]
+    unmatched = ObjectId[id for id in keys(model.variants) if !(id in target_set)]
     isempty(unmatched) || error(
         "Object override(s) `$([id.value for id in unmatched])` for application ",
         "`$(application_id)` do not match its `on=...` target set."
     )
-    return model.overrides
+    return nothing
 end
 
-_application_default_model(application::CompiledModelApplication) =
-    model_(application.spec) isa ObjectModelOverrides ?
-    model_(application.spec).base :
-    model_(application.spec)
+_application_model_overrides(application) =
+    model_(application.spec) isa ObjectModelOverrides ? model_(application.spec).variants : nothing
 
-function _application_model(application::CompiledModelApplication, object_id::ObjectId)
-    isnothing(application.model_overrides) && return _application_default_model(application)
-    return get(
-        application.model_overrides,
-        object_id,
-        _application_default_model(application),
-    )
+function _application_default_model(application)
+    model = model_(application.spec)
+    return model isa ObjectModelOverrides ? _object_override_base(model) : model
+end
+
+function _application_model(application, object_id::ObjectId)
+    return _with_application_variant((model, ports) -> model, application, object_id)
+end
+
+@inline function _with_application_variant(f::F, application, object_id::ObjectId,
+    args::Vararg{Any,N},
+) where {F,N}
+    model = model_(application.spec)
+    if model isa ObjectModelOverrides
+        owner = model.variants
+        slot = get(owner.object_slots, object_id, 1)
+        return Base.@inline _with_metadata_entry(_call_application_variant,
+            owner.entries, slot, f, args...)
+    end
+    return f(model, _application_ports(application), args...)
+end
+
+@inline _call_application_variant(entry, f::F, args::Vararg{Any,N}) where {F,N} =
+    f(entry.model, entry.ports, args...)
+
+@inline function _foreach_application_variant(f::F, application,
+    args::Vararg{Any,N},
+) where {F,N}
+    model = model_(application.spec)
+    if model isa ObjectModelOverrides
+        return _foreach_configured_variant(f, model.variants.entries, args...)
+    end
+    f(model, _application_ports(application), args...)
+    return nothing
+end
+_foreach_configured_variant(f, ::Tuple{}, args::Vararg{Any,N}) where {N} = nothing
+function _foreach_configured_variant(f::F, entries::Tuple, args::Vararg{Any,N}) where {F,N}
+    entry = first(entries)
+    f(entry.model, entry.ports, args...)
+    return _foreach_configured_variant(f, Base.tail(entries), args...)
+end
+
+_read_application_defaults(model, ::Val{:outputs}) = _local_output_schema(model)
+_read_application_defaults(model, ::Val{:inputs}) = _input_default_values(_input_schema(model))
+_variant_defaults_type(ports, ::Val{:outputs}) = ports.defaults_types.outputs
+_variant_defaults_type(ports, ::Val{:inputs}) = ports.defaults_types.inputs
+
+function _application_default_schemas(application, kind)
+    model = model_(application.spec)
+    return model isa ObjectModelOverrides ? IdDict{AbstractModel,NamedTuple}() :
+        _read_application_defaults(model, kind)
+end
+@inline _with_application_defaults(f::F, application, object_id, defaults::NamedTuple,
+    kind, args::Vararg{Any,N}) where {F,N} = f(defaults, args...)
+@inline function _with_application_defaults(f::F, application, object_id,
+    cache::IdDict{AbstractModel,NamedTuple}, kind, args::Vararg{Any,N},
+) where {F,N}
+    return Base.@inline _with_application_variant(_call_configured_defaults,
+        application, object_id, f, cache, kind, args...)
+end
+@inline function _call_configured_defaults(model, ports, f::F, cache, kind,
+    args::Vararg{Any,N},
+) where {F,N}
+    return _with_configured_defaults(f, model, cache, kind,
+        _variant_defaults_type(ports, kind), args...)
+end
+@inline function _with_configured_defaults(f::F, model, cache, kind, ::Type{S},
+    args::Vararg{Any,N},
+) where {F,S<:NamedTuple,N}
+    schema = get!(cache, model) do
+        _read_application_defaults(model, kind)
+    end
+    schema isa S || throw(ArgumentError("A model default schema changed after preparation."))
+    return f(schema::S, args...)
 end
 
 _application_ports(application::CompiledModelApplication) = getfield(application, :plan).ports
@@ -6064,83 +6120,43 @@ end
 end
 
 function _input_reference_carrier(
-    ::Union{One,OptionalOne}, source_ids, reference_for,
+    ::Union{One,OptionalOne}, source_ids, reference_for, ::Type{<:Tuple},
 )
     isempty(source_ids) && return nothing
     return _checked_input_reference(reference_for(only(source_ids)))
 end
 
-function _input_reference_carrier(::Many, source_ids, reference_for)
-    first_source = iterate(source_ids)
-    isnothing(first_source) && return RefVector{Any}()
-    source_id, iteration_state = first_source
-    reference = _checked_input_reference(reference_for(source_id))
-    isnothing(reference) && return nothing
-    return _many_input_reference_carrier(
-        source_ids, reference_for, reference, typeof(reference[]), iteration_state,
-    )
-end
-
-function _many_input_reference_carrier(
-    source_ids, reference_for, first_reference::Base.RefValue{T}, ::Type{T},
-    iteration_state,
-) where {T}
-    references = Base.RefValue{T}[]
-    sizehint!(references, length(source_ids) + 1)
-    push!(references, first_reference)
-    while true
-        next_source = iterate(source_ids, iteration_state)
-        isnothing(next_source) && break
-        source_id, iteration_state = next_source
-        reference = _checked_input_reference(reference_for(source_id))
-        isnothing(reference) && return nothing
-        if reference isa Base.RefValue{T}
-            push!(references, reference)
-        else
-            heterogeneous = Base.RefValue[references...]
-            push!(heterogeneous, reference)
-            return _heterogeneous_input_reference_carrier(
-                source_ids, reference_for, heterogeneous, iteration_state,
-            )
+@generated function _input_reference_carrier(
+    ::Many, source_ids, reference_for::F, ::Type{RT},
+) where {F,RT<:Tuple}
+    types = fieldtypes(RT)
+    isempty(types) && return :(throw(ArgumentError("A Many input requires a prepared reference family.")))
+    all(R -> R <: Base.RefValue && isconcretetype(R), types) ||
+        return :(throw(ArgumentError("A Many input requires exact prepared reference types.")))
+    R = Union{types...}
+    homogeneous = length(types) == 1 && isconcretetype(eltype(only(types)))
+    result = homogeneous ? :(RefVector(references)) : :(ObjectRefVector(references))
+    return quote
+        references = $R[]
+        sizehint!(references, length(source_ids) + 1)
+        for source_id in source_ids
+            reference = _checked_input_reference(reference_for(source_id))
+            isnothing(reference) && return nothing
+            reference isa $R || throw(ArgumentError(
+                "An input source reference is outside its prepared Many family."))
+            push!(references, reference::$R)
         end
+        return $result
     end
-    return RefVector(references)
-end
-
-# An abstract Ref payload must retain the previous ObjectRefVector contract,
-# even when its current value happens to have the same type as another source.
-function _many_input_reference_carrier(
-    source_ids, reference_for, first_reference::Base.RefValue, ::Type,
-    iteration_state,
-)
-    references = Base.RefValue[first_reference]
-    sizehint!(references, length(source_ids) + 1)
-    return _heterogeneous_input_reference_carrier(
-        source_ids, reference_for, references, iteration_state,
-    )
-end
-
-function _heterogeneous_input_reference_carrier(
-    source_ids, reference_for, references, iteration_state,
-)
-    while true
-        next_source = iterate(source_ids, iteration_state)
-        isnothing(next_source) && break
-        source_id, iteration_state = next_source
-        reference = _checked_input_reference(reference_for(source_id))
-        isnothing(reference) && return nothing
-        push!(references, reference)
-    end
-    return ObjectRefVector(references)
 end
 
 function _input_carrier(
     model::CompositeModel, selector::AbstractObjectMultiplicity,
-    source_ids::AbstractVector{<:ObjectId}, source_var,
+    source_ids::AbstractVector{<:ObjectId}, source_var, reference_types::Type{<:Tuple},
 )
     reference_for = source_id ->
         _status_ref_or_nothing(model_status(model, source_id), source_var)
-    return _input_reference_carrier(selector, source_ids, reference_for)
+    return _input_reference_carrier(selector, source_ids, reference_for, reference_types)
 end
 
 function _has_stream_only_input_source(
@@ -6171,17 +6187,19 @@ function _stream_only_initial_reference(
         application = only(matching_applications)
         if _publish_mode_for_output(application.spec, source_var) ==
            :stream_only
-            initial, _, _ = _materialize_status_value(
-                model,
-                source_var,
-                getproperty(_local_output_schema(application.spec), source_var);
-                object_id=source_id,
-                application_id=application.id,
-                origin=:stream_only_source_default,
-                private_copy=true,
-                reuse=true,
-            )
-            return Ref(initial)
+            return Base.@inline _with_application_variant(application, source_id) do effective_model, ports
+                initial, _, _ = _materialize_status_value(
+                    model,
+                    source_var,
+                    getproperty(_local_output_schema(effective_model), source_var);
+                    object_id=source_id,
+                    application_id=application.id,
+                    origin=:stream_only_source_default,
+                    private_copy=true,
+                    reuse=true,
+                )
+                return Ref(initial)
+            end
         end
     end
     return _status_ref_or_nothing(
@@ -6197,11 +6215,12 @@ function _stream_only_initial_carrier(
     source_application_ids,
     source_var::Symbol,
     applications_by_id,
+    reference_types::Type{<:Tuple},
 )
     reference_for = source_id -> _stream_only_initial_reference(
         model, source_id, source_application_ids, source_var, applications_by_id,
     )
-    return _input_reference_carrier(selector, source_ids, reference_for)
+    return _input_reference_carrier(selector, source_ids, reference_for, reference_types)
 end
 
 function _ref_vector_carrier(refs)
@@ -6576,19 +6595,21 @@ function _prepare_model_output_statuses!(
     conversion_records = record_conversions ? Dict{Any,Any}() : model.status_conversion_records
     for partial in applications
         Base.@inline _with_model_application(applications_by_id, partial) do application
-            defaults = _local_output_schema(application.spec)
+            schemas = _application_default_schemas(application, Val(:outputs))
             for object_id in application.target_ids
-                preparation = _status_preparation_for_object!(
-                    recipes,
-                    recipe_order,
-                    model,
-                    object_id,
-                )
-                context = (; model, application, object_id, recipes,
-                    recipe_order, conversion_records)
-                _stage_model_output_defaults!(
-                    keys(defaults), values(defaults), preparation, context,
-                )
+                Base.@inline _with_application_defaults(application, object_id, schemas, Val(:outputs)) do defaults
+                    preparation = _status_preparation_for_object!(
+                        recipes,
+                        recipe_order,
+                        model,
+                        object_id,
+                    )
+                    context = (; model, application, object_id, recipes,
+                        recipe_order, conversion_records)
+                    _stage_model_output_defaults!(
+                        keys(defaults), values(defaults), preparation, context,
+                    )
+                end
             end
         end
     end
@@ -7234,64 +7255,67 @@ function _prepare_model_input_defaults!(
 )
     for partial in applications
         _with_model_application(applications_by_id, partial) do application
-            schema = _model_input_schema(application)
-            defaults = _input_default_values(schema)
+            _model_input_names(application)
+            schemas = _application_default_schemas(application, Val(:inputs))
             for object_id in application.target_ids
-                status = _ensure_model_object_status!(model, object_id)
-                for (variable, value) in pairs(defaults)
-                    variable = Symbol(variable)
-                    variable in propertynames(status) && continue
-                    reference = isnothing(final_references) ?
-                                nothing :
-                                get(
-                        final_references,
-                        (application.id, object_id, variable),
-                        nothing,
-                    )
-                    if !isnothing(reference)
-                        # Preserve conversion callbacks, validation, and diagnostic
-                        # records while avoiding a default Status that the resolved
-                        # carrier would replace immediately below.
-                        _no_status_conversion(model.status_conversion) ||
-                            _materialize_status_value(
-                                model,
+                Base.@inline _with_application_defaults(application, object_id, schemas, Val(:inputs)) do defaults
+                    status = _ensure_model_object_status!(model, object_id)
+                    for (variable, value) in pairs(defaults)
+                        variable = Symbol(variable)
+                        variable in propertynames(status) && continue
+                        reference = isnothing(final_references) ?
+                                    nothing :
+                                    get(
+                            final_references,
+                            (application.id, object_id, variable),
+                            nothing,
+                        )
+                        if !isnothing(reference)
+                            # Preserve conversion callbacks, validation, and diagnostic
+                            # records while avoiding a default Status that the resolved
+                            # carrier would replace immediately below.
+                            _no_status_conversion(model.status_conversion) ||
+                                _materialize_status_value(
+                                    model,
+                                    variable,
+                                    value;
+                                    object_id=object_id,
+                                    application_id=application.id,
+                                    origin=:model_input_default,
+                                    private_copy=true,
+                                )
+                            status = _status_with_reference(
+                                status,
                                 variable,
-                                value;
-                                object_id=object_id,
-                                application_id=application.id,
-                                origin=:model_input_default,
-                                private_copy=true,
+                                reference,
                             )
-                        status = _status_with_reference(
+                            _runtime_performance_count!(
+                                performance,
+                                :input_default_status_rewrites_avoided,
+                            )
+                            continue
+                        end
+                        status = _status_with_default(
+                            model,
                             status,
-                            variable,
-                            reference,
-                        )
-                        _runtime_performance_count!(
-                            performance,
-                            :input_default_status_rewrites_avoided,
-                        )
-                        continue
-                    end
-                    status = _status_with_default(
-                        model,
-                        status,
-                        object_id,
-                        variable,
-                        value;
-                        application_id=application.id,
-                        origin=:model_input_default,
-                    )
-                    push!(
-                        get!(
-                            model.input_default_status_variables,
                             object_id,
-                            Set{Symbol}(),
-                        ),
-                        variable,
-                    )
+                            variable,
+                            value;
+                            application_id=application.id,
+                            origin=:model_input_default,
+                        )
+                        push!(
+                            get!(
+                                model.input_default_status_variables,
+                                object_id,
+                                Set{Symbol}(),
+                            ),
+                            variable,
+                        )
+                    end
+                    _replace_model_object_status!(model, object_id, status)
+                    return nothing
                 end
-                _replace_model_object_status!(model, object_id, status)
             end
             return nothing
         end
@@ -7372,68 +7396,72 @@ function _prepare_model_input_statuses_batched!(
     for partial in applications
         input_default_rewrites_avoided += Base.@inline _with_model_application(applications_by_id, partial) do application
             rewrites_avoided = 0
-            schema = _model_input_schema(application)
-            defaults = _input_default_values(schema)
+            _model_input_names(application)
+            schemas = _application_default_schemas(application, Val(:inputs))
             for object_id in application.target_ids
-                preparation = _status_preparation_for_object!(
-                    recipes,
-                    recipe_order,
-                    model,
-                    object_id,
-                )
-                for (variable_, value) in pairs(defaults)
-                    variable = Symbol(variable_)
-                    if preparation isa Status
-                        variable in propertynames(preparation) && continue
-                        preparation = _status_recipe_for_object!(
-                            recipes,
-                            recipe_order,
-                            model,
-                            object_id,
-                        )
-                    else
-                        _status_recipe_has_variable(preparation, variable) && continue
-                    end
-                    reference = isnothing(final_references) ?
-                                nothing :
-                                get(
-                        final_references,
-                        (application.id, object_id, variable),
-                        nothing,
-                    )
-                    if !isnothing(reference)
-                        # Preserve conversion callbacks, validation, and diagnostic
-                        # records even though the resolved carrier owns storage.
-                        _no_status_conversion(model.status_conversion) ||
-                            _materialize_status_value(
-                                model,
-                                variable,
-                                value;
-                                object_id=object_id,
-                                application_id=application.id,
-                                origin=:model_input_default,
-                                private_copy=true,
-                                conversion_records=conversion_records,
-                            )
-                        _status_recipe_set_reference!(
-                            preparation,
-                            variable,
-                            reference,
-                        )
-                        rewrites_avoided += 1
-                        continue
-                    end
-                    _status_recipe_add_default!(
+                rewrites_avoided += Base.@inline _with_application_defaults(application, object_id, schemas, Val(:inputs)) do defaults
+                    object_rewrites_avoided = 0
+                    preparation = _status_preparation_for_object!(
+                        recipes,
+                        recipe_order,
                         model,
-                        preparation,
                         object_id,
-                        variable,
-                        value;
-                        application_id=application.id,
-                        origin=:model_input_default,
-                        conversion_records=conversion_records,
                     )
-                    default_status_updates[(object_id, variable)] = true
+                    for (variable_, value) in pairs(defaults)
+                        variable = Symbol(variable_)
+                        if preparation isa Status
+                            variable in propertynames(preparation) && continue
+                            preparation = _status_recipe_for_object!(
+                                recipes,
+                                recipe_order,
+                                model,
+                                object_id,
+                            )
+                        else
+                            _status_recipe_has_variable(preparation, variable) && continue
+                        end
+                        reference = isnothing(final_references) ?
+                                    nothing :
+                                    get(
+                            final_references,
+                            (application.id, object_id, variable),
+                            nothing,
+                        )
+                        if !isnothing(reference)
+                            # Preserve conversion callbacks, validation, and diagnostic
+                            # records even though the resolved carrier owns storage.
+                            _no_status_conversion(model.status_conversion) ||
+                                _materialize_status_value(
+                                    model,
+                                    variable,
+                                    value;
+                                    object_id=object_id,
+                                    application_id=application.id,
+                                    origin=:model_input_default,
+                                    private_copy=true,
+                                    conversion_records=conversion_records,
+                                )
+                            _status_recipe_set_reference!(
+                                preparation,
+                                variable,
+                                reference,
+                            )
+                            object_rewrites_avoided += 1
+                            continue
+                        end
+                        _status_recipe_add_default!(
+                            model,
+                            preparation,
+                            object_id,
+                            variable,
+                            value;
+                            application_id=application.id,
+                            origin=:model_input_default,
+                            conversion_records=conversion_records,
+                        )
+                        default_status_updates[(object_id, variable)] = true
+                    end
+                    return object_rewrites_avoided
                 end
             end
             return rewrites_avoided
@@ -7959,7 +7987,139 @@ Base.@nospecializeinfer function _input_plan_variable_contracts!(
     return schema
 end
 
+# The family is fixed by preparation, not by the first matching organ. Existing
+# configured reference storage takes precedence over declared numeric defaults.
+
+function _many_scope_is_current(model, matcher)
+    scope = matcher.scope
+    scope isa Scope && return haskey(model.registry.objects,
+        first(_named_scope_root_candidate(model, scope)))
+    scope isa CompiledNamedScope && return haskey(model.registry.objects, scope.root_id)
+    return true
+end
+
+function _many_current_application_targets(model, application)
+    matcher = application.target_matcher
+    _many_scope_is_current(model, matcher) || return ObjectId[]
+    # Metadata needs membership, not the application's multiplicity check.
+    many = _selector_as_many(applies_to(application.spec))
+    return _resolve_object_ids(model, many, _resolve_selector_matcher(model, matcher))
+end
+
+function _many_current_source_ids(model, consumer, producer, variant, selector,
+    source_selectors, distributed)
+    current = Set{ObjectId}()
+    if isnothing(producer)
+        matcher = _authored_selector_matcher(selector)
+        _many_scope_is_current(model, matcher) || return current
+        matcher = _resolve_selector_matcher(model, matcher)
+        for consumer_id in _many_current_application_targets(model, consumer)
+            union!(current, _dependency_object_ids(model, selector, matcher, consumer_id))
+        end
+    else
+        isempty(source_selectors) && return current
+        for execution_id in _many_current_application_targets(model, producer)
+            _application_model(producer, execution_id) === variant || continue
+            if distributed
+                for destination in source_selectors
+                    matcher = _authored_selector_matcher(destination)
+                    _many_scope_is_current(model, matcher) || continue
+                    union!(current, _dependency_object_ids(model, _selector_as_many(destination),
+                        _resolve_selector_matcher(model, matcher), execution_id))
+                end
+            else
+                push!(current, execution_id)
+            end
+        end
+    end
+    return current
+end
+
+function _many_model_variant_types(producer)
+    model = model_(producer.spec)
+    if model isa ObjectModelOverrides
+        return map(model.variants.entries) do entry
+            (entry.model, entry.ports.output_types, entry.ports.output_element_types)
+        end
+    end
+    ports = _application_ports(producer)
+    return ((model, ports.output_types, ports.output_element_types),)
+end
+
+function _prepare_many_reference_types(model, consumer, input, selector,
+    source_var, producer_ids, applications_by_id, distributed_output_plans)
+    references = Any[]
+    add(R) = R in references || push!(references, R)
+    declared_input = getproperty(_application_ports(consumer).input_types, input)
+    fallback = declared_input <: AbstractVector ? eltype(declared_input) : Union{}
+    isconcretetype(fallback) || (fallback = Union{})
+    producers = isempty(producer_ids) ? (nothing,) : producer_ids
+    for producer_id in producers
+        producer = isnothing(producer_id) ? nothing : applications_by_id[producer_id]
+        distributed = !isnothing(producer) &&
+            source_var in _model_distributed_output_names(producer)
+        source_selectors = if isnothing(producer)
+            (selector,)
+        elseif distributed
+            _application_output_selectors(producer, source_var, distributed_output_plans)
+        elseif _publish_mode_for_output(producer.spec, source_var) === :stream_only
+            ()
+        else
+            (applies_to(producer.spec),)
+        end
+        variants = isnothing(producer) ? ((nothing, nothing, nothing),) : _many_model_variant_types(producer)
+        for (variant, output_types, element_types) in variants
+            current = _many_current_source_ids(model, consumer, producer, variant,
+                selector, source_selectors, distributed)
+            missing_current = copy(current)
+            observed_any = false
+            for source_selector in source_selectors
+                matcher = _authored_selector_matcher(source_selector)
+                for object in values(model.registry.objects)
+                    _matches_object_criteria(object; scale=matcher.scale, kind=matcher.kind,
+                        species=matcher.species, id=matcher.id) || continue
+                    status = object.status
+                    status isa Status && source_var in propertynames(status) || continue
+                    reference = refvalue(status, source_var)
+                    reference isa Base.RefValue || continue
+                    add(typeof(reference))
+                    observed_any = true
+                    delete!(missing_current, object.id)
+                end
+            end
+            # Current references replace this variant's default only when every
+            # current source already owns one. Missing fields still materialize
+            # the declared default. Other families remain eligible for reparenting.
+            !isempty(current) && isempty(missing_current) && continue
+            T = if isnothing(producer) || !isnothing(model.status_conversion.transform)
+                fallback
+            else
+                _configured_status_value_type(model.status_conversion,
+                    getproperty(output_types, source_var), get(element_types, source_var, nothing))
+            end
+            candidates = isnothing(T) ? () : Base.uniontypes(T)
+            if isempty(candidates) || !all(isconcretetype, candidates)
+                isnothing(producer) && observed_any && continue
+                candidates = fallback === Union{} ? () : (fallback,)
+            end
+            isempty(candidates) && throw(ArgumentError(
+                "Many input `$(input)` on application `$(consumer.id)` has no concrete " *
+                "configured source type for `$(source_var)`. Declare a concrete producer " *
+                "or input element type, or provide its configured initial state."))
+            for T in candidates
+                T === Union{} && throw(ArgumentError(
+                    "Many input `$(input)` has no configured source element type."))
+                add(Base.RefValue{T})
+            end
+        end
+    end
+    isempty(references) && throw(ArgumentError("A Many input has no prepared reference family."))
+    # Julia canonicalizes the union; its members give deterministic witness order.
+    return Tuple{Base.uniontypes(Union{references...})...}
+end
+
 Base.@nospecializeinfer function _compiled_model_input_plan(
+    model::CompositeModel,
     slot::Int,
     writer_applications,
     application,
@@ -8035,10 +8195,13 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
         potential_source_application_ids,
         breaks_same_step_cycle,
         _selector_window(selector),
+        selector isa Many ? _prepare_many_reference_types(model, application,
+            input, selector, source_var, potential_source_application_ids,
+            applications_by_id, distributed_output_plans) : Tuple{},
     )
 end
 
-function _prepare_authored_input_records(applications, distributed_output_plans)
+function _prepare_authored_input_records(model, applications, distributed_output_plans)
     plans = CompiledModelInputPlan[]
     records = Any[]
     applications_by_id = Dict(application.id => application for application in applications)
@@ -8066,7 +8229,7 @@ function _prepare_authored_input_records(applications, distributed_output_plans)
                 _validate_declared_model_input_name!(application, input)
                 selector isa AbstractObjectMultiplicity || error(
                     "Input binding `$(input)` on application `$(application.id)` must use an object selector.")
-                _compiled_model_input_plan(length(plans) + 1, writer_applications,
+                _compiled_model_input_plan(model, length(plans) + 1, writer_applications,
                     application, input, selector,
                     get(input_origins(application.spec), input, :model_spec),
                     applications_by_id, distributed_output_plans, local_output_names,
@@ -8087,7 +8250,7 @@ function _prepare_authored_input_records(applications, distributed_output_plans)
                 selector = One(within=Self(), process=producer.process,
                     application=producer.id, var=input)
                 record = _capture_authored_metadata(:input_plans, application.id) do
-                    _compiled_model_input_plan(length(plans) + 1, writer_applications,
+                    _compiled_model_input_plan(model, length(plans) + 1, writer_applications,
                         application, input, selector, :inferred_same_object,
                         applications_by_id, distributed_output_plans, local_output_names,
                         variable_contracts_by_application)
@@ -8107,7 +8270,7 @@ function _resolve_model_input_plan(model, plan::CompiledModelInputPlan, slot::In
         plan.application_id, plan.input, plan.selector, matcher, plan.origin,
         plan.order_after_application_ids, plan.source_var, plan.process,
         plan.application, plan.multiplicity, plan.potential_source_application_ids,
-        plan.breaks_same_step_cycle, plan.window)
+        plan.breaks_same_step_cycle, plan.window, plan.reference_types)
 end
 
 function _resolve_model_input_plans(model, preparation::ScenarioPreparation,
@@ -8118,7 +8281,7 @@ function _resolve_model_input_plans(model, preparation::ScenarioPreparation,
     else
         # A partial report is a different declaration set. Project the real
         # recipes through the SAME pure factory, without replaying a hook.
-        _prepare_authored_input_records(_project_authored_applications(preparation, applications),
+        _prepare_authored_input_records(model, _project_authored_applications(preparation, applications),
             distributed_output_plans)
     end
     plans = CompiledModelInputPlan[]
@@ -8233,8 +8396,8 @@ function _resolve_model_output_destination_plans(model::CompositeModel,
         # override validation and Scope resolution, retaining phase order.
         authored = _authored_metadata_value(preparation.program.output_records[application.id])
         distributed_names = _model_distributed_output_names(application)
-        if !isnothing(application.model_overrides)
-            for replacement in values(application.model_overrides)
+        if !isnothing(_application_model_overrides(application))
+            for replacement in values(_application_model_overrides(application))
                 replacement_names = _distributed_output_names(replacement)
                 _output_destination_layout(application.spec, replacement_names, replacement)
                 Set(replacement_names) == Set(distributed_names) || error(
@@ -8530,9 +8693,10 @@ function _materialize_input_route(
             source_application_ids,
             source_var,
             applications_by_id,
+            plan.reference_types,
         )
     else
-        _input_carrier(model, selector, source_ids, source_var_tag)
+        _input_carrier(model, selector, source_ids, source_var_tag, plan.reference_types)
     end
     carrier_hint = if isempty(source_ids) && selector isa OptionalOne
         :optional_default
@@ -9222,9 +9386,9 @@ function explain_applications(compiled::CompiledCompositeModel)
             timestep=application.timestep,
             clock=application.clock,
             model_type=typeof(_application_default_model(application)),
-            model_storage=isnothing(application.model_overrides) ? :shared_application : :per_object_override,
+            model_storage=isnothing(_application_model_overrides(application)) ? :shared_application : :per_object_override,
             model_dispatch=_application_model_dispatch(application),
-            object_overrides=isnothing(application.model_overrides) ?
+            object_overrides=isnothing(_application_model_overrides(application)) ?
                              NamedTuple[] :
                              [
                                  (
@@ -9232,7 +9396,7 @@ function explain_applications(compiled::CompiledCompositeModel)
                                      model_type=typeof(model),
                                  )
                                  for (object_id, model) in sort!(
-                                     collect(application.model_overrides);
+                                     collect(_application_model_overrides(application));
                                      by=pair -> string(first(pair).value),
                                  )
                              ],
@@ -9245,12 +9409,11 @@ explain_applications(model::CompositeModel) =
     explain_applications(_diagnostic_bindings(model))
 
 function _application_model_dispatch(application::CompiledModelApplication)
-    isnothing(application.model_overrides) && return :concrete_shared
-    override_type = valtype(typeof(application.model_overrides))
+    owner = _application_model_overrides(application)
+    isnothing(owner) && return :concrete_shared
     default_type = typeof(_application_default_model(application))
-    return isconcretetype(override_type) && default_type == override_type ?
-           :concrete_per_object :
-           :heterogeneous_per_object
+    return all(entry -> typeof(entry.model) === default_type, owner.entries) ?
+           :concrete_per_object : :heterogeneous_per_object
 end
 
 function explain_schedule(compiled::CompiledCompositeModel)

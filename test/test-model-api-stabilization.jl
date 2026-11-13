@@ -2507,6 +2507,10 @@ end
             parent=:plant,
             status=Status(signal=2),
         ),
+        # Configure a Rational family outside this plant before growth uses it.
+        Object(:other_plant; scale=:Plant),
+        Object(:configured_rational; scale=:Leaf, parent=:other_plant,
+            status=Status(signal=1 // 1)),
     ]
     append!(
         objects,
@@ -2544,6 +2548,8 @@ end
     ]
     carrier = first(bindings).carrier
     @test carrier isa PlantSimEngine.ObjectRefVector
+    @test eltype(parent(carrier)) ===
+        Union{Base.RefValue{Float64},Base.RefValue{Int},Base.RefValue{Rational{Int}}}
     @test all(binding -> binding.carrier === carrier, bindings)
 
     register_object!(
@@ -2795,12 +2801,10 @@ end
 end
 
 @testset "execution plan extends only the affected concrete runs" begin
-    context_models = PlantSimEngine.ObjectModelOverrides(
-        StabilizationContextModel(),
-        Dict(
-            ObjectId(:leaf_z) => StabilizationAlternativeContextModel(),
-        ),
-    )
+    replacement = StabilizationAlternativeContextModel()
+    context_models = PlantSimEngine._prepare_object_model_overrides(
+        StabilizationContextModel(), Dict(ObjectId(:leaf_z) => replacement);
+        description="Test object override")
     model = CompositeModel(
         Object(:scene; scale=:Scene),
         Object(:leaf_a; scale=:Leaf, parent=:scene),

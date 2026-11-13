@@ -36,8 +36,9 @@ function _output_schema(model)
     return schema
 end
 
-function _local_output_schema(model)
-    schema = _output_schema(model)
+_local_output_schema(model) = _local_output_declarations(_output_schema(model))
+
+function _local_output_declarations(schema::NamedTuple)
     any(value -> value isa Distributed, values(schema)) || return schema
     names = Tuple(name for name in keys(schema) if !(schema[name] isa Distributed))
     return NamedTuple{names}(map(name -> schema[name], names))

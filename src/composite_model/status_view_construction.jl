@@ -206,7 +206,9 @@ function _assemble_model_status_view(model, application, object_id,
     output_defaults = if isempty(temporal_bindings) && isempty(output_routing(application.spec))
         NamedTuple()
     else
-        defaults = _local_output_schema(application.spec)
+        defaults = Base.@inline _with_application_variant(application, object_id) do effective_model, ports
+            _local_output_schema(effective_model)
+        end
         for variable in keys(defaults)
             _publish_mode_for_output(application.spec, variable) == :stream_only &&
                 push!(private_names, Symbol(variable))
