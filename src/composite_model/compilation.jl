@@ -4603,12 +4603,7 @@ function _extend_compiled_scene(
         )
     call_bindings = compiled.call_bindings
     dynamic_call_binding_indices = compiled.dynamic_call_binding_indices
-    _validate_model_writers_for_objects!(
-        applications,
-        applications_by_object,
-        added_ids,
-        compiled.scenario_plan.manual_application_ids,
-    )
+    _validate_model_writers_for_objects!(compiled, added_ids)
     _prepare_model_output_statuses!(
         model,
         added_applications,
@@ -5468,14 +5463,20 @@ function _model_environment_output_schema(application::CompiledModelApplication)
     return environment_outputs_(application.spec)
 end
 
-function _model_writer_groups(applications, skipped_application_ids=Set{Symbol}())
-    groups = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Int,Any}}}()
-    for (index, application) in pairs(applications)
-        application.id in skipped_application_ids && continue
-        for object_id in application.target_ids
-            for variable in _model_canonical_output_names(application)
-                push!(get!(groups, (object_id, variable), Tuple{Int,Any}[]), (index, application))
+function _model_writer_groups(
+    applications, applications_by_id, ::Type{I}, skipped_application_ids=(),
+) where {I<:ObjectId}
+    groups = Dict{Tuple{I,Symbol},Vector{Tuple{Int,Symbol}}}()
+    for application in applications
+        Base.@inline _with_model_application(applications_by_id, application) do current
+            current.id in skipped_application_ids && return nothing
+            for object_id in current.target_ids
+                for variable in _model_canonical_output_names(current)
+                    push!(get!(groups, (object_id, variable), Tuple{Int,Symbol}[]),
+                        (current.slot, current.id))
+                end
             end
+            return nothing
         end
     end
     return groups
@@ -5511,16 +5512,13 @@ function _update_after_labels(spec, variable::Symbol)
     return labels
 end
 
-function _updates_after_previous_writer(spec, variable::Symbol, previous_applications)
+function _updates_after_previous_writer(spec, variable::Symbol, previous_application_ids)
     matching = _matching_updates(spec, variable)
     isempty(matching) && return false
     for update in matching
         after = _update_after(update)
         isempty(after) && continue
-        any(
-            label -> any(application -> _update_matches_application(label, application), previous_applications),
-            after,
-        ) && return true
+        any(label -> label in previous_application_ids, after) && return true
     end
     return false
 end
@@ -5543,44 +5541,48 @@ function _manual_call_application_ids(call_bindings)
     return ids
 end
 
-function _validate_model_writer_groups!(writer_groups)
+function _validate_model_writer_groups!(writer_groups, applications_by_id)
     for ((object_id, variable), indexed_writers) in writer_groups
         length(indexed_writers) <= 1 && continue
         sort!(indexed_writers; by=first)
-        previous = CompiledModelApplication[]
-        for (_, application) in indexed_writers
-            if _declares_update_without_previous_writer(application.spec, variable, previous)
-                error(
-                    "Application `$(application.id)` declares `Updates($(variable))` for object ",
-                    "`$(object_id.value)`, but no previous writer for `$(variable)` exists. ",
-                    "Move it after the producer named in `after=...`."
-                )
+        previous = Symbol[]
+        for (_, application_id) in indexed_writers
+            Base.@inline _with_metadata_entry(applications_by_id, application_id) do application
+                if _declares_update_without_previous_writer(application.spec, variable, previous)
+                    error(
+                        "Application `$(application.id)` declares `Updates($(variable))` for object ",
+                        "`$(object_id.value)`, but no previous writer for `$(variable)` exists. ",
+                        "Move it after the producer named in `after=...`."
+                    )
+                end
+                if !isempty(previous) && isempty(_matching_updates(application.spec, variable))
+                    labels = Set{Symbol}()
+                    for previous_id in previous
+                        union!(labels, Base.@inline _with_metadata_entry(
+                            _application_match_labels, applications_by_id, previous_id))
+                    end
+                    previous_labels = sort!(collect(labels))
+                    error(
+                        "Ambiguous canonical writers for variable `$(variable)` on object ",
+                        "`$(object_id.value)`. ",
+                        "applications. Application `$(application.id)` must declare ",
+                        "`Updates(:$(variable); after=...)` matching one of the previous writers ",
+                        "`$(previous_labels)`."
+                    )
+                end
+                if !isempty(previous) &&
+                   !_updates_after_previous_writer(application.spec, variable, (last(previous),))
+                    previous_writer = last(previous)
+                    error(
+                        "Application `$(application.id)` updates `$(variable)` on object ",
+                        "`$(object_id.value)` without an ordering relation to the immediately ",
+                        "previous writer `$(previous_writer)`. Add that application identifier ",
+                        "to `Updates(:$(variable); after=...)`."
+                    )
+                end
+                push!(previous, application.id)
+                return nothing
             end
-            if !isempty(previous) && isempty(_matching_updates(application.spec, variable))
-                previous_labels = sort!(collect(reduce(union!, (_application_match_labels(app) for app in previous); init=Set{Symbol}())))
-                error(
-                    "Ambiguous canonical writers for variable `$(variable)` on object ",
-                    "`$(object_id.value)`. ",
-                    "applications. Application `$(application.id)` must declare ",
-                    "`Updates(:$(variable); after=...)` matching one of the previous writers ",
-                    "`$(previous_labels)`."
-                )
-            end
-            if !isempty(previous) &&
-               !_updates_after_previous_writer(
-                   application.spec,
-                   variable,
-                   CompiledModelApplication[last(previous)],
-               )
-                previous_writer = last(previous)
-                error(
-                    "Application `$(application.id)` updates `$(variable)` on object ",
-                    "`$(object_id.value)` without an ordering relation to the immediately ",
-                    "previous writer `$(previous_writer.id)`. Add that application identifier ",
-                    "to `Updates(:$(variable); after=...)`."
-                )
-            end
-            push!(previous, application)
         end
     end
     return nothing
@@ -5657,7 +5659,7 @@ function _push_compiled_writer_owner!(
 end
 
 function _validate_compiled_writer_ownership!(ownership, applications_by_id)
-    groups = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Int,Any}}}()
+    groups = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Int,Symbol}}}()
     for ((object_id, variable), owners) in ownership
         sort!(owners; by=owner -> owner.application_slot)
         seen_application_slots = Set{Int}()
@@ -5674,16 +5676,16 @@ function _validate_compiled_writer_ownership!(ownership, applications_by_id)
                 get!(
                     groups,
                     (object_id, variable),
-                    Tuple{Int,Any}[],
+                    Tuple{Int,Symbol}[],
                 ),
                 (
                     owner.application_slot,
-                    applications_by_id[owner.application_id],
+                    owner.application_id,
                 ),
             )
         end
     end
-    _validate_model_writer_groups!(groups)
+    _validate_model_writer_groups!(groups, applications_by_id)
     return ownership
 end
 
@@ -5756,41 +5758,26 @@ function _validate_manual_model_output_destination_plans!(
     return nothing
 end
 
-function _validate_model_writers!(applications, call_bindings=())
-    manual_application_ids = _manual_call_application_ids(call_bindings)
-    return _validate_model_writer_groups!(
-        _model_writer_groups(applications, manual_application_ids),
-    )
-end
-
 function _validate_model_writers_for_objects!(
-    applications,
-    applications_by_object,
-    object_ids,
-    manual_application_ids=(),
+    compiled::CompiledCompositeModel, object_ids,
 )
     isempty(object_ids) && return nothing
-    positions = Dict(
-        application.id => index
-        for (index, application) in pairs(applications)
-    )
-    groups = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Int,Any}}}()
-    for object_id in object_ids
-        for application in get(applications_by_object, object_id, ())
-            application.id in manual_application_ids && continue
+    objects = compiled.model.registry.objects
+    I = keytype(objects)
+    groups = Dict{Tuple{I,Symbol},Vector{Tuple{Int,Symbol}}}()
+    manual_application_ids = compiled.scenario_plan.manual_application_ids
+    for raw_id in object_ids
+        object_id = _index_object_id(objects, raw_id)
+        _foreach_object_application(compiled, object_id) do application
+            application.id in manual_application_ids && return nothing
             for variable in _model_canonical_output_names(application)
-                push!(
-                    get!(
-                        groups,
-                        (object_id, variable),
-                        Tuple{Int,Any}[],
-                    ),
-                    (positions[application.id], application),
-                )
+                push!(get!(groups, (object_id, variable), Tuple{Int,Symbol}[]),
+                    (application.slot, application.id))
             end
+            return nothing
         end
     end
-    return _validate_model_writer_groups!(groups)
+    return _validate_model_writer_groups!(groups, compiled.applications_by_id)
 end
 
 function _model_application_hint_scale(model::CompositeModel, target_ids::AbstractVector{<:ObjectId})
@@ -6743,7 +6730,9 @@ function _compile_model_distributed_outputs(
     ::NoCompiledDistributedOutputPlans,
 )
     _validate_model_writer_groups!(
-        _model_writer_groups(applications, manual_application_ids),
+        _model_writer_groups(applications, applications_by_id,
+            keytype(model.registry.objects), manual_application_ids),
+        applications_by_id,
     )
     _prepare_model_output_statuses!(model, applications, applications_by_id)
     return NoCompiledDistributedOutputs()
@@ -9339,11 +9328,12 @@ function _explain_writers(
     compiled::CompiledCompositeModel,
     ::NoCompiledDistributedOutputs,
 )
-    groups = _model_writer_groups(compiled.applications, _manual_call_application_ids(compiled))
+    groups = _model_writer_groups(compiled.applications, compiled.applications_by_id,
+        keytype(compiled.model.registry.objects), _manual_call_application_ids(compiled))
     rows = NamedTuple[]
     for ((object_id, variable), indexed_writers) in groups
         sort!(indexed_writers; by=first)
-        applications = [application for (_, application) in indexed_writers]
+        applications = [compiled.applications_by_id[id] for (_, id) in indexed_writers]
         push!(
             rows,
             (
