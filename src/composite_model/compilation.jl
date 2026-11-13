@@ -6471,7 +6471,7 @@ function _prepare_model_output_statuses!(
                             object_id,
                         )
                     end
-                    _status_recipe_add_default!(
+                    Base.@inline _status_recipe_add_default!(
                         model,
                         preparation,
                         object_id,
