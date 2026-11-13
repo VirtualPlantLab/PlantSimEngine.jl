@@ -1659,6 +1659,45 @@ mutable struct CompiledModelStatusView{S,C,T,P,BI}
     const bound_inputs::BI
 end
 
+# Per-application view families are metadata only. A host-owned tracing schema
+# may extend this narrow callback operation; no unknown schema falls back open.
+@inline function _with_model_status_view(f::F, ::Nothing, application_id::Symbol,
+    view, args::Vararg{Any,N},
+) where {F,N}
+    return f(view, args...)
+end
+
+function _model_status_view_family_types(V)
+    V === Union{} && return ()
+    families = Tuple(Base.uniontypes(V))
+    all(T -> isconcretetype(T) && T <: CompiledModelStatusView, families) ||
+        throw(ArgumentError("Status view families require concrete canonical view types."))
+    return families
+end
+
+@generated function _with_model_status_view_family(prototype::AbstractVector{V}, f::F,
+    view, args::Vararg{Any,N},
+) where {V,F,N}
+    families = _model_status_view_family_types(V)
+    branches = [:(view isa $T && return f(view::$T, args...)) for T in families]
+    return quote
+        isempty(prototype) || throw(ArgumentError("Status view family prototypes must be empty."))
+        $(branches...)
+        throw(ArgumentError("The status view is outside its prepared application family."))
+    end
+end
+
+@inline function _with_model_status_view(f::F, schema::CompiledMetadataTable,
+    application_id::Symbol, view, args::Vararg{Any,N},
+) where {F,N}
+    return Base.@inline _with_metadata_entry(_with_model_status_view_family,
+        schema, application_id, f, view, args...)
+end
+
+# This hook is also called for newly constructed ephemeral/private views.
+@inline _admit_model_status_view!(schema, application_id::Symbol, view) =
+    Base.@inline _with_model_status_view(identity, schema, application_id, view)
+
 struct CompiledModelCallBinding{P<:CompiledModelCallPlan,I<:ObjectId,J<:ObjectId}
     plan::P
     consumer_id::I
@@ -1872,7 +1911,7 @@ end
 # scenario plan and application plans remain immutable values; only their
 # runtime shell is reference-backed so passing it across a batch boundary does
 # not box and copy the complete typed scenario-plan tuple.
-mutable struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,MCBI,MBC,DO,CO,AC,SVI,CE,CET,PA,AO}
+mutable struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,MCBI,MBC,DO,CO,AC,SVI,SVS,CE,CET,PA,AO}
     model::SC
     scenario_plan::SP
     applications::AP
@@ -1894,6 +1933,7 @@ mutable struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,
     call_owners::CO
     application_children::AC
     status_views_by_target::SVI
+    status_view_schema::SVS
     changed_execution_application_ids::CE
     changed_execution_target_ids::CET
     status_view_refresh_is_pure_addition::PA
@@ -1920,12 +1960,13 @@ function _refresh_bindings!(
     force::Bool=false,
     performance=nothing,
     input_binding_storage=nothing,
+    status_view_schema=nothing,
 )
     if specs !== model.applications
         raw_specs = specs isa Tuple ? specs : specs isa AbstractVector ? Tuple(specs) : (specs,)
-        return _compile_scene(model, raw_specs; performance, input_binding_storage)
+        return _compile_scene(model, raw_specs; performance, input_binding_storage, status_view_schema)
     end
-    rebuild = force || !isnothing(input_binding_storage)
+    rebuild = force || !isnothing(input_binding_storage) || !isnothing(status_view_schema)
     preparation = _scenario_preparation(model; force)
     _validate_authored_scenario(preparation)
     previous = model.binding_cache
@@ -1944,7 +1985,7 @@ function _refresh_bindings!(
         end
     end
     return _refresh_prepared_bindings!(model, previous, prepared;
-        force=rebuild, performance, input_binding_storage)
+        force=rebuild, performance, input_binding_storage, status_view_schema)
 end
 
 _binding_refresh_required(model, previous, prepared, force) =
@@ -1963,6 +2004,7 @@ end
 function _refresh_prepared_bindings!(
     model::CompositeModel, previous, prepared;
     force::Bool=false, performance=nothing, input_binding_storage=nothing,
+    status_view_schema=nothing,
 )
     _binding_refresh_required(model, previous, prepared, force) || return previous
     delta = model.lifecycle_delta
@@ -1984,7 +2026,7 @@ function _refresh_prepared_bindings!(
         _remove_stale_status_views!(refreshed, structural.changed_target_ids)
     else
         prepared isa PreparedScenario || _unprepared_runtime_configuration()
-        refreshed = _compile_scene(model, prepared; performance, input_binding_storage)
+        refreshed = _compile_scene(model, prepared; performance, input_binding_storage, status_view_schema)
         if !force && !isnothing(previous) && previous.distributed_outputs isa CompiledDistributedOutputs
             _preserve_recompiled_model_status_views!(refreshed, previous)
         end
@@ -2464,10 +2506,11 @@ function _compile_scene(
     validate_required_inputs::Bool=true,
     performance=nothing,
     input_binding_storage=nothing,
+    status_view_schema=nothing,
 )
     scenario_plan, applications = _build_scenario_plan(model, raw_specs, _model_timeline(model); performance)
     return _compile_scene(model, scenario_plan, applications;
-        validate_required_inputs, performance, input_binding_storage)
+        validate_required_inputs, performance, input_binding_storage, status_view_schema)
 end
 
 function _compile_scene(model::CompositeModel, prepared::PreparedScenario; kwargs...)
@@ -2482,6 +2525,7 @@ function _compile_scene(
     validate_required_inputs::Bool=true,
     performance=nothing,
     input_binding_storage=nothing,
+    status_view_schema=nothing,
 )
     timeline = scenario_plan.timeline
     started_at = _runtime_performance_start(performance)
@@ -2547,8 +2591,10 @@ function _compile_scene(
         applications,
         applications_by_id,
         input_bindings_by_target,
+        input_bindings,
         application_order,
-        distributed_outputs,
+        distributed_outputs;
+        status_view_schema,
     )
     _runtime_performance_finish!(
         performance,
@@ -2582,6 +2628,7 @@ function _compile_scene(
         call_owners,
         application_children,
         status_views_by_target,
+        status_view_schema,
         Set{Symbol}(application.id for application in applications),
         Set(keys(status_views_by_target)),
         false,
@@ -3458,17 +3505,50 @@ function _preserve_model_status_view_temporal_state!(
     )
 end
 
+function _preserve_model_status_view_with_previous!(previous, schema, application_id,
+    current, previous_temporal_sources, key,
+)
+    return Base.@inline _with_model_status_view(_preserve_model_status_view_temporal_state!,
+        schema, application_id, current, previous, previous_temporal_sources, key)
+end
+
+function _preserve_model_status_view_temporal_state!(schema, application_id::Symbol,
+    current, previous, previous_temporal_sources, key,
+)
+    view = Base.@inline _with_model_status_view(_preserve_model_status_view_with_previous!,
+        schema, application_id, previous, schema, application_id,
+        current, previous_temporal_sources, key)
+    return _admit_model_status_view!(schema, application_id, view)
+end
+
+function _record_previous_temporal_source!(input::CompiledTemporalInput, sources, key)
+    binding = input.binding
+    source_key = (key..., binding.input)
+    haskey(sources, source_key) || (sources[source_key] = copy(binding.source_ids))
+    return nothing
+end
+
+function _record_previous_temporal_sources!(view::CompiledModelStatusView, sources, key)
+    for index in eachindex(view.temporal_inputs)
+        Base.@inline _with_metadata_entry(_record_previous_temporal_source!,
+            view.temporal_inputs, index, sources, key)
+    end
+    return nothing
+end
+
 function _preserve_recompiled_model_status_views!(
     current::CompiledCompositeModel,
     previous::CompiledCompositeModel,
 )
     previous_temporal_sources = Dict{Tuple{Symbol,ObjectId,Symbol},Vector{ObjectId}}()
-    for (key, current_view) in current.status_views_by_target
+    for ((application_id, raw_id), current_view) in current.status_views_by_target
+        object_id = _index_object_id(current.model.registry.objects, raw_id)
+        key = (application_id, object_id)
         previous_view = get(previous.status_views_by_target, key, nothing)
         isnothing(previous_view) && continue
         current.status_views_by_target[key] =
             _preserve_model_status_view_temporal_state!(
-                current_view,
+                current.status_view_schema, first(key), current_view,
                 previous_view,
                 previous_temporal_sources,
                 key,
@@ -3544,8 +3624,8 @@ function _stage_temporal_many_extension(
 end
 
 function _extend_temporal_many_inputs_in_place!(
-    model::CompositeModel,
     view::CompiledModelStatusView,
+    model::CompositeModel,
     key,
     previous_temporal_sources,
     applications_by_id,
@@ -3631,15 +3711,10 @@ function _extend_model_status_views(
         key = (application_id, object_id)
         view = get(views, key, nothing)
         isnothing(view) && continue
-        if _extend_temporal_many_inputs_in_place!(
-            model,
-            view,
-            key,
-            previous_temporal_sources,
-            applications_by_id,
-            positions,
-            distributed_outputs,
-        )
+        extended = Base.@inline _with_model_status_view(_extend_temporal_many_inputs_in_place!,
+            compiled.status_view_schema, application_id, view, model, key,
+            previous_temporal_sources, applications_by_id, positions, distributed_outputs)
+        if extended
             delete!(affected_keys, key)
         end
     end
@@ -3648,14 +3723,9 @@ function _extend_model_status_views(
         application = applications_by_id[application_id]
         previous_view = get(previous_views, key, nothing)
         if !isnothing(previous_view)
-            for temporal_input in previous_view.temporal_inputs
-                get!(
-                    previous_temporal_sources,
-                    (key..., temporal_input.binding.input),
-                ) do
-                    copy(temporal_input.binding.source_ids)
-                end
-            end
+            Base.@inline _with_model_status_view(_record_previous_temporal_sources!,
+                compiled.status_view_schema, application_id, previous_view,
+                previous_temporal_sources, key)
         end
         current_view = _compile_model_status_view(
             model,
@@ -3665,12 +3735,14 @@ function _extend_model_status_views(
             applications_by_id,
             positions,
             distributed_outputs;
-            execution_stamp=_status_view_execution_stamp(model, key, previous_view),
+            execution_stamp=_status_view_execution_stamp(model, key, previous_view, compiled.status_view_schema),
+            status_view_schema=compiled.status_view_schema,
+            input_binding_storage=compiled.input_bindings,
         )
         views[key] = isnothing(previous_view) ?
                      current_view :
                      _preserve_model_status_view_temporal_state!(
-            current_view,
+            compiled.status_view_schema, application_id, current_view,
             previous_view,
             previous_temporal_sources,
             key,
@@ -3951,6 +4023,7 @@ function _prepare_structural_compiled_delta(
         compiled.call_owners,
         compiled.application_children,
         compiled.status_views_by_target,
+        compiled.status_view_schema,
         changed_application_ids,
         removed_target_keys,
         false,
@@ -4765,6 +4838,7 @@ function _extend_compiled_scene(
         call_owners,
         application_children,
         status_views_by_target,
+        compiled.status_view_schema,
         changed_execution_application_ids,
         changed_execution_target_ids,
         status_view_refresh_is_pure_addition,
@@ -7285,67 +7359,6 @@ function _private_temporal_value(value)
     return deepcopy(value)
 end
 
-# Initial values are private snapshots, but their concrete element schema is
-# already known after binding. Preserve it for the first-step/missing-sample
-# branch of the numerical executor without converting heterogeneous values.
-function _typed_temporal_initial_values(values::Vector{Any})
-    isempty(values) && return values
-    value_type = typeof(first(values))
-    all(value -> typeof(value) === value_type, values) || return values
-    typed = Vector{value_type}(undef, length(values))
-    copyto!(typed, values)
-    return typed
-end
-
-function _temporal_input_initial(binding::CompiledModelInputBinding, status::Status)
-    initial = _input_value(binding.carrier)
-    if isnothing(initial)
-        binding.input in propertynames(status) || error(
-            "Temporal input `$(binding.input)` on application ",
-            "`$(binding.application_id)` has neither a resolved source carrier nor an ",
-            "initialized status value. Resolved source objects: ",
-            "`$(Tuple(id.value for id in binding.source_ids))`.",
-        )
-        initial = status[binding.input]
-    end
-    if binding.multiplicity == :many
-        initial isa AbstractVector || error(
-            "Temporal `Many` input `$(binding.input)` on application ",
-            "`$(binding.application_id)` requires a vector-like initialized value; got ",
-            "`$(typeof(initial))`.",
-        )
-        if length(initial) == length(binding.source_ids)
-            return _typed_temporal_initial_values(
-                Any[_private_temporal_value(value) for value in initial],
-            )
-        end
-        binding.policy isa PreviousTimeStep && error(
-            "Temporal `Many` input `$(binding.input)` on application ",
-            "`$(binding.application_id)` resolved $(length(binding.source_ids)) source ",
-            "objects but has $(length(initial)) initialized values.",
-        )
-        isempty(binding.source_ids) && return Any[]
-        isempty(initial) && error(
-            "Temporal `Many` input `$(binding.input)` on application ",
-            "`$(binding.application_id)` needs an initialized element to preallocate ",
-            "$(length(binding.source_ids)) temporal values.",
-        )
-        return _typed_temporal_initial_values(Any[
-            _private_temporal_value(first(initial))
-            for _ in binding.source_ids
-        ])
-    end
-    return _private_temporal_value(initial)
-end
-
-function _private_temporal_storage(binding::CompiledModelInputBinding, initial)
-    binding.multiplicity == :many ||
-        return _private_temporal_value(initial)
-    isempty(initial) && return RefVector{Any}()
-    references = Base.RefValue[Ref(_private_temporal_value(value)) for value in initial]
-    return _ref_vector_carrier(references)
-end
-
 function _temporal_source_application(
     binding::CompiledModelInputBinding,
     source_id::ObjectId,
@@ -7428,142 +7441,22 @@ function _distributed_temporal_source_application(
     return isnothing(owner) ? nothing : owner.application_id
 end
 
-function _validate_temporal_input_output_overlap!(
-    application::CompiledModelApplication,
-    temporal_bindings,
-)
-    isempty(temporal_bindings) && return nothing
-    output_names = Set(_model_output_names(application))
-    for binding in temporal_bindings
-        binding.input in output_names || continue
-        error(
-            "Application `$(application.id)` declares `$(binding.input)` as both a ",
-            "temporal input and an output. A temporal input uses application-local ",
-            "storage while outputs publish through canonical status, so this overlap ",
-            "is ambiguous. Use distinct names such as `previous_$(binding.input)` for ",
-            "the lagged input and `$(binding.input)` for the current output, then map ",
-            "the source explicitly.",
-        )
-    end
-    return nothing
+_status_view_execution_stamp(previous::CompiledModelStatusView, model, key) = previous.execution_stamp
+function _status_view_execution_stamp(model, key, previous, schema)
+    isnothing(previous) && return _targeted_call_execution_stamp(model, key)
+    return Base.@inline _with_model_status_view(_status_view_execution_stamp,
+        schema, first(key), previous, model, key)
 end
-
-Base.@nospecializeinfer function _compile_model_status_view(
-    model::CompositeModel,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-    input_bindings,
-    applications_by_id,
-    application_positions,
-    distributed_outputs=NoCompiledDistributedOutputs();
-    execution_stamp::Base.RefValue{UInt64},
-)
-    # This is cold assembly, not a kernel: avoid inferring the whole view
-    # constructor for every application and heterogeneous binding tuple.
-    # The assembled Status and CompiledModelStatusView still have concrete types.
-    @nospecialize application input_bindings
-    canonical_status = _ensure_model_object_status!(model, object_id)
-    has_temporal_inputs = false
-    for binding in input_bindings
-        if binding.carrier_hint == :temporal_stream
-            has_temporal_inputs = true
-            break
-        end
-    end
-    # Ordinary applications use the canonical status directly. Avoid preparing
-    # temporal/private scratch storage and validating a nonexistent overlap.
-    if !has_temporal_inputs && isempty(output_routing(application.spec))
-        return CompiledModelStatusView(
-            execution_stamp,
-            canonical_status,
-            canonical_status,
-            (),
-            NamedTuple(),
-            _compiled_bound_many_inputs(input_bindings, canonical_status),
-        )
-    end
-    temporal_bindings = CompiledModelInputBinding[]
-    for binding in input_bindings
-        binding.carrier_hint == :temporal_stream && push!(temporal_bindings, binding)
-    end
-    _validate_temporal_input_output_overlap!(application, temporal_bindings)
-    output_defaults = _local_output_schema(application.spec)
-    private_output_names = Symbol[]
-    for variable in keys(output_defaults)
-        _publish_mode_for_output(application.spec, variable) == :stream_only &&
-            push!(private_output_names, Symbol(variable))
-    end
-    if isempty(temporal_bindings) && isempty(private_output_names)
-        return CompiledModelStatusView(
-            execution_stamp,
-            canonical_status,
-            canonical_status,
-            (),
-            NamedTuple(),
-            _compiled_bound_many_inputs(input_bindings, canonical_status),
-        )
-    end
-    # Use storage-neutral scratch vectors during assembly. Generators capturing
-    # heterogeneous binding tuples specialize again even across the cold boundary.
-    temporal_inputs = CompiledTemporalInput[]
-    for binding in temporal_bindings
-        initial = _temporal_input_initial(binding, canonical_status)
-        source_applications = Union{Nothing,Symbol}[]
-        for source_id in binding.source_ids
-            push!(source_applications, _temporal_source_application(
-                binding, source_id, applications_by_id, application_positions,
-                distributed_outputs,
-            ))
-        end
-        push!(temporal_inputs, CompiledTemporalInput(
-            binding, source_applications, initial,
-            Ref(_private_temporal_storage(binding, initial)),
-        ))
-    end
-    private_references = Ref[]
-    for name in private_output_names
-        initial, _, _ = _materialize_status_value(
-            model,
-            name,
-            getproperty(output_defaults, name);
-            object_id=object_id,
-            application_id=application.id,
-            origin=:stream_only_private_default,
-            private_copy=true,
-            reuse=true,
-        )
-        push!(private_references, Ref(initial))
-    end
-    private_outputs = NamedTuple{Tuple(private_output_names)}(Tuple(private_references))
-    recipe = _CanonicalStatusRecipe(canonical_status)
-    for (name, reference) in pairs(private_outputs)
-        _status_recipe_set_reference!(recipe, name, reference)
-    end
-    for input in temporal_inputs
-        _status_recipe_set_reference!(recipe, input.binding.input, input.reference)
-    end
-    return _finish_status_recipe(model.registry.objects.layout_cache, recipe) do status
-        CompiledModelStatusView(
-            execution_stamp,
-            status,
-            canonical_status,
-            Tuple(temporal_inputs),
-            private_outputs,
-            _compiled_bound_many_inputs(input_bindings, status),
-        )
-    end
-end
-
-_status_view_execution_stamp(model, key, previous::CompiledModelStatusView) = previous.execution_stamp
-_status_view_execution_stamp(model, key, ::Nothing) = _targeted_call_execution_stamp(model, key)
 
 function _compile_model_status_views(
     model::CompositeModel,
     applications,
     applications_by_id,
     input_bindings_by_target,
+    input_binding_storage,
     application_order,
-    distributed_outputs=NoCompiledDistributedOutputs(),
+    distributed_outputs=NoCompiledDistributedOutputs();
+    status_view_schema,
 )
     views = Dict{Tuple{Symbol,ObjectId},Any}()
     previous = getfield(model, :binding_cache)
@@ -7584,7 +7477,8 @@ function _compile_model_status_views(
                 positions,
                 distributed_outputs;
                 execution_stamp=_status_view_execution_stamp(model, key,
-                    isnothing(previous_views) ? nothing : get(previous_views, key, nothing)),
+                    isnothing(previous_views) ? nothing : get(previous_views, key, nothing), status_view_schema),
+                status_view_schema, input_binding_storage,
             )
         end
     end

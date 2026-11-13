@@ -79,11 +79,11 @@ end
 end
 @testset "heterogeneous snapshots never convert values into the first schema" begin
     mixed = Any[Float32(1.25), Float64(2.5)]
-    result = PSE._typed_temporal_initial_values(mixed)
+    result = PSE._construct_status_view_initial(Vector{Any}, mixed, true)
     @test result === mixed
     @test typeof.(result) == [Float32, Float64]
     private = Any[Float32[1, 2], Float32[3, 4]]
-    typed = PSE._typed_temporal_initial_values(private)
+    typed = PSE._construct_status_view_initial(Vector{Vector{Float32}}, private, true)
     @test typed isa Vector{Vector{Float32}}
     @test typed[1] === private[1]
     @test typed[2] === private[2]
@@ -138,6 +138,48 @@ end
         @test restored.initial[2] === 2f0
     end
 end
+# Ordinary heterogeneous support remains available outside finite preparation.
+function mixed_factory_fixture()
+    return CompositeModel(
+        Object(:scene; scale=:Scene, status=Status(signals=Any[])),
+        Object(:a; scale=:Leaf, parent=:scene, status=Status(signal=1.25f0)),
+        Object(:b; scale=:Leaf, parent=:scene, status=Status(signal=2.5));
+        applications=(
+            ModelSpec(Source(0f0); name=:source, on=Many(scale=:Leaf)),
+            ModelSpec(Consumer{Float64}(); name=:consumer, on=One(scale=:Scene),
+                inputs=(PreviousTimeStep(:signals) => Many(scale=:Leaf,
+                    within=SceneScope(), application=:source, var=:signal),)),
+        ), environment=(duration=Hour(1),))
+end
+@testset "mixed private reference creation keeps its explicit finite evidence gap" begin
+    model = mixed_factory_fixture()
+    simulation = run!(model; steps=0, outputs=:none)
+    temporal = input(simulation)
+    @test temporal.initial isa Vector{Any}
+    @test typeof.(temporal.initial) == [Float32, Float64]
+    @test temporal.reference[] isa PSE.ObjectRefVector
+    @test typeof.(temporal.reference[]) == [Float32, Float64]
+    for (id, reference) in zip(temporal.binding.source_ids, parent(temporal.reference[]))
+        @test reference !== PSE.refvalue(model_status(model, id), :signal)
+    end
+    compiled = simulation.compiled
+    source_types = unique(typeof(view) for ((application, _), view) in compiled.status_views_by_target
+        if application === :source)
+    schema = PSE.CompiledMetadataTable((
+        source=Vector{Union{source_types...}}(),
+        consumer=Vector{typeof(compiled.status_views_by_target[(:consumer, ObjectId(:scene))])}(),
+    ))
+    prototype = Vector{Union{unique(typeof(binding) for binding in compiled.input_bindings)...}}()
+    before = model.binding_cache
+    @test_throws "temporal snapshot payload is outside its prepared input family" PSE._prepare_simulation!(
+        model; steps=0, outputs=:none, constants=PSE.Constants(),
+        status_view_schema=schema, input_binding_storage=prototype)
+    @test model.binding_cache === before
+    @test typeof.(temporal.initial) == [Float32, Float64]
+    step!(simulation)
+    @test final_state(simulation, :scene).total === 3.75
+end
+
 end
 
 module PreparedPublicationChecks
@@ -316,4 +358,5 @@ end
     @test history(current) == before_history
     @test rng_probe(current) == before_rng
 end
+
 end

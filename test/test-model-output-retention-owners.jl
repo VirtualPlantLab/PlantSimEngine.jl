@@ -22,7 +22,7 @@ PSE.outputs_(::Reader) = (seen=0f0,)
 PSE.run!(::Reader, status, environment, constants, context) =
     (status.seen = sum(status.lag; init=0f0); nothing)
 
-function local_scene(; temporal=false)
+function local_scene(; temporal=false, status_transform=nothing)
     specs = (ModelSpec(Writer(); name=:writer, on=Many(scale=:Leaf),
         output_routing=(private=:stream_only,)),)
     if temporal
@@ -31,11 +31,142 @@ function local_scene(; temporal=false)
                 application=:writer, var=:private),)))
     end
     return CompositeModel(Object(0; scale=:Scene), Object(1; scale=:Leaf, parent=0);
-        applications=specs)
+        applications=specs, status_transform)
 end
 
 stream(simulation, application, id, variable) =
     simulation.temporal_streams[(application, ObjectId(id), variable)]
+
+mutable struct ViewConstructionTrace
+    families::Dict{Symbol,Vector{DataType}}
+    views::Vector{Any}
+end
+ViewConstructionTrace() = ViewConstructionTrace(Dict{Symbol,Vector{DataType}}(), Any[])
+PSE._construct_model_status_view(trace::ViewConstructionTrace, application::Symbol, parts) =
+    PSE._construct_model_status_view(nothing, application, parts)
+@inline function PSE._with_temporal_copy_payloads(f::F, ::ViewConstructionTrace,
+    binding, status, args::Vararg{Any,N},
+) where {F,N}
+    return f(nothing, binding, status, args...)
+end
+function PSE._admit_model_status_view!(trace::ViewConstructionTrace, application::Symbol, view)
+    types = get!(Vector{DataType}, trace.families, application)
+    typeof(view) in types || push!(types, typeof(view))
+    push!(trace.views, view)
+    return view
+end
+function PSE._with_model_status_view(f::F, ::ViewConstructionTrace, application::Symbol,
+    view, args::Vararg{Any,N},
+) where {F,N}
+    return f(view, args...)
+end
+function construction_family_schema(trace)
+    ids = (:writer, :reader)
+    return PSE.CompiledMetadataTable(NamedTuple{ids}(map(ids) do id
+        Vector{Union{trace.families[id]...}}()
+    end))
+end
+function construction_trace(; schema=ViewConstructionTrace(), prototype=nothing)
+    conversions = Symbol[]
+    transform = (variable, value) -> (push!(conversions, variable); value)
+    model = local_scene(; temporal=true, status_transform=transform)
+    simulation = PSE._prepare_simulation!(model; steps=0, outputs=:none,
+        constants=PSE.Constants(), status_view_schema=schema,
+        input_binding_storage=prototype)
+    bindings = DataType[]
+    snapshots = Any[]
+    function checkpoint!()
+        for binding in simulation.compiled.input_bindings
+            typeof(binding) in bindings || push!(bindings, typeof(binding))
+        end
+        views = Dict(key => (type=typeof(view), status=deepcopy(NamedTuple(view.status)),
+            initials=map(input -> deepcopy(input.initial), view.temporal_inputs),
+            ids=map(input -> copy(input.binding.source_ids), view.temporal_inputs))
+            for (key, view) in simulation.compiled.status_views_by_target)
+        for view in values(simulation.compiled.status_views_by_target), name in propertynames(view.bound_inputs)
+            @test getproperty(view.bound_inputs, name).values === getproperty(view.status, name)
+        end
+        push!(snapshots, (views=views,
+            history=Dict(key => collect(value) for (key, value) in simulation.temporal_streams)))
+    end
+    checkpoint!()
+    step!(simulation); checkpoint!()
+    step!(simulation); checkpoint!()
+    key = (:writer, ObjectId(1))
+    private = simulation.compiled.status_views_by_target[key].private_outputs.private
+    register_object!(model, Object(2; scale=:Leaf, parent=0))
+    step!(simulation); checkpoint!()
+    @test simulation.compiled.status_views_by_target[key].private_outputs.private === private
+    remove_object!(model, 1)
+    remove_object!(model, 2)
+    step!(simulation); checkpoint!()
+    register_object!(model, Object(3; scale=:Leaf, parent=0))
+    step!(simulation); checkpoint!()
+
+    # The actual constructor is also used for a partial, ephemeral target.
+    compiled = simulation.compiled
+    current = compiled.applications_by_id[:writer]
+    partial = PSE._partial_model_application(current, [ObjectId(3)])
+    positions = Dict(id => index for (index, id) in pairs(compiled.application_order))
+    target_key = (:writer, ObjectId(3))
+    previous = compiled.status_views_by_target[target_key]
+    stamp = Ref(UInt64(0))
+    prior_view_count = schema isa ViewConstructionTrace ? length(schema.views) : 0
+    ephemeral = PSE._compile_model_status_view(model, partial, ObjectId(3), (),
+        compiled.applications_by_id, positions, compiled.distributed_outputs;
+        execution_stamp=stamp, status_view_schema=schema,
+        input_binding_storage=compiled.input_bindings)
+    @test ephemeral.execution_stamp === stamp
+    @test ephemeral.canonical_status === previous.canonical_status
+    @test PSE.refvalue(ephemeral.status, :live) === PSE.refvalue(previous.status, :live)
+    @test ephemeral.private_outputs.private isa Base.RefValue{Float32}
+    @test compiled.status_views_by_target[target_key] === previous
+    if schema isa ViewConstructionTrace
+        @test length(schema.views) == prior_view_count + 1
+        @test last(schema.views) === ephemeral
+    end
+    return (; simulation, schema, bindings, snapshots, conversions)
+end
+
+@testset "real view factories retain private Float32 and temporal Many through lifecycle" begin
+    control = construction_trace()
+    schema = construction_family_schema(control.schema)
+    prototype = Vector{Union{control.bindings...}}()
+    finite = construction_trace(; schema, prototype)
+    @test finite.snapshots == control.snapshots
+    @test finite.conversions == control.conversions
+    @test isempty(prototype)
+    @test all(isempty, values(schema))
+    @test all(typeof(view) in control.schema.families[application]
+        for ((application, _), view) in finite.simulation.compiled.status_views_by_target)
+
+    simulation = finite.simulation
+    compiled = simulation.compiled
+    reader = only(binding for binding in compiled.input_bindings
+        if binding.application_id === :reader)
+    PSE._with_temporal_copy_payloads(schema, reader,
+        model_status(simulation.model, 0)) do payloads, binding, status
+        # Each value is deliberately read through Any, as between the copies.
+        values = Any[2f0]
+        first_copy = @inferred PSE._copy_temporal_status_value(payloads, values[1])
+        second_values = Any[first_copy]
+        second_copy = @inferred PSE._copy_temporal_status_value(payloads, second_values[1])
+        @test first_copy === second_copy === 2f0
+        @test_throws "outside its prepared input family" PSE._copy_temporal_status_value(payloads, 2.0)
+    end
+    previous_owner = simulation.model.binding_cache
+    key = (:writer, ObjectId(3))
+    before = compiled.status_views_by_target[key]
+    invalid = PSE.CompiledMetadataTable((writer=Vector{Union{}}(),))
+    positions = Dict(id => index for (index, id) in pairs(compiled.application_order))
+    @test_throws "outside supported prepared application view families" PSE._compile_model_status_view(
+        simulation.model, compiled.applications_by_id[:writer], ObjectId(3), (),
+        compiled.applications_by_id, positions, compiled.distributed_outputs;
+        execution_stamp=before.execution_stamp, status_view_schema=invalid,
+        input_binding_storage=compiled.input_bindings)
+    @test simulation.model.binding_cache === previous_owner
+    @test compiled.status_views_by_target[key] === before
+end
 
 @testset "callback lookup preserves identity and missing-application diagnostics" begin
     simulation = run!(local_scene(); steps=0, outputs=:none)

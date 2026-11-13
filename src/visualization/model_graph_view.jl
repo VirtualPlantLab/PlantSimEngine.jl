@@ -180,8 +180,10 @@ function _model_graph_compiled(
         applications,
         applications_by_id,
         input_by_target,
+        input_bindings,
         scenario_plan.application_order,
-        distributed_outputs,
+        distributed_outputs;
+        status_view_schema=nothing,
     )
     many_input_binding_cache =
         _many_input_binding_cache(model, input_bindings)
@@ -212,6 +214,7 @@ function _model_graph_compiled(
         scenario_plan.call_owners,
         scenario_plan.application_children,
         status_views,
+        nothing,
         Set(application.id for application in applications),
         Set(keys(status_views)),
         false,

@@ -1728,12 +1728,14 @@ end
     application::CompiledModelApplication,
     object_id::ObjectId,
 )
-    key = (application.id, object_id)
+    id = _index_object_id(compiled.model.registry.objects, object_id)
+    key = (application.id, id)
     haskey(compiled.status_views_by_target, key) || error(
         "No compiled status view for application `$(application.id)` on object ",
         "`$(object_id.value)`.",
     )
-    return compiled.status_views_by_target[key]::CompiledModelStatusView
+    return Base.@inline _with_model_status_view(identity, compiled.status_view_schema,
+        application.id, compiled.status_views_by_target[key])
 end
 
 function _set_status_if_present!(status::Status, variable::Symbol, value)
@@ -6112,7 +6114,8 @@ function _append_targeted_newborn_targets!(
             status_view = _compile_model_status_view(runtime_model(context),partial_application,
                 object_id,get(targeted_input_bindings,key,()),compiled.applications_by_id,
                 targeted_runtime.application_positions,compiled.distributed_outputs;
-                execution_stamp=stamp)::CompiledModelStatusView
+                execution_stamp=stamp, status_view_schema=compiled.status_view_schema,
+                input_binding_storage=compiled.input_bindings)::CompiledModelStatusView
             output_groups = _runtime_model_output_groups(compiled,application,object_id)
             environment_binding = _environment_binding_for(environment_bindings,application.id,object_id)
             call_bindings = () # targeted admission has rejected nested callees
@@ -7898,6 +7901,7 @@ function _prepare_simulation!(
     performance::Bool=false,
     environment_schema=_environment_schema(getfield(model, :environment_binding_cache)),
     input_binding_storage=nothing,
+    status_view_schema=nothing,
 )
     performance_counters = performance ? RuntimePerformanceCounters() : nothing
     initial_composite_started_at =
@@ -7925,6 +7929,7 @@ function _prepare_simulation!(
         model;
         performance=performance_counters,
         input_binding_storage,
+        status_view_schema,
     )
     compiled.execution_generation += UInt64(1)
     _runtime_performance_finish!(
