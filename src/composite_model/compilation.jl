@@ -3989,20 +3989,25 @@ function _prepare_structural_compiled_delta(
     performance=nothing,
 )
     started_at = _runtime_performance_start(performance)
-    dirty = Set{ObjectId}(dirty_object_ids)
+    I = keytype(model.registry.objects)
+    dirty = Set{I}()
+    for object_id in dirty_object_ids
+        push!(dirty, _index_object_id(model.registry.objects, object_id))
+    end
     removed_target_keys = Set{Tuple{Symbol,ObjectId}}()
     changed_application_ids = Set{Symbol}()
     applications_by_object = compiled.applications_by_object
     for object_id in dirty
-        for application in get(applications_by_object, object_id, ())
+        _foreach_object_application(compiled, object_id) do application
             found, position = _sorted_object_id_position(
                 application.target_ids,
                 object_id,
             )
-            found || continue
+            found || return nothing
             push!(removed_target_keys, (application.id, object_id))
             push!(changed_application_ids, application.id)
             deleteat!(application.target_ids, position)
+            return nothing
         end
     end
 
@@ -4013,7 +4018,8 @@ function _prepare_structural_compiled_delta(
     input_bindings = similar(compiled.input_bindings, 0)
     sizehint!(input_bindings, length(compiled.input_bindings))
     for binding in compiled.input_bindings
-        if binding.consumer_id in dirty
+        consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
+        if consumer_id in dirty
             continue
         end
         push!(input_bindings, binding)
@@ -4036,8 +4042,8 @@ function _prepare_structural_compiled_delta(
     call_bindings = CompiledModelCallBinding[]
     sizehint!(call_bindings, length(compiled.call_bindings))
     for binding in compiled.call_bindings
-        key = (binding.application_id, binding.consumer_id)
-        if binding.consumer_id in dirty
+        consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
+        if consumer_id in dirty
             continue
         end
         push!(call_bindings, binding)
