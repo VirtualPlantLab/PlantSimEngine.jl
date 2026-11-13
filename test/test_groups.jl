@@ -65,6 +65,7 @@ const TEST_GROUPS = (
         "test-compilation-metadata.jl",
         "test-model-input-recipes.jl",
         "test-model-binding-index-identities.jl",
+        "test-model-input-binding-storage.jl",
         "test-model-output-retention-owners.jl",
         "test-input-default-values.jl",
         "test-application-membership-slots.jl",

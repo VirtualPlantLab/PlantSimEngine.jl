@@ -1604,6 +1604,40 @@ Base.propertynames(binding::CompiledModelInputBinding) = (
     propertynames(binding.plan)...,
 )
 
+# The existing storage element type owns any finite binding family. Tracing
+# storage may retain the ordinary open element type during host preparation.
+function _model_input_binding_family_types(B)
+    B === Union{} && return ()
+    families = Tuple(Base.uniontypes(B))
+    all(T -> isconcretetype(T) && T <: CompiledModelInputBinding, families) ||
+        throw(ArgumentError("Input binding storage requires concrete canonical binding types."))
+    return families
+end
+
+_model_input_binding_storage(::Nothing) = CompiledModelInputBinding[]
+function _model_input_binding_storage(prototype::AbstractVector)
+    isempty(prototype) || throw(ArgumentError("Input binding storage must be an empty prototype."))
+    B = eltype(prototype)
+    B === CompiledModelInputBinding || _model_input_binding_family_types(B)
+    return similar(prototype, 0)
+end
+
+@inline function _with_model_input_binding(f::F,
+    ::AbstractVector{CompiledModelInputBinding}, binding, args::Vararg{Any,N},
+) where {F,N}
+    return f(binding, args...)
+end
+@generated function _with_model_input_binding(f::F, ::AbstractVector{B}, binding,
+    args::Vararg{Any,N},
+) where {F,B,N}
+    families = _model_input_binding_family_types(B)
+    branches = [:(binding isa $T && return f(binding::$T, args...)) for T in families]
+    return quote
+        $(branches...)
+        throw(ArgumentError("The input binding is outside its prepared storage family."))
+    end
+end
+
 struct CompiledTemporalInput{B,S,I,R}
     binding::B
     source_applications::S
@@ -1877,15 +1911,29 @@ function refresh_bindings!(
     force::Bool=false,
     performance=nothing,
 )
-    specs === model.applications || return compile_composite_model(model, specs; performance)
+    return _refresh_bindings!(model, specs; force, performance)
+end
+
+function _refresh_bindings!(
+    model::CompositeModel,
+    specs=model.applications;
+    force::Bool=false,
+    performance=nothing,
+    input_binding_storage=nothing,
+)
+    if specs !== model.applications
+        raw_specs = specs isa Tuple ? specs : specs isa AbstractVector ? Tuple(specs) : (specs,)
+        return _compile_scene(model, raw_specs; performance, input_binding_storage)
+    end
+    rebuild = force || !isnothing(input_binding_storage)
     preparation = _scenario_preparation(model; force)
     _validate_authored_scenario(preparation)
     previous = model.binding_cache
     prepared = preparation.resolved
     owner_changed = !isnothing(previous) &&
                     previous.scenario_plan.authoring.preparation !== preparation
-    if owner_changed || _binding_refresh_required(model, previous, prepared, force)
-        if owner_changed || !_can_extend_binding_refresh(model, previous, prepared, force)
+    if owner_changed || _binding_refresh_required(model, previous, prepared, rebuild)
+        if owner_changed || !_can_extend_binding_refresh(model, previous, prepared, rebuild)
             if owner_changed || isnothing(prepared)
                 plan, applications = _resolve_prepared_scenario(
                     model, preparation, _model_timeline(model); performance,
@@ -1895,7 +1943,8 @@ function refresh_bindings!(
             end
         end
     end
-    return _refresh_prepared_bindings!(model, previous, prepared; force, performance)
+    return _refresh_prepared_bindings!(model, previous, prepared;
+        force=rebuild, performance, input_binding_storage)
 end
 
 _binding_refresh_required(model, previous, prepared, force) =
@@ -1913,7 +1962,7 @@ end
 # declaration metadata and live membership; it does not invoke author hooks.
 function _refresh_prepared_bindings!(
     model::CompositeModel, previous, prepared;
-    force::Bool=false, performance=nothing,
+    force::Bool=false, performance=nothing, input_binding_storage=nothing,
 )
     _binding_refresh_required(model, previous, prepared, force) || return previous
     delta = model.lifecycle_delta
@@ -1935,7 +1984,7 @@ function _refresh_prepared_bindings!(
         _remove_stale_status_views!(refreshed, structural.changed_target_ids)
     else
         prepared isa PreparedScenario || _unprepared_runtime_configuration()
-        refreshed = _compile_scene(model, prepared; performance)
+        refreshed = _compile_scene(model, prepared; performance, input_binding_storage)
         if !force && !isnothing(previous) && previous.distributed_outputs isa CompiledDistributedOutputs
             _preserve_recompiled_model_status_views!(refreshed, previous)
         end
@@ -2412,9 +2461,11 @@ function _compile_scene(
     raw_specs;
     validate_required_inputs::Bool=true,
     performance=nothing,
+    input_binding_storage=nothing,
 )
     scenario_plan, applications = _build_scenario_plan(model, raw_specs, _model_timeline(model); performance)
-    return _compile_scene(model, scenario_plan, applications; validate_required_inputs, performance)
+    return _compile_scene(model, scenario_plan, applications;
+        validate_required_inputs, performance, input_binding_storage)
 end
 
 function _compile_scene(model::CompositeModel, prepared::PreparedScenario; kwargs...)
@@ -2428,6 +2479,7 @@ function _compile_scene(
     applications;
     validate_required_inputs::Bool=true,
     performance=nothing,
+    input_binding_storage=nothing,
 )
     timeline = scenario_plan.timeline
     started_at = _runtime_performance_start(performance)
@@ -2455,7 +2507,8 @@ function _compile_scene(
         applications,
         scenario_plan.manual_application_ids,
         scenario_plan.input_recipes_by_application,
-        distributed_outputs,
+        distributed_outputs;
+        input_binding_storage,
     )
     many_input_binding_cache =
         _share_many_input_bindings!(model, input_bindings)
@@ -3793,7 +3846,7 @@ function _prepare_structural_compiled_delta(
         delete!(applications_by_object, object_id)
     end
 
-    input_bindings = CompiledModelInputBinding[]
+    input_bindings = similar(compiled.input_bindings, 0)
     sizehint!(input_bindings, length(compiled.input_bindings))
     for binding in compiled.input_bindings
         if binding.consumer_id in dirty
@@ -4113,6 +4166,149 @@ function _refresh_scene_call_bindings!(
            observed_manual_call_binding_indices_by_callee_target
 end
 
+# One existing-binding lifecycle operation; admission precedes this worker.
+function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S) where {B<:CompiledModelInputBinding,S}
+    (;
+        model, input_bindings, input_bindings_by_target, many_binding_cache,
+        changed_bindings, rewired_consumer_ids, affected_temporal_keys, previous_temporal_sources,
+        processed_many_sources, previous_shared_many_sources, forced_input_binding_keys, pure_addition,
+        writer_rebind_keys, structural_dirty_ids, applications_by_object, applications_by_id,
+        distributed_outputs, added_ids, performance, queued_binding_indices,
+        pending_binding_indices,
+    ) = state
+    consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
+    source_ids = _input_binding_source_ids(model.registry.objects, binding.source_ids)
+    binding_key = (binding.application_id, consumer_id, binding.input)
+    force_rebuild = !isempty(forced_input_binding_keys) &&
+                    binding_key in forced_input_binding_keys
+    if !force_rebuild &&
+       binding.multiplicity == :many &&
+       haskey(processed_many_sources, binding.source_ids)
+        if binding.carrier_hint == :temporal_stream
+            key = (binding.application_id, consumer_id)
+            push!(affected_temporal_keys, key)
+            previous_temporal_sources[(
+                key...,
+                binding.input,
+            )] = previous_shared_many_sources[binding.source_ids]
+        end
+        return false
+    end
+    previous_source_ids = binding.carrier_hint == :temporal_stream ?
+                          copy(source_ids) :
+                          ObjectId[]
+    binding.multiplicity == :many &&
+        binding.carrier_hint == :temporal_stream &&
+        (previous_shared_many_sources[binding.source_ids] = copy(source_ids))
+    default_scope = _default_dependency_scope(model, consumer_id)
+    if !pure_addition &&
+       (isnothing(writer_rebind_keys) || !(binding_key in writer_rebind_keys))
+        structural_update = _update_structural_many_sources!(
+            model,
+            binding,
+            structural_dirty_ids,
+            applications_by_object,
+            applications_by_id,
+            distributed_outputs,
+        )
+        if structural_update != :fallback
+            processed_many_sources[binding.source_ids] = nothing
+            return false
+        end
+    end
+    if !force_rebuild && binding.multiplicity != :many
+        _selector_matches_any_object_id(
+            model,
+            binding.matcher,
+            added_ids;
+            context=consumer_id,
+            default_to_context=true,
+            default_scope=default_scope,
+        ) || return false
+    end
+    appended_sources = if force_rebuild
+        false
+    else
+        _append_added_many_sources!(
+            model,
+            binding,
+            added_ids,
+            applications_by_object,
+            applications_by_id,
+            distributed_outputs,
+            ;
+            performance=performance,
+        )
+    end
+    if appended_sources
+        if binding.carrier_hint == :temporal_stream &&
+           previous_source_ids != binding.source_ids
+            key = (binding.application_id, consumer_id)
+            push!(affected_temporal_keys, key)
+            previous_temporal_sources[(
+                key...,
+                binding.input,
+            )] = previous_source_ids
+        end
+        processed_many_sources[binding.source_ids] = nothing
+        return false
+    end
+    # The reverse selector index keeps only one representative for a
+    # same-rate `Many(...)` group whose mutable source storage is shared.
+    # Appending updates every consumer at once. A rebuild replaces the
+    # carrier, however, so enqueue every member of that exact identity
+    # group and rewire them through the existing general path.
+    for shared_index in _shared_same_rate_many_binding_indices(
+        input_bindings,
+        binding,
+    )
+        shared_index in queued_binding_indices && continue
+        push!(queued_binding_indices, shared_index)
+        push!(pending_binding_indices, shared_index)
+    end
+    application = applications_by_id[binding.application_id]
+    replacement = similar(input_bindings, 0)
+    _resolve_materialize_input_route!(
+        replacement,
+        model,
+        application.id,
+        application.process,
+        consumer_id,
+        binding.plan,
+        applications_by_object,
+        applications_by_id,
+        nothing,
+        distributed_outputs,
+    )
+    old_cache_key = _many_binding_share_key(model, binding)
+    if !isnothing(old_cache_key) &&
+       get(many_binding_cache, old_cache_key, nothing) === binding
+        delete!(many_binding_cache, old_cache_key)
+    end
+    replacement_binding = _share_many_input_binding!(
+        many_binding_cache,
+        model,
+        only(replacement),
+    )
+    input_bindings[index] = replacement_binding
+    push!(changed_bindings, replacement_binding)
+    push!(rewired_consumer_ids, consumer_id)
+    if binding.carrier_hint == :temporal_stream
+        key = (binding.application_id, consumer_id)
+        push!(affected_temporal_keys, key)
+        previous_temporal_sources[(
+            key...,
+            binding.input,
+        )] = previous_source_ids
+    end
+    target = (binding.application_id, consumer_id)
+    input_bindings_by_target[target] = Tuple(
+        existing === binding ? replacement_binding : existing
+        for existing in get(input_bindings_by_target, target, ())
+    )
+    return true
+end
+
 function _extend_compiled_scene(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -4263,7 +4459,7 @@ function _extend_compiled_scene(
     # replace an initially empty binding without rebuilding the whole scene.
     input_bindings_by_target = compiled.input_bindings_by_target
     many_binding_cache = compiled.many_input_binding_cache
-    changed_bindings = CompiledModelInputBinding[]
+    changed_bindings = similar(input_bindings, 0)
     rewired_consumer_ids = Set{ObjectId}()
     affected_temporal_keys = Set{Tuple{Symbol,ObjectId}}()
     previous_temporal_sources = copy(previous_temporal_sources_seed)
@@ -4310,141 +4506,23 @@ function _extend_compiled_scene(
     queued_binding_indices = copy(candidate_binding_indices)
     pending_binding_indices = sort!(collect(candidate_binding_indices))
     pending_binding_position = 1
+    binding_refresh = (;
+        model, input_bindings, input_bindings_by_target, many_binding_cache,
+        changed_bindings, rewired_consumer_ids, affected_temporal_keys, previous_temporal_sources,
+        processed_many_sources, previous_shared_many_sources, forced_input_binding_keys, pure_addition,
+        writer_rebind_keys, structural_dirty_ids, applications_by_object, applications_by_id,
+        distributed_outputs, added_ids, performance, queued_binding_indices,
+        pending_binding_indices,
+    )
     while pending_binding_position <= length(pending_binding_indices)
         index = pending_binding_indices[pending_binding_position]
         pending_binding_position += 1
-        binding = input_bindings[index]
-        consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
-        source_ids = _input_binding_source_ids(model.registry.objects, binding.source_ids)
-        binding_key = (binding.application_id, consumer_id, binding.input)
-        force_rebuild = !isempty(forced_input_binding_keys) &&
-                        binding_key in forced_input_binding_keys
-        if !force_rebuild &&
-           binding.multiplicity == :many &&
-           haskey(processed_many_sources, binding.source_ids)
-            if binding.carrier_hint == :temporal_stream
-                key = (binding.application_id, consumer_id)
-                push!(affected_temporal_keys, key)
-                previous_temporal_sources[(
-                    key...,
-                    binding.input,
-                )] = previous_shared_many_sources[binding.source_ids]
-            end
-            continue
-        end
-        previous_source_ids = binding.carrier_hint == :temporal_stream ?
-                              copy(source_ids) :
-                              ObjectId[]
-        binding.multiplicity == :many &&
-            binding.carrier_hint == :temporal_stream &&
-            (previous_shared_many_sources[binding.source_ids] = copy(source_ids))
-        default_scope = _default_dependency_scope(model, consumer_id)
-        if !pure_addition &&
-           (isnothing(writer_rebind_keys) || !(binding_key in writer_rebind_keys))
-            structural_update = _update_structural_many_sources!(
-                model,
-                binding,
-                structural_dirty_ids,
-                applications_by_object,
-                applications_by_id,
-                distributed_outputs,
-            )
-            if structural_update != :fallback
-                processed_many_sources[binding.source_ids] = nothing
-                continue
-            end
-        end
-        if !force_rebuild && binding.multiplicity != :many
-            _selector_matches_any_object_id(
-                model,
-                binding.matcher,
-                added_ids;
-                context=consumer_id,
-                default_to_context=true,
-                default_scope=default_scope,
-            ) || continue
-        end
-        appended_sources = if force_rebuild
-            false
-        else
-            _append_added_many_sources!(
-                model,
-                binding,
-                added_ids,
-                applications_by_object,
-                applications_by_id,
-                distributed_outputs,
-                ;
-                performance=performance,
-            )
-        end
-        if appended_sources
-            if binding.carrier_hint == :temporal_stream &&
-               previous_source_ids != binding.source_ids
-                key = (binding.application_id, consumer_id)
-                push!(affected_temporal_keys, key)
-                previous_temporal_sources[(
-                    key...,
-                    binding.input,
-                )] = previous_source_ids
-            end
-            processed_many_sources[binding.source_ids] = nothing
-            continue
-        end
-        rebuild_dynamic_input_index = true
-        # The reverse selector index keeps only one representative for a
-        # same-rate `Many(...)` group whose mutable source storage is shared.
-        # Appending updates every consumer at once. A rebuild replaces the
-        # carrier, however, so enqueue every member of that exact identity
-        # group and rewire them through the existing general path.
-        for shared_index in _shared_same_rate_many_binding_indices(
-            input_bindings,
-            binding,
+        raw_binding = input_bindings[index]
+        rebuilt = Base.@inline _with_model_input_binding(
+            _refresh_existing_scene_input_binding!, input_bindings,
+            raw_binding, index, binding_refresh,
         )
-            shared_index in queued_binding_indices && continue
-            push!(queued_binding_indices, shared_index)
-            push!(pending_binding_indices, shared_index)
-        end
-        application = applications_by_id[binding.application_id]
-        replacement = CompiledModelInputBinding[]
-        _resolve_materialize_input_route!(
-            replacement,
-            model,
-            application.id,
-            application.process,
-            consumer_id,
-            binding.plan,
-            applications_by_object,
-            applications_by_id,
-            nothing,
-            distributed_outputs,
-        )
-        old_cache_key = _many_binding_share_key(model, binding)
-        if !isnothing(old_cache_key) &&
-           get(many_binding_cache, old_cache_key, nothing) === binding
-            delete!(many_binding_cache, old_cache_key)
-        end
-        replacement_binding = _share_many_input_binding!(
-            many_binding_cache,
-            model,
-            only(replacement),
-        )
-        input_bindings[index] = replacement_binding
-        push!(changed_bindings, replacement_binding)
-        push!(rewired_consumer_ids, consumer_id)
-        if binding.carrier_hint == :temporal_stream
-            key = (binding.application_id, consumer_id)
-            push!(affected_temporal_keys, key)
-            previous_temporal_sources[(
-                key...,
-                binding.input,
-            )] = previous_source_ids
-        end
-        target = (binding.application_id, consumer_id)
-        input_bindings_by_target[target] = Tuple(
-            existing === binding ? replacement_binding : existing
-            for existing in get(input_bindings_by_target, target, ())
-        )
+        rebuild_dynamic_input_index |= rebuilt
     end
     previous_binding_count = length(input_bindings)
     recorder = _AddedConsumerInputBindings(
@@ -8186,9 +8264,10 @@ function _compile_model_input_bindings(
     applications,
     manual_application_ids,
     input_recipes_by_application,
-    distributed_outputs=NoCompiledDistributedOutputs(),
+    distributed_outputs=NoCompiledDistributedOutputs();
+    input_binding_storage=nothing,
 )
-    bindings = CompiledModelInputBinding[]
+    bindings = _model_input_binding_storage(input_binding_storage)
     by_object = _applications_by_object(applications, model.registry.objects)
     by_id = _applications_by_id(applications)
     for application in applications

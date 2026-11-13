@@ -2270,16 +2270,16 @@ function _model_duration_steps(duration, timeline)
     return nothing
 end
 
-function _model_input_window_steps(window, integrates::Bool, application::CompiledModelApplication, timeline)
+function _model_input_window_steps(window, integrates::Bool, consumer_dt::Real, timeline)
     explicit = _model_duration_steps(window, timeline)
     !isnothing(explicit) && return explicit
-    integrates && return float(application.clock.dt)
+    integrates && return float(consumer_dt)
     return 1.0
 end
 
 function _model_input_window_steps(binding::CompiledModelInputBinding, application::CompiledModelApplication, timeline)
     return _model_input_window_steps(getfield(binding, :plan).window,
-        getfield(binding, :policy) isa Union{Integrate,Aggregate}, application, timeline)
+        getfield(binding, :policy) isa Union{Integrate,Aggregate}, application.clock.dt, timeline)
 end
 
 function _model_temporal_source_value(
@@ -4679,26 +4679,22 @@ function explain_execution_plan(model::CompositeModel)
 end
 
 function _model_temporal_retention_horizon(
-    input_plan::CompiledModelInputPlan,
+    window_steps::Real,
     integrates::Bool,
     interpolates::Bool,
-    consumer,
-    source,
-    timeline,
+    source_dt::Real,
 )
-    window_steps = _model_input_window_steps(input_plan.window, integrates, consumer, timeline)
     return if integrates
-        float(window_steps) + max(0.0, float(source.clock.dt) - 1.0)
+        float(window_steps) + max(0.0, float(source_dt) - 1.0)
     elseif interpolates
-        max(2.0, float(source.clock.dt) + 1.0)
+        max(2.0, float(source_dt) + 1.0)
     else
         0.0
     end
 end
 
-# Binding carriers are irrelevant to retention. Extract its concrete scalar
-# metadata before callbacks, and select the current plan inside its typed owner
-# before reading a possibly heterogeneous window.
+# Owner callbacks return only clock/window scalars. Binding carriers and whole
+# application/plan values never cross into the retention computation.
 function _with_model_temporal_retention(f::F, compiled::CompiledCompositeModel,
     binding::CompiledModelInputBinding,
 ) where {F}
@@ -4710,22 +4706,29 @@ function _with_model_temporal_retention(f::F, compiled::CompiledCompositeModel,
     policy = getfield(binding, :policy)
     integrates = policy isa Union{Integrate,Aggregate}
     interpolates = policy isa Union{Interpolate,PreviousTimeStep}
-    return _compiled_application_by_id(compiled, application_id) do consumer
-        _with_metadata_entry(compiled.scenario_plan.input_plans, plan_slot) do actual_plan
-            actual_plan.application_id === application_id && actual_plan.input === input_name &&
-                actual_plan.source_var === source_var ||
-                throw(ArgumentError("A temporal retention binding is outside its current input plan owner."))
-            for source_application_id in source_application_ids
-                covered = _compiled_application_by_id(compiled, source_application_id) do source
-                    required = _model_temporal_retention_horizon(actual_plan,
-                        integrates, interpolates, consumer, source, compiled.scenario_plan.timeline)
-                    f(source_application_id, source_var, required)
-                end
-                covered || return false
-            end
-            return true
-        end
+    consumer_dt = _compiled_application_by_id(compiled, application_id) do consumer
+        consumer.clock.dt
     end
+    # The old loop resolves its consumer/plan owner but does not validate a
+    # window when no real producer is selected.
+    has_sources = !isempty(source_application_ids)
+    timeline = compiled.scenario_plan.timeline
+    window_steps = _with_metadata_entry(compiled.scenario_plan.input_plans, plan_slot) do actual_plan
+        actual_plan.application_id === application_id && actual_plan.input === input_name &&
+            actual_plan.source_var === source_var ||
+            throw(ArgumentError("A temporal retention binding is outside its current input plan owner."))
+        has_sources || return nothing
+        _model_input_window_steps(actual_plan.window, integrates, consumer_dt, timeline)
+    end
+    has_sources || return true
+    for source_application_id in source_application_ids
+        source_dt = _compiled_application_by_id(compiled, source_application_id) do source
+            source.clock.dt
+        end
+        required = _model_temporal_retention_horizon(window_steps, integrates, interpolates, source_dt)
+        f(source_application_id, source_var, required) || return false
+    end
+    return true
 end
 
 function _model_output_retention_covers_binding(
@@ -6012,7 +6015,7 @@ function _prepare_targeted_newborn_targets(
         _prepare_model_output_statuses_batched!(model, output_applications)
         application_set.outputs_prepared = true
     end
-    input_bindings = CompiledModelInputBinding[]
+    input_bindings = similar(compiled.input_bindings, 0)
     for application in callee_applications
         isempty(application.target_ids) && continue
         recipe = _application_plans(
@@ -7892,6 +7895,7 @@ function _prepare_simulation!(
     outputs,
     performance::Bool=false,
     environment_schema=_environment_schema(getfield(model, :environment_binding_cache)),
+    input_binding_storage=nothing,
 )
     performance_counters = performance ? RuntimePerformanceCounters() : nothing
     initial_composite_started_at =
@@ -7915,9 +7919,10 @@ function _prepare_simulation!(
             _prepare_scenario_plan(model, timeline; force=true, performance=performance_counters)
         end
     end
-    compiled = refresh_bindings!(
+    compiled = _refresh_bindings!(
         model;
         performance=performance_counters,
+        input_binding_storage,
     )
     compiled.execution_generation += UInt64(1)
     _runtime_performance_finish!(
