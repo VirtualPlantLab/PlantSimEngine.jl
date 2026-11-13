@@ -5561,7 +5561,7 @@ function _validate_model_writer_groups!(writer_groups, applications_by_id)
                         union!(labels, Base.@inline _with_metadata_entry(
                             _application_match_labels, applications_by_id, previous_id))
                     end
-                    previous_labels = sort!(collect(labels))
+                    previous_labels = join(sort!([String(label) for label in labels]), ", ")
                     error(
                         "Ambiguous canonical writers for variable `$(variable)` on object ",
                         "`$(object_id.value)`. ",
