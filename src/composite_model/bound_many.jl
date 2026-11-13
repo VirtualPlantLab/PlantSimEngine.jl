@@ -119,18 +119,3 @@ end
     value,
     _bound_many_object_position(values, object_id),
 )
-
-_rebind_compiled_bound_many_inputs(::NamedTuple{()}, ::Status) = NamedTuple()
-
-function _rebind_compiled_bound_many_inputs(
-    bound_inputs::NamedTuple,
-    status::Status,
-)
-    names = propertynames(bound_inputs)
-    values = ntuple(length(names)) do index
-        name = names[index]
-        current = getproperty(bound_inputs, name)
-        _compiled_bound_many(current.ids.ids, getproperty(status, name))
-    end
-    return NamedTuple{names}(values)
-end

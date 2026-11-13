@@ -180,6 +180,53 @@ end
     @test final_state(simulation, :scene).total === 3.75
 end
 
+
+struct PairedSource <: AbstractTyped_Initial_SourceModel end
+PSE.outputs_(::PairedSource) = (a=0f0, b=0f0)
+function PSE.run!(::PairedSource, status, environment, constants, context)
+    status.a += one(status.a)
+    status.b += one(status.b)
+    return nothing
+end
+struct PairedConsumer <: AbstractTyped_Initial_ConsumerModel end
+PSE.inputs_(::PairedConsumer) = (first_values=Required(AbstractVector), second_values=Required(AbstractVector))
+PSE.outputs_(::PairedConsumer) = (total=0.0,)
+function PSE.run!(::PairedConsumer, status, environment, constants, context)
+    status.total = sum(status.first_values; init=zero(status.total)) +
+        sum(status.second_values; init=zero(status.total))
+    return nothing
+end
+
+@testset "all temporal extensions validate before any existing snapshot grows" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene,
+            status=Status(first_values=Float32[], second_values=Float32[], total=0.0)),
+        Object(:a; scale=:Leaf, parent=:scene, status=Status(a=2f0, b=3f0));
+        applications=(
+            ModelSpec(PairedSource(); name=:paired_source, on=Many(scale=:Leaf)),
+            ModelSpec(PairedConsumer(); name=:paired_consumer, on=One(id=:scene), inputs=(
+                PreviousTimeStep(:first_values) => Many(scale=:Leaf, within=SceneScope(), application=:paired_source, var=:a),
+                PreviousTimeStep(:second_values) => Many(scale=:Leaf, within=SceneScope(), application=:paired_source, var=:b),
+            )),
+        ), environment=(duration=Hour(1),))
+    simulation = run!(model; steps=1, outputs=:all)
+    @test final_state(simulation, :scene).total === 5.0
+    first_input = first(simulation.compiled.status_views_by_target[
+        (:paired_consumer, ObjectId(:scene))].temporal_inputs)
+    initial, values = copy(first_input.initial), collect(first_input.reference[])
+    reference = first(parent(first_input.reference[]))
+    # The first input can extend, while the second needs a mixed carrier rebuild.
+    register_object!(model, Object(:b; scale=:Leaf, parent=:scene,
+        status=Status(a=10f0, b=20.0)))
+    step!(simulation)
+    @test first_input.initial == initial
+    @test collect(first_input.reference[]) == values
+    @test only(parent(first_input.reference[])) === reference
+    @test final_state(simulation, :scene).total === 37.0
+    @test outputs(simulation)[(:paired_consumer, ObjectId(:scene), :total)] ==
+        [(1.0, 5.0), (2.0, 37.0)]
+end
+
 end
 
 module PreparedPublicationChecks

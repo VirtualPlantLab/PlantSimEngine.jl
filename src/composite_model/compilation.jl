@@ -3487,74 +3487,63 @@ function _preserve_temporal_input_state!(
     )
 end
 
-function _preserve_model_status_view_temporal_state!(
-    current::CompiledModelStatusView,
-    previous::CompiledModelStatusView,
-    previous_temporal_sources,
-    key,
-)
-    previous_by_input = Dict(
-        temporal_input.binding.input => temporal_input
-        for temporal_input in previous.temporal_inputs
-    )
-    temporal_inputs = Tuple(begin
-        previous_input = get(
-            previous_by_input,
-            temporal_input.binding.input,
-            nothing,
-        )
-        if isnothing(previous_input)
-            temporal_input
+# Current and previous views have already crossed their application-family
+# admission. Their names/positions are metadata; values still use one worker.
+@generated function _preserve_model_status_view_temporal_state!(
+    current::CV, previous::PV, previous_temporal_sources, key,
+) where {CV<:CompiledModelStatusView,PV<:CompiledModelStatusView}
+    CT, PT = fieldtype(CV, :temporal_inputs), fieldtype(PV, :temporal_inputs)
+    CP, PP = fieldtype(CV, :private_outputs), fieldtype(PV, :private_outputs)
+    input_name(TI) = fieldtype(fieldtype(fieldtype(TI, :binding), :plan), :route).parameters[1]
+    current_names = map(input_name, fieldtypes(CT))
+    previous_names = map(input_name, fieldtypes(PT))
+    temporal = Expr(:tuple)
+    for (index, name) in enumerate(current_names)
+        previous_index = findlast(isequal(name), previous_names)
+        current_input = :(getfield(current.temporal_inputs, $index))
+        if isnothing(previous_index)
+            push!(temporal.args, current_input)
         else
-            previous_source_ids = get(
-                previous_temporal_sources,
-                (key..., temporal_input.binding.input),
-                previous_input.binding.source_ids,
-            )
-            _preserve_temporal_input_state!(
-                temporal_input,
-                previous_input,
-                previous_source_ids,
-            )
+            previous_input = :(getfield(previous.temporal_inputs, $previous_index))
+            previous_ids = :(get(previous_temporal_sources, (key..., $(QuoteNode(name))),
+                getfield(getfield($previous_input, :binding), :source_ids)))
+            push!(temporal.args, :(_preserve_temporal_input_state!(
+                $current_input, $previous_input, $previous_ids)))
         end
-    end for temporal_input in current.temporal_inputs)
-    temporal_by_name = Dict(
-        temporal_input.binding.input => temporal_input
-        for temporal_input in temporal_inputs
-    )
-    private_output_names = propertynames(current.private_outputs)
-    private_output_references = ntuple(
-        index -> begin
-            name = private_output_names[index]
-            return hasproperty(previous.private_outputs, name) ?
-                   getproperty(previous.private_outputs, name) :
-                   getproperty(current.private_outputs, name)
-        end,
-        length(private_output_names),
-    )
-    private_outputs =
-        NamedTuple{private_output_names}(private_output_references)
-    names = propertynames(current.status)
-    references = ntuple(length(names)) do index
-        name = names[index]
-        temporal_input = get(temporal_by_name, name, nothing)
-        isnothing(temporal_input) || return temporal_input.reference
-        hasproperty(private_outputs, name) &&
-            return getproperty(private_outputs, name)
-        return refvalue(current.canonical_status, name)
     end
-    status = Status(NamedTuple{names}(references))
-    return CompiledModelStatusView(
-        previous.execution_stamp,
-        status,
-        current.canonical_status,
-        temporal_inputs,
-        private_outputs,
-        _rebind_compiled_bound_many_inputs(
-            current.bound_inputs,
-            status,
-        ),
-    )
+    private_names = fieldnames(CP)
+    private_types = map(private_names) do name
+        fieldtype(name in fieldnames(PP) ? PP : CP, name)
+    end
+    private = Expr(:tuple, [name in fieldnames(PP) ?
+        :(getfield(previous.private_outputs, $(QuoteNode(name)))) :
+        :(getfield(current.private_outputs, $(QuoteNode(name)))) for name in private_names]...)
+    Private = NamedTuple{private_names,Tuple{private_types...}}
+    C = fieldtype(CV, :canonical_status)
+    edited_types = Tuple{private_types..., (fieldtype(TI, :reference) for TI in fieldtypes(CT))...}
+    edited_names = (private_names..., current_names...)
+    construction = StatusConstructionRecipe(_status_schema_names(C), edited_names)
+    selected = map(construction.actions) do action
+        _selected_status_reference_type(action, _status_schema_references(C), edited_types)
+    end
+    Result = Status{_status_schema_names(fieldtype(CV, :status)),Tuple{selected...}}
+    factory = ExactReferenceFactory(C, edited_types, Result, edited_names)
+    edited = Expr(:tuple,
+        [:(getfield(private_outputs, $index)) for index in eachindex(private_names)]...,
+        [:(getfield(getfield(temporal_inputs, $index), :reference)) for index in 1:fieldcount(CT)]...)
+    BI = fieldtype(CV, :bound_inputs)
+    bound_names = fieldnames(BI)
+    bound = Expr(:tuple, [:(_compiled_bound_many(
+        getfield(current.bound_inputs, $(QuoteNode(name))).ids.ids,
+        getproperty(status, $(QuoteNode(name))))) for name in bound_names]...)
+    return quote
+        temporal_inputs = $temporal
+        private_outputs = $Private($private)
+        status = _construct_status($(QuoteNode(factory)), current.canonical_status, $edited)
+        bound_inputs = NamedTuple{$(QuoteNode(bound_names))}($bound)
+        return CompiledModelStatusView(previous.execution_stamp, status,
+            current.canonical_status, temporal_inputs, private_outputs, bound_inputs)
+    end
 end
 
 function _preserve_model_status_view_with_previous!(previous, schema, application_id,
@@ -3580,6 +3569,11 @@ function _record_previous_temporal_source!(input::CompiledTemporalInput, sources
     return nothing
 end
 
+function _previous_temporal_source_storage(model::CompositeModel)
+    I = keytype(model.registry.objects)
+    return Dict{Tuple{Symbol,I,Symbol},Vector{I}}()
+end
+
 function _record_previous_temporal_sources!(view::CompiledModelStatusView, sources, key)
     for index in eachindex(view.temporal_inputs)
         Base.@inline _with_metadata_entry(_record_previous_temporal_source!,
@@ -3592,7 +3586,7 @@ function _preserve_recompiled_model_status_views!(
     current::CompiledCompositeModel,
     previous::CompiledCompositeModel,
 )
-    previous_temporal_sources = Dict{Tuple{Symbol,ObjectId,Symbol},Vector{ObjectId}}()
+    previous_temporal_sources = _previous_temporal_source_storage(current.model)
     for ((application_id, raw_id), current_view) in current.status_views_by_target
         object_id = _index_object_id(current.model.registry.objects, raw_id)
         key = (application_id, object_id)
@@ -3675,48 +3669,53 @@ function _stage_temporal_many_extension(
     )
 end
 
-function _extend_temporal_many_inputs_in_place!(
-    view::CompiledModelStatusView,
-    model::CompositeModel,
-    key,
-    previous_temporal_sources,
-    applications_by_id,
-    application_positions,
-    distributed_outputs,
+_stage_temporal_many_extensions(::Tuple{}, model, key, sources, applications, positions, distributed) = ()
+
+function _stage_temporal_many_extensions(inputs::Tuple, model, key, sources,
+    applications, positions, distributed,
 )
-    staged = Any[]
-    for temporal_input in view.temporal_inputs
-        previous_source_ids = get(
-            previous_temporal_sources,
-            (key..., temporal_input.binding.input),
-            nothing,
-        )
-        isnothing(previous_source_ids) && continue
+    temporal_input = first(inputs)
+    previous_source_ids = get(sources, (key..., temporal_input.binding.input), nothing)
+    extension = if isnothing(previous_source_ids)
+        nothing
+    else
         extension = _stage_temporal_many_extension(
-            model,
-            temporal_input,
-            previous_source_ids,
-            applications_by_id,
-            application_positions,
-            distributed_outputs,
+            model, temporal_input, previous_source_ids, applications, positions, distributed,
         )
-        isnothing(extension) && return false
-        push!(staged, extension)
+        isnothing(extension) && return nothing
+        extension
     end
-    isempty(staged) && return false
-    for (
-        initial,
-        storage_references,
-        source_applications,
-        new_initial,
-        new_storage_references,
-        new_source_applications,
-    ) in staged
-        append!(initial, new_initial)
-        append!(storage_references, new_storage_references)
-        append!(source_applications, new_source_applications)
+    following = _stage_temporal_many_extensions(Base.tail(inputs), model, key,
+        sources, applications, positions, distributed)
+    isnothing(following) && return nothing
+    return (extension, following...)
+end
+
+_apply_temporal_many_extensions!(::Tuple{}) = false
+function _apply_temporal_many_extensions!(staged::Tuple)
+    extension = first(staged)
+    if !isnothing(extension)
+        initial, storage_references, source_applications,
+            new_initial, new_storage_references, new_source_applications = extension
+        # Staging has already checked compatibility; keep those types visible
+        # while appending without allocating another copy of the staged values.
+        T, R, A = eltype(initial), eltype(storage_references), eltype(source_applications)
+        append!(initial, (value::T for value in new_initial))
+        append!(storage_references, (reference::R for reference in new_storage_references))
+        append!(source_applications, (application::A for application in new_source_applications))
     end
-    return true
+    following_applied = _apply_temporal_many_extensions!(Base.tail(staged))
+    return !isnothing(extension) || following_applied
+end
+
+function _extend_temporal_many_inputs_in_place!(view::CompiledModelStatusView,
+    model::CompositeModel, key, previous_temporal_sources, applications_by_id,
+    application_positions, distributed_outputs,
+)
+    staged = _stage_temporal_many_extensions(view.temporal_inputs, model, key,
+        previous_temporal_sources, applications_by_id, application_positions, distributed_outputs)
+    isnothing(staged) && return false
+    return _apply_temporal_many_extensions!(staged)
 end
 
 function _extend_model_status_views(
@@ -4006,10 +4005,7 @@ function _prepare_structural_compiled_delta(
         push!(input_bindings, binding)
     end
     forced_input_binding_keys = Set{Tuple{Symbol,ObjectId,Symbol}}()
-    previous_temporal_sources = Dict{
-        Tuple{Symbol,ObjectId,Symbol},
-        Vector{ObjectId},
-    }()
+    previous_temporal_sources = _previous_temporal_source_storage(model)
     for binding in input_bindings
         _sorted_object_ids_intersect_set(binding.source_ids, dirty) ||
             continue
@@ -4470,10 +4466,7 @@ function _extend_compiled_scene(
     forced_input_binding_keys=Set{Tuple{Symbol,ObjectId,Symbol}}(),
     forced_call_target_keys=Set{Tuple{Symbol,ObjectId}}(),
     previous_views=compiled.status_views_by_target,
-    previous_temporal_sources_seed=Dict{
-        Tuple{Symbol,ObjectId,Symbol},
-        Vector{ObjectId},
-    }(),
+    previous_temporal_sources_seed=_previous_temporal_source_storage(model),
     changed_application_ids_seed=Set{Symbol}(),
     changed_target_ids_seed=Set{Tuple{Symbol,ObjectId}}(),
     pure_addition::Bool=true,
@@ -8777,19 +8770,32 @@ end
 @inline _with_metadata_entry(f, entries::AbstractVector, key::Integer, args::Vararg{Any,N}) where {N} = f(entries[key], args...)
 @inline _with_metadata_entry(f, entries::AbstractDict, key::Symbol, args::Vararg{Any,N}) where {N} = f(entries[key], args...)
 
-# Partial target selections borrow their existing target vector. Admit them
-# against their current metadata owner before reading model-specific fields.
-function _call_admitted_model_application(current::A, partial, f::F, args::Vararg{Any,N}) where {A<:CompiledModelApplication,F,N}
-    partial isa A && getfield(partial, :plan) === getfield(current, :plan) ||
-        throw(ArgumentError("The application is outside its compiled metadata owner."))
-    return f(partial::A, args...)
-end
-
-function _with_model_application(f::F, applications_by_id, partial, args::Vararg{Any,N}) where {F,N}
-    return Base.@inline _with_metadata_entry(
-        _call_admitted_model_application, applications_by_id, partial.id,
-        partial, f, args...,
-    )
+# Partial target selections borrow their existing target vector. Admit the
+# actual application and its immutable plan in one typed metadata boundary.
+@generated function _with_model_application(f::F, applications_by_id::CompiledMetadataTable{T},
+    partial::CompiledModelApplication, args::Vararg{Any,N},
+) where {F,T,N}
+    branches = Expr[]
+    for (index, application_id) in enumerate(fieldnames(T))
+        A = fieldtype(T, index)
+        A <: CompiledModelApplication || throw(ArgumentError(
+            "Application metadata requires compiled model applications.",
+        ))
+        push!(branches, quote
+            if application_id === $(QuoteNode(application_id))
+                current = getfield(getfield(applications_by_id, :entries), $index)
+                partial isa $A && getfield(partial, :plan) === getfield(current, :plan) ||
+                    throw(ArgumentError("The application is outside its compiled metadata owner."))
+                return f(partial::$A, args...)
+            end
+        end)
+    end
+    return quote
+        plan = getfield(partial, :plan)::CompiledApplicationPlan
+        application_id = getfield(plan, :id)::Symbol
+        $(branches...)
+        throw(KeyError(application_id))
+    end
 end
 
 function _foreach_object_application(f::F, compiled::CompiledCompositeModel, object_id::ObjectId) where {F}
