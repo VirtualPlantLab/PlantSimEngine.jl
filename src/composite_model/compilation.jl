@@ -423,7 +423,7 @@ struct SelectorCandidateIndex{W,S,K,SP,I,A,R,L,C}
     application_target_templates::C
 end
 
-function _selector_candidate_index(model::CompositeModel; application_targets::Bool=false)
+function _selector_candidate_index(model::CompositeModel, application_target_templates)
     I = keytype(model.registry.objects)
     return SelectorCandidateIndex(
         Int[],
@@ -437,7 +437,7 @@ function _selector_candidate_index(model::CompositeModel; application_targets::B
         }(),
         Set{I}(),
         Dict{Symbol,Set{Union{Symbol,I}}}(),
-        application_targets ? _application_target_template_cache(I) : nothing,
+        application_target_templates,
     )
 end
 
@@ -655,7 +655,8 @@ function _union_selector_candidates!(
 end
 
 function _application_target_candidate_index(model, application_plans)
-    index = _selector_candidate_index(model; application_targets=true)
+    index = _selector_candidate_index(model,
+        _application_target_template_cache(keytype(model.registry.objects)))
     for plan in application_plans
         _index_selector_candidate!(
             index,
@@ -2186,7 +2187,7 @@ function _index_dynamic_input_bindings(
     bindings,
     many_binding_cache,
 )
-    index = _selector_candidate_index(model)
+    index = _selector_candidate_index(model, nothing)
     for (binding_index, binding) in pairs(bindings)
         _index_dynamic_input_binding!(
             index,
@@ -2223,7 +2224,7 @@ function _index_dynamic_call_binding!(
 end
 
 function _index_dynamic_call_bindings(model::CompositeModel, bindings)
-    index = _selector_candidate_index(model)
+    index = _selector_candidate_index(model, nothing)
     for (binding_index, binding) in pairs(bindings)
         _index_dynamic_call_binding!(
             index,
@@ -4578,8 +4579,12 @@ function _extend_compiled_scene(
     performance=nothing,
 )
     I = keytype(model.registry.objects)
-    added_ids = I[_index_object_id(model.registry.objects, id)
-        for id in added_objects if haskey(model.registry.objects, id)]
+    added_ids = I[]
+    for raw_id in added_objects
+        object_id = _index_object_id(model.registry.objects, raw_id)
+        haskey(model.registry.objects, object_id) || continue
+        push!(added_ids, object_id)
+    end
     started_at = _runtime_performance_start(performance)
     new_targets = _new_application_targets(
         model,

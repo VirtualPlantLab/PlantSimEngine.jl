@@ -17,7 +17,11 @@ using Test
         Object(:other_leaf; scale=:Leaf, parent=:other_plant),
     )
     leaf_id = ObjectId(:leaf)
-    index = PlantSimEngine._selector_candidate_index(model)
+    index = @inferred PlantSimEngine._selector_candidate_index(model, nothing)
+    @test isnothing(index.application_target_templates)
+    cache = PlantSimEngine._application_target_template_cache(keytype(model.registry.objects))
+    cached = @inferred PlantSimEngine._selector_candidate_index(model, cache)
+    @test cached.application_target_templates === cache
     push!(index.wildcard, 1)
     index.by_id[leaf_id] = [2]
     index.by_scale[:Leaf] = [3]
@@ -38,7 +42,7 @@ using Test
             @test result === candidates
             @test candidates == Set([1, 2, 3, 4, 5, 99])
         end
-        empty_index = PlantSimEngine._selector_candidate_index(model)
+        empty_index = PlantSimEngine._selector_candidate_index(model, nothing)
         candidates = Set([99])
         @test PlantSimEngine._union_selector_candidates!(
             candidates, empty_index, model, leaf_id,
@@ -72,7 +76,7 @@ using Test
     end
 
     @testset "Missing IDs are rejected before any label or scope lookup" begin
-        empty_scope_index = PlantSimEngine._selector_candidate_index(model)
+        empty_scope_index = PlantSimEngine._selector_candidate_index(model, nothing)
         push!(empty_scope_index.wildcard, 1)
         for candidate_index in (
             empty_scope_index,
@@ -121,7 +125,7 @@ end
             closed && (model = _closed_selector_candidate_fixture(model))
             @test (model.registry.objects.catalog isa PlantSimEngine.ClosedObjectFamilyCatalog) === closed
             I = keytype(model.registry.objects)
-            index = PlantSimEngine._selector_candidate_index(model)
+            index = PlantSimEngine._selector_candidate_index(model, nothing)
             frozen_empty = PlantSimEngine._freeze_selector_candidate_index(index)
             @test keytype(index.by_id) === keytype(frozen_empty.by_id) === I
             @test keytype(index.by_scope_anchor) === keytype(frozen_empty.by_scope_anchor) ===
@@ -159,7 +163,7 @@ end
             for raw_future in (leaf_id + 1000, :future_leaf, 1.5)
                 future_id = ObjectId(raw_future)
                 @test !haskey(model.registry.objects, future_id)
-                future_index = PlantSimEngine._selector_candidate_index(model)
+                future_index = PlantSimEngine._selector_candidate_index(model, nothing)
                 for (slot, selector) in pairs((Many(id=raw_future),
                     Many(id=raw_future, within=Subtree())))
                     matcher = PlantSimEngine._compile_selector_matcher(model, selector)
