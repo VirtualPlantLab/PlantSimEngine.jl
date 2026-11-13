@@ -6057,7 +6057,7 @@ function _prepare_targeted_newborn_targets(
         return nothing
     end
 
-    targeted_input_bindings = _index_model_bindings(
+    targeted_input_bindings = _index_model_input_bindings(
         input_bindings, keytype(model.registry.objects),
     )
 

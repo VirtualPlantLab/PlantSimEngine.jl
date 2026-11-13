@@ -2346,7 +2346,7 @@ end
     return (getfield(plan, :application_id), getfield(binding, :consumer_id)::I)
 end
 
-function _index_model_bindings(bindings::AbstractVector{B}, ::Type{I}) where {B,I<:ObjectId}
+function _group_model_bindings(bindings::AbstractVector{B}, ::Type{I}) where {B,I<:ObjectId}
     K = Tuple{Symbol,I}
     grouped = Dict{K,Vector{B}}()
     for binding in bindings
@@ -2356,9 +2356,53 @@ function _index_model_bindings(bindings::AbstractVector{B}, ::Type{I}) where {B,
         end
         push!(values, binding)
     end
-    # Membership length remains dynamic; records retain the same current/future
-    # family as their canonical storage, including all families in open scenes.
+    return grouped
+end
+
+function _index_model_input_bindings(bindings::AbstractVector{B}, ::Type{I}) where {B<:CompiledModelInputBinding,I<:ObjectId}
+    K = Tuple{Symbol,I}
+    grouped = _group_model_bindings(bindings, I)
+    # Input membership remains dynamic over its canonical current/future family.
     return Dict{K,Tuple{Vararg{B}}}(key => Tuple(values) for (key, values) in grouped)
+end
+
+# Hard-call cardinality is fixed by each application's authored call-plan tuple.
+# Admit the application before materializing the per-target binding tuple.
+@generated function _index_model_call_bindings_for_application!(
+    application::CompiledModelApplication{P}, index, object_id::I, bindings,
+    ::Type{J},
+) where {P,I<:ObjectId,J<:ObjectId}
+    Plans = fieldtype(P, :call_plans)
+    Types = [CompiledModelCallBinding{Plan,I,J} for Plan in fieldtypes(Plans)]
+    names = [gensym(:binding) for _ in Types]
+    admissions = [quote
+        $(names[position]) = bindings[$position]
+        $(names[position]) isa $(Types[position]) || throw(ArgumentError(
+            "A hard-call binding is outside its prepared application declaration.",
+        ))
+    end for position in eachindex(Types)]
+    values = Expr(:tuple, [:( $(names[i])::$(Types[i]) ) for i in eachindex(Types)]...)
+    return quote
+        length(bindings) == $(length(Types)) || throw(ArgumentError(
+            "Hard-call binding count differs from its prepared application declaration.",
+        ))
+        $(admissions...)
+        index[(application.id, object_id)] = $values
+        return index
+    end
+end
+
+function _index_model_call_bindings!(index, bindings, applications_by_id, ::Type{I}) where {I<:ObjectId}
+    for ((application_id, object_id), values) in _group_model_bindings(bindings, I)
+        Base.@inline _with_metadata_entry(_index_model_call_bindings_for_application!,
+            applications_by_id, application_id, index, object_id, values, I)
+    end
+    return index
+end
+
+function _index_model_call_bindings(bindings, applications_by_id, ::Type{I}) where {I<:ObjectId}
+    index = Dict{Tuple{Symbol,I},Tuple{Vararg{CompiledModelCallBinding}}}()
+    return _index_model_call_bindings!(index, bindings, applications_by_id, I)
 end
 
 """
@@ -2572,11 +2616,11 @@ function _compile_scene(
     # with a concrete carrier type. Keep the per-target index type-stable
     # across that replacement so an updated compiled scene can be stored in
     # an existing `Simulation`.
-    input_bindings_by_target = _index_model_bindings(
+    input_bindings_by_target = _index_model_input_bindings(
         input_bindings, keytype(model.registry.objects),
     )
-    call_bindings_by_target = _index_model_bindings(
-        call_bindings, keytype(model.registry.objects),
+    call_bindings_by_target = _index_model_call_bindings(
+        call_bindings, applications_by_id, keytype(model.registry.objects),
     )
     call_owners = scenario_plan.call_owners
     application_children = scenario_plan.application_children
@@ -3547,7 +3591,7 @@ function _preserve_recompiled_model_status_views!(
         previous_view = get(previous.status_views_by_target, key, nothing)
         isnothing(previous_view) && continue
         current.status_views_by_target[key] =
-            _preserve_model_status_view_temporal_state!(
+            Base.@inline _preserve_model_status_view_temporal_state!(
                 current.status_view_schema, first(key), current_view,
                 previous_view,
                 previous_temporal_sources,
@@ -3741,7 +3785,7 @@ function _extend_model_status_views(
         )
         views[key] = isnothing(previous_view) ?
                      current_view :
-                     _preserve_model_status_view_temporal_state!(
+                     Base.@inline _preserve_model_status_view_temporal_state!(
             compiled.status_view_schema, application_id, current_view,
             previous_view,
             previous_temporal_sources,
@@ -3967,7 +4011,7 @@ function _prepare_structural_compiled_delta(
             previous_temporal_sources[key] = copy(binding.source_ids)
         end
     end
-    input_bindings_by_target = _index_model_bindings(
+    input_bindings_by_target = _index_model_input_bindings(
         input_bindings, keytype(model.registry.objects),
     )
 
@@ -3990,8 +4034,8 @@ function _prepare_structural_compiled_delta(
             (binding.application_id, binding.consumer_id),
         )
     end
-    call_bindings_by_target = _index_model_bindings(
-        call_bindings, keytype(model.registry.objects),
+    call_bindings_by_target = _index_model_call_bindings(
+        call_bindings, compiled.applications_by_id, keytype(model.registry.objects),
     )
     many_input_binding_cache =
         _many_input_binding_cache(model, input_bindings)
@@ -4179,8 +4223,8 @@ function _refresh_scene_call_bindings!(
             by_object=applications_by_object,
             plans_by_application=compiled.scenario_plan.call_plans_by_application,
         )
-    replacement_call_bindings_by_target = _index_model_bindings(
-        replacement_call_bindings, keytype(model.registry.objects),
+    replacement_call_bindings_by_target = _index_model_call_bindings(
+        replacement_call_bindings, applications_by_id, keytype(model.registry.objects),
     )
     call_bindings = compiled.call_bindings
     for key in rebuilt_existing_call_targets
@@ -4735,11 +4779,9 @@ function _extend_compiled_scene(
         started_at,
     )
     call_bindings_by_target = compiled.call_bindings_by_target
-    isempty(new_call_bindings) || merge!(
-        call_bindings_by_target,
-        _index_model_bindings(
-            new_call_bindings, keytype(model.registry.objects),
-        ),
+    isempty(new_call_bindings) || _index_model_call_bindings!(
+        call_bindings_by_target, new_call_bindings, applications_by_id,
+        keytype(model.registry.objects),
     )
     call_owners = compiled.scenario_plan.call_owners
     application_children = compiled.scenario_plan.application_children
@@ -6358,12 +6400,13 @@ end
 
 function _ensure_model_object_status!(model::CompositeModel, object_id::ObjectId)
     object = _model_object(model, object_id)
-    isnothing(object.status) && _replace_model_object_status!(model, object, Status())
-    object.status isa Status || error(
+    status = object.status
+    isnothing(status) && (status = _replace_model_object_status!(model, object, Status()))
+    status isa Status || error(
         "Model object `$(object_id.value)` uses model applications but its status has type ",
-        "`$(typeof(object.status))`. Use `Status(...)` or leave status as `nothing`."
+        "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
     )
-    return object.status
+    return Base.@inline _with_registered_status(identity, model.registry.objects.catalog, status)
 end
 
 function _prepare_model_output_statuses!(model::CompositeModel, applications)
@@ -7202,10 +7245,10 @@ function _prepare_model_input_statuses_batched!(
 )
     recipes = Dict{ObjectId,_CanonicalStatusRecipe}()
     recipe_order = ObjectId[]
-    conversion_records = _no_status_conversion(model.status_conversion) ?
-                         model.status_conversion_records :
-                         Dict{Any,Any}()
-    default_status_updates = Dict{Tuple{ObjectId,Symbol},Bool}()
+    record_conversions = !_no_status_conversion(model.status_conversion)
+    conversion_records = record_conversions ? Dict{Any,Any}() : model.status_conversion_records
+    I = keytype(model.registry.objects)
+    default_status_updates = Dict{Tuple{I,Symbol},Bool}()
     input_default_rewrites_avoided = 0
     for partial in applications
         input_default_rewrites_avoided += _with_model_application(applications_by_id, partial) do application
@@ -7332,8 +7375,7 @@ function _prepare_model_input_statuses_batched!(
         recipe_order;
         performance=performance,
     )
-    conversion_records === model.status_conversion_records ||
-        merge!(model.status_conversion_records, conversion_records)
+    record_conversions && merge!(model.status_conversion_records, conversion_records)
     for ((object_id, variable), is_default) in default_status_updates
         variables = get!(
             model.input_default_status_variables,
@@ -8599,7 +8641,8 @@ end
 
 function _validate_model_required_inputs!(model::CompositeModel, applications, applications_by_id, input_bindings)
     bound = _bound_model_inputs(input_bindings)
-    missing = NamedTuple[]
+    I = keytype(model.registry.objects)
+    missing = NamedTuple{(:application_id, :object_id, :input),Tuple{Symbol,I,Symbol}}[]
     for partial in applications
         _with_model_application(applications_by_id, partial) do application
             schema = _model_input_schema(application)
@@ -8613,9 +8656,8 @@ function _validate_model_required_inputs!(model::CompositeModel, applications, a
                         missing,
                         (
                             application_id=application.id,
-                            object_id=object_id.value,
+                            object_id=_index_object_id(model.registry.objects, object_id),
                             input=input,
-                            process=application.process,
                         ),
                     )
                 end
@@ -8626,7 +8668,7 @@ function _validate_model_required_inputs!(model::CompositeModel, applications, a
     isempty(missing) && return nothing
     details = join(
         [
-            "`$(row.application_id)` on object `$(row.object_id)` requires `$(row.input)`"
+            "`$(row.application_id)` on object `$(row.object_id.value)` requires `$(row.input)`"
             for row in missing
         ],
         "; ",
@@ -8693,7 +8735,7 @@ end
 
 # Consume metadata inside its exact schema branch. Runtime Symbols select
 # identities; integer keys select positions local to this owner, never model slots.
-@generated function _with_metadata_entry(f, table::CompiledMetadataTable{T}, key::K, args::Vararg{Any,N}) where {T,K<:Union{Symbol,Integer},N}
+@generated function _with_metadata_entry(f::F, table::CompiledMetadataTable{T}, key::K, args::Vararg{Any,N}) where {F,T,K<:Union{Symbol,Integer},N}
     entry_keys = K <: Symbol ? fieldnames(T) : ntuple(identity, fieldcount(T))
     branches = [:(key == $(QuoteNode(entry_key)) &&
                   return f(getfield(getfield(table, :entries), $index), args...))
@@ -8708,7 +8750,7 @@ end
 # Execution plans already have a typed tuple boundary; its callback uses the
 # same scalar-entry operation as fixed metadata owners. Never unwrap an owner
 # into a tuple to enter this method.
-@generated function _with_metadata_entry(f, entries::T, key::K, args::Vararg{Any,N}) where {T<:Tuple,K<:Integer,N}
+@generated function _with_metadata_entry(f::F, entries::T, key::K, args::Vararg{Any,N}) where {F,T<:Tuple,K<:Integer,N}
     branches = [:(key == $index && return f(getfield(entries, $index), args...))
         for index in 1:fieldcount(T)]
     return quote

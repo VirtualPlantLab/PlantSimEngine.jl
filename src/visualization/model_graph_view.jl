@@ -159,8 +159,8 @@ function _model_graph_compiled(
 )
     isempty(diagnostics) || return nothing
     applications_by_id = _applications_by_id(applications)
-    input_by_target = _index_model_bindings(input_bindings, keytype(model.registry.objects))
-    call_by_target = _index_model_bindings(call_bindings, keytype(model.registry.objects))
+    input_by_target = _index_model_input_bindings(input_bindings, keytype(model.registry.objects))
+    call_by_target = _index_model_call_bindings(call_bindings, applications_by_id, keytype(model.registry.objects))
     timeline = _model_timeline(model)
     scenario_plan = _compiled_scenario_plan(
         model,

@@ -75,11 +75,16 @@ function call_fixture(closed)
     return (; model, simulation, capture, context=target.context)
 end
 
-function check_index(model, bindings, index)
+rebuild_index(compiled, bindings::AbstractVector{<:PSE.CompiledModelInputBinding}, I) =
+    PSE._index_model_input_bindings(bindings, I)
+rebuild_index(compiled, bindings::AbstractVector{<:PSE.CompiledModelCallBinding}, I) =
+    PSE._index_model_call_bindings(bindings, compiled.applications_by_id, I)
+
+function check_index(model, compiled, bindings, index)
     I = keytype(model.registry.objects)
     @test keytype(index) === Tuple{Symbol,I}
     @test valtype(index) === Tuple{Vararg{eltype(bindings)}}
-    rebuilt = PSE._index_model_bindings(bindings, I)
+    rebuilt = rebuild_index(compiled, bindings, I)
     @test keytype(rebuilt) === Tuple{Symbol,I}
     @test valtype(rebuilt) === Tuple{Vararg{eltype(bindings)}}
     @test Set(keys(rebuilt)) == Set(keys(index))
@@ -90,7 +95,7 @@ function check_index(model, bindings, index)
         @test index[key] === expected
         @test all(PSE._model_binding_target_key(binding, I) === key for binding in values)
     end
-    empty_index = PSE._index_model_bindings(empty(bindings), I)
+    empty_index = rebuild_index(compiled, empty(bindings), I)
     @test isempty(empty_index)
     @test keytype(empty_index) === Tuple{Symbol,I}
     @test valtype(empty_index) === Tuple{Vararg{eltype(bindings)}}
@@ -99,8 +104,8 @@ end
 
 function check_indexes(model, simulation)
     compiled = simulation.compiled
-    check_index(model, compiled.input_bindings, compiled.input_bindings_by_target)
-    check_index(model, compiled.call_bindings, compiled.call_bindings_by_target)
+    check_index(model, compiled, compiled.input_bindings, compiled.input_bindings_by_target)
+    check_index(model, compiled, compiled.call_bindings, compiled.call_bindings_by_target)
 end
 
 @testset "binding indexes keep registry identities for cold and observed calls" begin
@@ -115,8 +120,8 @@ end
         @test simulation.compiled.call_bindings_by_target[(:capture, ObjectId(:root))] ===
             Tuple(bindings)
         repeated = [bindings; first(bindings)]
-        @test PSE._index_model_bindings(repeated, I)[(:capture, ObjectId(:root))] ===
-            Tuple(repeated)
+        @test_throws "Hard-call binding count differs from its prepared application declaration" PSE._index_model_call_bindings(
+            repeated, simulation.compiled.applications_by_id, I)
         @test_throws TypeError PSE._model_binding_target_key(first(bindings), ObjectId{String})
         one = call_targets(data.context, :one)
         many = call_targets(data.context, :many)
@@ -629,6 +634,29 @@ PSE.EnvironmentAPI.bind_environment(::GeometryOwnerBackend, object::Object, cont
         @test moved_again.handle !== moved.handle
         @test PSE.refvalue(leaf.status, :x) === reference
         @test leaf.status.x === 3f0
+    end
+end
+
+@testset "missing input diagnostics preserve numeric and named object identities" begin
+    for closed in (false, true)
+        model = CompositeModel(
+            Object(:root; scale=:Plant),
+            Object(1; scale=:Leaf, parent=:root,
+                status=Status(values=Float64[], total=0.0)),
+            Object(:feuille; scale=:Leaf, parent=:root,
+                status=Status(values=Float64[], total=0.0));
+            applications=(ModelSpec(Reader(); name=:reader, on=Many(scale=:Leaf)),))
+        closed && (model = close_registry(model))
+        error = try
+            run!(model; steps=0, outputs=:none)
+            nothing
+        catch exception
+            exception
+        end
+        @test error isa ErrorException
+        message = sprint(showerror, error)
+        @test occursin("`reader` on object `1` requires `single`", message)
+        @test occursin("`reader` on object `feuille` requires `single`", message)
     end
 end
 
