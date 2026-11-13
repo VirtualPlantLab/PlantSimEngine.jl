@@ -361,6 +361,19 @@ mutable struct CompiledApplicationSchedule{E,A,P,G}
     const generic_entry_indices::G
 end
 
+# Membership lengths vary across object classes; they are runtime data rather
+# than type parameters of the shared application-target cache.
+struct _ApplicationTargetTemplate
+    candidate_slots::Vector{Int}
+    matched_slots::Vector{Int}
+end
+
+function _application_target_template_cache(::Type{I}) where {I<:ObjectId}
+    K = Tuple{Union{Nothing,Symbol},Union{Nothing,Symbol},Union{Nothing,Symbol},
+        Union{Nothing,I},Tuple{Vararg{I}}}
+    return Dict{K,_ApplicationTargetTemplate}()
+end
+
 """Reverse candidate index for compiled selector matchers."""
 struct SelectorCandidateIndex{W,S,K,SP,I,A,R,L,C}
     wildcard::W
@@ -388,7 +401,7 @@ function _selector_candidate_index(model::CompositeModel; application_targets::B
         }(),
         Set{I}(),
         Dict{Symbol,Set{Union{Symbol,I}}}(),
-        application_targets ? Dict{Any,Any}() : nothing,
+        application_targets ? _application_target_template_cache(I) : nothing,
     )
 end
 
@@ -407,7 +420,7 @@ function _freeze_selector_candidate_index(index::SelectorCandidateIndex)
             label => Set(values)
             for (label, values) in index.template_label_values
         ),
-        Dict{Any,Any}(),
+        _application_target_template_cache(keytype(index.by_id)),
     )
 end
 
@@ -2721,11 +2734,6 @@ function _compile_scene(
     )
 end
 
-struct _ApplicationTargetTemplate{C,M}
-    candidate_slots::C
-    matched_slots::M
-end
-
 function _application_target_template_label(
     index::SelectorCandidateIndex,
     label::Symbol,
@@ -2784,14 +2792,14 @@ function _application_target_template(
         model,
         object_id,
     )
-    sorted_candidates = Tuple(sort!(collect(candidate_slots)))
-    matched_slots = Tuple(
-        slot for slot in sorted_candidates if _selector_matches_object_id(
-            model,
-            compiled.applications[slot].target_matcher,
-            object_id,
-        )
-    )
+    sorted_candidates = sort!(collect(candidate_slots))
+    matched_slots = Int[]
+    for slot in sorted_candidates
+        matches = Base.@inline _with_metadata_entry(compiled.applications_by_id, slot) do application
+            _selector_matches_object_id(model, application.target_matcher, object_id)
+        end
+        matches && push!(matched_slots, slot)
+    end
     template = _ApplicationTargetTemplate(
         sorted_candidates,
         matched_slots,
@@ -2811,8 +2819,10 @@ function _new_application_targets(
     performance=nothing,
 )
     candidate_slots = Set{Int}()
-    targets = Dict{Symbol,Vector{ObjectId}}()
-    for object_id in added_ids
+    I = keytype(model.registry.objects)
+    targets = Dict{Symbol,Vector{I}}()
+    for raw_id in added_ids
+        object_id = _index_object_id(model.registry.objects, raw_id)
         template = _application_target_template(
             model,
             compiled,
@@ -2821,9 +2831,10 @@ function _new_application_targets(
         )
         union!(candidate_slots, template.candidate_slots)
         for slot in template.matched_slots
-            application = compiled.applications[slot]
-            application_targets = get!(targets, application.id) do
-                ObjectId[]
+            application_id = Base.@inline _with_metadata_entry(
+                application -> application.id, compiled.applications_by_id, slot)
+            application_targets = get!(targets, application_id) do
+                I[]
             end
             push!(application_targets, object_id)
         end
@@ -2834,14 +2845,16 @@ function _new_application_targets(
         length(candidate_slots),
     )
     for (application_id, matched) in targets
-        application = compiled.applications_by_id[application_id]
-        new_count = length(application.target_ids) + length(matched)
-        if (application.applies_to isa One && new_count != 1) ||
-           (application.applies_to isa OptionalOne && new_count > 1)
-            # Reuse canonical selector diagnostics without replaying authored
-            # model declarations or preparing any new status/default values.
-            _resolve_object_ids(model, application.applies_to, application.target_matcher)
-            error("Inconsistent lifecycle target cardinality for application `$(application.id)`.")
+        Base.@inline _with_metadata_entry(compiled.applications_by_id, application_id) do application
+            new_count = length(application.target_ids) + length(matched)
+            if (application.applies_to isa One && new_count != 1) ||
+               (application.applies_to isa OptionalOne && new_count > 1)
+                # Reuse canonical selector diagnostics without replaying authored
+                # model declarations or preparing any new status/default values.
+                _resolve_object_ids(model, application.applies_to, application.target_matcher)
+                error("Inconsistent lifecycle target cardinality for application `$(application.id)`.")
+            end
+            return nothing
         end
     end
     return targets
@@ -4522,7 +4535,9 @@ function _extend_compiled_scene(
     structural_dirty_ids=ObjectId[],
     performance=nothing,
 )
-    added_ids = ObjectId[id for id in added_objects if haskey(model.registry.objects, id)]
+    I = keytype(model.registry.objects)
+    added_ids = I[_index_object_id(model.registry.objects, id)
+        for id in added_objects if haskey(model.registry.objects, id)]
     started_at = _runtime_performance_start(performance)
     new_targets = _new_application_targets(
         model,
@@ -6448,6 +6463,43 @@ function _ensure_model_object_status!(model::CompositeModel, object_id::ObjectId
     return Base.@inline _with_registered_status(identity, model.registry.objects.catalog, status)
 end
 
+_stage_model_output_defaults!(::Tuple{}, ::Tuple{}, preparation, context) = nothing
+
+function _stage_model_output_defaults!(
+    variables::Tuple{Symbol,Vararg{Symbol}},
+    defaults::Tuple{V,Vararg},
+    preparation,
+    context,
+) where {V}
+    variable = first(variables)
+    value = first(defaults)
+    if _publish_mode_for_output(context.application.spec, variable) == :canonical
+        if !(preparation isa Status && variable in propertynames(preparation))
+            if preparation isa Status
+                preparation = _status_recipe_for_object!(
+                    context.recipes,
+                    context.recipe_order,
+                    context.model,
+                    context.object_id,
+                )
+            end
+            Base.@inline _status_recipe_add_default!(
+                context.model,
+                preparation,
+                context.object_id,
+                variable,
+                value;
+                application_id=context.application.id,
+                origin=:model_output_default,
+                conversion_records=context.conversion_records,
+            )
+        end
+    end
+    return _stage_model_output_defaults!(
+        Base.tail(variables), Base.tail(defaults), preparation, context,
+    )
+end
+
 function _prepare_model_output_statuses!(
     model::CompositeModel,
     applications,
@@ -6470,29 +6522,11 @@ function _prepare_model_output_statuses!(
                     model,
                     object_id,
                 )
-                for (variable, value) in pairs(defaults)
-                    _publish_mode_for_output(application.spec, variable) ==
-                        :canonical || continue
-                    if preparation isa Status
-                        variable in propertynames(preparation) && continue
-                        preparation = _status_recipe_for_object!(
-                            recipes,
-                            recipe_order,
-                            model,
-                            object_id,
-                        )
-                    end
-                    Base.@inline _status_recipe_add_default!(
-                        model,
-                        preparation,
-                        object_id,
-                        variable,
-                        value;
-                        application_id=application.id,
-                        origin=:model_output_default,
-                        conversion_records=conversion_records,
-                    )
-                end
+                context = (; model, application, object_id, recipes,
+                    recipe_order, conversion_records)
+                _stage_model_output_defaults!(
+                    keys(defaults), values(defaults), preparation, context,
+                )
             end
         end
     end

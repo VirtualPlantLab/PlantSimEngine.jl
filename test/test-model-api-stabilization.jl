@@ -1521,12 +1521,12 @@ end
     @test key_1a != key_2
     @test index.template_label_values == Dict(:scale => Set([:Leaf]))
 
-    target_template_1 = PlantSimEngine._application_target_template(
+    target_template_1 = @inferred PlantSimEngine._application_target_template(
         model,
         compiled,
         ObjectId(:template_leaf_1a),
     )
-    target_template_2 = PlantSimEngine._application_target_template(
+    target_template_2 = @inferred PlantSimEngine._application_target_template(
         model,
         compiled,
         ObjectId(:template_leaf_2),
