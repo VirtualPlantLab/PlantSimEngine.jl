@@ -34,11 +34,15 @@ end
 # Open registration crosses the ordinary JIT function barrier. Closed
 # registration keeps the operation inside the exact admitted Status branch,
 # rather than first returning a large union from the Object's Any-valued field.
-@inline _with_registered_status(f, ::OpenObjectFamilyCatalog, status) = f(status)
+@inline _with_registered_status(f::OP, ::OpenObjectFamilyCatalog, status,
+    args::Vararg{Any,N},
+) where {OP,N} = f(status, args...)
 
-@generated function _with_registered_status(f, ::ClosedObjectFamilyCatalog{F}, status) where {F}
+@generated function _with_registered_status(f::OP, ::ClosedObjectFamilyCatalog{F},
+    status, args::Vararg{Any,N},
+) where {OP,F,N}
     schemas = unique(family.parameters[2] for family in fieldtypes(F))
-    branches = [:(status isa $S && return f(status::$S)) for S in schemas]
+    branches = [:(status isa $S && return f(status::$S, args...)) for S in schemas]
     return quote
         $(branches...)
         throw(ArgumentError("The status schema is outside the prepared object family catalog."))

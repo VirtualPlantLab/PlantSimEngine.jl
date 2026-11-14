@@ -1858,10 +1858,19 @@ _model_output_object_ids(compiled, application, variable::Symbol) =
     end
 end
 
-@inline function _output_reference_from_view(view, operation::F,
+@inline function _output_reference_from_status(status::S, operation::F,
     ::Val{VARIABLE}, args::Vararg{Any,N},
-) where {F,VARIABLE,N}
-    return operation(refvalue(view.status, VARIABLE), args...)
+) where {S,F,VARIABLE,N}
+    status isa Status && VARIABLE in propertynames(status) || throw(ArgumentError(
+        "The requested output is absent from the selected status.",
+    ))
+    return operation(refvalue(status, VARIABLE), args...)
+end
+
+@inline function _output_reference_from_view(view, operation::F,
+    variable::Val, args::Vararg{Any,N},
+) where {F,N}
+    return _output_reference_from_status(view.status, operation, variable, args...)
 end
 
 @inline function _with_model_output_reference(operation::F, compiled, application,
@@ -1885,10 +1894,9 @@ function _with_model_output_reference(::Val{VARIABLE}, operation::F, compiled,
             compiled.status_views_by_target[(application.id, id)], operation,
             Val{VARIABLE}(), args...)
     end
-    return Base.@inline _with_registered_status(compiled.model.registry.objects.catalog,
-        model_status(compiled.model, id)) do status
-        operation(refvalue(status, VARIABLE), args...)
-    end
+    return Base.@inline _with_registered_status(_output_reference_from_status,
+        compiled.model.registry.objects.catalog, model_status(compiled.model, id),
+        operation, Val{VARIABLE}(), args...)
 end
 
 function _initialize_model_output_stream_from_reference!(reference::R, streams,
