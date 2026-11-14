@@ -121,7 +121,8 @@ end
     data = fixture()
     simulation = prepare(data.model, prototype)
     input_cache = simulation.compiled.input_bindings_by_target
-    @test valtype(input_cache) === Tuple{Vararg{eltype(prototype)}}
+    @test valtype(input_cache) === Vector{eltype(prototype)}
+    @test isconcretetype(valtype(input_cache))
     @test simulation.compiled.input_bindings !== prototype
     @test eltype(simulation.compiled.input_bindings) === eltype(prototype)
     @test isempty(check_carriers(data, simulation).carrier)

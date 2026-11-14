@@ -41,6 +41,12 @@ end
 
 _private_initial_value(value) = deepcopy(value)
 
+function _private_initial_value(value::Array{T}) where {T}
+    # Isbits elements contain no mutable identities; a fresh dense copy has the
+    # same private-value semantics without entering Base's erased Memory helper.
+    return isbitstype(T) ? copy(value) : deepcopy(value)
+end
+
 @noinline function _invalid_input_schema_error(model, schema)
     context = "`inputs_($(typeof(model)))`"
     schema isa NamedTuple || error(

@@ -75,35 +75,37 @@ function call_fixture(closed)
     return (; model, simulation, capture, context=target.context)
 end
 
-function check_index(model, compiled, bindings, index, rebuild_index)
+function check_index(model, compiled, bindings, index, rebuild_index, value_type)
     I = keytype(model.registry.objects)
     @test keytype(index) === Tuple{Symbol,I}
-    @test valtype(index) === Tuple{Vararg{eltype(bindings)}}
+    @test valtype(index) === value_type
     rebuilt = rebuild_index(bindings, I)
     @test keytype(rebuilt) === Tuple{Symbol,I}
-    @test valtype(rebuilt) === Tuple{Vararg{eltype(bindings)}}
+    @test valtype(rebuilt) === value_type
     @test Set(keys(rebuilt)) == Set(keys(index))
     for (key, values) in rebuilt
         expected = Tuple(binding for binding in bindings
             if (binding.application_id, binding.consumer_id) == key)
-        @test values === expected
-        @test index[key] === expected
+        @test Tuple(values) === expected
+        @test Tuple(index[key]) === expected
         @test all(PSE._model_binding_target_key(binding, I) === key for binding in values)
     end
     empty_index = rebuild_index(empty(bindings), I)
     @test isempty(empty_index)
     @test keytype(empty_index) === Tuple{Symbol,I}
-    @test valtype(empty_index) === Tuple{Vararg{eltype(bindings)}}
+    @test valtype(empty_index) === value_type
     return nothing
 end
 
 function check_indexes(model, simulation)
     compiled = simulation.compiled
     check_index(model, compiled, compiled.input_bindings, compiled.input_bindings_by_target,
-        PSE._index_model_input_bindings)
+        PSE._index_model_input_bindings, Vector{eltype(compiled.input_bindings)})
+    @test isconcretetype(valtype(compiled.input_bindings_by_target))
     check_index(model, compiled, compiled.call_bindings, compiled.call_bindings_by_target,
         (bindings, I) -> PSE._index_model_call_bindings(
-            bindings, compiled.scenario_plan.call_plans_by_application, I))
+            bindings, compiled.scenario_plan.call_plans_by_application, I),
+        Tuple{Vararg{eltype(compiled.call_bindings)}})
     if all(isempty, values(compiled.scenario_plan.call_plans_by_application.entries))
         @test eltype(compiled.call_bindings) === Union{}
         @test valtype(compiled.call_bindings_by_target) === Tuple{}
@@ -208,6 +210,9 @@ end
     step!(simulation)
     after = simulation.compiled.input_bindings_by_target[key]
     @test typeof(after) === typeof(before)
+    @test after !== before
+    @test first(after) === first(before)
+    @test Tuple(binding.input for binding in before) == (:single, :values)
     # The mixed-ID order inserts 2 before :leaf. A rebuilt column keeps the
     # prepared representation and the original live references.
     @test typeof(last(after).carrier) === typeof(many)

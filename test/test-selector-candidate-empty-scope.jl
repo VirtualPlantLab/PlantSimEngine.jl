@@ -144,7 +144,7 @@ end
             for (position, selector) in pairs(selectors)
                 matcher = PlantSimEngine._compile_selector_matcher(model, selector)
                 PlantSimEngine._index_selector_candidate!(
-                    index, model, matcher, position; context=ObjectId(plant_id),
+                    index, model, matcher, position, ObjectId(plant_id), nothing,
                 )
             end
             expected = Set([1, 2, 5, 6])
@@ -168,7 +168,7 @@ end
                     Many(id=raw_future, within=Subtree())))
                     matcher = PlantSimEngine._compile_selector_matcher(model, selector)
                     @test PlantSimEngine._index_selector_candidate!(future_index, model,
-                        matcher, slot; context=ObjectId(plant_id)) === future_index
+                        matcher, slot, ObjectId(plant_id), nothing) === future_index
                 end
                 frozen_future = PlantSimEngine._freeze_selector_candidate_index(future_index)
                 for candidate_index in (future_index, frozen_future)

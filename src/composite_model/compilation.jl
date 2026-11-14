@@ -80,12 +80,19 @@ struct CompiledModelInputPlan{TAG,SEL,M,OA,PSA,W,RT<:Tuple}
     source_var::Symbol
     process::Union{Nothing,Symbol}
     application::Union{Nothing,Symbol}
-    multiplicity::Symbol
     potential_source_application_ids::PSA
     breaks_same_step_cycle::Bool
     window::W
     reference_types::Type{RT}
 end
+
+@inline function Base.getproperty(plan::CompiledModelInputPlan, name::Symbol)
+    name === :multiplicity && return multiplicity(getfield(plan, :selector))
+    return getfield(plan, name)
+end
+
+Base.propertynames(plan::CompiledModelInputPlan) =
+    (fieldnames(typeof(plan))..., :multiplicity)
 
 """Fixed metadata schema whose scalar lookups stay inside its typed owner."""
 mutable struct CompiledMetadataTable{T<:NamedTuple}
@@ -473,9 +480,9 @@ _selector_candidate_values(value) = value isa Tuple ? value : (value,)
 
 function _selector_scope_anchor(
     model::CompositeModel,
-    matcher::CompiledSelectorMatcher;
-    context=nothing,
-    default_scope=nothing,
+    matcher::CompiledSelectorMatcher,
+    context,
+    default_scope,
 )
     scope = if !isnothing(matcher.scope)
         matcher.scope
@@ -517,9 +524,9 @@ end
 function _selector_candidate_destination(
     index::SelectorCandidateIndex,
     model::CompositeModel,
-    matcher::CompiledSelectorMatcher;
-    context=nothing,
-    default_scope=nothing,
+    matcher::CompiledSelectorMatcher,
+    context,
+    default_scope,
 )
     scope = isnothing(matcher.scope) ? default_scope : matcher.scope
     if scope isa Self && isnothing(matcher.relation)
@@ -537,9 +544,9 @@ function _selector_candidate_destination(
     end
     anchor = _selector_scope_anchor(
         model,
-        matcher;
-        context=context,
-        default_scope=default_scope,
+        matcher,
+        context,
+        default_scope,
     )
     if !isnothing(anchor)
         I = keytype(index.by_id)
@@ -579,9 +586,9 @@ function _index_selector_candidate!(
     index::SelectorCandidateIndex,
     model::CompositeModel,
     matcher::CompiledSelectorMatcher,
-    candidate_index::Int;
-    context=nothing,
-    default_scope=nothing,
+    candidate_index::Int,
+    context,
+    default_scope,
 )
     tracks_application_targets =
         !isnothing(index.application_target_templates)
@@ -600,9 +607,9 @@ function _index_selector_candidate!(
     destination = _selector_candidate_destination(
         index,
         model,
-        matcher;
-        context=context,
-        default_scope=default_scope,
+        matcher,
+        context,
+        default_scope,
     )
     isnothing(destination) && return index
     groups, values = destination
@@ -672,6 +679,8 @@ function _application_target_candidate_index(model, application_plans)
             model,
             plan.target_matcher,
             plan.slot,
+            nothing,
+            nothing,
         )
     end
     return _freeze_selector_candidate_index(index)
@@ -1656,7 +1665,7 @@ end
     name === :source_var && return getfield(plan, :source_var)
     name === :process && return getfield(plan, :process)
     name === :application && return getfield(plan, :application)
-    name === :multiplicity && return getfield(plan, :multiplicity)
+    name === :multiplicity && return multiplicity(getfield(plan, :selector))
     name === :potential_source_application_ids &&
         return getfield(plan, :potential_source_application_ids)
     name === :breaks_same_step_cycle &&
@@ -2182,9 +2191,9 @@ function _index_dynamic_input_binding!(
         index,
         model,
         binding.matcher,
-        binding_index;
-        context=binding.consumer_id,
-        default_scope=_default_dependency_scope(
+        binding_index,
+        binding.consumer_id,
+        _default_dependency_scope(
             model,
             binding.consumer_id,
         ),
@@ -2223,9 +2232,9 @@ function _index_dynamic_call_binding!(
         index,
         model,
         binding.matcher,
-        binding_index;
-        context=binding.consumer_id,
-        default_scope=_default_dependency_scope(
+        binding_index,
+        binding.consumer_id,
+        _default_dependency_scope(
             model,
             binding.consumer_id,
         ),
@@ -2457,10 +2466,8 @@ function _group_model_bindings(bindings::AbstractVector{B}, ::Type{I}) where {B,
 end
 
 function _index_model_input_bindings(bindings::AbstractVector{B}, ::Type{I}) where {B<:CompiledModelInputBinding,I<:ObjectId}
-    K = Tuple{Symbol,I}
-    grouped = _group_model_bindings(bindings, I)
-    # Input membership remains dynamic over its canonical current/future family.
-    return Dict{K,Tuple{Vararg{B}}}(key => Tuple(values) for (key, values) in grouped)
+    # Membership length is runtime data; the existing input family supplies B.
+    return _group_model_bindings(bindings, I)
 end
 
 # Cardinality and binding types come from the actual resolved runtime plans.
@@ -2988,18 +2995,21 @@ struct _AddedConsumerInputBindings{M,C,B,I}
 end
 
 function _record_consumer_input_bindings!(
-    recorder::_AddedConsumerInputBindings, bindings, application, consumer_id,
+    recorder::_AddedConsumerInputBindings, bindings::AbstractVector{B}, application, consumer_id,
     first_new_binding, last_new_binding,
-)
+) where {B}
     first_new_binding <= last_new_binding || return nothing
+    new_bindings = B[]
+    sizehint!(new_bindings, last_new_binding - first_new_binding + 1)
     for binding_index in first_new_binding:last_new_binding
-        bindings[binding_index] = _share_many_input_binding!(
+        binding = _share_many_input_binding!(
             recorder.many_binding_cache, recorder.model, bindings[binding_index],
         )
+        bindings[binding_index] = binding
+        push!(new_bindings, binding)
     end
-    new_bindings = bindings[first_new_binding:last_new_binding]
     append!(recorder.changed_bindings, new_bindings)
-    recorder.input_bindings_by_target[(application.id, consumer_id)] = Tuple(new_bindings)
+    recorder.input_bindings_by_target[(application.id, consumer_id)] = new_bindings
     return nothing
 end
 
@@ -4580,10 +4590,13 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
         )] = previous_source_ids
     end
     target = (binding.application_id, consumer_id)
-    input_bindings_by_target[target] = Tuple(
-        existing === binding ? replacement_binding : existing
-        for existing in get(input_bindings_by_target, target, ())
-    )
+    # Replace the membership container so shallow diagnostic snapshots retain
+    # the previous bindings, while all unmodified binding/carrier objects stay shared.
+    members = valtype(typeof(input_bindings_by_target))()
+    for existing in get(input_bindings_by_target, target, ())
+        push!(members, existing === binding ? replacement_binding : existing)
+    end
+    input_bindings_by_target[target] = members
     return true
 end
 
@@ -7491,7 +7504,7 @@ function _prepare_model_input_statuses_batched!(
 end
 
 function _private_temporal_value(value)
-    return deepcopy(value)
+    return _private_initial_value(value)
 end
 
 function _temporal_source_application(
@@ -8142,7 +8155,6 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
         source_var,
         process_filter,
         application_filter,
-        multiplicity(selector),
         potential_source_application_ids,
         breaks_same_step_cycle,
         _selector_window(selector),
@@ -8220,7 +8232,7 @@ function _resolve_model_input_plan(model, plan::CompiledModelInputPlan, slot::In
     return CompiledModelInputPlan(plan.route, slot, plan.application_slot,
         plan.application_id, plan.input, plan.selector, matcher, plan.origin,
         plan.order_after_application_ids, plan.source_var, plan.process,
-        plan.application, plan.multiplicity, plan.potential_source_application_ids,
+        plan.application, plan.potential_source_application_ids,
         plan.breaks_same_step_cycle, plan.window, plan.reference_types)
 end
 
