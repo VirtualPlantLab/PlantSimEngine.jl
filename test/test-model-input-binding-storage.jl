@@ -269,6 +269,60 @@ end
     check_carriers(data, simulation)
 end
 
+function scope_cache_fixture(selector)
+    return CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant_a; scale=:Plant, parent=:scene),
+        Object(:plant_b; scale=:Plant, parent=:scene),
+        Object(:anchor; scale=:Anchor, parent=:scene, status=Status(x=3f0)),
+        Object(:a; scale=:Reader, parent=:plant_a),
+        Object(:b; scale=:Reader, parent=:plant_b),
+        Object(:first; scale=:Leaf, parent=:plant_a, status=Status(x=7.0)),
+        Object(:second; scale=:Leaf, parent=:plant_b, status=Status(x=11.0));
+        applications=(ModelSpec(Reader(); name=:reader, on=Many(scale=:Reader),
+            inputs=(single=One(id=:anchor, within=SceneScope(), var=:x, from_status=true),
+                values=selector)),))
+end
+
+@testset "Many scope anchors preserve shared columns and consumer-specific ancestors" begin
+    for (selector, shared, expected_b) in (
+        (Many(Scope(ObjectId(:plant_a)); scale=:Leaf, var=:x, from_status=true),
+            true, (10.0, 15.0, 8.0)),
+        (Many(Ancestor(scale=:Plant); scale=:Leaf, var=:x, from_status=true),
+            false, (14.0, 14.0, 14.0)),
+    )
+        model = scope_cache_fixture(selector)
+        simulation = run!(model; steps=1, outputs=:all)
+        for phase in 1:3
+            if phase == 2
+                register_object!(model, Object(:new; scale=:Leaf, parent=:plant_a,
+                    status=Status(x=5.0)))
+                continue!(simulation; steps=1)
+            elseif phase == 3
+                remove_object!(model, :first)
+                continue!(simulation; steps=1)
+            end
+            first = binding(simulation, :a, :values)
+            second = binding(simulation, :b, :values)
+            @test (first.carrier === second.carrier) === shared
+            @test (first.source_ids === second.source_ids) === shared
+            @test model_status(model, :a).total == (10.0, 15.0, 8.0)[phase]
+            @test model_status(model, :b).total == expected_b[phase]
+            for current in (first, second)
+                expected_count = current.consumer_id == ObjectId(:a) || shared ?
+                    (1, 2, 1)[phase] : 1
+                @test length(current.source_ids) == length(parent(current.carrier)) == expected_count
+                @test all(reference === PSE.refvalue(model_status(model, id), :x)
+                    for (id, reference) in zip(current.source_ids, parent(current.carrier)))
+            end
+        end
+        @test outputs(simulation)[(:reader, ObjectId(:a), :total)] ==
+            [(1.0, 10.0), (2.0, 15.0), (3.0, 8.0)]
+        @test outputs(simulation)[(:reader, ObjectId(:b), :total)] ==
+            [(Float64(step), expected_b[step]) for step in 1:3]
+    end
+end
+
 @testset "partial applications retain their exact target selection and metadata owner" begin
     data = fixture()
     simulation = prepare(data.model)

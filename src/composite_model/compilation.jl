@@ -3108,6 +3108,81 @@ function _final_inferred_output_plans(
     return isempty(final_matches) ? matches : final_matches
 end
 
+# Runtime scope identity has one layout; membership and IDs remain ordinary data.
+struct _ManyBindingScopeAnchor{I<:ObjectId}
+    kind::Symbol
+    id::Union{Nothing,I}
+
+    _ManyBindingScopeAnchor{I}(kind::Symbol, id::Union{Nothing,I}) where {I<:ObjectId} =
+        new{I}(kind, id)
+end
+Base.isequal(left::_ManyBindingScopeAnchor, right::_ManyBindingScopeAnchor) =
+    left.kind === right.kind && isequal(left.id, right.id)
+Base.hash(anchor::_ManyBindingScopeAnchor, seed::UInt) = anchor.kind === :scene ?
+    hash((anchor.kind,), seed) : hash((anchor.kind, anchor.id), seed)
+
+struct _ManyBindingQueryKey{S,I<:ObjectId}
+    selector::S
+    anchor::_ManyBindingScopeAnchor{I}
+    source_var::Symbol
+    process::Union{Nothing,Symbol}
+    application::Union{Nothing,Symbol}
+    carrier_hint::Symbol
+    carrier_type::DataType
+end
+_many_binding_query_components(key::_ManyBindingQueryKey) =
+    (key.selector, key.anchor, key.source_var, key.process, key.application,
+        key.carrier_hint, key.carrier_type)
+Base.isequal(left::_ManyBindingQueryKey, right::_ManyBindingQueryKey) =
+    isequal(_many_binding_query_components(left), _many_binding_query_components(right))
+Base.hash(key::_ManyBindingQueryKey, seed::UInt) =
+    hash(_many_binding_query_components(key), seed)
+
+struct _ManyBindingPlanKey{I<:ObjectId}
+    slot::Int
+    anchor::_ManyBindingScopeAnchor{I}
+end
+Base.isequal(left::_ManyBindingPlanKey, right::_ManyBindingPlanKey) =
+    left.slot == right.slot && isequal(left.anchor, right.anchor)
+Base.hash(key::_ManyBindingPlanKey, seed::UInt) =
+    hash((:compiled_many_input_plan, key.slot, key.anchor), seed)
+
+# Both indexes use exactly the family of the existing global input storage.
+# The binding vector is an alias used by its existing admission gate, not a copy.
+struct _ManyInputBindingCache{I<:ObjectId,S,B,IB<:AbstractVector{B}}
+    by_query::Dict{_ManyBindingQueryKey{S,I},B}
+    by_plan::Dict{_ManyBindingPlanKey{I},B}
+    bindings::IB
+end
+
+@generated function _empty_many_input_binding_cache(::Type{I}, bindings::AbstractVector{B},
+) where {I<:ObjectId,B}
+    IB = bindings
+    selectors = Any[]
+    if B === CompiledModelInputBinding
+        S = Many
+    else
+        for Binding in _model_input_binding_family_types(B)
+            Selector = fieldtype(fieldtype(Binding, :plan), :selector)
+            Selector <: Many || continue
+            isconcretetype(Selector) || throw(ArgumentError(
+                "Many sharing requires exact prepared selector types."))
+            Selector in selectors || push!(selectors, Selector)
+        end
+        S = Union{selectors...}
+    end
+    Cache = _ManyInputBindingCache{I,S,B,IB}
+    Query = _ManyBindingQueryKey{S,I}
+    Plan = _ManyBindingPlanKey{I}
+    return :($Cache(Dict{$Query,$B}(), Dict{$Plan,$B}(), bindings))
+end
+
+function _many_scope_anchor(model, kind::Symbol, raw_id)
+    I = keytype(model.registry.objects)
+    id = isnothing(raw_id) ? nothing : _index_object_id(model.registry.objects, raw_id)
+    return _ManyBindingScopeAnchor{I}(kind, id)
+end
+
 function _many_binding_scope_anchor(
     model::CompositeModel,
     selector,
@@ -3115,136 +3190,119 @@ function _many_binding_scope_anchor(
 )
     selector_criteria = criteria(selector)
     !isnothing(_criteria_value(selector_criteria, :relation, Relation)) &&
-        return (:consumer, consumer_id)
+        return _many_scope_anchor(model, :consumer, consumer_id)
     explicit_scope = _criteria_scope(selector_criteria)
     scope = isnothing(explicit_scope) ?
             _default_dependency_scope(model, consumer_id) : explicit_scope
     if isnothing(scope) || scope isa SceneScope
-        return (:scene,)
+        return _many_scope_anchor(model, :scene, nothing)
     elseif scope isa SelfPlant
-        return (:plant, _ancestor_id(model, consumer_id; scale=:Plant))
+        return _many_scope_anchor(model, :plant,
+            _ancestor_id(model, consumer_id; scale=:Plant))
     elseif scope isa Scope
-        return (:scope, _named_scope_root_id(model, scope))
+        return _many_scope_anchor(model, :scope, _named_scope_root_id(model, scope))
     elseif scope isa Ancestor
-        return (
-            :ancestor,
-            _ancestor_id(
-                model,
-                consumer_id;
-                scale=scope.scale,
-                include_self=false,
-            ),
-        )
+        return _many_scope_anchor(model, :ancestor,
+            _ancestor_id(model, consumer_id; scale=scope.scale, include_self=false))
     end
-    return (:consumer, consumer_id)
+    return _many_scope_anchor(model, :consumer, consumer_id)
 end
 
-_many_binding_scope_anchor(
-    model::CompositeModel,
-    binding::CompiledModelInputBinding,
-) = _many_binding_scope_anchor(model, binding.selector, binding.consumer_id)
+_many_binding_scope_anchor(model::CompositeModel, binding::CompiledModelInputBinding) =
+    _many_binding_scope_anchor(model, binding.selector, binding.consumer_id)
 
-function _many_binding_plan_share_key(
-    model::CompositeModel,
-    plan::CompiledModelInputPlan,
-    consumer_id::ObjectId,
+function _many_binding_plan_share_key(model::CompositeModel,
+    plan::CompiledModelInputPlan, consumer_id::ObjectId,
 )
     plan.multiplicity == :many || return nothing
     anchor = _many_binding_scope_anchor(model, plan.selector, consumer_id)
-    first(anchor) === :consumer && return nothing
-    any(isnothing, anchor) && return nothing
-    return (:compiled_many_input_plan, plan.slot, anchor)
+    anchor.kind === :consumer && return nothing
+    anchor.kind !== :scene && isnothing(anchor.id) && return nothing
+    return _ManyBindingPlanKey(plan.slot, anchor)
 end
 
-function _many_binding_plan_share_key(
-    model::CompositeModel,
-    binding::CompiledModelInputBinding,
-)
-    return _many_binding_plan_share_key(
-        model,
-        binding.plan,
-        binding.consumer_id,
-    )
-end
+_many_binding_plan_share_key(model::CompositeModel, binding::CompiledModelInputBinding) =
+    _many_binding_plan_share_key(model, binding.plan, binding.consumer_id)
 
-function _many_binding_share_key(model::CompositeModel, binding::CompiledModelInputBinding)
+function _many_binding_share_key(cache::_ManyInputBindingCache{I,S},
+    model::CompositeModel, binding::CompiledModelInputBinding,
+) where {I,S}
     binding.multiplicity == :many || return nothing
     isnothing(binding.carrier) && return nothing
-    return (
-        binding.selector,
-        _many_binding_scope_anchor(model, binding),
-        binding.source_var,
-        binding.process,
-        binding.application,
-        binding.carrier_hint,
-        typeof(binding.carrier),
-    )
+    return _ManyBindingQueryKey{S,I}(binding.selector,
+        _many_binding_scope_anchor(model, binding), binding.source_var,
+        binding.process, binding.application, binding.carrier_hint, typeof(binding.carrier))
 end
 
 function _binding_with_shared_many_sources(
-    binding::CompiledModelInputBinding,
-    canonical::CompiledModelInputBinding,
+    binding::CompiledModelInputBinding, canonical::CompiledModelInputBinding,
 )
-    return CompiledModelInputBinding(
-        binding.plan,
-        binding.consumer_id,
-        canonical.source_ids,
-        canonical.source_application_ids,
-        binding.policy,
-        binding.carrier_hint,
-        canonical.carrier,
-    )
+    return CompiledModelInputBinding(binding.plan, binding.consumer_id,
+        canonical.source_ids, canonical.source_application_ids, binding.policy,
+        binding.carrier_hint, canonical.carrier)
 end
 
-function _shared_many_input_binding(
-    cache,
-    model::CompositeModel,
-    plan::CompiledModelInputPlan,
-    consumer_id::ObjectId,
+function _shared_many_input_binding(cache::_ManyInputBindingCache,
+    model::CompositeModel, plan::CompiledModelInputPlan, consumer_id::ObjectId,
 )
     key = _many_binding_plan_share_key(model, plan, consumer_id)
     isnothing(key) && return nothing
-    canonical = get(cache, key, nothing)
+    canonical = get(cache.by_plan, key, nothing)
     isnothing(canonical) && return nothing
+    return Base.@inline _with_model_input_binding(_shared_many_binding_for_plan,
+        cache.bindings, canonical, plan, consumer_id)
+end
+
+function _shared_many_binding_for_plan(canonical, plan, consumer_id)
     canonical.plan.slot == plan.slot || return nothing
     canonical.multiplicity == :many || return nothing
     isnothing(canonical.carrier) && return nothing
-    return CompiledModelInputBinding(
-        plan,
-        consumer_id,
-        canonical.source_ids,
-        canonical.source_application_ids,
-        canonical.policy,
-        canonical.carrier_hint,
-        canonical.carrier,
-    )
+    return CompiledModelInputBinding(plan, consumer_id, canonical.source_ids,
+        canonical.source_application_ids, canonical.policy, canonical.carrier_hint,
+        canonical.carrier)
 end
 
-function _cache_many_binding_plan!(cache, model::CompositeModel, binding)
+function _cache_many_binding_plan!(binding, cache::_ManyInputBindingCache,
+    model::CompositeModel,
+)
     key = _many_binding_plan_share_key(model, binding)
-    isnothing(key) || (cache[key] = binding)
+    isnothing(key) || (cache.by_plan[key] = binding)
     return binding
 end
 
-function _share_many_input_binding!(cache, model::CompositeModel, binding)
-    key = _many_binding_share_key(model, binding)
+@inline function _share_many_input_binding!(cache::_ManyInputBindingCache,
+    model::CompositeModel, binding,
+)
+    return Base.@inline _with_model_input_binding(_share_admitted_many_input_binding!,
+        cache.bindings, binding, cache, model)
+end
+
+function _share_admitted_many_input_binding!(binding, cache, model)
+    key = _many_binding_share_key(cache, model, binding)
     isnothing(key) && return binding
-    canonical = get(cache, key, nothing)
+    canonical = get(cache.by_query, key, nothing)
     if isnothing(canonical)
-        cache[key] = binding
-        return _cache_many_binding_plan!(cache, model, binding)
+        cache.by_query[key] = binding
+        return _cache_many_binding_plan!(binding, cache, model)
     end
+    return Base.@inline _with_model_input_binding(_share_many_binding_sources!,
+        cache.bindings, canonical, binding, cache, model)
+end
+
+function _share_many_binding_sources!(canonical, binding, cache, model)
     if canonical.source_ids != binding.source_ids ||
        canonical.source_application_ids != binding.source_application_ids
-        cache[(key, binding.consumer_id)] = binding
+        # The former (query, consumer) entry had no reader. The real binding
+        # remains in global input storage and is returned without sharing.
         return binding
     end
     shared = _binding_with_shared_many_sources(binding, canonical)
-    _cache_many_binding_plan!(cache, model, canonical)
+    _cache_many_binding_plan!(canonical, cache, model)
     return shared
 end
 
-function _share_many_input_bindings!(model::CompositeModel, bindings; cache=Dict{Any,Any}())
+function _share_many_input_bindings!(model::CompositeModel, bindings)
+    cache = _empty_many_input_binding_cache(keytype(model.registry.objects), bindings)
     for index in eachindex(bindings)
         bindings[index] = _share_many_input_binding!(cache, model, bindings[index])
     end
@@ -3252,15 +3310,20 @@ function _share_many_input_bindings!(model::CompositeModel, bindings; cache=Dict
 end
 
 function _many_input_binding_cache(model::CompositeModel, bindings)
-    cache = Dict{Any,Any}()
+    cache = _empty_many_input_binding_cache(keytype(model.registry.objects), bindings)
     for binding in bindings
-        key = _many_binding_share_key(model, binding)
-        if !isnothing(key)
-            haskey(cache, key) || (cache[key] = binding)
-            _cache_many_binding_plan!(cache, model, cache[key])
-        end
+        Base.@inline _with_model_input_binding(_seed_many_input_binding_cache!,
+            bindings, binding, cache, model)
     end
     return cache
+end
+
+function _seed_many_input_binding_cache!(binding, cache, model)
+    key = _many_binding_share_key(cache, model, binding)
+    isnothing(key) && return nothing
+    haskey(cache.by_query, key) || (cache.by_query[key] = binding)
+    return Base.@inline _with_model_input_binding(_cache_many_binding_plan!,
+        cache.bindings, cache.by_query[key], cache, model)
 end
 
 function _shared_same_rate_many_storage(
@@ -3277,20 +3340,27 @@ function _shared_same_rate_many_storage(
            binding.carrier === canonical.carrier
 end
 
-function _dynamic_input_binding_shares_canonical_sources(
-    model::CompositeModel,
-    binding::CompiledModelInputBinding,
-    many_binding_cache,
+@inline function _dynamic_input_binding_shares_canonical_sources(
+    model::CompositeModel, binding, cache::_ManyInputBindingCache,
 )
+    return Base.@inline _with_model_input_binding(_input_binding_shares_many_cache!,
+        cache.bindings, binding, model, cache)
+end
+
+function _input_binding_shares_many_cache!(binding, model, cache)
     binding.multiplicity == :many || return false
     binding.carrier_hint === :ref_vector || return false
-    key = _many_binding_share_key(model, binding)
+    key = _many_binding_share_key(cache, model, binding)
     isnothing(key) && return false
-    canonical = get(many_binding_cache, key, nothing)
-    canonical isa CompiledModelInputBinding || return false
+    canonical = get(cache.by_query, key, nothing)
+    isnothing(canonical) && return false
+    return Base.@inline _with_model_input_binding(_input_binding_shares_many_sources,
+        cache.bindings, canonical, binding)
+end
+
+function _input_binding_shares_many_sources(canonical, binding)
     _shared_same_rate_many_storage(binding, canonical) || return false
-    return binding.slot != canonical.slot ||
-           binding.consumer_id != canonical.consumer_id
+    return binding.slot != canonical.slot || binding.consumer_id != canonical.consumer_id
 end
 
 function _shared_same_rate_many_binding_indices(bindings, binding)
@@ -4568,10 +4638,10 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
         nothing,
         distributed_outputs,
     )
-    old_cache_key = _many_binding_share_key(model, binding)
+    old_cache_key = _many_binding_share_key(many_binding_cache, model, binding)
     if !isnothing(old_cache_key) &&
-       get(many_binding_cache, old_cache_key, nothing) === binding
-        delete!(many_binding_cache, old_cache_key)
+       get(many_binding_cache.by_query, old_cache_key, nothing) === binding
+        delete!(many_binding_cache.by_query, old_cache_key)
     end
     replacement_binding = _share_many_input_binding!(
         many_binding_cache,
