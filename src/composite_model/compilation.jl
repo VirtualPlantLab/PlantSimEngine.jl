@@ -6059,13 +6059,16 @@ end
 _selector_has_policy(selector::AbstractObjectMultiplicity) =
     haskey(criteria(selector), :policy)
 
+_model_policy_from_admitted_application(application, source_var::Symbol) =
+    _policy_for_output(_application_default_model(application), source_var)
+
 function _model_policy_from_source_application(applications_by_id, application_id::Symbol, source_var::Symbol)
-    application = get(applications_by_id, application_id, nothing)
-    isnothing(application) && error(
+    haskey(applications_by_id, application_id) || error(
         "No compiled model application with id `$(application_id)` while resolving ",
         "default output policy for `$(source_var)`."
     )
-    return _policy_for_output(_application_default_model(application), source_var)
+    return Base.@inline _with_metadata_entry(_model_policy_from_admitted_application,
+        applications_by_id, application_id, source_var)
 end
 
 function _model_selector_policy(selector::AbstractObjectMultiplicity, applications_by_id, source_application_ids, source_var::Symbol)
@@ -8884,12 +8887,17 @@ function _matches_input_source_writer(
 )
     # This index also contains manual/stream-only writers and the targeted
     # initializer overlay, whose newborns are not in compiled target_ids yet.
-    local_writer = any(get(applications_by_object, source_id, ())) do application
-        isnothing(process_filter) || application.process == process_filter || return false
-        isnothing(application_filter) || application.id == application_filter || return false
-        return source_var in _model_output_names(application)
+    for raw_application in get(applications_by_object, source_id, ())
+        local_writer = Base.@inline _with_model_application(
+            applications_by_id, raw_application::CompiledModelApplication,
+            source_var, process_filter, application_filter,
+        ) do application, variable, process, application_name
+            isnothing(process) || application.process == process || return false
+            isnothing(application_name) || application.id == application_name || return false
+            return variable in _model_output_names(application)
+        end
+        local_writer && return true
     end
-    local_writer && return true
     return _has_matching_distributed_input_writer(
         distributed_outputs,
         source_id,
@@ -8914,13 +8922,18 @@ function _has_matching_distributed_input_writer(
     applications_by_id,
 )
     owners = get(distributed_outputs.writer_ownership, (source_id, source_var), ())
-    return any(owners) do owner
-        application = get(applications_by_id, owner.application_id, nothing)
-        isnothing(application) && return false
-        isnothing(process_filter) || application.process == process_filter || return false
-        isnothing(application_filter) || application.id == application_filter || return false
-        return true
+    for owner in owners
+        haskey(applications_by_id, owner.application_id) || continue
+        matched = Base.@inline _with_metadata_entry(
+            applications_by_id, owner.application_id, process_filter, application_filter,
+        ) do application, process, application_name
+            isnothing(process) || application.process == process || return false
+            isnothing(application_name) || application.id == application_name || return false
+            return true
+        end
+        matched && return true
     end
+    return false
 end
 
 _model_input_names(application) = _application_ports(application).input_names

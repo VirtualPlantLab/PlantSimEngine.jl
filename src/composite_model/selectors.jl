@@ -1491,8 +1491,11 @@ function _matching_selector_ids(
     # The adaptive candidate source may be a local vector, an index iterator,
     # or registry keys. Specialize this loop at that boundary, rather than
     # dispatching dynamically for every object in a heterogeneous query.
-    ids = Vector{keytype(model.registry.objects)}()
-    for id in candidates
+    I = keytype(model.registry.objects)
+    ids = Vector{I}()
+    for candidate in candidates
+        candidate isa I || continue
+        id = candidate::I
         haskey(model.registry.objects, id) || continue
         _selector_matches_object_id(
             model, matcher, id; context, default_to_context, default_scope, relation_resolved,

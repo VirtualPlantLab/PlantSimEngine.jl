@@ -52,6 +52,10 @@ end
     @test matched(compiled, distributed, (1, 2); application=:c) == [:c]
     alternative = compiled.applications_by_id[:f]
     @test matched(compiled, distributed, (1, 2); process=alternative.process) == [:f]
+    @test PSE._matches_input_source_writer(ObjectId(2), :x, alternative.process,
+        nothing, compiled.applications_by_id, distributed, compiled.applications_by_object)
+    @test !PSE._matches_input_source_writer(ObjectId(1), :x, nothing, :missing,
+        compiled.applications_by_id, distributed, compiled.applications_by_object)
     @test matched(compiled, distributed, (1, 2); potential=(:c,)) == [:c]
     # The planned producer is absent from the first object's local/remote
     # ownership and present only on the second object.
@@ -97,6 +101,8 @@ end
     @test PSE._matching_input_source_applications(overlay, ObjectId[ObjectId(7)],
         :x, nothing, nothing, PSE.NoCompiledDistributedOutputs(), (:a,);
         applications_by_id=compiled.applications_by_id) == [:a]
+    @test PSE._matches_input_source_writer(ObjectId(7), :x, nothing, :a,
+        compiled.applications_by_id, PSE.NoCompiledDistributedOutputs(), overlay)
     @test newborn.status.x === 7f0
     @test PSE.refvalue(newborn.status, :x) === reference
     @test current_step(simulation) == 0

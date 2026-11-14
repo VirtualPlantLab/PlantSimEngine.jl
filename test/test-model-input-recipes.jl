@@ -86,6 +86,11 @@ end
     compiled = simulation.compiled
     scenario = compiled.scenario_plan
     application, recipe = reader_recipe(compiled)
+    selector = One(id=1, within=SceneScope(), application=:source, var=:x)
+    @test (@inferred PSE._model_selector_policy(selector,
+        compiled.applications_by_id, [:source], :x)) isa HoldLast
+    @test_throws "No compiled model application with id `missing`" PSE._model_policy_from_source_application(
+        compiled.applications_by_id, :missing, :x)
     @test keys(scenario.input_recipes_by_application) == keys(scenario.input_plans_by_application)
     @test keys(scenario.input_recipes_by_application) ==
           (:empty_a, :source, :empty_b, :reader, :other_source)
