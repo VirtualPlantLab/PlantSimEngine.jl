@@ -110,4 +110,26 @@ end
     @test length(simulation.output_requests[:chosen_leaf].targets) == 1
     @test simulation.output_requests[:chosen_leaf].targets[ObjectId(:first_leaf)] === original_target
 end
+
+function request_publishers_model()
+    return CompositeModel(Object(:first; scale=:Leaf), Object(:second; scale=:Leaf);
+        applications=(
+            ModelSpec(Counter(); name=:first_counter, on=One(id=:first)),
+            ModelSpec(Counter(); name=:second_counter, on=One(id=:second)),
+        ))
+end
+
+@testset "retained requests select a unique publisher by application identity" begin
+    @test_throws "No model output publisher found" run!(request_publishers_model();
+        steps=0, outputs=OutputRequest(Many(scale=:Leaf), :missing))
+    @test_throws "Ambiguous model output publishers" run!(request_publishers_model();
+        steps=0, outputs=OutputRequest(Many(scale=:Leaf), :counter))
+    simulation = run!(request_publishers_model(); steps=1,
+        outputs=OutputRequest(Many(scale=:Leaf), :counter;
+            name=:selected, application=:second_counter))
+    record = simulation.output_requests[:selected]
+    @test record.application_id === :second_counter
+    @test Set(keys(record.targets)) == Set((ObjectId(:second),))
+    @test outputs(simulation)[(:second_counter, ObjectId(:second), :counter)] == [(1.0, 1)]
+end
 end

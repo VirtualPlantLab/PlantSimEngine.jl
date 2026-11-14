@@ -1844,30 +1844,61 @@ _model_output_object_ids(compiled, application, variable::Symbol) =
         compiled.distributed_outputs,
     )
 
-@inline function _output_reference_from_view(view, operation::F, variable, args::Vararg{Any,N}) where {F,N}
-    return operation(refvalue(view.status, variable), args...)
+# Admit the authored variable name before reading a dynamically selected Ref.
+# The application already owns ALL; no Status-wide field switch or new name
+# catalogue is needed for local, private or distributed outputs.
+@generated function _with_model_output_variable(operation::F,
+    ::AuthoredOutputPorts{ALL}, variable::Symbol, args::Vararg{Any,N},
+) where {F,ALL,N}
+    branches = [:(variable === $(QuoteNode(name)) &&
+        return operation(Val{$(QuoteNode(name))}(), args...)) for name in ALL]
+    return quote
+        $(branches...)
+        throw(ArgumentError("The output variable is outside its prepared application declaration."))
+    end
 end
 
-function _with_model_output_reference(operation::F, compiled, application,
+@inline function _output_reference_from_view(view, operation::F,
+    ::Val{VARIABLE}, args::Vararg{Any,N},
+) where {F,VARIABLE,N}
+    return operation(refvalue(view.status, VARIABLE), args...)
+end
+
+@inline function _with_model_output_reference(operation::F, compiled, application,
     object_id::ObjectId, variable::Symbol, args::Vararg{Any,N},
 ) where {F,N}
+    return Base.@inline _with_model_output_variable(_with_model_output_reference,
+        _application_ports(application).outputs, variable,
+        operation, compiled, application, object_id, args...)
+end
+
+function _with_model_output_reference(::Val{VARIABLE}, operation::F, compiled,
+    application, object_id::ObjectId, args::Vararg{Any,N},
+) where {VARIABLE,F,N}
     id = _index_object_id(compiled.model.registry.objects, object_id)
     if _model_output_names(application) !== _model_canonical_output_names(application) &&
-       variable in _model_output_names(application) &&
-       !(variable in _model_canonical_output_names(application)) &&
+       VARIABLE in _model_output_names(application) &&
+       !(VARIABLE in _model_canonical_output_names(application)) &&
        haskey(compiled.status_views_by_target, (application.id, id))
         return Base.@inline _with_model_status_view(_output_reference_from_view,
             compiled.status_view_schema, application.id,
-            compiled.status_views_by_target[(application.id, id)], operation, variable, args...)
+            compiled.status_views_by_target[(application.id, id)], operation,
+            Val{VARIABLE}(), args...)
     end
     return Base.@inline _with_registered_status(compiled.model.registry.objects.catalog,
         model_status(compiled.model, id)) do status
-        operation(refvalue(status, variable), args...)
+        operation(refvalue(status, VARIABLE), args...)
     end
 end
 
-_model_output_reference(compiled, application, object_id::ObjectId, variable::Symbol) =
-    _with_model_output_reference(identity, compiled, application, object_id, variable)
+function _initialize_model_output_stream_from_reference!(reference::R, streams,
+    retention, application_id::Symbol, key, variable::Symbol,
+    sizehint_steps::Integer, clock_dt,
+) where {R<:Ref}
+    streams[key] = _model_new_output_stream(reference[], retention,
+        application_id, variable, sizehint_steps, clock_dt)
+    return streams
+end
 
 function _initialize_model_output_stream!(
     streams,
@@ -1880,27 +1911,10 @@ function _initialize_model_output_stream!(
 )
     key = _model_stream_key(application.id, object_id, variable)
     haskey(streams, key) && return streams
-    reference = _model_output_reference(
-        compiled,
-        application,
-        object_id,
-        variable,
-    )
-    isnothing(reference) && error(
-        "Application `$(application.id)` declares retained output ",
-        "`$(variable)`, but object `$(object_id.value)` status has no ",
-        "such variable.",
-    )
-    stream = _model_new_output_stream(
-        reference[],
-        retention,
-        application.id,
-        variable,
-        sizehint_steps,
-        application.clock.dt,
-    )
-    streams[key] = stream
-    return streams
+    return Base.@inline _with_model_output_reference(
+        _initialize_model_output_stream_from_reference!, compiled, application,
+        object_id, variable, streams, retention, application.id, key, variable,
+        sizehint_steps, application.clock.dt)
 end
 
 function _initialize_changed_model_output_streams!(
@@ -4874,14 +4888,14 @@ function compile_model_output_retention(
             "Duplicate output request name `$(request.name)`. Request names must be unique."
         )
         push!(names, request.name)
-        application = _model_request_application(
+        application_id = _model_request_application_id(
             compiled.model,
             compiled,
             request,
         )
-        push!(requested_outputs, (application.id, request.var))
-        if application.id in compiled.scenario_plan.manual_application_ids
-            get!(accepted_call_times, application.id, -Inf)
+        push!(requested_outputs, (application_id, request.var))
+        if application_id in compiled.scenario_plan.manual_application_ids
+            get!(accepted_call_times, application_id, -Inf)
         end
     end
     retained_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
@@ -7825,7 +7839,13 @@ end
 
 function _compile_output_request(model, compiled, request)
     matcher = _compile_selector_matcher(model, request.selector)
-    application = _model_request_application(model, compiled, request)
+    application_id = _model_request_application_id(model, compiled, request)
+    return _compiled_application_by_id(compiled, application_id) do application
+        _compile_output_request_targets(model, compiled, request, matcher, application)
+    end
+end
+
+function _compile_output_request_targets(model, compiled, request, matcher, application)
     I = keytype(typeof(model.registry.objects))
     targets = Dict{I,Any}()
     record = CompiledOutputRequest(request, matcher, application.id, targets, Tuple{Any}, Tuple{Any}, Tuple{Any})
@@ -8292,60 +8312,63 @@ function _materialize_model_output_rows(rows, sink)
     return sink(rows)
 end
 
-function _model_request_application(model::CompositeModel, compiled::CompiledCompositeModel, request)
-    requested_ids = Set(resolve_object_ids(
-        model,
-        request.selector;
-        context=request.context,
-    ))
+function _model_request_application_id(model::CompositeModel, compiled::CompiledCompositeModel, request)
+    I = keytype(typeof(model.registry.objects))
+    requested_ids = Set{I}()
+    for id in resolve_object_ids(model, request.selector; context=request.context)
+        push!(requested_ids, _index_object_id(model.registry.objects, id))
+    end
     declared_scale = _selector_declared_scale(request.selector)
-    candidates = CompiledModelApplication[]
-    for application in compiled.applications
-        isnothing(request.application) ||
-            application.id == request.application ||
-            application.name == request.application ||
-            continue
-        local_output = request.var in _model_output_names(application)
-        local_match = local_output && (
-            any(id -> id in requested_ids, application.target_ids) ||
-            (!isnothing(declared_scale) &&
-             _model_application_matches_scale(model, application, declared_scale))
-        )
-        distributed_match = _model_request_matches_distributed_output(
-            compiled,
-            application,
-            request,
-            requested_ids,
-        )
-        (local_match || distributed_match) || continue
-        if isnothing(request.application) &&
-           !distributed_match &&
-           _publish_mode_for_output(application.spec, request.var) == :stream_only
-            continue
+    candidates = Symbol[]
+    for application_id in keys(compiled.applications_by_id)
+        matches = _compiled_application_by_id(compiled, application_id) do application
+            isnothing(request.application) ||
+                application.id == request.application ||
+                application.name == request.application ||
+                return false
+            local_output = request.var in _model_output_names(application)
+            local_match = local_output && (
+                any(id -> id in requested_ids, application.target_ids) ||
+                (!isnothing(declared_scale) &&
+                 _model_application_matches_scale(model, application, declared_scale))
+            )
+            distributed_match = _model_request_matches_distributed_output(
+                compiled, application, request, requested_ids,
+            )
+            (local_match || distributed_match) || return false
+            return !(isnothing(request.application) && !distributed_match &&
+                _publish_mode_for_output(application.spec, request.var) == :stream_only)
         end
-        push!(candidates, application)
+        matches && push!(candidates, application_id)
     end
     if isempty(candidates)
-        error(
-            "No model output publisher found for selector `$(request.selector)` and variable `$(request.var)`",
-            isnothing(request.application) ?
-            "." :
-            " from application `$(request.application)`.",
-        )
+        io = IOBuffer()
+        print(io, "No model output publisher found for selector `")
+        _print_selector_diagnostic(io, request.selector, Any[])
+        print(io, "` and variable `", String(request.var), '`')
+        isnothing(request.application) ||
+            print(io, " from application `", String(request.application), '`')
+        print(io, '.')
+        error(String(take!(io)))
     elseif length(candidates) > 1
         if isnothing(request.application)
             manual_application_ids = _manual_call_application_ids(compiled)
             root_candidates = filter(
-                application -> !(application.id in manual_application_ids),
+                id -> !(id in manual_application_ids),
                 candidates,
             )
             length(root_candidates) == 1 && return only(root_candidates)
         end
-        error(
-            "Ambiguous model output publishers for selector `$(request.selector)` and variable `$(request.var)`: ",
-            join((application.id for application in candidates), ", "),
-            ". Provide `application=` or make one publisher canonical.",
-        )
+        io = IOBuffer()
+        print(io, "Ambiguous model output publishers for selector `")
+        _print_selector_diagnostic(io, request.selector, Any[])
+        print(io, "` and variable `", String(request.var), "`: ")
+        for (index, id) in pairs(candidates)
+            index == 1 || print(io, ", ")
+            print(io, String(id))
+        end
+        print(io, ". Provide `application=` or make one publisher canonical.")
+        error(String(take!(io)))
     end
     return only(candidates)
 end
@@ -8393,10 +8416,6 @@ _model_request_matches_distributed_output(
     requested_ids,
     compiled.distributed_outputs,
 )
-
-function _model_request_application(sim::Simulation, request)
-    return _model_request_application(sim.model, sim.compiled, request)
-end
 
 function _selector_declared_scale(selector::AbstractObjectMultiplicity)
     selector_criteria = criteria(selector)
