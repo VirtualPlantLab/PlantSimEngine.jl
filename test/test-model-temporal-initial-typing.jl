@@ -93,7 +93,7 @@ end
 end
 
 function rebuild_input(ids, initial)
-    binding = (multiplicity=:many, source_ids=ObjectId.(ids))
+    binding = (selector=Many(), source_ids=ObjectId.(ids))
     storage = PSE.RefVector(Base.RefValue{Any}[
         Ref{Any}(deepcopy(value)) for value in initial
     ])

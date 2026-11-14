@@ -6157,9 +6157,9 @@ function _append_targeted_newborn_targets!(
                 (getfield(cache,:execution_stamp)::Base.RefValue{UInt64})
             status_view = _compile_model_status_view(runtime_model(context),partial_application,
                 object_id,get(targeted_input_bindings,key,()),compiled.applications_by_id,
-                targeted_runtime.application_positions,compiled.distributed_outputs;
-                execution_stamp=stamp, status_view_schema=compiled.status_view_schema,
-                input_binding_storage=compiled.input_bindings)::CompiledModelStatusView
+                targeted_runtime.application_positions,compiled.distributed_outputs,
+                stamp, compiled.status_view_schema,
+                compiled.input_bindings)::CompiledModelStatusView
             output_groups = _runtime_model_output_groups(compiled,application,object_id)
             environment_binding = _environment_binding_for(environment_bindings,application.id,object_id)
             call_bindings = () # targeted admission has rejected nested callees

@@ -647,9 +647,9 @@ end
     base.output_reads[] = replacement.output_reads[] = 0
     positions = Dict(id => index for (index, id) in pairs(compiled.application_order))
     ephemeral = PSE._compile_model_status_view(model, application, ObjectId(:b_override), (),
-        compiled.applications_by_id, positions, compiled.distributed_outputs;
-        execution_stamp=override_view.execution_stamp, status_view_schema=compiled.status_view_schema,
-        input_binding_storage=compiled.input_bindings)
+        compiled.applications_by_id, positions, compiled.distributed_outputs,
+        override_view.execution_stamp, compiled.status_view_schema,
+        compiled.input_bindings)
     @test (base.output_reads[], replacement.output_reads[]) == (0, 1)
     @test ephemeral.private_outputs.private isa Base.RefValue{Float32}
     @test ephemeral.canonical_status === override_view.canonical_status

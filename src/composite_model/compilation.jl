@@ -3539,8 +3539,7 @@ function _preserve_temporal_input_state!(
     previous::CompiledTemporalInput,
     previous_source_ids,
 )
-    if current.binding.multiplicity != :many ||
-       previous.binding.multiplicity != :many
+    if !(current.binding.selector isa Many && previous.binding.selector isa Many)
         current.reference[] = _private_temporal_value(previous.reference[])
         return CompiledTemporalInput(
             current.binding,
@@ -3897,10 +3896,10 @@ function _extend_model_status_views(
             get(input_bindings_by_target, key, ()),
             applications_by_id,
             positions,
-            distributed_outputs;
-            execution_stamp=_status_view_execution_stamp(model, key, previous_view, compiled.status_view_schema),
-            status_view_schema=compiled.status_view_schema,
-            input_binding_storage=compiled.input_bindings,
+            distributed_outputs,
+            _status_view_execution_stamp(model, key, previous_view, compiled.status_view_schema),
+            compiled.status_view_schema,
+            compiled.input_bindings,
         )
         views[key] = isnothing(previous_view) ?
                      current_view :
@@ -4810,17 +4809,8 @@ function _extend_compiled_scene(
         recorder = _AddedConsumerInputBindings(
             model, many_binding_cache, changed_bindings, input_bindings_by_target,
         )
-        # Both vectors were filled in the same application-slot order above.
-        # Read the original partial only after selecting its exact owner.
-        for position in eachindex(added_applications)
-            Base.@inline _with_metadata_entry(
-                applications_by_id, new_target_application_ids[position],
-                added_applications, position,
-            ) do current, partials, partial_position
-                partial = partials[partial_position]
-                partial isa typeof(current) && partial.plan === current.plan ||
-                    throw(ArgumentError("The application is outside its compiled metadata owner."))
-                application = partial::typeof(current)
+        for partial in added_applications
+            _with_model_application(applications_by_id, partial) do application
                 isempty(application.target_ids) && return nothing
                 _with_metadata_entry(
                     compiled.scenario_plan.input_recipes_by_application, application.id,
@@ -7538,8 +7528,8 @@ function _compile_model_status_views(
                 get(input_bindings_by_target, key, ()),
                 applications_by_id,
                 positions,
-                distributed_outputs;
-                execution_stamp=_status_view_execution_stamp(model, key,
+                distributed_outputs,
+                _status_view_execution_stamp(model, key,
                     isnothing(previous_views) ? nothing : get(previous_views, key, nothing), status_view_schema),
                 status_view_schema, input_binding_storage,
             )
@@ -8945,6 +8935,7 @@ end
         end)
     end
     return quote
+        $(Expr(:meta, :inline))
         plan = getfield(partial, :plan)::CompiledApplicationPlan
         application_id = getfield(plan, :id)::Symbol
         $(branches...)

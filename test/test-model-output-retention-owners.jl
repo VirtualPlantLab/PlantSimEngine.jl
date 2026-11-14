@@ -113,9 +113,8 @@ function construction_trace(; schema=ViewConstructionTrace(), prototype=nothing)
     stamp = Ref(UInt64(0))
     prior_view_count = schema isa ViewConstructionTrace ? length(schema.views) : 0
     ephemeral = PSE._compile_model_status_view(model, partial, ObjectId(3), (),
-        compiled.applications_by_id, positions, compiled.distributed_outputs;
-        execution_stamp=stamp, status_view_schema=schema,
-        input_binding_storage=compiled.input_bindings)
+        compiled.applications_by_id, positions, compiled.distributed_outputs,
+        stamp, schema, compiled.input_bindings)
     @test ephemeral.execution_stamp === stamp
     @test ephemeral.canonical_status === previous.canonical_status
     @test PSE.refvalue(ephemeral.status, :live) === PSE.refvalue(previous.status, :live)
@@ -167,9 +166,8 @@ end
     positions = Dict(id => index for (index, id) in pairs(compiled.application_order))
     @test_throws "outside supported prepared application view families" PSE._compile_model_status_view(
         simulation.model, compiled.applications_by_id[:writer], ObjectId(3), (),
-        compiled.applications_by_id, positions, compiled.distributed_outputs;
-        execution_stamp=before.execution_stamp, status_view_schema=invalid,
-        input_binding_storage=compiled.input_bindings)
+        compiled.applications_by_id, positions, compiled.distributed_outputs,
+        before.execution_stamp, invalid, compiled.input_bindings)
     @test simulation.model.binding_cache === previous_owner
     @test compiled.status_views_by_target[key] === before
 end

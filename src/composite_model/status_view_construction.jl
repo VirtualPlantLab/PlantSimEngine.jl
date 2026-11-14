@@ -171,7 +171,7 @@ end
 @inline function _compile_model_status_view(model::CompositeModel,
     application::CompiledModelApplication, object_id::ObjectId,
     input_bindings::Tuple, applications_by_id, application_positions,
-    distributed_outputs=NoCompiledDistributedOutputs();
+    distributed_outputs,
     execution_stamp::Base.RefValue{UInt64}, status_view_schema,
     input_binding_storage,
 )
