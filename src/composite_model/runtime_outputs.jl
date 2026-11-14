@@ -7797,18 +7797,19 @@ end
     end
 end
 
-function _new_output_request_target(initial::T, scale, start_time) where {T}
-    return OutputRequestTarget(scale,
+function _insert_output_request_target!(initial::T, targets, object_id, scale, start_time) where {T}
+    targets[object_id] = OutputRequestTarget(scale,
         OutputRequestMembership{T}[OutputRequestMembership(float(start_time), nothing, deepcopy(initial))])
+    return nothing
 end
 
-function _output_request_reference_value(reference::R, record, operation::F,
+@inline function _output_request_reference_value(reference::R, record, operation::F,
     args::Vararg{Any,N},
 ) where {R,F,N}
     return Base.@inline _with_output_request_value(operation, record, reference[], args...)
 end
 
-function _output_request_from_reference(reference, record, operation::F,
+@inline function _output_request_from_reference(reference, record, operation::F,
     args::Vararg{Any,N},
 ) where {F,N}
     return Base.@inline _with_output_request_reference(_output_request_reference_value,
@@ -7833,8 +7834,9 @@ function _compile_output_request(model, compiled, request)
     for raw_id in _resolve_object_ids(model, request.selector, matcher; context=request.context)
         object_id = _index_object_id(model.registry.objects, raw_id)
         object_id in owned_ids || continue
-        targets[object_id] = _with_output_request_initial(_new_output_request_target,
-            record, compiled, application, object_id, _model_object(model, object_id).scale, 0.0)
+        _with_output_request_initial(_insert_output_request_target!,
+            record, compiled, application, object_id, targets, object_id,
+            _model_object(model, object_id).scale, 0.0)
     end
     return record
 end
@@ -7939,8 +7941,14 @@ function _refresh_output_request_for_application!(application, record, simulatio
     matched_id_set = Set{I}(matched_ids)
     current_ids = isnothing(added_object_ids) ? matched_id_set : union(active_ids, matched_id_set)
     if request.selector isa Union{One,OptionalOne} && length(current_ids) > 1
-        error("Output request `$(request.name)` expected at most one current object for selector ",
-            "`$(request.selector)`, got $([id.value for id in current_ids]).")
+        io = IOBuffer()
+        ancestors = Any[]
+        print(io, "Output request `", String(request.name), "` expected at most one current object for selector `")
+        _print_selector_diagnostic(io, request.selector, ancestors)
+        print(io, "`, got ")
+        _print_selector_diagnostic(io, [id.value for id in current_ids], ancestors)
+        print(io, '.')
+        error(String(take!(io)))
     end
     publication_time = float(simulation.current_step + 1)
     manual_application = application_id in simulation.compiled.scenario_plan.manual_application_ids
@@ -7970,8 +7978,8 @@ function _refresh_output_request_for_application!(application, record, simulatio
             Base.@inline _with_output_request_target(_refresh_output_request_target!, record,
                 object_targets[object_id], record, simulation, application, object_id, target_start_time)
         else
-            object_targets[object_id] = _with_output_request_initial(_new_output_request_target,
-                record, simulation.compiled, application, object_id,
+            _with_output_request_initial(_insert_output_request_target!,
+                record, simulation.compiled, application, object_id, object_targets, object_id,
                 _model_object(simulation.model, object_id).scale, target_start_time)
         end
     end

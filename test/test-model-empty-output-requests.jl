@@ -83,4 +83,31 @@ end
     @test only(original_memberships).end_time === 2.0
     @test outputs(simulation)[(:counter, ObjectId(2), :counter)] == [(1.0, 1), (2.0, 2)]
 end
+
+@testset "output request cardinality diagnostics survive lifecycle growth" begin
+    model = CompositeModel(Object(:first_leaf; scale=:Leaf);
+        applications=(ModelSpec(Counter(); name=:counter, on=Many(scale=:Leaf)),))
+    request = OutputRequest(OptionalOne(scale=:Leaf), :counter;
+        name=:chosen_leaf, application=:counter)
+    simulation = run!(model; steps=0, outputs=request)
+    original_target = simulation.output_requests[:chosen_leaf].targets[ObjectId(:first_leaf)]
+    register_object!(model, Object(:second_leaf; scale=:Leaf))
+    failure = try
+        continue!(simulation; steps=0)
+        nothing
+    catch exception
+        exception
+    end
+    @test failure isa ErrorException
+    if failure isa ErrorException
+        message = sprint(showerror, failure)
+        @test occursin("Output request `chosen_leaf` expected at most one current object", message)
+        @test occursin("OptionalOne", message)
+        @test occursin("first_leaf", message)
+        @test occursin("second_leaf", message)
+    end
+    @test current_step(simulation) == 0
+    @test length(simulation.output_requests[:chosen_leaf].targets) == 1
+    @test simulation.output_requests[:chosen_leaf].targets[ObjectId(:first_leaf)] === original_target
+end
 end
