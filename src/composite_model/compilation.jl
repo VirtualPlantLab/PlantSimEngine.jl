@@ -7615,11 +7615,13 @@ function _temporal_source_application(
     elseif binding.policy isa PreviousTimeStep
         return last(sort!(matches; by=application_id -> application_positions[application_id]))
     end
-    error(
-        "Temporal model input `$(binding.input)` from ",
-        "`$(source_id.value).$(binding.source_var)` has ambiguous source ",
-        "applications `$(matches)`. Add `application=...` to the `inputs=...` selector.",
-    )
+    io = IOBuffer()
+    print(io, "Temporal model input `", binding.input, "` from `",
+        source_id.value, '.', binding.source_var,
+        "` has ambiguous source applications `")
+    _print_selector_diagnostic(io, matches, Any[])
+    print(io, "`. Add `application=...` to the `inputs=...` selector.")
+    error(String(take!(io)))
 end
 
 _distributed_temporal_source_application(

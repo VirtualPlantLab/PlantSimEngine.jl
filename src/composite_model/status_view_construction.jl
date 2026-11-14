@@ -256,20 +256,23 @@ end
 
 # A homogeneous initial snapshot has the same exact schema as before. Matching
 # never constructs a type from an Any value in the finite construction path.
-function _status_view_initial_matches(::Type{I}, value, many::Bool) where {I}
-    many || return typeof(value) === I
+_status_view_initial_mode(::Type{B}) where {B<:CompiledModelInputBinding} =
+    Val(fieldtype(fieldtype(B, :plan), :selector) <: Many)
+
+function _status_view_initial_matches(::Type{I}, value, ::Val{MANY}) where {I,MANY}
+    MANY || return typeof(value) === I
     value isa Vector{Any} || return false
     isempty(value) && return I === Vector{Any}
     first_type = typeof(first(value))
-    homogeneous = all(item -> item isa first_type, value)
+    homogeneous = all(item -> typeof(item) === first_type, value)
     I <: Vector || return false
     return homogeneous ? first_type === eltype(I) : I === Vector{Any}
 end
 
-function _construct_status_view_initial(::Type{I}, value, many::Bool) where {I}
-    _status_view_initial_matches(I, value, many) || throw(ArgumentError(
+function _construct_status_view_initial(::Type{I}, value, mode::Val{MANY}) where {I,MANY}
+    _status_view_initial_matches(I, value, mode) || throw(ArgumentError(
         "The temporal initial snapshot is outside its prepared view schema."))
-    many || return value::I
+    MANY || return value::I
     values = value::Vector{Any}
     I === Vector{Any} && return values
     T = eltype(I)
@@ -318,7 +321,17 @@ function _construct_status_view_temporal(::Type{TI}, recipe::_TemporalStatusView
     S = eltype(R)
     recipe.binding isa B && recipe.source_applications isa SA || throw(ArgumentError(
         "The temporal input is outside its prepared view schema."))
-    initial = _construct_status_view_initial(I, recipe.initial, recipe.many)
+    mode = _status_view_initial_mode(B)
+    value = recipe.initial
+    initial = if mode isa Val{true}
+        value isa Vector{Any} || throw(ArgumentError(
+            "The temporal initial snapshot is outside its prepared view schema."))
+        _construct_status_view_initial(I, value::Vector{Any}, mode)
+    else
+        value isa I || throw(ArgumentError(
+            "The temporal initial snapshot is outside its prepared view schema."))
+        _construct_status_view_initial(I, value::I, mode)
+    end
     storage = _construct_status_view_storage(S, recipe)
     reference = _construct_status_view_reference(R, storage)
     return TI(recipe.binding::B, recipe.source_applications::SA, initial, reference)
@@ -369,10 +382,15 @@ end
         B, SA = fieldtype(TI, :binding), fieldtype(TI, :source_applications)
         I, R = fieldtype(TI, :initial), fieldtype(TI, :reference)
         input = fieldtype(fieldtype(B, :plan), :route).parameters[1]
+        mode = _status_view_initial_mode(B)
+        Value = mode isa Val{true} ? Vector{Any} : I
+        initial_matches = :(parts.temporal[$index].initial isa $Value &&
+            _status_view_initial_matches($I, parts.temporal[$index].initial::$Value,
+                $(QuoteNode(mode))))
         append!(checks, [:(parts.temporal[$index].input === $(QuoteNode(input))),
             :(parts.temporal[$index].binding isa $B),
             :(parts.temporal[$index].source_applications isa $SA),
-            :(_status_view_initial_matches($I, parts.temporal[$index].initial, parts.temporal[$index].many)),
+            initial_matches,
             :(_status_view_storage_matches($(eltype(R)), parts.temporal[$index]))])
     end
     for (index, name) in enumerate(fieldnames(P))

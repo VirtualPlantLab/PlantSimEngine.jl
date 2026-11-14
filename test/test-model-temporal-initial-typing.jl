@@ -79,17 +79,22 @@ end
 end
 @testset "heterogeneous snapshots never convert values into the first schema" begin
     mixed = Any[Float32(1.25), Float64(2.5)]
-    result = PSE._construct_status_view_initial(Vector{Any}, mixed, true)
+    result = PSE._construct_status_view_initial(Vector{Any}, mixed, Val(true))
     @test result === mixed
     @test typeof.(result) == [Float32, Float64]
     private = Any[Float32[1, 2], Float32[3, 4]]
-    typed = PSE._construct_status_view_initial(Vector{Vector{Float32}}, private, true)
+    typed = PSE._construct_status_view_initial(Vector{Vector{Float32}}, private, Val(true))
     @test typed isa Vector{Vector{Float32}}
     @test typed[1] === private[1]
     @test typed[2] === private[2]
     # This helper narrows an already private snapshot, never copies its payload.
     typed[1][1] = 9
     @test private[1][1] === 9f0
+    # A singular temporal input may itself contain a vector; its snapshot is
+    # returned directly rather than interpreted as a Many staging container.
+    single = Float32[1, 2]
+    @test PSE._construct_status_view_initial(Vector{Float32}, single, Val(false)) === single
+    @test !PSE._status_view_initial_matches(Vector{Any}, Any[1f0, 2f0], Val(true))
 end
 
 function rebuild_input(ids, initial)
