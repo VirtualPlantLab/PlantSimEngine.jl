@@ -3443,8 +3443,10 @@ function _append_added_many_sources!(
     matcher = binding.matcher
     matching_matcher = matcher
     query_prepared = false
-    new_source_ids = ObjectId[]
-    for object_id in added_ids
+    source_ids = _input_binding_source_ids(model.registry.objects, binding.source_ids)
+    new_source_ids = empty(source_ids)
+    for raw_id in added_ids
+        object_id = _index_object_id(model.registry.objects, raw_id)
         if matcher.defaults_to_context
             object_id == binding.consumer_id || continue
         else
@@ -3459,7 +3461,7 @@ function _append_added_many_sources!(
             _selector_matches_object_topology(model, matching_matcher, object_id;
                 context=binding.consumer_id, default_scope) || continue
         end
-        first(_sorted_object_id_position(binding.source_ids, object_id)) ||
+        first(_sorted_object_id_position(source_ids, object_id)) ||
             push!(new_source_ids, object_id)
     end
     isempty(new_source_ids) && return true
@@ -4362,10 +4364,10 @@ function _refresh_scene_call_bindings!(
             _selector_matches_any_object_id(
                 model,
                 binding.matcher,
-                added_ids;
-                context=binding.consumer_id,
-                default_to_context=true,
-                default_scope=_default_dependency_scope(model, binding.consumer_id),
+                added_ids,
+                binding.consumer_id,
+                true,
+                _default_dependency_scope(model, binding.consumer_id),
             ) || continue
             key = (binding.application_id,
                 _index_object_id(model.registry.objects, binding.consumer_id))
@@ -4585,10 +4587,10 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
         _selector_matches_any_object_id(
             model,
             binding.matcher,
-            added_ids;
-            context=consumer_id,
-            default_to_context=true,
-            default_scope=default_scope,
+            added_ids,
+            consumer_id,
+            true,
+            default_scope,
         ) || return false
     end
     appended_sources = if force_rebuild
@@ -8539,16 +8541,23 @@ function _final_canonical_source_application(
     source_ids,
     source_application_ids,
     source_var::Symbol,
-    ::NoCompiledDistributedOutputs=NoCompiledDistributedOutputs(),
+    ::NoCompiledDistributedOutputs=NoCompiledDistributedOutputs();
+    applications_by_id::CompiledMetadataTable,
 )
     length(source_ids) == 1 || return source_application_ids
     matching_ids = Set(source_application_ids)
-    canonical_ids = Symbol[
-        application.id
-        for application in get(applications_by_object, only(source_ids), Any[])
-        if application.id in matching_ids &&
-           _publish_mode_for_output(application.spec, source_var) == :canonical
-    ]
+    canonical_ids = Symbol[]
+    for raw_application in get(applications_by_object, only(source_ids), ())
+        Base.@inline _with_model_application(
+            applications_by_id, raw_application::CompiledModelApplication,
+            canonical_ids, matching_ids, source_var,
+        ) do application, resolved, matching, variable
+            application.id in matching || return nothing
+            _publish_mode_for_output(application.spec, variable) == :canonical || return nothing
+            push!(resolved, application.id)
+            return nothing
+        end
+    end
     isempty(canonical_ids) && return source_application_ids
     return Symbol[last(canonical_ids)]
 end
@@ -8558,7 +8567,8 @@ function _final_canonical_source_application(
     source_ids,
     source_application_ids,
     source_var::Symbol,
-    distributed_outputs::CompiledDistributedOutputs,
+    distributed_outputs::CompiledDistributedOutputs;
+    applications_by_id::CompiledMetadataTable,
 )
     length(source_ids) == 1 || return source_application_ids
     matching_ids = Set(source_application_ids)
@@ -8576,7 +8586,8 @@ function _final_canonical_source_application(
         source_ids,
         source_application_ids,
         source_var,
-        NoCompiledDistributedOutputs(),
+        NoCompiledDistributedOutputs();
+        applications_by_id,
     )
     return Symbol[last(canonical_ids)]
 end
@@ -8680,7 +8691,8 @@ function _resolve_input_sources(
             source_ids,
             source_application_ids,
             source_var,
-            distributed_outputs,
+            distributed_outputs;
+            applications_by_id,
         )
     end
     if selector isa Many && length(source_application_ids) > 1

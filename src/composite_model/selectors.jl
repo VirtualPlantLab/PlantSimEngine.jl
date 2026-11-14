@@ -1427,10 +1427,10 @@ end
 function _selector_matches_any_object_id(
     model::CompositeModel,
     matcher::CompiledSelectorMatcher,
-    object_ids;
-    context=nothing,
-    default_to_context::Bool=false,
-    default_scope=nothing,
+    object_ids,
+    context,
+    default_to_context::Bool,
+    default_scope,
 )
     for object_id in object_ids
         _selector_matches_object_id(
@@ -1443,24 +1443,6 @@ function _selector_matches_any_object_id(
         ) && return true
     end
     return false
-end
-
-function _selector_matches_any_object_id(
-    model::CompositeModel,
-    selector::AbstractObjectMultiplicity,
-    object_ids;
-    context=nothing,
-    default_to_context::Bool=false,
-    default_scope=nothing,
-)
-    return _selector_matches_any_object_id(
-        model,
-        _compile_selector_matcher(model, selector),
-        object_ids;
-        context=context,
-        default_to_context=default_to_context,
-        default_scope=default_scope,
-    )
 end
 
 function resolve_object_ids(model::CompositeModel, selector::AbstractObjectMultiplicity; context=nothing)

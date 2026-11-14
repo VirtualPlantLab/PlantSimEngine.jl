@@ -89,7 +89,7 @@ end
 end
 
 @testset "planned singleton matching retains a real newborn partial overlay" begin
-    simulation, _ = matching_fixture()
+    simulation, distributed = matching_fixture()
     compiled = simulation.compiled
     newborn = register_object!(simulation.model, Object(7; status=Status(x=7f0)))
     reference = PSE.refvalue(newborn.status, :x)
@@ -103,6 +103,14 @@ end
         applications_by_id=compiled.applications_by_id) == [:a]
     @test PSE._matches_input_source_writer(ObjectId(7), :x, nothing, :a,
         compiled.applications_by_id, PSE.NoCompiledDistributedOutputs(), overlay)
+    @test PSE._final_canonical_source_application(overlay, ObjectId[ObjectId(7)],
+        [:f, :a], :x; applications_by_id=compiled.applications_by_id) == [:a]
+    @test PSE._final_canonical_source_application(overlay, ObjectId[ObjectId(7)],
+        [:f, :a], :x, distributed; applications_by_id=compiled.applications_by_id) == [:a]
+    unmatched = [:f, :b]
+    @test PSE._final_canonical_source_application(overlay, ObjectId[ObjectId(7)],
+        unmatched, :x; applications_by_id=compiled.applications_by_id) === unmatched
+    @test unmatched == [:f, :b]
     @test newborn.status.x === 7f0
     @test PSE.refvalue(newborn.status, :x) === reference
     @test current_step(simulation) == 0
