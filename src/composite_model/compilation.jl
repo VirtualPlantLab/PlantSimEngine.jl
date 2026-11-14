@@ -6304,6 +6304,35 @@ _canonical_status_recipe_storage(::OpenObjectFamilyCatalog, ::Type{I}) where {I<
     return :(Dict{$I,$R}())
 end
 
+# The existing recipe dictionary is the witness for its actual CSR instances.
+@inline function _with_canonical_status_recipe(f::F,
+    ::AbstractDict{I,_CanonicalStatusRecipe}, recipe, args::Vararg{Any,N},
+) where {F,I,N}
+    return f(recipe::_CanonicalStatusRecipe, args...)
+end
+@generated function _with_canonical_status_recipe(f::F, ::AbstractDict{I,R},
+    recipe, args::Vararg{Any,N},
+) where {F,I,R,N}
+    families = Base.uniontypes(R)
+    all(T -> isconcretetype(T) && T <: _CanonicalStatusRecipe, families) ||
+        throw(ArgumentError("Canonical recipe storage requires concrete recipe families."))
+    branches = [:(recipe isa $T && return f(recipe::$T, args...)) for T in families]
+    return quote
+        $(Expr(:meta, :inline))
+        $(branches...)
+        throw(ArgumentError("The canonical status recipe is outside its storage family."))
+    end
+end
+
+@inline function _with_canonical_status_preparation(f::F, recipes, catalog,
+    preparation, args::Vararg{Any,N},
+) where {F,N}
+    if preparation isa _CanonicalStatusRecipe
+        return _with_canonical_status_recipe(f, recipes, preparation, args...)
+    end
+    return Base.@inline _with_registered_status(f, catalog, preparation, args...)
+end
+
 @inline function _status_recipe_has_variable(recipe::_CanonicalStatusRecipe, variable::Symbol)
     variable in recipe.edit_names && return true
     return !isnothing(recipe.original) && variable in propertynames(recipe.original)
@@ -7242,6 +7271,156 @@ function _model_input_status_references(bindings)
     return references
 end
 
+# Projection uses existing raw binding families; no references or values are made.
+function _model_input_status_reference_types(B)
+    references = Any[]
+    for Binding in _model_input_binding_family_types(B)
+        Carrier = fieldtype(Binding, :carrier)
+        # Both the final-reference table and its consumers skip absent carriers.
+        Carrier === Nothing && continue
+        isconcretetype(Carrier) || throw(ArgumentError(
+            "An input status reference requires an exact prepared carrier type."))
+        Reference = Carrier <: Base.RefValue ? Carrier : Base.RefValue{Carrier}
+        isconcretetype(Reference) || throw(ArgumentError(
+            "An input status reference requires an exact prepared reference type."))
+        Reference in references || push!(references, Reference)
+    end
+    return Tuple(references)
+end
+
+@inline function _with_model_input_status_reference(f::F,
+    ::AbstractVector{CompiledModelInputBinding}, reference, args::Vararg{Any,N},
+) where {F,N}
+    reference isa Ref || throw(ArgumentError("An input status reference must be a Ref."))
+    return f(reference, args...)
+end
+
+@generated function _with_model_input_status_reference(f::F,
+    ::AbstractVector{B}, reference, args::Vararg{Any,N},
+) where {F,B,N}
+    references = _model_input_status_reference_types(B)
+    branches = [:(reference isa $R && return f(reference::$R, args...)) for R in references]
+    return quote
+        $(branches...)
+        throw(ArgumentError("The input status reference is outside its prepared binding family."))
+    end
+end
+
+# The per-record worker already owns a concrete real B after existing IB admission.
+# Use the same projection when no all-bindings union is needed.
+@generated function _with_model_input_status_reference(f::F,
+    binding::B, reference, args::Vararg{Any,N},
+) where {F,B<:CompiledModelInputBinding,N}
+    references = _model_input_status_reference_types(B)
+    branches = [:(reference isa $R && return f(reference::$R, args...)) for R in references]
+    return quote
+        $(branches...)
+        throw(ArgumentError("The input status reference is outside its prepared binding family."))
+    end
+end
+
+_stage_model_input_defaults!(preparation, ::Tuple{}, ::Tuple{}, context) = 0
+function _stage_model_input_defaults!(preparation, variables::Tuple,
+    defaults::Tuple{V,Vararg}, context,
+) where {V}
+    variable, value = first(variables), first(defaults)
+    if preparation isa Status
+        if !(variable in propertynames(preparation))
+            recipe = _status_recipe_for_object!(context.recipes,
+                context.recipe_order, context.model, context.object_id)
+            return _with_canonical_status_recipe(_stage_model_input_defaults!,
+                context.recipes, recipe, variables, defaults, context)
+        end
+        return _stage_model_input_defaults!(preparation,
+            Base.tail(variables), Base.tail(defaults), context)
+    end
+    avoided = 0
+    if !_status_recipe_has_variable(preparation, variable)
+        reference = isnothing(context.final_references) ? nothing :
+            get(context.final_references,
+                (context.application.id, context.object_id, variable), nothing)
+        if isnothing(reference)
+            Base.@inline _status_recipe_add_default!(context.model, preparation,
+                context.object_id, variable, value;
+                application_id=context.application.id, origin=:model_input_default,
+                conversion_records=context.conversion_records)
+            context.default_status_updates[(context.object_id, variable)] = true
+        else
+            avoided = Base.@inline _with_model_input_status_reference(
+                _stage_model_input_default_reference!, context.bindings, reference,
+                preparation, variable, value, context)
+        end
+    end
+    return avoided + _stage_model_input_defaults!(preparation,
+        Base.tail(variables), Base.tail(defaults), context)
+end
+
+function _stage_model_input_default_reference!(reference, preparation, variable,
+    value, context,
+)
+    # Keep the existing conversion/validation even when the carrier owns storage.
+    _no_status_conversion(context.model.status_conversion) ||
+        _materialize_status_value(context.model, variable, value;
+            object_id=context.object_id, application_id=context.application.id,
+            origin=:model_input_default, private_copy=true,
+            conversion_records=context.conversion_records)
+    _status_recipe_set_reference!(preparation, variable, reference)
+    return 1
+end
+
+function _stage_model_bound_input_reference!(binding, context)
+    binding.carrier_hint == :temporal_stream && return nothing
+    isnothing(binding.carrier) && return nothing
+    preparation = get(context.recipes, binding.consumer_id, nothing)
+    if isnothing(preparation)
+        preparation = _model_object(context.model, binding.consumer_id).status
+        preparation isa Status || return nothing
+    end
+    reference = isnothing(context.final_references) ?
+        _model_input_status_reference(binding) :
+        get(context.final_references,
+            (binding.application_id, binding.consumer_id, binding.input), nothing)
+    isnothing(reference) && (reference = _model_input_status_reference(binding))
+    return Base.@inline _with_model_input_status_reference(
+        _stage_model_bound_input_reference_with_reference!, binding,
+        reference, preparation, binding, context)
+end
+
+function _stage_model_bound_input_reference_with_reference!(reference,
+    preparation, binding, context,
+)
+    return _with_canonical_status_preparation(_stage_admitted_model_input_reference!,
+        context.recipes, context.model.registry.objects.catalog, preparation,
+        reference, binding, context)
+end
+
+function _stage_admitted_model_input_reference!(preparation, reference, binding,
+    context,
+)
+    if preparation isa Status
+        if binding.input in propertynames(preparation) &&
+           refvalue(preparation, binding.input) === reference
+            context.default_status_updates[(binding.consumer_id, binding.input)] = false
+            return nothing
+        end
+        recipe = _status_recipe_for_object!(context.recipes, context.recipe_order,
+            context.model, binding.consumer_id)
+        return _with_canonical_status_recipe(_set_model_input_status_reference!,
+            context.recipes, recipe, reference, binding, context)
+    elseif _status_recipe_has_variable(preparation, binding.input) &&
+           _status_recipe_reference(preparation, binding.input) === reference
+        context.default_status_updates[(binding.consumer_id, binding.input)] = false
+        return nothing
+    end
+    return _set_model_input_status_reference!(preparation, reference, binding, context)
+end
+
+function _set_model_input_status_reference!(preparation, reference, binding, context)
+    _status_recipe_set_reference!(preparation, binding.input, reference)
+    context.default_status_updates[(binding.consumer_id, binding.input)] = false
+    return nothing
+end
+
 function _prepare_model_input_statuses_batched!(
     model::CompositeModel,
     applications,
@@ -7257,6 +7436,8 @@ function _prepare_model_input_statuses_batched!(
     conversion_records = record_conversions ? Dict{Any,Any}() : model.status_conversion_records
     default_status_updates = Dict{Tuple{I,Symbol},Bool}()
     input_default_rewrites_avoided = 0
+    context = (; model, recipes, recipe_order, bindings, final_references,
+        conversion_records, default_status_updates)
     for partial in applications
         input_default_rewrites_avoided += Base.@inline _with_model_application(applications_by_id, partial) do application
             rewrites_avoided = 0
@@ -7264,68 +7445,12 @@ function _prepare_model_input_statuses_batched!(
             schemas = _application_default_schemas(application, Val(:inputs))
             for object_id in application.target_ids
                 rewrites_avoided += Base.@inline _with_application_defaults(application, object_id, schemas, Val(:inputs)) do defaults
-                    object_rewrites_avoided = 0
                     preparation = _status_preparation_for_object!(
-                        recipes,
-                        recipe_order,
-                        model,
-                        object_id,
-                    )
-                    for (variable_, value) in pairs(defaults)
-                        variable = Symbol(variable_)
-                        if preparation isa Status
-                            variable in propertynames(preparation) && continue
-                            preparation = _status_recipe_for_object!(
-                                recipes,
-                                recipe_order,
-                                model,
-                                object_id,
-                            )
-                        else
-                            _status_recipe_has_variable(preparation, variable) && continue
-                        end
-                        reference = isnothing(final_references) ?
-                                    nothing :
-                                    get(
-                            final_references,
-                            (application.id, object_id, variable),
-                            nothing,
-                        )
-                        if !isnothing(reference)
-                            # Preserve conversion callbacks, validation, and diagnostic
-                            # records even though the resolved carrier owns storage.
-                            _no_status_conversion(model.status_conversion) ||
-                                _materialize_status_value(
-                                    model,
-                                    variable,
-                                    value;
-                                    object_id=object_id,
-                                    application_id=application.id,
-                                    origin=:model_input_default,
-                                    private_copy=true,
-                                    conversion_records=conversion_records,
-                                )
-                            _status_recipe_set_reference!(
-                                preparation,
-                                variable,
-                                reference,
-                            )
-                            object_rewrites_avoided += 1
-                            continue
-                        end
-                        _status_recipe_add_default!(
-                            model,
-                            preparation,
-                            object_id,
-                            variable,
-                            value;
-                            application_id=application.id,
-                            origin=:model_input_default,
-                            conversion_records=conversion_records,
-                        )
-                        default_status_updates[(object_id, variable)] = true
-                    end
-                    return object_rewrites_avoided
+                        recipes, recipe_order, model, object_id)
+                    selected = (; context..., application, object_id)
+                    _with_canonical_status_preparation(_stage_model_input_defaults!,
+                        recipes, model.registry.objects.catalog, preparation,
+                        keys(defaults), values(defaults), selected)
                 end
             end
             return rewrites_avoided
@@ -7333,51 +7458,8 @@ function _prepare_model_input_statuses_batched!(
     end
 
     for binding in bindings
-        binding.carrier_hint == :temporal_stream && continue
-        isnothing(binding.carrier) && continue
-        recipe = get(recipes, binding.consumer_id, nothing)
-        if isnothing(recipe)
-            status = _model_object(model, binding.consumer_id).status
-            status isa Status || continue
-        end
-        reference = if isnothing(final_references)
-            _model_input_status_reference(binding)
-        else
-            get(
-                final_references,
-                (
-                    binding.application_id,
-                    binding.consumer_id,
-                    binding.input,
-                ),
-                nothing,
-            )
-        end
-        isnothing(reference) &&
-            (reference = _model_input_status_reference(binding))
-        if isnothing(recipe)
-            if binding.input in propertynames(status) &&
-               refvalue(status, binding.input) === reference
-                default_status_updates[(binding.consumer_id, binding.input)] = false
-                continue
-            end
-            recipe = _status_recipe_for_object!(
-                recipes,
-                recipe_order,
-                model,
-                binding.consumer_id,
-            )
-        elseif _status_recipe_has_variable(recipe, binding.input) &&
-               _status_recipe_reference(recipe, binding.input) === reference
-            default_status_updates[(binding.consumer_id, binding.input)] = false
-            continue
-        end
-        _status_recipe_set_reference!(
-            recipe,
-            binding.input,
-            reference,
-        )
-        default_status_updates[(binding.consumer_id, binding.input)] = false
+        Base.@inline _with_model_input_binding(_stage_model_bound_input_reference!,
+            bindings, binding, context)
     end
 
     result = _apply_status_recipes!(
