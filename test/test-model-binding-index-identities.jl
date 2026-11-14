@@ -55,6 +55,41 @@ function close_registry(model::CompositeModel)
         model.revision, model.environment_revision)
 end
 
+
+@testset "registration admits object and parent identities before status conversion" begin
+    root = Object(:root; status=Status(x=1f0))
+    model = close_registry(CompositeModel(root; type_promotion=Dict(Float64 => Float32)))
+    records = copy(model.status_conversion_records)
+    revision = model.revision
+    children = copy(root.children)
+
+    for (id, parent) in ((2, :root), (:wrong_parent, 1))
+        source = Status(x=2.0)
+        object = Object(id; status=source)
+        @test_throws ArgumentError register_object!(model, object; parent)
+        @test object.status === source
+        @test isnothing(object.parent)
+        @test !haskey(model.registry.objects, object.id)
+        @test model.status_conversion_records == records
+        @test model.revision == revision
+        @test root.children == children
+    end
+
+    for (id, supplied_parent, keyword_parent) in ((:implicit, :root, false),
+            (:explicit, nothing, true), (:detached, nothing, false))
+        status = Status(x=3f0)
+        reference = PSE.refvalue(status, :x)
+        object = Object(id; parent=supplied_parent, status)
+        registered = keyword_parent ? register_object!(model, object; parent="root") :
+            register_object!(model, object)
+        @test registered === object
+        @test model_status(model, id) === status
+        @test PSE.refvalue(model_status(model, id), :x) === reference
+        @test object.parent === (id === :detached ? nothing : root.id)
+        @test (object.id in root.children) === (id !== :detached)
+    end
+end
+
 function call_fixture(closed)
     capture = Ref{Any}(nothing)
     model = CompositeModel(

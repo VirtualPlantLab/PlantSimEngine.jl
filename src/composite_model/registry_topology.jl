@@ -342,7 +342,7 @@ end
 end
 
 """Labels and topology captured for one object at a lifecycle event."""
-struct LifecycleObjectSnapshot{G}
+struct LifecycleObjectSnapshot
     id::ObjectId
     scale::Union{Nothing,Symbol}
     kind::Union{Nothing,Symbol}
@@ -351,7 +351,7 @@ struct LifecycleObjectSnapshot{G}
     parent::Union{Nothing,ObjectId}
     children::Tuple
     ancestors::Tuple
-    geometry::G
+    geometry::Any
 end
 
 """One subtree reparenting recorded before runtime buffers refresh."""
@@ -903,6 +903,13 @@ _lifecycle_object_ids(::Nothing) = nothing
 _lifecycle_object_ids(object_id::ObjectId) = (object_id,)
 _lifecycle_object_ids(object_ids) = object_ids
 
+function _union_lifecycle_object_ids!(destination, objects::ObjectFamilyStore, ids)
+    for raw_id in ids
+        push!(destination, _index_object_id(objects, raw_id))
+    end
+    return destination
+end
+
 function _mark_environment_bindings_dirty!(
     model::CompositeModel,
     object_ids=nothing,
@@ -921,7 +928,7 @@ function _mark_environment_bindings_dirty!(
         model.environment_binding_cache = preserve_schema ? cached : nothing
         delta.full_environment = true
     elseif !delta.full_environment
-        union!(delta.environment_dirty_ids, ids)
+        _union_lifecycle_object_ids!(delta.environment_dirty_ids, model.registry.objects, ids)
     end
     if !model.environment_bindings_dirty
         model.environment_revision += 1
@@ -951,7 +958,7 @@ function _mark_bindings_dirty!(
         model.binding_cache = nothing
         delta.structural_kind = :full
     else
-        union!(delta.structural_dirty_ids, ids)
+        _union_lifecycle_object_ids!(delta.structural_dirty_ids, model.registry.objects, ids)
         delta.structural_kind = if delta.structural_kind == :full
             :full
         elseif delta.structural_kind == :clean
@@ -1050,17 +1057,19 @@ function _delete_index!(index::Dict{Symbol,Set{ObjectId}}, key, id::ObjectId)
 end
 
 function _index_object!(registry::ObjectRegistry, object::Object)
-    _validate_status_identity_available!(registry, object.status, object.id)
-    _push_index!(registry.by_scale, object.scale, object.id)
-    _push_index!(registry.by_kind, object.kind, object.id)
-    _push_index!(registry.by_species, object.species, object.id)
+    id = _index_object_id(registry.objects, object.id)
+    _validate_status_identity_available!(registry, object.status, id)
+    _push_index!(registry.by_scale, object.scale, id)
+    _push_index!(registry.by_kind, object.kind, id)
+    _push_index!(registry.by_species, object.species, id)
     return nothing
 end
 
 function _deindex_object!(registry::ObjectRegistry, object::Object)
-    _delete_index!(registry.by_scale, object.scale, object.id)
-    _delete_index!(registry.by_kind, object.kind, object.id)
-    _delete_index!(registry.by_species, object.species, object.id)
+    id = _index_object_id(registry.objects, object.id)
+    _delete_index!(registry.by_scale, object.scale, id)
+    _delete_index!(registry.by_kind, object.kind, id)
+    _delete_index!(registry.by_species, object.species, id)
     return nothing
 end
 
@@ -1276,21 +1285,15 @@ function _object_ancestor_ids(
 end
 
 function _lifecycle_object_snapshot(model::CompositeModel, object::Object)
+    id = _index_object_id(model.registry.objects, object.id)
     ancestors = get(
         model.registry.ancestor_ids_by_object,
-        object.id,
+        id,
         (),
     )
-    return _lifecycle_object_snapshot(object, ancestors, object.geometry)
-end
-
-# Bind the geometry type before constructing the snapshot. The tuple types of
-# children and ancestors depend on runtime topology, so asking the outer
-# constructor to infer its parameter from all fields dispatches on every path
-# length. The event still owns immutable topology tuples and shares geometry.
-function _lifecycle_object_snapshot(object::Object, ancestors, geometry::G) where {G}
-    return LifecycleObjectSnapshot{G}(
-        object.id,
+    # Freeze topology, but retain the same passive geometry object without copying.
+    return LifecycleObjectSnapshot(
+        id,
         object.scale,
         object.kind,
         object.species,
@@ -1298,7 +1301,7 @@ function _lifecycle_object_snapshot(object::Object, ancestors, geometry::G) wher
         object.parent,
         Tuple(object.children),
         Tuple(ancestors),
-        geometry,
+        object.geometry,
     )
 end
 
@@ -1369,61 +1372,61 @@ function _apply_instance_labels!(object::Object, instance)
     return object
 end
 
-function _register_object_without_lifecycle!(
+@inline function _register_object_without_lifecycle!(
     model::CompositeModel,
     object::Object;
     parent=object.parent,
     status_values_materialized::Bool=false,
 )
     registry = model.registry
-    haskey(registry.objects, object.id) && error("CompositeModel already contains object id `$(object.id.value)`.")
-    parent_id = isnothing(parent) ? nothing : ObjectId(parent)
+    id = _index_object_id(registry.objects, object.id)
+    haskey(registry.objects, id) && error("CompositeModel already contains object id `$(id.value)`.")
+    parent_id = isnothing(parent) ? nothing : _index_object_id(registry.objects, ObjectId(parent))
     if !isnothing(parent_id) && !haskey(registry.objects, parent_id)
         error("No model object with id `$(parent_id.value)`.")
     end
-    return _register_object_status!(model, object, parent_id, object.status, status_values_materialized)
+    return _register_object_status!(model, object, id, parent_id, object.status, status_values_materialized)
 end
 
 # The same conversion and ownership operations serve both catalog forms. An
 # unconverted source need not be a canonical family when conversion is active.
-function _register_object_status!(model, object, parent_id, source_status, status_values_materialized)
-    _validate_status_source_identity_available!(model, source_status, object.id)
+@inline function _register_object_status!(model, object, id, parent_id, source_status, status_values_materialized)
+    _validate_status_source_identity_available!(model, source_status, id)
     catalog = model.registry.objects.catalog
     if status_values_materialized || _no_status_conversion(model.status_conversion)
         return _with_registered_status(catalog, source_status) do status
-            _register_converted_object!(model, object, parent_id, status, status)
+            _register_converted_object!(model, object, id, parent_id, status, status)
         end
     end
     conversion_records = Dict{Any,Any}()
-    status = _convert_registered_status(model, object.id, source_status; conversion_records)
+    status = _convert_registered_status(model, id, source_status; conversion_records)
     registered = _with_registered_status(catalog, status) do converted
-        _register_converted_object!(model, object, parent_id, source_status, converted)
+        _register_converted_object!(model, object, id, parent_id, source_status, converted)
     end
     merge!(model.status_conversion_records, conversion_records)
     return registered
 end
 
-function _register_converted_object!(model, object, parent_id, source_status, status)
+function _register_converted_object!(model, object, id, parent_id, source_status, status)
     registry = model.registry
-    _validate_status_identity_available!(registry, status, object.id)
+    _validate_status_identity_available!(registry, status, id)
     object.status = status
     instance = isnothing(parent_id) ? nothing : _instance_for_object(model, parent_id)
     _apply_instance_labels!(object, instance)
     object.parent = parent_id
     store = registry.objects
-    id = object.id::keytype(store)
     _store_object_family_row!(store, object, id, status)
     _index_object!(registry, object)
-    _set_status_source_identity!(model, object.id, source_status)
+    _set_status_source_identity!(model, id, source_status)
     ancestors = isnothing(parent_id) ?
-                ObjectId[object.id] :
+                ObjectId[id] :
                 _append_object_ancestor_id(
-                    _object_ancestor_ids(registry, parent_id), object.id,
+                    _object_ancestor_ids(registry, parent_id), id,
                 )
-    registry.ancestor_ids_by_object[object.id] = ancestors
-    if !isnothing(object.parent)
-        parent_object = registry.objects[object.parent]
-        object.id in parent_object.children || push!(parent_object.children, object.id)
+    registry.ancestor_ids_by_object[id] = ancestors
+    if !isnothing(parent_id)
+        parent_object = registry.objects[parent_id]
+        id in parent_object.children || push!(parent_object.children, id)
     end
     return object
 end
@@ -1435,7 +1438,7 @@ Register a fully initialized [`Object`](@ref) in `model`. Structural bindings
 are marked dirty and become visible to execution after the next lifecycle
 refresh boundary. Prefer [`add_organ!`](@ref) for MTG-backed growth.
 """
-function register_object!(model::CompositeModel, object::Object; parent=object.parent)
+@inline function register_object!(model::CompositeModel, object::Object; parent=object.parent)
     registered = _register_object_without_lifecycle!(
         model,
         object;
