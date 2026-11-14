@@ -66,9 +66,13 @@ end
         schema, binding.application_id, f, binding, status, args...)
 end
 
-@inline _copy_temporal_status_value(::Nothing, value) = _private_temporal_value(value)
-@generated function _copy_temporal_status_value(::Val{Payloads}, value) where {Payloads}
-    branches = [:(typeof(value) === $T && return _private_temporal_value(value::$T))
+# Copy/construction stays inside the exact payload branch, before returning a
+# value to an Any-valued transient staging collection.
+@inline _copy_temporal_status_value(::Nothing, value, operation::F) where {F} = operation(value)
+@generated function _copy_temporal_status_value(::Val{Payloads}, value,
+    operation::F,
+) where {Payloads,F}
+    branches = [:(typeof(value) === $T && return operation(value::$T))
         for T in fieldtypes(Payloads)]
     return quote
         $(branches...)
@@ -87,14 +91,14 @@ function _gather_temporal_initial(binding::CompiledModelInputBinding, status::St
         )
         initial = status[binding.input]
     end
-    binding.multiplicity == :many || return _copy_temporal_status_value(payloads, initial)
+    binding.multiplicity == :many || return (Base.@inline _copy_temporal_status_value(payloads, initial, _private_temporal_value))
     initial isa AbstractVector || error(
         "Temporal `Many` input `$(binding.input)` on application ",
         "`$(binding.application_id)` requires a vector-like initialized value; got ",
         "`$(typeof(initial))`.",
     )
     if length(initial) == length(binding.source_ids)
-        return Any[_copy_temporal_status_value(payloads, value) for value in initial]
+        return Any[(Base.@inline _copy_temporal_status_value(payloads, value, _private_temporal_value)) for value in initial]
     end
     binding.policy isa PreviousTimeStep && error(
         "Temporal `Many` input `$(binding.input)` on application ",
@@ -107,7 +111,7 @@ function _gather_temporal_initial(binding::CompiledModelInputBinding, status::St
         "`$(binding.application_id)` needs an initialized element to preallocate ",
         "$(length(binding.source_ids)) temporal values.",
     )
-    return Any[_copy_temporal_status_value(payloads, first(initial)) for _ in binding.source_ids]
+    return Any[(Base.@inline _copy_temporal_status_value(payloads, first(initial), _private_temporal_value)) for _ in binding.source_ids]
 end
 
 function _collect_status_view_binding!(binding::CompiledModelInputBinding,
@@ -157,35 +161,41 @@ function _gather_admitted_status_view_temporal!(payloads, binding::CompiledModel
         ))
     end
     many = binding.multiplicity == :many
-    storage = many ? Any[_copy_temporal_status_value(payloads, value) for value in initial] :
-        _copy_temporal_status_value(payloads, initial)
+    storage = many ? Any[(Base.@inline _copy_temporal_status_value(payloads, value, _private_temporal_value)) for value in initial] :
+        (Base.@inline _copy_temporal_status_value(payloads, initial, _private_temporal_value))
     push!(recipes, _TemporalStatusViewRecipe(binding.input, binding,
         source_applications, initial, storage, many))
     return nothing
 end
 
-function _compile_model_status_view(model::CompositeModel,
+@inline function _compile_model_status_view(model::CompositeModel,
     application::CompiledModelApplication, object_id::ObjectId,
     input_bindings::Tuple, applications_by_id, application_positions,
     distributed_outputs=NoCompiledDistributedOutputs();
     execution_stamp::Base.RefValue{UInt64}, status_view_schema,
     input_binding_storage,
 )
-    return _with_model_application(applications_by_id, application) do admitted_application
-        raw_status = _ensure_model_object_status!(model, object_id)
-        return _with_registered_status(model.registry.objects.catalog, raw_status) do canonical_status
-            _assemble_model_status_view(model, admitted_application, object_id,
-                input_bindings, canonical_status, applications_by_id,
-                application_positions, distributed_outputs, execution_stamp,
-                status_view_schema, input_binding_storage)
-        end
-    end
+    return Base.@inline _with_model_application(_compile_model_status_view_for_application,
+        applications_by_id, application, model, object_id, input_bindings,
+        applications_by_id, application_positions, distributed_outputs,
+        execution_stamp, status_view_schema, input_binding_storage)
+end
+
+function _compile_model_status_view_for_application(application, model, object_id,
+    input_bindings, applications_by_id, application_positions, distributed_outputs,
+    execution_stamp, status_view_schema, input_binding_storage,
+)
+    raw_status = _ensure_model_object_status!(model, object_id)
+    return Base.@inline _with_registered_status(_assemble_model_status_view,
+        model.registry.objects.catalog, raw_status, model, application, object_id,
+        input_bindings, applications_by_id, application_positions,
+        distributed_outputs, execution_stamp, status_view_schema, input_binding_storage)
 end
 
 # All modes gather the same values, in the original conversion/snapshot order.
 # Selection below concerns exact component construction, never scientific logic.
-function _assemble_model_status_view(model, application, object_id,
-    input_bindings, canonical_status, applications_by_id, application_positions,
+function _assemble_model_status_view(canonical_status, model, application, object_id,
+    input_bindings, applications_by_id, application_positions,
     distributed_outputs, execution_stamp, status_view_schema, input_binding_storage,
 )
     temporal_bindings = similar(input_binding_storage, 0)

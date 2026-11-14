@@ -148,11 +148,17 @@ end
         model_status(simulation.model, 0)) do payloads, binding, status
         # Each value is deliberately read through Any, as between the copies.
         values = Any[2f0]
-        first_copy = @inferred PSE._copy_temporal_status_value(payloads, values[1])
+        first_copy = @inferred PSE._copy_temporal_status_value(payloads, values[1], PSE._private_temporal_value)
         second_values = Any[first_copy]
-        second_copy = @inferred PSE._copy_temporal_status_value(payloads, second_values[1])
+        second_copy = @inferred PSE._copy_temporal_status_value(payloads, second_values[1], PSE._private_temporal_value)
         @test first_copy === second_copy === 2f0
-        @test_throws "outside its prepared input family" PSE._copy_temporal_status_value(payloads, 2.0)
+        # Ref construction also occurs after payload admission, not after an Any join.
+        storage_reference = @inferred PSE._copy_temporal_status_value(
+            payloads, second_values[1], PSE._private_temporal_reference)
+        @test storage_reference isa Base.RefValue{Float32}
+        @test storage_reference[] === 2f0
+        @test_throws "outside its prepared input family" PSE._copy_temporal_status_value(
+            payloads, 2.0, PSE._private_temporal_value)
     end
     previous_owner = simulation.model.binding_cache
     key = (:writer, ObjectId(3))

@@ -247,6 +247,27 @@ end
     check_carriers(closed, simulation)
 end
 
+@testset "new consumers compile only their original partial target selection" begin
+    data = fixture()
+    simulation = prepare(data.model)
+    old_bindings = copy(simulation.compiled.input_bindings)
+    shared = check_carriers(data, simulation)
+    register_object!(data.model, Object(:c; scale=:Reader, parent=:scene,
+        status=Status(total=0.0)))
+    continue!(simulation; steps=0)
+
+    @test length(simulation.compiled.input_bindings) == length(old_bindings) + 2
+    @test all(actual === previous for (actual, previous) in
+        zip(simulation.compiled.input_bindings, old_bindings))
+    @test binding(simulation, :c, :single).carrier ===
+        PSE.refvalue(model_status(data.model, :anchor), :x)
+    @test binding(simulation, :c, :values).carrier === shared.carrier
+    @test binding(simulation, :c, :values).source_ids === shared.source_ids
+    step!(simulation)
+    @test model_status(data.model, :c).total == 3.0
+    check_carriers(data, simulation)
+end
+
 @testset "partial applications retain their exact target selection and metadata owner" begin
     data = fixture()
     simulation = prepare(data.model)

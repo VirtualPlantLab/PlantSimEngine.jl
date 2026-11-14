@@ -222,7 +222,14 @@ function _validate_selector_context(
     allowed = _selector_context_fields(context)
     invalid = Symbol[]
     for field in _selector_semantic_fields(selector)
-        field in allowed || push!(invalid, field)
+        accepted = false
+        for allowed_field in allowed
+            if field === allowed_field
+                accepted = true
+                break
+            end
+        end
+        accepted || push!(invalid, field)
     end
     if !isempty(invalid)
         allowed_fields = Symbol[]

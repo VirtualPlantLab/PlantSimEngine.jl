@@ -3640,7 +3640,7 @@ end
     end
 end
 
-function _preserve_model_status_view_with_previous!(previous, schema, application_id,
+@inline function _preserve_model_status_view_with_previous!(previous, schema, application_id,
     current, previous_temporal_sources, key,
 )
     return Base.@inline _with_model_status_view(_preserve_model_status_view_temporal_state!,
@@ -3704,6 +3704,8 @@ function _stage_temporal_many_extension(
     applications_by_id,
     application_positions,
     distributed_outputs,
+    status_view_schema,
+    canonical_status,
 )
     binding = temporal_input.binding
     binding.multiplicity == :many || return nothing
@@ -3728,8 +3730,20 @@ function _stage_temporal_many_extension(
     source_values isa AbstractVector || return nothing
     length(source_values) == length(source_ids) || return nothing
     new_indices = (previous_count + 1):length(source_ids)
+    return Base.@inline _with_temporal_copy_payloads(_stage_temporal_many_extension_payloads,
+        status_view_schema, binding, canonical_status, initial, storage,
+        source_applications, source_values, new_indices, applications_by_id,
+        application_positions, distributed_outputs)
+end
+
+_private_temporal_reference(value) = Ref(_private_temporal_value(value))
+
+function _stage_temporal_many_extension_payloads(payloads, binding, canonical_status,
+    initial, storage, source_applications, source_values, new_indices,
+    applications_by_id, application_positions, distributed_outputs,
+)
     new_initial = Any[
-        _private_temporal_value(source_values[index])
+        (Base.@inline _copy_temporal_status_value(payloads, source_values[index], _private_temporal_value))
         for index in new_indices
     ]
     # A newly selected schema may require rebuilding the private carrier. Do
@@ -3738,7 +3752,7 @@ function _stage_temporal_many_extension(
     new_source_applications = Union{Nothing,Symbol}[
         _temporal_source_application(
             binding,
-            source_ids[index],
+            binding.source_ids[index],
             applications_by_id,
             application_positions,
             distributed_outputs,
@@ -3747,7 +3761,8 @@ function _stage_temporal_many_extension(
     ]
     storage_references = parent(storage)
     new_storage_references = Base.RefValue[
-        Ref(_private_temporal_value(value)) for value in new_initial
+        (Base.@inline _copy_temporal_status_value(payloads, value, _private_temporal_reference))
+        for value in new_initial
     ]
     all(reference -> reference isa eltype(storage_references), new_storage_references) ||
         return nothing
@@ -3763,10 +3778,10 @@ function _stage_temporal_many_extension(
     )
 end
 
-_stage_temporal_many_extensions(::Tuple{}, model, key, sources, applications, positions, distributed) = ()
+_stage_temporal_many_extensions(::Tuple{}, model, key, sources, applications, positions, distributed, schema, canonical_status) = ()
 
 function _stage_temporal_many_extensions(inputs::Tuple, model, key, sources,
-    applications, positions, distributed,
+    applications, positions, distributed, schema, canonical_status,
 )
     temporal_input = first(inputs)
     previous_source_ids = get(sources, (key..., temporal_input.binding.input), nothing)
@@ -3775,12 +3790,13 @@ function _stage_temporal_many_extensions(inputs::Tuple, model, key, sources,
     else
         extension = _stage_temporal_many_extension(
             model, temporal_input, previous_source_ids, applications, positions, distributed,
+            schema, canonical_status,
         )
         isnothing(extension) && return nothing
         extension
     end
     following = _stage_temporal_many_extensions(Base.tail(inputs), model, key,
-        sources, applications, positions, distributed)
+        sources, applications, positions, distributed, schema, canonical_status)
     isnothing(following) && return nothing
     return (extension, following...)
 end
@@ -3804,10 +3820,11 @@ end
 
 function _extend_temporal_many_inputs_in_place!(view::CompiledModelStatusView,
     model::CompositeModel, key, previous_temporal_sources, applications_by_id,
-    application_positions, distributed_outputs,
+    application_positions, distributed_outputs, status_view_schema,
 )
     staged = _stage_temporal_many_extensions(view.temporal_inputs, model, key,
-        previous_temporal_sources, applications_by_id, application_positions, distributed_outputs)
+        previous_temporal_sources, applications_by_id, application_positions,
+        distributed_outputs, status_view_schema, view.canonical_status)
     isnothing(staged) && return false
     return _apply_temporal_many_extensions!(staged)
 end
@@ -3858,7 +3875,8 @@ function _extend_model_status_views(
         isnothing(view) && continue
         extended = Base.@inline _with_model_status_view(_extend_temporal_many_inputs_in_place!,
             compiled.status_view_schema, application_id, view, model, key,
-            previous_temporal_sources, applications_by_id, positions, distributed_outputs)
+            previous_temporal_sources, applications_by_id, positions, distributed_outputs,
+            compiled.status_view_schema)
         if extended
             delete!(affected_keys, key)
         end
@@ -4792,9 +4810,18 @@ function _extend_compiled_scene(
         recorder = _AddedConsumerInputBindings(
             model, many_binding_cache, changed_bindings, input_bindings_by_target,
         )
-        for partial in added_applications
-            isempty(partial.target_ids) && continue
-            _with_model_application(applications_by_id, partial) do application
+        # Both vectors were filled in the same application-slot order above.
+        # Read the original partial only after selecting its exact owner.
+        for position in eachindex(added_applications)
+            Base.@inline _with_metadata_entry(
+                applications_by_id, new_target_application_ids[position],
+                added_applications, position,
+            ) do current, partials, partial_position
+                partial = partials[partial_position]
+                partial isa typeof(current) && partial.plan === current.plan ||
+                    throw(ArgumentError("The application is outside its compiled metadata owner."))
+                application = partial::typeof(current)
+                isempty(application.target_ids) && return nothing
                 _with_metadata_entry(
                     compiled.scenario_plan.input_recipes_by_application, application.id,
                 ) do recipe
@@ -7478,7 +7505,7 @@ function _distributed_temporal_source_application(
 end
 
 _status_view_execution_stamp(previous::CompiledModelStatusView, model, key) = previous.execution_stamp
-function _status_view_execution_stamp(model, key, previous, schema)
+@inline function _status_view_execution_stamp(model, key, previous, schema)
     isnothing(previous) && return _targeted_call_execution_stamp(model, key)
     return Base.@inline _with_model_status_view(_status_view_execution_stamp,
         schema, first(key), previous, model, key)
