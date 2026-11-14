@@ -1138,6 +1138,12 @@ function _print_selector_diagnostic(io, value::T, ancestors) where {T}
     return nothing
 end
 
+function _selector_diagnostic_text(value)
+    io = IOBuffer()
+    _print_selector_diagnostic(io, value, Any[])
+    return String(take!(io))
+end
+
 function _print_selector_diagnostic_value(io, value::AbstractString, ancestors)
     print(io, '"')
     escape_string(io, value, ('"',))

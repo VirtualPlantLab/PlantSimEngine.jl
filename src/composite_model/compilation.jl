@@ -6094,7 +6094,7 @@ function _model_selector_policy(selector::AbstractObjectMultiplicity, applicatio
     all(policy -> policy == first_policy, policies) && return first_policy
     error(
         "Cannot infer default policy for model input from `$(source_var)` because ",
-        "selector resolves several source applications `$(source_application_ids)` with ",
+        "selector resolves several source applications `", _selector_diagnostic_text(source_application_ids), "` with ",
         "different output policies. Add `policy=...` to the `inputs=...` selector."
     )
 end
@@ -8694,8 +8694,8 @@ function _resolve_input_sources(
     end
     if !(selector isa Many) && length(source_application_ids) > 1
         error(
-            "Input `$(input_sym)` on application `$(plan.application_id)` matched several " *
-            "source applications `$(source_application_ids)`. Add one of those canonical " *
+            "Input `$(input_sym)` on application `$(plan.application_id)` matched several ",
+            "source applications `", _selector_diagnostic_text(source_application_ids), "`. Add one of those canonical ",
             "identifiers as `application=...` to the `inputs=...` selector.",
         )
     end
@@ -8971,7 +8971,7 @@ function _validate_declared_model_input_name!(application, input_sym::Symbol)
     error(
         "Input binding `$(input_sym)` on application `$(application.id)` is not declared by ",
         "`inputs_` for process `$(application.process)`. Declared model inputs are ",
-        "`$(sort!(collect(input_names)))`."
+        "`", _selector_diagnostic_text(sort!(collect(input_names))), "`."
     )
 end
 
