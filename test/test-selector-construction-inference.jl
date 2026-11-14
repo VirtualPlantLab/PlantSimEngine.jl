@@ -15,3 +15,12 @@ using Test
     @test object_address(One(kind="leaf")).kind === :leaf
     @test_throws ErrorException One(unsupported=:value)
 end
+
+@testset "selectors without a Relation keep a concrete absent relation" begin
+    model = CompositeModel(Object(:leaf; scale=:Leaf))
+    direct = @inferred PlantSimEngine._compile_selector_matcher(model, One(id=:leaf))
+    scoped = @inferred PlantSimEngine._compile_selector_matcher(model, Many(Subtree(); scale=:Leaf))
+    @test direct.relation === nothing
+    @test scoped.relation === nothing
+    @test resolve_object_ids(model, One(id=:leaf)) == [ObjectId(:leaf)]
+end

@@ -171,7 +171,7 @@ end
     ))
     prototype = Vector{Union{unique(typeof(binding) for binding in compiled.input_bindings)...}}()
     before = model.binding_cache
-    @test_throws "temporal snapshot payload is outside its prepared input family" PSE._prepare_simulation!(
+    @test_throws "mixed private ObjectRefVector storage requires source-reference family evidence" PSE._prepare_simulation!(
         model; steps=0, outputs=:none, constants=PSE.Constants(),
         status_view_schema=schema, input_binding_storage=prototype)
     @test model.binding_cache === before
@@ -197,34 +197,81 @@ function PSE.run!(::PairedConsumer, status, environment, constants, context)
     return nothing
 end
 
-@testset "all temporal extensions validate before any existing snapshot grows" begin
-    model = CompositeModel(
+function paired_temporal_scene()
+    return CompositeModel(
         Object(:scene; scale=:Scene,
             status=Status(first_values=Float32[], second_values=Float32[], total=0.0)),
-        Object(:a; scale=:Leaf, parent=:scene, status=Status(a=2f0, b=3f0));
+        Object(:a; scale=:Leaf, parent=:scene, status=Status(a=2f0, b=3f0)),
+        Object(:other; scale=:Scene),
+        # A real configured source family exists before preparation, outside the
+        # consumer's Subtree. It contributes type evidence, never consumer values.
+        Object(:outside; scale=:Leaf, parent=:other, status=Status(a=0f0, b=0.0));
         applications=(
             ModelSpec(PairedSource(); name=:paired_source, on=Many(scale=:Leaf)),
             ModelSpec(PairedConsumer(); name=:paired_consumer, on=One(id=:scene), inputs=(
-                PreviousTimeStep(:first_values) => Many(scale=:Leaf, within=SceneScope(), application=:paired_source, var=:a),
-                PreviousTimeStep(:second_values) => Many(scale=:Leaf, within=SceneScope(), application=:paired_source, var=:b),
+                PreviousTimeStep(:first_values) => Many(scale=:Leaf, within=Subtree(), application=:paired_source, var=:a),
+                PreviousTimeStep(:second_values) => Many(scale=:Leaf, within=Subtree(), application=:paired_source, var=:b),
             )),
         ), environment=(duration=Hour(1),))
+end
+
+@testset "configured temporal growth preserves snapshots and complete values" begin
+    model = paired_temporal_scene()
     simulation = run!(model; steps=1, outputs=:all)
     @test final_state(simulation, :scene).total === 5.0
-    first_input = first(simulation.compiled.status_views_by_target[
-        (:paired_consumer, ObjectId(:scene))].temporal_inputs)
-    initial, values = copy(first_input.initial), collect(first_input.reference[])
-    reference = first(parent(first_input.reference[]))
-    # The first input can extend, while the second needs a mixed carrier rebuild.
+    old_inputs = simulation.compiled.status_views_by_target[
+        (:paired_consumer, ObjectId(:scene))].temporal_inputs
+    first_private, second_private = map(old_inputs) do temporal
+        only(parent(temporal.reference[]))
+    end
+    @test second_private isa Base.RefValue{Float32}
+    @test first_private !== PSE.refvalue(model_status(model, :a), :a)
+    @test second_private !== PSE.refvalue(model_status(model, :a), :b)
+
     register_object!(model, Object(:b; scale=:Leaf, parent=:scene,
         status=Status(a=10f0, b=20.0)))
     step!(simulation)
-    @test first_input.initial == initial
-    @test collect(first_input.reference[]) == values
-    @test only(parent(first_input.reference[])) === reference
+    current = simulation.compiled.status_views_by_target[
+        (:paired_consumer, ObjectId(:scene))].temporal_inputs
+    # Mixed snapshot storage rebuilds the private views. Existing values survive
+    # without mutating a saved view or sharing live canonical source cells.
+    @test first(current[1].reference[]) === 3f0
+    @test first(current[2].reference[]) === 4f0
+    @test first_private[] === 2f0
+    @test second_private[] === 3f0
+    @test first(parent(current[1].reference[])) !== PSE.refvalue(model_status(model, :a), :a)
+    @test first(parent(current[2].reference[])) !== PSE.refvalue(model_status(model, :a), :b)
+    @test last(parent(current[2].reference[])) isa Base.RefValue{Float64}
+    @test last(parent(current[2].reference[])) !== PSE.refvalue(model_status(model, :b), :b)
+    @test current[1].binding.source_ids == [ObjectId(:a), ObjectId(:b)]
+    @test current[2].binding.source_ids == [ObjectId(:a), ObjectId(:b)]
     @test final_state(simulation, :scene).total === 37.0
     @test outputs(simulation)[(:paired_consumer, ObjectId(:scene), :total)] ==
         [(1.0, 5.0), (2.0, 37.0)]
+end
+
+@testset "an unprepared temporal family cannot partly extend private snapshots" begin
+    model = paired_temporal_scene()
+    simulation = run!(model; steps=1, outputs=:all)
+    temporal_inputs = simulation.compiled.status_views_by_target[
+        (:paired_consumer, ObjectId(:scene))].temporal_inputs
+    before = map(temporal_inputs) do temporal
+        (initial=copy(temporal.initial), values=collect(temporal.reference[]),
+            references=Tuple(parent(temporal.reference[])), owner=temporal.reference)
+    end
+    history = copy(outputs(simulation)[(:paired_consumer, ObjectId(:scene), :total)])
+    # The first input's Ref32 is admitted. The second has neither the configured
+    # Ref32 nor Ref64 type, so no existing private snapshot may be extended.
+    register_object!(model, Object(:b; scale=:Leaf, parent=:scene,
+        status=Status(a=10f0, b=big"20.0")))
+    @test_throws "outside its prepared Many family" step!(simulation)
+    for (temporal, saved) in zip(temporal_inputs, before)
+        @test temporal.initial == saved.initial
+        @test collect(temporal.reference[]) == saved.values
+        @test Tuple(parent(temporal.reference[])) === saved.references
+        @test temporal.reference === saved.owner
+    end
+    @test outputs(simulation)[(:paired_consumer, ObjectId(:scene), :total)] == history
 end
 
 end

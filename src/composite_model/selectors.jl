@@ -679,15 +679,23 @@ function _selector_scope_from_positional(selectors)
     return only(scopes)
 end
 
+_first_positional_relation(::Tuple{}) = nothing
+function _first_positional_relation(selectors::Tuple)
+    selector = first(selectors)
+    selector isa Relation && return selector
+    return _first_positional_relation(Base.tail(selectors))
+end
+
 function _selector_value_from_positional(selectors, ::Type{Relation})
-    values = Symbol[]
+    relation = _first_positional_relation(selectors)
+    isnothing(relation) && return nothing
+    first_value = relation.relation
     for selector in selectors
-        selector isa Relation && push!(values, selector.relation)
-    end
-    isempty(values) && return nothing
-    first_value = first(values)
-    for value in values
-        if value != first_value
+        if selector isa Relation && selector.relation != first_value
+            values = Symbol[]
+            for candidate in selectors
+                candidate isa Relation && push!(values, candidate.relation)
+            end
             io = IOBuffer()
             print(io, "Conflicting `Relation(...)` selector values: ")
             _print_selector_diagnostic(io, values, Any[])

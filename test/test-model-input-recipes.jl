@@ -161,6 +161,7 @@ end
     binding = only(simulation.compiled.input_bindings)
     carrier = input_carrier(binding)
     @test carrier isa PSE.ObjectRefVector
+    @test carrier === old_carrier
     @test Set(binding.source_ids) == Set((ObjectId(1), ObjectId(:new_leaf)))
     @test isempty(binding.source_application_ids)
     for (id, reference) in zip(binding.source_ids, parent(carrier))
@@ -170,7 +171,7 @@ end
     @test PSE.refvalue(second, :x)[] isa Float64
     first_ref[] = 7f0
     @test first.x === 7f0
-    @test only(old_carrier) === 7f0
+    @test old_carrier[findfirst(isequal(ObjectId(1)), binding.source_ids)] === 7f0
     continue!(simulation)
     @test model_status(model, :plant).total === 16.0
     @test outputs(simulation)[(:aggregate, ObjectId(:plant), :total)] ==

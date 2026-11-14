@@ -232,7 +232,7 @@ end
     @test model_status(model, :reader).seen === 7f0
 end
 
-@testset "configured Float32 refs take precedence over Float64 producer defaults" begin
+@testset "configured Float32 refs coexist with prospective Float64 producer defaults" begin
     source = Status(x=1f0)
     model = CompositeModel(Object(:source; scale=:Leaf, status=source),
         Object(:reader; scale=:Reader); applications=(
@@ -241,20 +241,28 @@ end
                 on=One(id=:reader), inputs=(x=Many(SceneScope(); scale=:Leaf,
                     application=:source, var=:x),)),
         ), environment=(duration=Hour(1),))
-    @test only(model.scenario_plan_cache.program.input_records).reference_types ===
-        Tuple{Base.RefValue{Float32}}
+    @test Set(fieldtypes(only(model.scenario_plan_cache.program.input_records).reference_types)) ==
+        Set((Base.RefValue{Float32}, Base.RefValue{Float64}))
     simulation = run!(model; steps=1, outputs=:all)
     carrier = only(simulation.compiled.input_bindings).carrier
-    @test carrier isa PSE.RefVector{Float32}
+    @test carrier isa PSE.ObjectRefVector
     @test model_status(model, :reader).seen === 2f0
     @test only(parent(carrier)) === PSE.refvalue(source, :x)
     register_object!(model, Object(:z_leaf; scale=:Leaf, status=Status(x=3f0)))
     continue!(simulation; steps=1)
     @test only(simulation.compiled.input_bindings).carrier === carrier
-    @test carrier isa PSE.RefVector{Float32}
+    @test carrier isa PSE.ObjectRefVector
     @test model_status(model, :reader).seen === 8f0
     @test parent(carrier)[1] === PSE.refvalue(model_status(model, :source), :x)
     @test parent(carrier)[2] === PSE.refvalue(model_status(model, :z_leaf), :x)
+    register_object!(model, Object(:zz_default; scale=:Leaf))
+    continue!(simulation; steps=1)
+    @test only(simulation.compiled.input_bindings).carrier === carrier
+    @test model_status(model, :zz_default).x === 6.0
+    @test PSE.refvalue(model_status(model, :zz_default), :x) isa Base.RefValue{Float64}
+    @test parent(carrier)[1] === PSE.refvalue(source, :x)
+    @test source.x === 6f0
+    @test model_status(model, :reader).seen === 18f0
 end
 
 @testset "partial current source state also admits the missing default family" begin
@@ -369,7 +377,8 @@ end
         binding = only(simulation.compiled.input_bindings)
         B = typeof(binding)
         if base_configured
-            @test binding.carrier isa PSE.RefVector{Float32}
+            @test eltype(parent(binding.carrier)) ===
+                Union{Base.RefValue{Float32},Base.RefValue{Float64}}
             continue!(simulation; steps=1)
             @test model_status(model, :reader).seen === 5.0
         else
@@ -398,13 +407,21 @@ end
                 on=One(id=:reader), inputs=(x=Many(SceneScope(); scale=:Leaf,
                     application=:writer, var=:x),)),
         ), environment=(duration=Hour(1),))
-    @test only(model.scenario_plan_cache.program.input_records).reference_types ===
-        Tuple{Base.RefValue{Float32}}
+    @test Set(fieldtypes(only(model.scenario_plan_cache.program.input_records).reference_types)) ==
+        Set((Base.RefValue{Float32}, Base.RefValue{Float64}))
     simulation = run!(model; steps=1, outputs=:all)
     carrier = only(simulation.compiled.input_bindings).carrier
-    @test carrier isa PSE.RefVector{Float32}
+    @test carrier isa PSE.ObjectRefVector
     @test model_status(model, :reader).seen === 4f0
     @test only(parent(carrier)) === PSE.refvalue(status, :x)
+    register_object!(model, Object(:z_leaf; scale=:Leaf))
+    continue!(simulation; steps=1)
+    @test only(simulation.compiled.input_bindings).carrier === carrier
+    @test parent(carrier)[1] === PSE.refvalue(status, :x)
+    @test status.x === 4f0
+    @test model_status(model, :z_leaf).x === 4.0
+    @test PSE.refvalue(model_status(model, :z_leaf), :x) isa Base.RefValue{Float64}
+    @test model_status(model, :reader).seen === 8f0
 end
 
 @testset "a future One destination does not freeze a false Many preparation failure" begin
@@ -481,6 +498,24 @@ end
             ), environment=(duration=Hour(1),))
     @test only(scoped.scenario_plan_cache.program.input_records) isa PSE.ScenarioPreparationFailure
     @test_throws "no concrete configured source type" run!(scoped; steps=0, outputs=:none)
+end
+
+@testset "complete real refs remain sufficient for an abstract Required producer" begin
+    supplied = Status(x=1f0)
+    model = CompositeModel(Object(:scene; scale=:Scene),
+        Object(:leaf; scale=:Leaf, status=supplied), Object(:reader; scale=:Reader);
+        applications=(
+            ModelSpec(RequiredDistributor(); name=:writer, on=Many(scale=:Scene),
+                outputs_to=(OutputTo(Many(SceneScope(); scale=:Leaf)),)),
+            ModelSpec(ManyReader{AbstractVector,Float32}(0f0); name=:reader,
+                on=One(id=:reader), inputs=(x=Many(SceneScope(); scale=:Leaf,
+                    application=:writer, var=:x),)),
+        ), environment=(duration=Hour(1),))
+    @test only(model.scenario_plan_cache.program.input_records).reference_types ===
+        Tuple{Base.RefValue{Float32}}
+    simulation = run!(model; steps=0, outputs=:none)
+    @test only(parent(only(simulation.compiled.input_bindings).carrier)) ===
+        PSE.refvalue(supplied, :x)
 end
 
 @testset "status-only empty Many requires a concrete configured element type" begin

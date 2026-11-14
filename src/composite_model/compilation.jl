@@ -7834,8 +7834,8 @@ Base.@nospecializeinfer function _input_plan_variable_contracts!(
     return schema
 end
 
-# The family is fixed by preparation, not by the first matching organ. Existing
-# configured reference storage takes precedence over declared numeric defaults.
+# Preparation keeps real cells unchanged and retains every concrete prospective
+# configured type. A current Ref32 does not change a future Default64 into Ref32.
 
 function _many_scope_is_current(model, matcher)
     scope = matcher.scope
@@ -7936,10 +7936,9 @@ function _prepare_many_reference_types(model, consumer, input, selector,
                     delete!(missing_current, object.id)
                 end
             end
-            # Current references replace this variant's default only when every
-            # current source already owns one. Missing fields still materialize
-            # the declared default. Other families remain eligible for reparenting.
-            !isempty(current) && isempty(missing_current) && continue
+            # Real current cells need no conversion. A concrete declared future
+            # family is still admissible even when every current source has a cell.
+            current_complete = !isempty(current) && isempty(missing_current)
             T = if isnothing(producer) || !isnothing(model.status_conversion.transform)
                 fallback
             else
@@ -7948,8 +7947,12 @@ function _prepare_many_reference_types(model, consumer, input, selector,
             end
             candidates = isnothing(T) ? () : Base.uniontypes(T)
             if isempty(candidates) || !all(isconcretetype, candidates)
-                isnothing(producer) && observed_any && continue
                 candidates = fallback === Union{} ? () : (fallback,)
+            end
+            # A transform or abstract Required may leave the prospective type
+            # unknown. Existing complete references remain valid evidence.
+            if isempty(candidates)
+                (current_complete || (isnothing(producer) && observed_any)) && continue
             end
             isempty(candidates) && throw(ArgumentError(
                 "Many input `$(input)` on application `$(consumer.id)` has no concrete " *

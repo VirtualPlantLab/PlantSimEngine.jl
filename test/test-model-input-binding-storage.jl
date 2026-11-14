@@ -94,13 +94,15 @@ function ordinary_control(; called=false)
     families = observe_families!(DataType[], simulation)
     initial_families = copy(families)
     @test eltype(simulation.compiled.input_bindings) === PSE.CompiledModelInputBinding
-    @test isempty(check_carriers(data, simulation).carrier)
+    initial_many = check_carriers(data, simulation)
+    @test isempty(initial_many.carrier)
     totals = [advance!(data, simulation)]
     birth!(data.model, :leaf_1, 7.0)
     push!(totals, advance!(data, simulation))
     observe_families!(families, simulation)
     future = binding(simulation, :a, :values)
-    @test !(typeof(future) in initial_families)
+    @test typeof(future) in initial_families
+    @test future.carrier === initial_many.carrier
     first = check_carriers(data, simulation)
     carrier, source_ids = first.carrier, first.source_ids
     birth!(data.model, :leaf_2, 11.0)
@@ -143,7 +145,7 @@ end
         simulation.compiled.input_bindings)
     @test isempty(prototype)
 
-    incomplete = storage_prototype(control.initial_families)
+    incomplete = storage_prototype(filter(B -> B !== typeof(control.future), control.families))
     @test_throws "outside its prepared storage family" PSE._with_model_input_binding(
         identity, incomplete, control.future)
 end
