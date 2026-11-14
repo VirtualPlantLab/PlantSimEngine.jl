@@ -20,9 +20,9 @@ concurrency:
 jobs:
   test:
     if: ${{ github.event_name != 'workflow_dispatch' || !inputs.juliac_safe }}
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - shard ${{ matrix.shard }}/3 - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
-    # The expanded full suite with coverage can exceed two hours on the latest Julia.
+    # Keep the full suite within the limit by running independent test groups separately.
     timeout-minutes: 180
     permissions:
       # needed to allow julia-actions/cache to proactively delete old caches that it has created
@@ -38,6 +38,7 @@ jobs:
           - ubuntu-latest
           - macOS-latest
           - windows-latest
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
@@ -48,6 +49,8 @@ jobs:
       - uses: julia-actions/julia-runtest@v1
         env:
           JULIA_NUM_THREADS: 4
+          PSE_TEST_SHARD_COUNT: "3"
+          PSE_TEST_SHARD_INDEX: ${{ matrix.shard }}
       - uses: julia-actions/julia-processcoverage@v1
       - uses: codecov/codecov-action@v7
         with:
@@ -88,6 +91,10 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || !inputs.juliac_safe }}
     name: Graph editor E2E
     runs-on: ubuntu-latest
+    container:
+      # Keep the browser image aligned with frontend/package-lock.json.
+      image: mcr.microsoft.com/playwright:v1.60.0-noble
+      options: --ipc=host
     timeout-minutes: 30
     permissions:
       actions: write
@@ -123,13 +130,10 @@ jobs:
         run: npm run build
       - name: Check committed graph editor assets
         run: |
-          git diff --exit-code -- frontend/dist || {
+          git -c safe.directory="$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" diff --exit-code -- frontend/dist || {
             echo "frontend/dist is stale. Run npm run build in frontend/ and commit the rebuilt assets.";
             exit 1;
           }
-      - name: Install Playwright browser
-        working-directory: frontend
-        run: npx playwright install --with-deps chromium
       - name: Run graph editor E2E tests
         working-directory: frontend
         run: npm run test:e2e

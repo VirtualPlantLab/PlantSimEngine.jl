@@ -220,12 +220,32 @@ function _validate_selector_context(
     context::Symbol,
 )
     allowed = _selector_context_fields(context)
-    invalid = Symbol[field for field in _selector_semantic_fields(selector) if !(field in allowed)]
-    isempty(invalid) || error(
-        "Selector field(s) `$(Tuple(invalid))` are not valid in ",
-        "$(_selector_context_description(context)) selectors. ",
-        "Allowed fields are `$(allowed)`."
-    )
+    invalid = Symbol[]
+    for field in _selector_semantic_fields(selector)
+        accepted = false
+        for allowed_field in allowed
+            if field === allowed_field
+                accepted = true
+                break
+            end
+        end
+        accepted || push!(invalid, field)
+    end
+    if !isempty(invalid)
+        allowed_fields = Symbol[]
+        for field in allowed
+            push!(allowed_fields, field)
+        end
+        io = IOBuffer()
+        ancestors = Any[]
+        print(io, "Selector field(s) `")
+        _print_selector_diagnostic(io, invalid, ancestors)
+        print(io, "` are not valid in ", _selector_context_description(context),
+            " selectors. Allowed fields are `")
+        _print_selector_diagnostic(io, allowed_fields, ancestors)
+        print(io, "`.")
+        error(String(take!(io)))
+    end
     if context == :application_target
         scope = _criteria_scope(criteria(selector))
         scope isa Union{Nothing,SceneScope,Scope} || error(
@@ -320,13 +340,48 @@ end
 function _validate_model_override_contract!(base, replacement; description)
     base_contract = model_interface(base)
     replacement_contract = model_interface(replacement)
-    isequal(base_contract, replacement_contract) && return nothing
+    isequal(base_contract, replacement_contract) && return (; base=base_contract, replacement=replacement_contract)
     error(
         "$(description) has an incompatible model contract. Expected ",
         "`$(base_contract)`, got `$(replacement_contract)`. Object and instance ",
         "overrides may change parameters or implementation, but not the full compiled " *
         "interface (port schemas, contracts, dependencies, or runtime traits)."
     )
+end
+
+function _configured_variant_ports(contract)
+    input_defaults = _input_default_values(contract.inputs)
+    output_defaults = _local_output_declarations(contract.outputs)
+    return (
+        input_types=_authored_port_types(_input_expected_type, contract.inputs),
+        output_types=_authored_port_types(_output_value_type, contract.outputs),
+        input_declaration_types=_authored_port_types(typeof, contract.inputs),
+        output_declaration_types=_authored_port_types(typeof, contract.outputs),
+        input_element_types=_authored_output_element_types(contract.inputs),
+        output_element_types=_authored_output_element_types(contract.outputs),
+        input_names=keys(contract.inputs), output_names=keys(contract.outputs),
+        input_default_names=keys(input_defaults), output_default_names=keys(output_defaults),
+        defaults_types=_authored_port_types(identity,
+            (inputs=typeof(input_defaults), outputs=typeof(output_defaults))),
+    )
+end
+
+function _prepare_object_model_overrides(base, object_models; description)
+    isempty(object_models) && throw(ArgumentError("Object overrides must not be empty."))
+    entries = Any[]
+    I = Union{map(typeof, collect(keys(object_models)))...}
+    slots = Dict{I,Int}()
+    for (object_id, replacement) in pairs(object_models)
+        contracts = _validate_model_override_contract!(base, replacement; description)
+        isempty(entries) && push!(entries, (model=base, ports=_configured_variant_ports(contracts.base)))
+        slot = findfirst(entry -> entry.model === replacement, entries)
+        if isnothing(slot)
+            push!(entries, (model=replacement, ports=_configured_variant_ports(contracts.replacement)))
+            slot = length(entries)
+        end
+        slots[object_id] = slot
+    end
+    return ObjectModelOverrides(ConfiguredModelVariants(Tuple(entries), slots))
 end
 
 function _object_override_models(instance::ObjectInstance, specs, instance_ids)
@@ -441,14 +496,8 @@ function _mount_object_instance_applications(instance::ObjectInstance, instance_
         mounted_model = get(instance_overrides, index, model_(spec))
         if haskey(object_overrides, index)
             object_models = object_overrides[index]
-            for replacement in values(object_models)
-                _validate_model_override_contract!(
-                    mounted_model,
-                    replacement;
-                    description="Object override for template application `$(base_name)`",
-                )
-            end
-            mounted_model = ObjectModelOverrides(mounted_model, object_models)
+            mounted_model = _prepare_object_model_overrides(mounted_model, object_models;
+                description="Object override for template application `$(base_name)`")
         end
         push!(
             mounted,
@@ -582,11 +631,21 @@ function _ancestor_id(
     !isnothing(kind) && !haskey(model.registry.by_kind, kind) && return nothing
     for index in final_index:-1:firstindex(ancestors)
         id = @inbounds ancestors[index]
-        object = _model_object(model, id)::Object
-        (isnothing(scale) || object.scale === scale) &&
-            (isnothing(kind) || object.kind === kind) && return id
+        _ancestor_matches_indexed_labels(model, id, scale, kind) && return id
     end
     return nothing
+end
+
+# An ancestry path may contain several concrete ObjectId types. Keep each
+# scalar index lookup inside that identity's dispatch boundary so immutable
+# index and family-store headers do not escape across a dynamic call.
+@noinline function _ancestor_matches_indexed_labels(
+    model::CompositeModel, id::ObjectId,
+    scale::Union{Nothing,Symbol}, kind::Union{Nothing,Symbol},
+)
+    _model_object(model, id)
+    return (isnothing(scale) || id in model.registry.by_scale[scale]) &&
+           (isnothing(kind) || id in model.registry.by_kind[kind])
 end
 
 function _ancestor_ids(model::CompositeModel, current_id::ObjectId)
@@ -630,18 +689,45 @@ function _selector_scope_from_positional(selectors)
     return only(scopes)
 end
 
+_first_positional_relation(::Tuple{}) = nothing
+function _first_positional_relation(selectors::Tuple)
+    selector = first(selectors)
+    selector isa Relation && return selector
+    return _first_positional_relation(Base.tail(selectors))
+end
+
 function _selector_value_from_positional(selectors, ::Type{Relation})
-    values = [selector.relation for selector in selectors if selector isa Relation]
-    isempty(values) && return nothing
-    length(unique(values)) == 1 || error("Conflicting `Relation(...)` selector values: $(values).")
-    return only(unique(values))
+    relation = _first_positional_relation(selectors)
+    isnothing(relation) && return nothing
+    first_value = relation.relation
+    for selector in selectors
+        if selector isa Relation && selector.relation != first_value
+            values = Symbol[]
+            for candidate in selectors
+                candidate isa Relation && push!(values, candidate.relation)
+            end
+            io = IOBuffer()
+            print(io, "Conflicting `Relation(...)` selector values: ")
+            _print_selector_diagnostic(io, values, Any[])
+            print(io, '.')
+            error(String(take!(io)))
+        end
+    end
+    return first_value
 end
 
 function _criteria_value(criteria, key::Symbol, selector_type)
     positional = _selector_value_from_positional(criteria.selectors, selector_type)
     keyword = haskey(criteria, key) ? getproperty(criteria, key) : nothing
     if !isnothing(positional) && !isnothing(keyword) && positional != keyword
-        error("Conflicting selector values for `$(key)`: `$(positional)` and `$(keyword)`.")
+        io = IOBuffer()
+        ancestors = Any[]
+        print(io, "Conflicting selector values for `", String(key), "`: `")
+        _print_selector_diagnostic(io, positional, ancestors)
+        print(io, "` and `")
+        _print_selector_diagnostic(io, keyword, ancestors)
+        print(io, "`.")
+        error(String(take!(io)))
     end
     return isnothing(keyword) ? positional : keyword
 end
@@ -658,19 +744,24 @@ function _criteria_scope(criteria)
     return isnothing(keyword) ? positional : keyword
 end
 
-function _named_scope_root_id(model::CompositeModel, scope::Scope)
+# Resolve the authored root identity independently from current membership.
+# Preparation can retain a future scope without caching a missing-root failure.
+function _named_scope_root_candidate(model::CompositeModel, scope::Scope)
     if scope.root isa Symbol
         for instance in model.instances
             instance.name == scope.root || continue
-            root_id = _instance_root_id(instance)
-            haskey(model.registry.objects, root_id) || error(
-                "Object instance `$(instance.name)` has no current root object `$(root_id.value)`.",
-            )
-            return root_id
+            return _instance_root_id(instance), instance.name
         end
     end
-    root_id = ObjectId(scope.root)
+    return ObjectId(scope.root), nothing
+end
+
+function _named_scope_root_id(model::CompositeModel, scope::Scope)
+    root_id, instance_name = _named_scope_root_candidate(model, scope)
     haskey(model.registry.objects, root_id) && return root_id
+    isnothing(instance_name) || error(
+        "Object instance `$(instance_name)` has no current root object `$(root_id.value)`.",
+    )
     available_ids = [id.value for id in object_ids(model)]
     available_instances = sort!(Symbol[instance.name for instance in model.instances]; by=string)
     symbolic_ids = Symbol[id for id in available_ids if id isa Symbol]
@@ -690,13 +781,10 @@ _compile_selector_scope(model::CompositeModel, scope::Scope) =
 _compile_selector_relation(::Nothing) = nothing
 _compile_selector_relation(relation::Symbol) = Val(relation)
 
-function _compile_selector_matcher(
-    model::CompositeModel,
-    selector::AbstractObjectMultiplicity,
-)
+function _authored_selector_matcher(selector::AbstractObjectMultiplicity)
     criteria_ = criteria(selector)
     relation = _criteria_value(criteria_, :relation, Relation)
-    scope = _compile_selector_scope(model, _criteria_scope(criteria_))
+    scope = _criteria_scope(criteria_)
     scale = _criteria_value(criteria_, :scale)
     kind = _criteria_value(criteria_, :kind)
     species = _criteria_value(criteria_, :species)
@@ -718,15 +806,26 @@ function _compile_selector_matcher(
     )
 end
 
+_selector_matcher_with_scope(matcher::CompiledSelectorMatcher, scope) =
+    CompiledSelectorMatcher(scope, matcher.relation, matcher.scale, matcher.kind,
+        matcher.species, matcher.id, matcher.defaults_to_context)
+
+function _resolve_selector_matcher(model::CompositeModel, matcher::CompiledSelectorMatcher)
+    return _selector_matcher_with_scope(matcher, _compile_selector_scope(model, matcher.scope))
+end
+
+_compile_selector_matcher(model::CompositeModel, selector::AbstractObjectMultiplicity) =
+    _resolve_selector_matcher(model, _authored_selector_matcher(selector))
+
 function _scope_object_ids(model::CompositeModel, scope, context)
     if isnothing(scope) || scope isa SceneScope
-        return ObjectId[keys(model.registry.objects)...]
+        return collect(keys(model.registry.objects))
     end
 
     current_id = _object_id_from_context(context)
     if scope isa Self
         isnothing(current_id) && error("`Self()` selectors require a current object context.")
-        return ObjectId[current_id]
+        return [current_id]
     elseif scope isa Subtree
         isnothing(current_id) && error("`Subtree()` selectors require a current object context.")
         return _descendant_ids(model, current_id)
@@ -832,6 +931,25 @@ function _selector_subtree_root(model::CompositeModel, scope, context)
         return scope.root_id
     end
     return nothing
+end
+
+# A query owns its resolved root only until its current candidates are consumed.
+# Existing compiled named scopes already carry this root; relations and nearest
+# ancestor queries retain their original point predicates.
+function _query_scope_matcher(matcher::CompiledSelectorMatcher, scope, root)
+    (isnothing(matcher.relation) && !isnothing(root) &&
+     !(scope isa CompiledNamedScope)) || return matcher
+    return _selector_matcher_with_scope(matcher, CompiledNamedScope(scope, root))
+end
+
+function _query_scope_matcher(model::CompositeModel, matcher::CompiledSelectorMatcher,
+    context, default_scope)
+    isnothing(matcher.relation) || return matcher
+    scope = isnothing(matcher.scope) ? default_scope : matcher.scope
+    if scope isa Ancestor && !isnothing(matcher.scale) && matcher.scale == scope.scale
+        return matcher
+    end
+    return _query_scope_matcher(matcher, scope, _selector_subtree_root(model, scope, context))
 end
 
 # On Julia 1.10, keep the target ID unboxed when the ancestor's ID type is unknown.
@@ -985,7 +1103,7 @@ function _available_selector_labels(model::CompositeModel, candidate_ids)
     scales = Symbol[]
     kinds = Symbol[]
     species = Symbol[]
-    ids = ObjectId[]
+    ids = Vector{keytype(model.registry.objects)}()
     for object in objects
         isnothing(object.scale) || push!(scales, object.scale)
         isnothing(object.kind) || push!(kinds, object.kind)
@@ -998,6 +1116,195 @@ function _available_selector_labels(model::CompositeModel, candidate_ids)
         species=sort!(unique!(species); by=string),
         ids=[id.value for id in _sort_object_ids!(unique!(ids))],
     )
+end
+
+# Type display is fixed by the schema. Keeping its text constant avoids the
+# generic Julia syntax printer in the compiled application's error paths.
+@generated function _selector_diagnostic_type_name(::Type{T}) where {T}
+    return QuoteNode(string(T))
+end
+
+function _print_selector_diagnostic(io, value::T, ancestors) where {T}
+    # Ancestors are inspected only with ===; recursive values remain typed by
+    # this method's argument, never recovered from the identity stack.
+    tracked = ismutabletype(T)
+    if tracked
+        any(ancestor -> ancestor === value, ancestors) &&
+            return print(io, "<circular reference>")
+        push!(ancestors, value)
+    end
+    try
+        _print_selector_diagnostic_value(io, value, ancestors)
+    finally
+        tracked && pop!(ancestors)
+    end
+    return nothing
+end
+
+function _selector_diagnostic_text(value)
+    io = IOBuffer()
+    _print_selector_diagnostic(io, value, Any[])
+    return String(take!(io))
+end
+
+function _print_selector_diagnostic_value(io, value::AbstractString, ancestors)
+    print(io, '"')
+    escape_string(io, value, ('"',))
+    print(io, '"')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, value::Symbol, ancestors)
+    print(io, "Symbol(")
+    _print_selector_diagnostic_value(io, String(value), ancestors)
+    print(io, ')')
+    return nothing
+end
+
+_print_selector_diagnostic_value(io, ::Nothing, ancestors) = print(io, "nothing")
+
+# User numeric types use the record printer too; their custom show methods must
+# not silently reintroduce the generic syntax printer.
+_print_selector_diagnostic_value(io, value::Union{
+    Bool,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,
+    Float16,Float32,Float64,BigInt,BigFloat,
+}, ancestors) =
+    print(io, value)
+
+function _print_selector_diagnostic_value(io, value::Char, ancestors)
+    print(io, "Char(")
+    _print_selector_diagnostic_value(io, string(value), ancestors)
+    print(io, ')')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, value::ObjectId, ancestors)
+    print(io, "ObjectId(")
+    _print_selector_diagnostic(io, value.value, ancestors)
+    print(io, ')')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, ::Type{T}, ancestors) where {T}
+    print(io, _selector_diagnostic_type_name(T))
+    return nothing
+end
+
+function _print_selector_diagnostic_items(io, items::Tuple, ancestors)
+    isempty(items) && return nothing
+    _print_selector_diagnostic(io, first(items), ancestors)
+    if length(items) > 1
+        print(io, ", ")
+        _print_selector_diagnostic_items(io, Base.tail(items), ancestors)
+    end
+    return nothing
+end
+
+function _print_selector_diagnostic_items(io, items::AbstractVector, ancestors)
+    for (index, item) in enumerate(items)
+        index == 1 || print(io, ", ")
+        _print_selector_diagnostic(io, item, ancestors)
+    end
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, items::Union{Tuple,AbstractVector}, ancestors)
+    tuple = items isa Tuple
+    print(io, tuple ? '(' : '[')
+    _print_selector_diagnostic_items(io, items, ancestors)
+    tuple && length(items) == 1 && print(io, ',')
+    print(io, tuple ? ')' : ']')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, items::AbstractArray, ancestors)
+    print(io, _selector_diagnostic_type_name(typeof(items)), "(size=")
+    _print_selector_diagnostic(io, size(items), ancestors)
+    print(io, ", values=[")
+    for (index, item) in enumerate(items)
+        index == 1 || print(io, ", ")
+        _print_selector_diagnostic(io, item, ancestors)
+    end
+    print(io, "])")
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, items::AbstractDict, ancestors)
+    print(io, _selector_diagnostic_type_name(typeof(items)), '(')
+    for (index, (key, value)) in enumerate(items)
+        index == 1 || print(io, ", ")
+        _print_selector_diagnostic(io, key, ancestors)
+        print(io, " => ")
+        _print_selector_diagnostic(io, value, ancestors)
+    end
+    print(io, ')')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, items::AbstractSet, ancestors)
+    print(io, _selector_diagnostic_type_name(typeof(items)), '(')
+    for (index, item) in enumerate(items)
+        index == 1 || print(io, ", ")
+        _print_selector_diagnostic(io, item, ancestors)
+    end
+    print(io, ')')
+    return nothing
+end
+
+@generated function _print_selector_diagnostic_fields(io, value::T, ancestors) where {T}
+    statements = Expr[]
+    for (index, name) in enumerate(fieldnames(T))
+        index == 1 || push!(statements, :(print(io, ", ")))
+        push!(statements, quote
+            print(io, $(String(name)), '=')
+            if isdefined(value, $index)
+                _print_selector_diagnostic(io, getfield(value, $index), ancestors)
+            else
+                print(io, "<undefined>")
+            end
+        end)
+    end
+    return quote
+        $(statements...)
+        return nothing
+    end
+end
+
+function _print_selector_diagnostic_value(io, value::NamedTuple, ancestors)
+    print(io, '(')
+    _print_selector_diagnostic_fields(io, value, ancestors)
+    print(io, ')')
+    return nothing
+end
+
+function _print_selector_diagnostic_record(io, label, value::T, ancestors) where {T}
+    print(io, label, '(')
+    _print_selector_diagnostic_fields(io, value, ancestors)
+    print(io, ')')
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, selector::AbstractObjectMultiplicity, ancestors)
+    label = selector isa One ? "One" : selector isa OptionalOne ? "OptionalOne" : "Many"
+    print(io, label)
+    _print_selector_diagnostic_value(io, criteria(selector), ancestors)
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, scope::_OBJECT_SELECTOR_POSITIONAL_TYPES, ancestors)
+    _print_selector_diagnostic_record(io, String(nameof(typeof(scope))), scope, ancestors)
+    return nothing
+end
+
+function _print_selector_diagnostic_value(io, value::T, ancestors) where {T}
+    if isprimitivetype(T)
+        print(io, _selector_diagnostic_type_name(T), "(bytes=")
+        _print_selector_diagnostic(io, reinterpret(NTuple{sizeof(T),UInt8}, value), ancestors)
+        print(io, ')')
+    else
+        _print_selector_diagnostic_record(io, _selector_diagnostic_type_name(T), value, ancestors)
+    end
+    return nothing
 end
 
 function _selector_resolution_error(
@@ -1019,13 +1326,22 @@ function _selector_resolution_error(
     )
     expected = selector isa One ? "exactly one" : "zero or one"
     context_id = _object_id_from_context(context)
-    error(
-        "Expected $(expected) object for selector `$(selector)`, got $(length(matched_ids)). ",
-        "context=$(isnothing(context_id) ? nothing : context_id.value), ",
-        "matched_ids=$([id.value for id in matched_ids]), ",
-        "requested=(scale=$(scale), kind=$(kind), species=$(species), id=$(id)), ",
-        "available=$(available), suggestions=$(suggestions)."
-    )
+    io = IOBuffer()
+    ancestors = Any[]
+    print(io, "Expected ", expected, " object for selector `")
+    _print_selector_diagnostic(io, selector, ancestors)
+    print(io, "`, got ", length(matched_ids), ". context=")
+    _print_selector_diagnostic(io, context_id, ancestors)
+    print(io, ", matched_ids=")
+    _print_selector_diagnostic(io, matched_ids, ancestors)
+    print(io, ", requested=")
+    _print_selector_diagnostic(io, (; scale, kind, species, id), ancestors)
+    print(io, ", available=")
+    _print_selector_diagnostic(io, available, ancestors)
+    print(io, ", suggestions=")
+    _print_selector_diagnostic(io, suggestions, ancestors)
+    print(io, '.')
+    error(String(take!(io)))
 end
 
 function _matches_object_criteria(object::Object; scale=nothing, kind=nothing, species=nothing, id=nothing)
@@ -1041,23 +1357,29 @@ _compiled_relation_symbol(::Val{RELATION}) where {RELATION} = RELATION
 function _selector_matches_object_id(
     model::CompositeModel,
     matcher::CompiledSelectorMatcher,
-    object_id::ObjectId;
-    context=nothing,
-    default_to_context::Bool=false,
-    default_scope=nothing,
-    relation_resolved::Bool=false,
+    object_id::ObjectId,
+    context,
+    default_to_context::Bool,
+    default_scope,
+    relation_resolved::Bool,
 )
     if default_to_context && matcher.defaults_to_context && !isnothing(context)
         return object_id == _object_id_from_context(context)
     end
-    object = _model_object(model, object_id)
-    _matches_object_criteria(
-        object;
-        scale=matcher.scale,
-        kind=matcher.kind,
-        species=matcher.species,
-        id=matcher.id,
-    ) || return false
+    _selector_matches_object_labels(model, matcher, object_id) || return false
+    return _selector_matches_object_topology(model, matcher, object_id,
+        context, default_scope, relation_resolved)
+end
+
+@inline function _selector_matches_object_labels(model::CompositeModel,
+    matcher::CompiledSelectorMatcher, object_id::ObjectId)
+    return _matches_object_criteria(_model_object(model, object_id);
+        scale=matcher.scale, kind=matcher.kind, species=matcher.species, id=matcher.id)
+end
+
+function _selector_matches_object_topology(model::CompositeModel,
+    matcher::CompiledSelectorMatcher, object_id::ObjectId,
+    context, default_scope, relation_resolved::Bool)
     scope = isnothing(matcher.scope) ? default_scope : matcher.scope
     if isnothing(matcher.relation)
         if scope isa Ancestor &&
@@ -1087,61 +1409,26 @@ function _selector_matches_object_id(
            _scope_contains_object(model, matcher.scope, context, object_id)
 end
 
-function _selector_matches_object_id(
-    model::CompositeModel,
-    selector::AbstractObjectMultiplicity,
-    object_id::ObjectId;
-    context=nothing,
-    default_to_context::Bool=false,
-    default_scope=nothing,
-)
-    return _selector_matches_object_id(
-        model,
-        _compile_selector_matcher(model, selector),
-        object_id;
-        context=context,
-        default_to_context=default_to_context,
-        default_scope=default_scope,
-    )
-end
-
 function _selector_matches_any_object_id(
     model::CompositeModel,
     matcher::CompiledSelectorMatcher,
-    object_ids;
-    context=nothing,
-    default_to_context::Bool=false,
-    default_scope=nothing,
+    object_ids,
+    context,
+    default_to_context::Bool,
+    default_scope,
 )
     for object_id in object_ids
         _selector_matches_object_id(
             model,
             matcher,
-            object_id;
-            context=context,
-            default_to_context=default_to_context,
-            default_scope=default_scope,
+            object_id,
+            context,
+            default_to_context,
+            default_scope,
+            false,
         ) && return true
     end
     return false
-end
-
-function _selector_matches_any_object_id(
-    model::CompositeModel,
-    selector::AbstractObjectMultiplicity,
-    object_ids;
-    context=nothing,
-    default_to_context::Bool=false,
-    default_scope=nothing,
-)
-    return _selector_matches_any_object_id(
-        model,
-        _compile_selector_matcher(model, selector),
-        object_ids;
-        context=context,
-        default_to_context=default_to_context,
-        default_scope=default_scope,
-    )
 end
 
 function resolve_object_ids(model::CompositeModel, selector::AbstractObjectMultiplicity; context=nothing)
@@ -1178,11 +1465,14 @@ function _matching_selector_ids(
     # The adaptive candidate source may be a local vector, an index iterator,
     # or registry keys. Specialize this loop at that boundary, rather than
     # dispatching dynamically for every object in a heterogeneous query.
-    ids = ObjectId[]
-    for id in candidates
+    I = keytype(model.registry.objects)
+    ids = Vector{I}()
+    for candidate in candidates
+        candidate isa I || continue
+        id = candidate::I
         haskey(model.registry.objects, id) || continue
         _selector_matches_object_id(
-            model, matcher, id; context, default_to_context, default_scope, relation_resolved,
+            model, matcher, id, context, default_to_context, default_scope, relation_resolved,
         ) && push!(ids, id)
     end
     return _sort_object_ids!(unique!(ids))
@@ -1275,8 +1565,9 @@ function _resolve_object_ids(
         relation_resolved = true
         _relation_object_ids(model, relation, context)
     end
+    matching_matcher = _query_scope_matcher(matcher, scope, subtree_root)
     ids = _matching_selector_ids(
-        model, matcher, candidate_ids, context, default_to_context, default_scope, relation_resolved,
+        model, matching_matcher, candidate_ids, context, default_to_context, default_scope, relation_resolved,
     )
 
     # Cardinality diagnostics may need all available labels in the topology

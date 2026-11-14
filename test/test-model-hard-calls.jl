@@ -417,12 +417,12 @@ end
         plan -> plan ===
                 only(
             candidate for candidate in
-            scenario_plan.call_plans_by_application.controller
+            scenario_plan.call_plans_by_application[:controller]
             if candidate.call == plan.call
         ),
         call_plans,
     )
-    @test isempty(scenario_plan.call_plans_by_application.leaf_calls)
+    @test isempty(scenario_plan.call_plans_by_application[:leaf_calls])
     one_binding = only(
         binding for binding in simulation.compiled.call_bindings
         if binding.call == :one
@@ -1204,6 +1204,23 @@ end
         ObjectId(:leaf_keep),
         ObjectId(:leaf_z_after_observation),
     ]
+    # A later explicit selection is only a view over this call's membership.
+    # It must leave the other retained target available in the complete view.
+    run_call!(
+        LAZY_MANY_CALL_CONTEXT[],
+        :children;
+        objects=(:leaf_keep,),
+    )
+    @test getproperty.(collect(full_call_view), :object_id) ==
+          ObjectId[ObjectId(:leaf_keep), ObjectId(:leaf_z_after_observation)]
+    other_target = only(call_targets(
+        LAZY_MANY_CALL_CONTEXT[],
+        :children;
+        objects=(:leaf_z_after_observation,),
+    ))
+    @test other_target.object_id == ObjectId(:leaf_z_after_observation)
+    @test getproperty.(collect(full_call_view), :object_id) ==
+          ObjectId[ObjectId(:leaf_keep), ObjectId(:leaf_z_after_observation)]
     @test Advanced.runtime_performance(simulation).counts[
         :selector_call_binding_candidates
     ] == 1
@@ -1518,7 +1535,7 @@ end
     @test only(selected).object_id == ObjectId(:callable_leaf)
     @test selected.execution_batches isa
           PlantSimEngine.LazyCallExecutionBatches
-    @test !selected.execution_batches.tracks_full_membership
+    @test !selected.tracks_full_membership
     @test !PlantSimEngine._compiled_call_membership_is_observed(binding)
 end
 

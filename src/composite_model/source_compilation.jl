@@ -208,9 +208,9 @@ end
 
 function _compiled_source_application_models(application::CompiledModelApplication)
     models = Any[_application_default_model(application)]
-    if !isnothing(application.model_overrides)
-        for object_id in sort!(collect(keys(application.model_overrides)); by=id -> string(id.value))
-            push!(models, application.model_overrides[object_id])
+    if !isnothing(_application_model_overrides(application))
+        for object_id in sort!(collect(keys(_application_model_overrides(application))); by=id -> string(id.value))
+            push!(models, _application_model_overrides(application)[object_id])
         end
     end
     unique_models = Any[]
@@ -589,6 +589,7 @@ function _compiled_source_module_path(source_module::Module)
         parent === current && break
         current = parent
     end
+    current === Main && pushfirst!(names, :Main)
     return join(string.(names), ".")
 end
 
@@ -944,9 +945,9 @@ function _compiled_source_prepare_target!(
     shared_environment,
 )
     status = isempty(target.input_bindings) ?
-             target.status :
+             target.status_view.status :
              _materialize_model_inputs!(
-        target.status,
+        target.status_view.status,
         target.input_bindings,
         simulation.compiled,
         application,
@@ -968,10 +969,13 @@ function _compiled_source_prepare_target!(
         target.object_id,
         target.bound_inputs,
         target.output_targets,
+        target.call_bindings,
         simulation.temporal_streams,
         simulation.output_retention,
         time,
         simulation.constants,
+        true,
+        _NO_ENVIRONMENT_OVERRIDE,
     )
     return status, environment, context
 end
@@ -1029,7 +1033,7 @@ function _compiled_source_run_call_target!(
 )
     _record_call_execution!(target.call_context_cache, frame)
     status = _materialize_model_inputs!(
-        target.status,
+        target.status_view.status,
         target.input_bindings,
         targets.compiled,
         application,
@@ -1056,6 +1060,7 @@ function _compiled_source_run_call_target!(
         target.object_id,
         target.bound_inputs,
         target.output_targets,
+        target.call_bindings,
         targets.temporal_streams,
         targets.output_retention,
         targets.time,
@@ -1102,19 +1107,29 @@ function _compiled_source_run_call!(
     selected_environment = environment isa NoEnvironmentOverride ?
                            context.environment :
                            environment
+    return _compiled_source_run_call_targets!(source_id, targets, publish,
+        sampled_environment, selected_environment)
+end
+
+function _compiled_source_run_call_targets!(source_id::Val, targets::CallTargets,
+    publish::Bool, sampled_environment, selected_environment,
+)
     frame = _active_call_evaluation()
-    for batch in targets.execution_batches
-        for target in batch.targets
-            _compiled_source_run_call_target!(
-                source_id,
-                targets,
-                batch.application,
-                target,
-                publish,
-                sampled_environment,
-                selected_environment,
-                frame,
-            )
+    batches = _materialize_call_execution_batches!(targets)
+    for index in eachindex(batches)
+        _with_call_execution_batch(targets, batches, index) do batch
+            for target in batch.targets
+                _compiled_source_run_call_target!(
+                    source_id,
+                    targets,
+                    batch.application,
+                    target,
+                    publish,
+                    sampled_environment,
+                    selected_environment,
+                    frame,
+                )
+            end
         end
     end
     if publish && targets.publication_allowed
@@ -1123,6 +1138,18 @@ function _compiled_source_run_call!(
             _record_evaluated_call_clock!(
                 frame, targets.output_retention, application_id, targets.time,
             )
+        end
+    end
+    return targets
+end
+
+function _compiled_source_run_call_targets!(source_id::Val,
+    targets::AbstractVector{<:CallTarget}, publish::Bool, sampled_environment, selected_environment,
+)
+    for target in targets
+        _with_call_target_entry(targets, target) do actual
+            _compiled_source_run_call_target!(source_id, actual, publish,
+                sampled_environment, selected_environment)
         end
     end
     return targets
@@ -1145,6 +1172,13 @@ function _compiled_source_run_call!(
     end
     selected_environment = environment isa NoEnvironmentOverride ?
                            target.environment : environment
+    return _compiled_source_run_call_target!(source_id, target, publish,
+        sampled_environment, selected_environment)
+end
+
+function _compiled_source_run_call_target!(source_id::Val, target::CallTarget,
+    publish::Bool, sampled_environment, selected_environment,
+)
     frame = _record_call_execution!(target.context_cache)
     status = _materialize_model_inputs!(
         target.status,
@@ -1214,12 +1248,16 @@ function _compiled_source_run_initializer!(
         "Initializer `$(name)` cannot run inside a non-publishing hard call. " *
         "Keep its creator application root-scheduled.",
     )
+    requested_ids = _call_target_object_ids(runtime_model(context), object)
+    return _with_named_call(_selected_source_initializer!, context.calls, name, context,
+        source_id, requested_ids)
+end
+
+function _selected_source_initializer!(cached_targets, context::RunContext,
+    name::Symbol, source_id::Val, requested_ids)
     model = runtime_model(context)
-    requested_ids = _call_target_object_ids(model, object)
     targets = _targeted_new_object_call_targets(
-        context,
-        name,
-        requested_ids;
+        context, name, requested_ids, _synchronized_named_call(cached_targets, context, name);
         initializer=true,
     )
     target = only(targets)

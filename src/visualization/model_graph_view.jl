@@ -92,34 +92,6 @@ function _model_graph_phase!(operation, diagnostics, phase::Symbol, fallback)
     end
 end
 
-function _model_graph_dependency_children(
-    applications,
-    input_bindings,
-    call_bindings,
-    distributed_output_plans=NoCompiledDistributedOutputPlans(),
-)
-    children = Dict{Symbol,Set{Symbol}}()
-    call_owners = _model_call_owners(call_bindings)
-    _model_input_order_edges!(
-        children,
-        input_bindings,
-        call_owners,
-    )
-    _scenario_initializer_order_edges!(
-        children,
-        input_bindings,
-        call_bindings,
-        call_owners,
-    )
-    _scenario_update_order_edges!(
-        children,
-        applications,
-        _manual_call_application_ids(call_bindings),
-        distributed_output_plans,
-    )
-    return children
-end
-
 function _model_graph_dependency_children(compiled::CompiledCompositeModel)
     return Dict{Symbol,Set{Symbol}}(
         application_id => Set{Symbol}(children)
@@ -175,6 +147,7 @@ end
 
 function _model_graph_compiled(
     model,
+    preparation,
     applications,
     input_plans,
     call_plans,
@@ -186,17 +159,19 @@ function _model_graph_compiled(
 )
     isempty(diagnostics) || return nothing
     applications_by_id = _applications_by_id(applications)
-    input_by_target = _index_model_bindings(input_bindings, :application_id, :consumer_id)
-    call_by_target = _index_model_bindings(call_bindings, :application_id, :consumer_id)
+    input_by_target = _index_model_input_bindings(input_bindings, keytype(model.registry.objects))
     timeline = _model_timeline(model)
     scenario_plan = _compiled_scenario_plan(
         model,
+        preparation,
         applications,
         input_plans,
         call_plans,
         distributed_output_plans,
         timeline,
     )
+    call_by_target = _index_model_call_bindings(call_bindings,
+        scenario_plan.call_plans_by_application, keytype(model.registry.objects))
     ordered_applications = Tuple(
         applications_by_id[application_id]
         for application_id in scenario_plan.application_order
@@ -206,8 +181,10 @@ function _model_graph_compiled(
         applications,
         applications_by_id,
         input_by_target,
+        input_bindings,
         scenario_plan.application_order,
-        distributed_outputs,
+        distributed_outputs;
+        status_view_schema=nothing,
     )
     many_input_binding_cache =
         _many_input_binding_cache(model, input_bindings)
@@ -217,7 +194,7 @@ function _model_graph_compiled(
         applications,
         applications_by_id,
         ordered_applications,
-        _applications_by_object(applications),
+        _applications_by_object(applications, model.registry.objects),
         input_bindings,
         call_bindings,
         input_by_target,
@@ -231,12 +208,14 @@ function _model_graph_compiled(
         _index_observed_manual_call_bindings_by_callee_target(
             call_bindings,
             applications_by_id,
+            model.registry.objects,
         ),
         many_input_binding_cache,
         distributed_outputs,
         scenario_plan.call_owners,
         scenario_plan.application_children,
         status_views,
+        nothing,
         Set(application.id for application in applications),
         Set(keys(status_views)),
         false,
@@ -246,56 +225,37 @@ function _model_graph_compiled(
     )
 end
 
-function _model_graph_fallback_application(model, raw_spec, timeline, slot)
-    spec = as_model_spec(raw_spec)
-    selector = applies_to(spec)
-    selector isa AbstractObjectMultiplicity || error(
-        "Model application for process `$(process(spec))` has no valid `ModelSpec(...; on=...)` selector.",
-    )
-    application_id = something(application_name(spec), process(spec))
-    target_matcher = _compile_selector_matcher(model, selector)
-    target_ids = _resolve_object_ids(model, selector, target_matcher)
-    return CompiledModelApplication(
-        CompiledApplicationPlan(
-            slot,
-            application_id,
-            spec,
-            process(spec),
-            application_name(spec),
-            selector,
-            target_matcher,
-            timestep(spec),
-            _model_application_clock(model, spec, target_ids, timeline),
-            _compiled_object_model_overrides(spec, target_ids, application_id),
-        ),
-        target_ids,
-    )
-end
-
-function _model_graph_compile_applications(model, timeline, diagnostics)
-    applications = _model_graph_phase!(diagnostics, :applications, CompiledModelApplication[]) do
-        _compile_model_applications(model, Tuple(model.applications), timeline)
-    end
-    isempty(applications) || return applications
-    isempty(model.applications) && return applications
-
+function _model_graph_compile_applications(model, preparation, timeline, diagnostics)
     recovered = CompiledModelApplication[]
     recovered_ids = Set{Symbol}()
-    for (slot, raw_spec) in pairs(model.applications)
+    for record in preparation.authored
+        if record isa ScenarioPreparationFailure
+            application_ids = isnothing(record.application_id) ? Symbol[] : [record.application_id]
+            push!(diagnostics, _model_graph_diagnostic(
+                record.error, :applications;
+                code=Symbol(record.phase, :_error), application_ids,
+                suggestions=["Fix the authored application declaration."],
+            ))
+            continue
+        end
         try
-            application = _model_graph_fallback_application(model, raw_spec, timeline, slot)
+            on_environment_error = err -> push!(diagnostics, _model_graph_diagnostic(
+                err, :environment_bindings;
+                application_ids=[record.id],
+                suggestions=["Map only declared model-facing environment inputs."],
+            ))
+            application = only(_resolve_application_recipes(model, (record,), timeline;
+                on_environment_error))
             application.id in recovered_ids && error(
                 "Duplicate recovered model application id `$(application.id)`.",
             )
             push!(recovered_ids, application.id)
             push!(recovered, application)
         catch err
-            spec = as_model_spec(raw_spec)
-            application_id = something(application_name(spec), process(spec))
             push!(diagnostics, _model_graph_diagnostic(
                 err,
                 :application_recovery;
-                application_ids=[application_id],
+                application_ids=[record.id],
                 suggestions=["Fix the application selector or authored configuration."],
             ))
         end
@@ -358,7 +318,8 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         nothing,
     )
 
-    applications = _model_graph_compile_applications(model, timeline, diagnostics)
+    preparation = _scenario_preparation(model)
+    applications = _model_graph_compile_applications(model, preparation, timeline, diagnostics)
     isempty(applications) && !isempty(model.applications) && return CompositeModelCompilationReport(
         model,
         initial_status_variables,
@@ -375,7 +336,8 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
     _model_graph_phase!(diagnostics, :environment_bindings, nothing) do
         _, environment_plans_by_id = _compile_environment_application_plans(
             model,
-            applications;
+            applications,
+            _applications_by_id(applications);
             prepare_runtime=false,
         )
         environment_bindings = _compile_environment_bindings_for_applications(
@@ -386,6 +348,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         _validate_model_environment_inputs!(
             environment_bindings,
             Dict(application.id => application for application in applications),
+            keytype(model.registry.objects),
         )
     end
 
@@ -394,18 +357,14 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         :output_destination_plans,
         NoCompiledDistributedOutputPlans(),
     ) do
-        _compile_model_output_destination_plans(model, applications)
+        _resolve_model_output_destination_plans(model, preparation, applications)
     end
     input_plans = _model_graph_phase!(
         diagnostics,
         :input_plans,
         CompiledModelInputPlan[],
     ) do
-        _compile_model_input_plans(
-            model,
-            applications,
-            distributed_output_plans,
-        )
+        _resolve_model_input_plans(model, preparation, applications, distributed_output_plans)
     end
     call_plans = _model_graph_phase!(
         diagnostics,
@@ -414,11 +373,10 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
     ) do
         _compile_model_call_plans(model, applications)
     end
-    scenario_call_owners = _scenario_call_owners(applications, call_plans)
-    manual_application_ids = Tuple(
-        application.id for application in applications
-        if !isempty(scenario_call_owners[application.id])
-    )
+    graph = _resolved_scenario_graph(preparation, applications,
+        input_plans, call_plans, distributed_output_plans)
+    scenario_call_owners = graph.call_owners
+    manual_application_ids = graph.manual_application_ids
     _model_graph_phase!(diagnostics, :call_ownership, nothing) do
         _validate_initializer_call_plans!(
             model,
@@ -427,16 +385,14 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
             call_plans,
             distributed_output_plans,
         )
-        _validate_scenario_call_ownership!(
-            scenario_call_owners,
-            manual_application_ids,
-        )
+        _authored_metadata_value(graph.failures.call_ownership)
     end
 
     call_bindings = _model_graph_phase!(diagnostics, :calls, CompiledModelCallBinding[]) do
         _compile_model_call_bindings(
             model,
             applications;
+            applications_by_id=_applications_by_id(applications),
             plans_by_application=_plans_by_application(
                 applications,
                 call_plans,
@@ -458,6 +414,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         _compile_model_distributed_outputs(
             model,
             applications,
+            _applications_by_id(applications),
             manual_application_ids,
             distributed_output_plans,
         )
@@ -468,42 +425,32 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
             model,
             applications,
             manual_application_ids,
-            _plans_by_application(applications, input_plans),
+            _compiled_application_input_recipes(
+                _plans_by_application(applications, input_plans),
+            ),
             distributed_outputs,
         )
     end
     _model_graph_phase!(diagnostics, :input_status, nothing) do
-        _prepare_model_input_defaults!(model, applications)
-        _wire_model_input_carriers!(model, input_bindings)
+        _prepare_model_input_statuses_batched!(
+            model, applications, _applications_by_id(applications), input_bindings)
     end
 
-    children = Dict{Symbol,Set{Symbol}}()
+    children = Dict{Symbol,Set{Symbol}}(
+        application_id => Set(child_ids)
+        for (application_id, child_ids) in pairs(graph.application_children) if !isempty(child_ids))
     _model_graph_phase!(diagnostics, :dependency_inputs, nothing) do
-        _scenario_input_order_edges!(
-            children,
-            input_plans,
-            scenario_call_owners,
-        )
-        _scenario_initializer_order_edges!(
-            children,
-            input_plans,
-            call_plans,
-            scenario_call_owners,
-        )
+        _authored_metadata_value(graph.failures.dependency_inputs)
     end
     _model_graph_phase!(diagnostics, :update_order, nothing) do
-        _scenario_update_order_edges!(
-            children,
-            applications,
-            manual_application_ids,
-            distributed_output_plans,
-        )
+        _authored_metadata_value(graph.failures.update_order)
     end
     cycles = _model_graph_cycle_components(applications, children)
     application_order = Symbol[]
     if isempty(cycles)
         application_order = _model_graph_phase!(diagnostics, :schedule, Symbol[]) do
-            _stable_topological_application_order(applications, children)
+            _authored_metadata_value(graph.failures.schedule)
+            Symbol[graph.application_order...]
         end
     else
         for cycle in cycles
@@ -527,6 +474,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
     compiled = try
         _model_graph_compiled(
             model,
+            preparation,
             applications,
             input_plans,
             call_plans,
@@ -807,6 +755,23 @@ function _model_graph_model_parameters(model)
     return parameters
 end
 
+# Failed declaration hooks are already represented in the compilation report.
+# Successful value inspection stays fresh; failed hooks must not be replayed.
+_model_graph_name_result(::ScenarioPreparationFailure) = ()
+_model_graph_name_result(result::AuthoredPortNames) = _authored_port_names(result)
+function _model_graph_input_schema(application)
+    _application_ports(application).inputs isa ScenarioPreparationFailure && return NamedTuple()
+    return _model_input_schema(application)
+end
+function _model_graph_environment_input_schema(application)
+    _application_ports(application).environment_inputs isa ScenarioPreparationFailure && return NamedTuple()
+    return _model_environment_input_schema(application)
+end
+function _model_graph_environment_output_schema(application)
+    _application_ports(application).environment_outputs isa ScenarioPreparationFailure && return NamedTuple()
+    return _model_environment_output_schema(application)
+end
+
 function _model_graph_port(application, role::Symbol, variable, declaration)
     name = Symbol(variable)
     is_input = role == :input
@@ -830,9 +795,10 @@ function _model_graph_port(application, role::Symbol, variable, declaration)
     return port
 end
 
-function _model_graph_output_destinations(spec)
+function _model_graph_output_destinations(application)
+    spec = application.spec
     resolved = try
-        _resolved_output_destinations(spec)
+        _output_destination_layout(spec, _model_distributed_output_names(application))
     catch
         # Invalid declarations remain editable; compilation reports the error.
         nothing
@@ -841,7 +807,7 @@ function _model_graph_output_destinations(spec)
         Dict{String,Any}(
             "selector" => _model_graph_selector_dict(destination.selector),
             "vars" => isnothing(destination.vars) ? nothing : collect(string.(destination.vars)),
-            "resolvedVars" => isnothing(resolved) ? nothing : collect(string.(keys(resolved[index].vars))),
+            "resolvedVars" => isnothing(resolved) ? nothing : collect(string.(resolved[index].variable_names)),
             "origin" => isnothing(destination.vars) ? "inferred" : "explicit",
             "coverage" => string(destination.coverage),
         )
@@ -890,10 +856,10 @@ function _model_graph_application_dict(
 )
     process_model = _application_default_model(application)
     spec = application.spec
-    inputs = _input_schema(application.spec)
+    inputs = _model_graph_input_schema(application)
     outputs = _output_schema(application.spec)
-    environment_inputs = environment_inputs_(application.spec)
-    environment_outputs = environment_outputs_(application.spec)
+    environment_inputs = _model_graph_environment_input_schema(application)
+    environment_outputs = _model_graph_environment_output_schema(application)
     target_objects = [_model_object(composite_model, id) for id in application.target_ids]
     environment = environment_config(spec)
     environment_payload = environment isa EnvironmentConfig ? environment.config : environment
@@ -956,7 +922,7 @@ function _model_graph_application_dict(
         "environmentBindings" => _model_graph_json_value(environment_bindings(spec)),
         "environmentWindow" => _model_graph_period_dict(environment_window(spec)),
         "outputRouting" => _model_graph_json_value(output_routing(spec)),
-        "outputsTo" => _model_graph_output_destinations(spec),
+        "outputsTo" => _model_graph_output_destinations(application),
         "updates" => Dict{String,Any}[
             Dict(
                 "variables" => collect(string.(_update_variables(update))),
@@ -964,14 +930,14 @@ function _model_graph_application_dict(
             )
             for update in updates(spec)
         ],
-        "modelStorage" => isnothing(application.model_overrides) ? "shared_application" : "per_object_override",
-        "objectOverrides" => isnothing(application.model_overrides) ? Any[] : [
+        "modelStorage" => isnothing(_application_model_overrides(application)) ? "shared_application" : "per_object_override",
+        "objectOverrides" => isnothing(_application_model_overrides(application)) ? Any[] : [
             Dict(
                 "objectId" => _model_graph_object_id_value(object_id.value),
                 "modelType" => string(typeof(override)),
                 "parameters" => _model_graph_model_parameters(override),
             )
-            for (object_id, override) in application.model_overrides
+            for (object_id, override) in _application_model_overrides(application)
         ],
     )
 end
@@ -1412,7 +1378,9 @@ function _model_graph_environment_edges(report, level, environment_catalog)
     environment_bindings = try
         _, environment_plans_by_id = _compile_environment_application_plans(
             report.model,
-            report.applications;
+            report.applications,
+            isnothing(report.compiled) ? _applications_by_id(report.applications) :
+                report.compiled.applications_by_id;
             prepare_runtime=false,
         )
         _compile_environment_bindings_for_applications(
@@ -1425,10 +1393,12 @@ function _model_graph_environment_edges(report, level, environment_catalog)
     end
     if isempty(environment_bindings)
         for application in report.applications
-            required_inputs = Symbol.(keys(environment_inputs_(application.spec)))
-            produced_outputs = Symbol.(keys(environment_outputs_(application.spec)))
+            ports = _application_ports(application)
+            required_inputs = _model_graph_name_result(ports.environment_inputs)
+            produced_outputs = _model_graph_name_result(ports.environment_outputs)
             isempty(required_inputs) && isempty(produced_outputs) && continue
-            sampling_rules = Tuple(_environment_sampling_rules(application.spec))
+            bindings, environment_sources = _environment_sampling_configuration(application.spec)
+            sampling_rules = Tuple(_environment_sampling_rules(bindings, environment_sources, required_inputs))
             source_inputs = _environment_source_variable_names(sampling_rules)
             config = environment_config(application.spec)
             backend = _environment_backend_from_config(report.model, config)
@@ -1598,10 +1568,10 @@ function _model_graph_initialization(report)
 
     rows = Dict{String,Any}[]
     for application in report.applications
-        model_inputs = _input_schema(application.spec)
+        model_inputs = _model_graph_input_schema(application)
         model_outputs = _local_output_schema(application.spec)
-        model_environment_inputs = environment_inputs_(application.spec)
-        model_environment_outputs = environment_outputs_(application.spec)
+        model_environment_inputs = _model_graph_environment_input_schema(application)
+        model_environment_outputs = _model_graph_environment_output_schema(application)
         source_overrides = _environment_source_overrides(application.spec)
         for object_id in application.target_ids
             object = _model_object(report.model, object_id)
@@ -1697,8 +1667,8 @@ end
 
 function _model_graph_distributed_initialization!(rows, report)
     destinations = try
-        plans = _compile_model_output_destination_plans(report.model, report.applications)
-        _resolve_model_output_destinations(report.model, report.applications, plans)
+        plans = _resolve_model_output_destination_plans(report.model, _scenario_preparation(report.model), report.applications)
+        _resolve_model_output_destinations(report.model, _applications_by_id(report.applications), plans)
     catch
         # A binding error is already in the report. Valid destinations can still
         # expose required storage when later compilation phases fail.
@@ -1707,7 +1677,7 @@ function _model_graph_distributed_initialization!(rows, report)
     for destination in destinations
         for object_id in destination.destination_ids
             object = _model_object(report.model, object_id)
-            for (variable, declaration) in pairs(destination.plan.declarations)
+            for (variable, declaration) in pairs(destination.declarations)
                 supplied = variable in get(report.initial_status_variables, object_id, Set{Symbol}())
                 value = supplied ? object.status[variable] :
                         declaration isa Default ? declaration.value : nothing

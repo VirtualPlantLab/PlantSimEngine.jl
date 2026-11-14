@@ -86,7 +86,7 @@ function planner_pass(data, applications, destinations)
     data.source.contract_queries[] = 0
     foreach(reader -> reader.queries[] = 0, data.readers)
     foreach(reader -> reader.contract_queries[] = 0, data.readers)
-    plans = PSE._compile_model_input_plans(data.model, applications, destinations)
+    plans = PSE._resolve_model_input_plans(data.model, PSE._scenario_preparation(data.model), applications, destinations)
     queries = (source=data.source.queries[], readers=[reader.queries[] for reader in data.readers],
         source_contracts=data.source.contract_queries[],
         reader_contracts=[reader.contract_queries[] for reader in data.readers])
@@ -101,23 +101,23 @@ plan_signature(plans) = [(plan.application_id, plan.input, plan.origin,
         data = query_scene(T, count; explicit)
         applications = PSE._compile_model_applications(data.model, data.model.applications,
             PSE._model_timeline(data.model))
-        destinations = PSE._compile_model_output_destination_plans(data.model, applications)
+        destinations = PSE._resolve_model_output_destination_plans(data.model, PSE._scenario_preparation(data.model), applications)
         plans, queries = planner_pass(data, applications, destinations)
         @test length(plans) == count
         @test all(plan -> plan.potential_source_application_ids == (:source,), plans)
         @test all(plan -> plan.origin == (explicit ? :model_spec : :inferred_same_object), plans)
-        # One name snapshot and one contract validation per application; every
-        # real binding still compares the validated endpoint contracts.
-        @test queries.source == 2
-        @test all(==(2), queries.readers)
-        @test queries.source_contracts == 1
-        @test all(==(1), queries.reader_contracts)
+        # The constructor owns names and validated pure contracts. This
+        # planning pass still compares endpoints but replays no declaration.
+        @test queries.source == 0
+        @test all(iszero, queries.readers)
+        @test queries.source_contracts == 0
+        @test all(iszero, queries.reader_contracts)
         repeated, fresh_queries = planner_pass(data, applications, destinations)
         @test plan_signature(repeated) == plan_signature(plans)
-        @test fresh_queries.source == 2
-        @test all(==(2), fresh_queries.readers)
-        @test fresh_queries.source_contracts == 1
-        @test all(==(1), fresh_queries.reader_contracts)
+        @test fresh_queries.source == 0
+        @test all(iszero, fresh_queries.readers)
+        @test fresh_queries.source_contracts == 0
+        @test all(iszero, fresh_queries.reader_contracts)
 
         simulation = run!(data.model; steps=1, outputs=:all)
         for index in 1:count
@@ -138,11 +138,11 @@ end
     @test getproperty.(selected, :slot) == [1, 9]
     plans, queries = planner_pass(data, selected, PSE.NoCompiledDistributedOutputPlans())
     @test plan_signature(plans) == [(:reader_8, :signal, :inferred_same_object, (:source,))]
-    @test queries.source <= 3
-    @test queries.readers[end] <= 3
+    @test queries.source == 0
+    @test queries.readers[end] == 0
     @test all(iszero, queries.readers[1:end-1])
-    @test queries.source_contracts == 1
-    @test queries.reader_contracts[end] == 1
+    @test queries.source_contracts == 0
+    @test queries.reader_contracts[end] == 0
     @test all(iszero, queries.reader_contracts[1:end-1])
 end
 
@@ -392,7 +392,7 @@ end
         @test final_state(first).observed === T(4)
         @test data.source.queries[] == data.reader.queries[] == 1
 
-        # A compile-local snapshot must not survive a forced compile of the
+        # An authored snapshot must not survive an explicit author refresh of the
         # same model/application instances, including a failed compile.
         data.source.contracts[] = (signal=VariableContract(unit=:changed_signal),)
         @test_throws "Incompatible variable contracts" Advanced.refresh_bindings!(data.model; force=true)
@@ -416,8 +416,9 @@ end
             data.model.applications...,
             ModelSpec(later; name=:later_invalid, on=Many(scale=:Other)),
         ), environment=(duration=Hour(1),))
+        @test later.queries[] == 1 # constructor captures later results for diagnostics
         @test_throws "Incompatible variable contracts" Advanced.refresh_bindings!(model)
-        @test later.queries[] == 0
+        @test later.queries[] == 1 # earlier endpoint error still wins without replay
     end
 end
 
@@ -438,20 +439,23 @@ end
     ), environment=(duration=Hour(1),))
     applications = PSE._compile_model_applications(model, model.applications,
         PSE._model_timeline(model))
-    destinations = PSE._compile_model_output_destination_plans(model, applications)
+    preparation = PSE._scenario_preparation(model)
+    authored = PSE._project_authored_applications(preparation, applications)
+    destinations = PSE._resolve_model_output_destination_plans(model, preparation, applications)
     local_names = Dict(application.id => PSE._model_output_names(application)
         for application in applications)
     queries_before = [source.queries[] for source in (first_source, last_source, noise...)]
-    writers = PSE._input_plan_writer_applications(applications, local_names, destinations)
+    writers = PSE._input_plan_writer_applications(authored, local_names, destinations)
     @test [source.queries[] for source in (first_source, last_source, noise...)] == queries_before
     @test getproperty.(writers[:sent], :id) == [:local_first, :distributed, :local_last]
     # Each explicit or inferred scan for :sent now visits three declarations,
     # regardless of the 32 unrelated-variable applications.
     @test length(writers[:sent]) == 3 < length(applications)
     @test !haskey(writers, :missing)
-    @test all(isempty(application.target_ids) for application in writers[:sent]
-        if application.id != :distributed)
-    consumer = last(applications)
+    @test all(isempty(application.target_ids) for application in applications
+        if application.id in (:local_first, :local_last))
+    @test all(!hasproperty(recipe, :target_ids) for recipe in writers[:sent])
+    consumer = last(authored)
     potential(selector; process_filter=nothing, application_filter=nothing,
         origin=:model_spec) = PSE._potential_input_source_application_ids(
         writers, consumer, selector, :sent, process_filter, application_filter,
@@ -471,7 +475,7 @@ end
 
     # The pass also supports application subsets whose slots belong to the
     # original full graph, including distributed declaration lookup by ID.
-    selected = applications[[1, length(applications) - 2, length(applications)]]
+    selected = [authored[index] for index in (1, length(authored) - 2, length(authored))]
     subset = PSE._input_plan_writer_applications(selected, local_names, destinations)
     @test getproperty.(subset[:sent], :id) == [:local_first, :distributed]
     @test getproperty.(selected, :slot) == [1, 34, 36]
@@ -489,7 +493,7 @@ end
     @test model_status(model, :last).observed === 14.0
     refreshed = Advanced.refresh_bindings!(model; force=true)
     @test plan_signature(refreshed.scenario_plan.input_plans) == signature
-    @test PSE._input_plan_writer_applications(applications, local_names, destinations) !== writers
+    @test PSE._input_plan_writer_applications(authored, local_names, destinations) !== writers
 end
 
 end # module

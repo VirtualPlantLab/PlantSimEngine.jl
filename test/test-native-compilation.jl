@@ -85,6 +85,13 @@ end
     before = NamedTuple(authored_status)
     split = Compilation.prepare(authored; constants)
     continuous = Compilation.prepare(authored; constants)
+    plan = split.simulation.execution_plan
+    @test plan.topology isa PlantSimEngine.FixedExecution
+    @test plan.groups isa Tuple
+    @test plan.batches isa Tuple
+    @test plan.groups_by_application_slot isa Tuple
+    @test all(group -> group.batches isa Tuple, plan.groups)
+    @test plan.cohorts === split.simulation.temporal_streams.cohorts
     expected = run!(native_compilation_scene(); steps=5, constants)
 
     @test current_step(split) == current_step(continuous) == 0
@@ -104,6 +111,8 @@ end
     continue!(split; steps=4)
     continue!(continuous; steps=5)
     @test current_step(split) == current_step(continuous) == current_step(expected) == 5
+    @test plan.schedule.last_step == current_step(split)
+    @test continuous.simulation.execution_plan.schedule.last_step == current_step(continuous)
     @test final_state(split) == final_state(continuous) == final_state(expected)
     @test final_state(split).observed === 41.0f0
     @test NamedTuple(model_status(authored, :sample)) == before

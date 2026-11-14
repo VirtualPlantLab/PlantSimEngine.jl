@@ -13,9 +13,9 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
-    name: ${{ matrix.package.name }} - Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}
+    name: ${{ matrix.package.name }} - Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}${{ matrix.test_args && ' - reference-regression' || '' }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ matrix.timeout_minutes || 60 }}
     permissions:
       # needed to allow julia-actions/cache to proactively delete old caches that it has created
       actions: write
@@ -23,14 +23,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version:
-          - "1"
-        os:
-          - ubuntu-latest
-        package:
-          - { name: XPalm, user: PalmStudio, repo: XPalm.jl, branch: main, default: main }
-          - { name: PlantBiophysics, user: VEZY, repo: PlantBiophysics.jl, branch: master, default: master }
-          - { name: PlantGeom, user: VEZY, repo: PlantGeom.jl, branch: main, default: main }
+        include:
+          # Keep the complete XPalm suite, including JET, on Julia 1.12.
+          - version: "1.12"
+            os: ubuntu-latest
+            # The complete XPalm suite includes cold compilation and VPalm tests.
+            timeout_minutes: 90
+            package: { name: XPalm, user: PalmStudio, repo: XPalm.jl, branch: main, default: main }
+          - version: "1"
+            os: ubuntu-latest
+            package: { name: PlantBiophysics, user: VEZY, repo: PlantBiophysics.jl, branch: master, default: master }
+          - version: "1"
+            os: ubuntu-latest
+            package: { name: PlantGeom, user: VEZY, repo: PlantGeom.jl, branch: main, default: main }
+          # XPalm's existing mode runs its full-cycle scientific oracle on latest Julia.
+          - version: "1"
+            os: ubuntu-latest
+            package: { name: XPalm, user: PalmStudio, repo: XPalm.jl, branch: main, default: main }
+            test_args: reference-regression
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
@@ -91,9 +101,14 @@ jobs:
               "PlantSimEngine resolved to $(pse.source), expected $(realpath(pwd()))",
           )
           @info "Verified local PlantSimEngine test source" path=pse.source
+      - name: Test the JET analysis failure guard
+        if: ${{ matrix.package.name == 'XPalm' && !matrix.test_args }}
+        shell: julia --color=yes {0}
+        run: include(joinpath(pwd(), ".github", "scripts", "test_require_complete_jet.jl"))
       - name: Run the downstream tests
         env:
           DOWNSTREAM_PACKAGE: ${{ matrix.package.name }}
+          DOWNSTREAM_TEST_ARGS: ${{ matrix.test_args || '' }}
         shell: julia --threads 4 --color=yes --project=downstream --depwarn=yes {0}
         run: |
           using Pkg
@@ -126,7 +141,12 @@ jobs:
           end
 
           Pkg.status()
-          Pkg.test()
+          test_args = isempty(ENV["DOWNSTREAM_TEST_ARGS"]) ? String[] : [ENV["DOWNSTREAM_TEST_ARGS"]]
+          julia_args = String[]
+          if ENV["DOWNSTREAM_PACKAGE"] == "XPalm" && isempty(test_args)
+              push!(julia_args, "--load=" * joinpath(pwd(), ".github", "scripts", "require_complete_jet.jl"))
+          end
+          Pkg.test(; test_args, julia_args)
       - name: Only succeed if the checks pass on the dependencies' main/master branches
         if: ${{ matrix.package.branch != matrix.package.default }}
         run: |

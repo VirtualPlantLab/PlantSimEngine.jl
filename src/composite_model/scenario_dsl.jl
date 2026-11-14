@@ -180,18 +180,18 @@ function _normalize_application_bindings(bindings)
     )
 end
 
-function _model_default_value_inputs(model)
+function _model_default_value_inputs(dependencies)
     defaults = Pair{Symbol,Any}[]
-    for (dep_name, selector) in pairs(dep(model))
+    for (dep_name, selector) in pairs(dependencies)
         selector isa Input || continue
         push!(defaults, Symbol(dep_name) => selector.selector)
     end
     return (; defaults...)
 end
 
-function _model_default_model_calls(model)
+function _model_default_model_calls(dependencies)
     defaults = Pair{Symbol,Any}[]
-    for (dep_name, declaration) in pairs(dep(model))
+    for (dep_name, declaration) in pairs(dependencies)
         if declaration isa Call
             push!(defaults, Symbol(dep_name) => declaration.selector)
         elseif declaration isa Initializer

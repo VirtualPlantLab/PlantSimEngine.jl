@@ -85,4 +85,14 @@ end
     @test isempty(simulation.environment_bindings.by_target)
     @test isempty(simulation.environment_bindings.positions_by_target)
     @test isempty(simulation.environment_bindings.targets_by_object)
+
+    # One structural delta can contain an ID removed before its first refresh.
+    register_object!(model, Object(:discarded; scale=:Leaf, parent=:plant_b))
+    remove_object!(model, :discarded)
+    register_object!(model, Object(:replacement; scale=:Leaf, parent=:plant_b))
+    @test ObjectId(:discarded) in PlantSimEngine.lifecycle_delta(model).structural_dirty_ids
+    continue!(simulation; steps=1)
+    @test !haskey(model.registry.objects, ObjectId(:discarded))
+    @test simulation.compiled.applications_by_id[:b].target_ids == [ObjectId(:replacement)]
+    @test model_object(model, :replacement).status.seen == 23.0
 end

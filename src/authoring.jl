@@ -1073,8 +1073,8 @@ function _scenario_model_groups(compilation)
     for application in compilation.applications
         model = _application_default_model(application)
         push!(get!(groups, model, Symbol[]), application.id)
-        isnothing(application.model_overrides) && continue
-        for replacement in values(application.model_overrides)
+        isnothing(_application_model_overrides(application)) && continue
+        for replacement in values(_application_model_overrides(application))
             application_ids = get!(groups, replacement, Symbol[])
             application.id in application_ids || push!(application_ids, application.id)
         end

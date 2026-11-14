@@ -30,6 +30,53 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+# The same default object is deliberately reused by two real application targets.
+struct OwnedArrayDefaultModel{V} <: AbstractStatus_Type_ConversionModel
+    default::V
+end
+PlantSimEngine.inputs_(model::OwnedArrayDefaultModel) = (payload=Default(model.default),)
+PlantSimEngine.outputs_(::OwnedArrayDefaultModel) = NamedTuple()
+PlantSimEngine.run!(::OwnedArrayDefaultModel, status, environment, constants, context) = nothing
+
+@testset "private array defaults retain bits and independent mutable graphs" begin
+    function prepared_defaults(value)
+        model = CompositeModel(
+            Object(:first; scale=:Scene), Object(:second; scale=:Scene);
+            applications=(ModelSpec(OwnedArrayDefaultModel(value);
+                name=:defaults, on=Many(scale=:Scene)),),
+            environment=(duration=Hour(1),))
+        run!(model; steps=0, outputs=:none)
+        return model_status(model, :first).payload, model_status(model, :second).payload
+    end
+
+    source = Float32[reinterpret(Float32, UInt32(0x7fc00001)), -0f0, 3f0]
+    left, right = prepared_defaults(source)
+    @test left isa Vector{Float32} && right isa Vector{Float32}
+    @test left !== source && right !== source && left !== right
+    @test reinterpret(UInt32, left) == reinterpret(UInt32, source)
+    @test reinterpret(UInt32, right) == reinterpret(UInt32, source)
+    left[3] = 9f0
+    @test right[3] === source[3] === 3f0
+
+    shared = Float32[1, 2]
+    nested = [shared, shared]
+    first_graph, second_graph = prepared_defaults(nested)
+    @test first_graph !== nested && second_graph !== nested && first_graph !== second_graph
+    @test first_graph[1] === first_graph[2]
+    @test second_graph[1] === second_graph[2]
+    @test first_graph[1] !== shared && second_graph[1] !== shared
+    @test first_graph[1] !== second_graph[1]
+    first_graph[1][1] = 9f0
+    @test first_graph[2][1] === 9f0
+    @test second_graph[1][1] === shared[1] === 1f0
+
+    cycle = Any[]
+    push!(cycle, cycle)
+    copied_cycle = PlantSimEngine._private_initial_value(cycle)
+    @test copied_cycle !== cycle
+    @test copied_cycle[1] === copied_cycle
+end
+
 struct StatusTransformParticle{T}
     value::T
     spread::T

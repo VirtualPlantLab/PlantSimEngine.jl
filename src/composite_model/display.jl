@@ -49,13 +49,13 @@ end
 function _model_display_application(application)
     spec = application isa ModelSpec ? application : nothing
     model = isnothing(spec) ? application : spec.model
-    base_model = model isa ObjectModelOverrides ? model.base : model
+    base_model = model isa ObjectModelOverrides ? _object_override_base(model) : model
     label = string(nameof(typeof(base_model)))
     if !isnothing(spec) && !isnothing(spec.name)
         label = string(_model_display_label(spec.name), ": ", label)
     end
     if model isa ObjectModelOverrides
-        count = length(model.overrides)
+        count = length(model.variants)
         label *= string(" (", count, " object override", count == 1 ? "" : "s", ")")
     end
     if !isnothing(spec) && !isnothing(spec.timestep)
