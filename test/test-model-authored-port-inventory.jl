@@ -82,6 +82,68 @@ end
     @test PSE._output_element_types(Float32[]) === Tuple{}
 end
 
+struct DeclarationProbe{C,A,B} <: AbstractAuthored_Port_InventoryModel
+    counter::C
+    empty::A
+    mixed::B
+end
+function PSE.inputs_(model::DeclarationProbe)
+    count_hook!(model.counter, :inputs)
+    return (required=Required(Vector{Real}), empty=Default(model.empty), mixed=Default(model.mixed))
+end
+function PSE.outputs_(model::DeclarationProbe)
+    count_hook!(model.counter, :outputs)
+    return (direct=model.empty, distributed=Distributed(Default(model.mixed)),
+        needed=Distributed(Required(Real)))
+end
+PSE.run!(::DeclarationProbe, status, environment, constants, context) = nothing
+
+@testset "declaration evidence distinguishes Required and genuine array defaults" begin
+    probe = DeclarationProbe(Ref((inputs=0, outputs=0)), Real[], Real[1f0, 2.0, 1//2])
+    model = CompositeModel(Object(:scene; scale=:Scene); applications=(
+        ModelSpec(probe; name=:declarations, on=Many(scale=:Future),
+            outputs_to=(OutputTo(Many(scale=:Destination)),)),))
+    ports = only(model.scenario_plan_cache.authored).ports
+    @test probe.counter[] == (inputs=1, outputs=1)
+    @test values(ports.input_types) === (Vector{Real}, Vector{Real}, Vector{Real})
+    @test values(ports.input_declaration_types) ===
+        (Required{Vector{Real}}, Default{Vector{Real}}, Default{Vector{Real}})
+    @test fieldtypes(typeof(ports.input_declaration_types)) ===
+        (Type{Required{Vector{Real}}}, Type{Default{Vector{Real}}}, Type{Default{Vector{Real}}})
+    @test values(ports.output_declaration_types) ===
+        (Vector{Real}, Distributed{Default{Vector{Real}}}, Distributed{Required{Real}})
+    @test fieldtypes(typeof(ports.output_declaration_types)) ===
+        (Type{Vector{Real}}, Type{Distributed{Default{Vector{Real}}}}, Type{Distributed{Required{Real}}})
+    @test keys(ports.input_element_types) === (:empty, :mixed)
+    @test values(ports.input_element_types) === (Tuple{}, Tuple{Float32,Float64,Rational{Int}})
+    @test fieldtypes(typeof(ports.input_element_types)) ===
+        (Type{Tuple{}}, Type{Tuple{Float32,Float64,Rational{Int}}})
+    @test keys(ports.output_element_types) === (:direct, :distributed)
+    @test values(ports.output_element_types) === values(ports.input_element_types)
+    @test inventory_is_value_free(ports)
+    @test isnothing(model_status(model, :scene))
+
+    # Mutation changes fresh evidence, never the constructor's type-only snapshot.
+    push!(probe.empty, 3f0)
+    push!(probe.mixed, 4)
+    @test ports.input_element_types.empty === Tuple{}
+    @test ports.input_element_types.mixed === Tuple{Float32,Float64,Rational{Int}}
+    contract = PSE.model_interface(probe) # deliberate inspection, including its name validation
+    before = probe.counter[]
+    @test before == (inputs=3, outputs=3)
+    variant = PSE._configured_variant_ports(contract)
+    @test probe.counter[] == before
+    @test variant.input_declaration_types === ports.input_declaration_types
+    @test variant.output_declaration_types === ports.output_declaration_types
+    @test keys(variant.input_element_types) === (:empty, :mixed)
+    @test values(variant.input_element_types) ===
+        (Tuple{Float32}, Tuple{Float32,Float64,Rational{Int},Int})
+    @test values(variant.output_element_types) === values(variant.input_element_types)
+    @test inventory_is_value_free(variant)
+    @test probe.empty == Real[3f0]
+    @test probe.mixed == Real[1f0, 2.0, 1//2, 4]
+end
+
 @testset "constructor owns one instance-specific value-free port inventory" begin
     a = Probe(:a, Ref(hook_zero), Ref(1f0))
     b = Probe(:b, Ref(hook_zero), Ref(2f0))
@@ -102,6 +164,14 @@ end
             @test ports.input_names === (input_name(process_model),)
             @test getproperty(ports.input_types, input_name(process_model)) === Vector{Float32}
             @test fieldtype(typeof(ports.input_types), 1) === Type{Vector{Float32}}
+            @test getproperty(ports.input_declaration_types, input_name(process_model)) === Default{Vector{Float32}}
+            @test fieldtypes(typeof(ports.input_declaration_types)) === (Type{Default{Vector{Float32}}},)
+            @test keys(ports.input_element_types) === (input_name(process_model),)
+            @test values(ports.input_element_types) === (Tuple{Float32},)
+            @test fieldtypes(typeof(ports.input_element_types)) === (Type{Tuple{Float32}},)
+            @test values(ports.output_declaration_types) === (Float32, Distributed{Default{Vector{Float32}}})
+            @test fieldtypes(typeof(ports.output_declaration_types)) ===
+                (Type{Float32}, Type{Distributed{Default{Vector{Float32}}}})
             @test getproperty(ports.output_types, output_name(process_model)) === Float32
             @test getproperty(ports.output_types, distributed_name(process_model)) === Vector{Float32}
             @test fieldtypes(typeof(ports.output_types)) === (Type{Float32}, Type{Vector{Float32}})
@@ -199,6 +269,11 @@ PSE.run!(::BrokenInput, status, environment, constants, context) = nothing
     @test broken_input_calls[] == 1
     @test isnothing(model.scenario_plan_cache.failure)
     @test hasproperty(only(model.scenario_plan_cache.authored), :ports)
+    failed_ports = only(model.scenario_plan_cache.authored).ports
+    @test failed_ports.input_declaration_types === failed_ports.input_types
+    @test failed_ports.input_element_types === failed_ports.input_types
+    @test failed_ports.input_types isa PSE.ScenarioPreparationFailure
+    @test failed_ports.input_types.phase === :input_ports
     for _ in 1:2
         report = PSE.compile_model_report(model)
         @test [app.id for app in report.applications] == [:broken]

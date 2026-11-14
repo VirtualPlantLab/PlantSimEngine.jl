@@ -355,6 +355,9 @@ function _configured_variant_ports(contract)
     return (
         input_types=_authored_port_types(_input_expected_type, contract.inputs),
         output_types=_authored_port_types(_output_value_type, contract.outputs),
+        input_declaration_types=_authored_port_types(typeof, contract.inputs),
+        output_declaration_types=_authored_port_types(typeof, contract.outputs),
+        input_element_types=_authored_output_element_types(contract.inputs),
         output_element_types=_authored_output_element_types(contract.outputs),
         input_names=keys(contract.inputs), output_names=keys(contract.outputs),
         input_default_names=keys(input_defaults), output_default_names=keys(output_defaults),

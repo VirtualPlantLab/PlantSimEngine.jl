@@ -44,11 +44,14 @@ Base.propertynames(::AuthoredOutputPorts) = (:all_names, :local_names, :distribu
 
 # One stable owner is shared by the authored recipe and compiled application.
 # Name and type carriers preserve declarations without retaining initialization values.
-mutable struct AuthoredPortInventory{I,O,IT,OT,OET,EI,EO,C}
+mutable struct AuthoredPortInventory{I,O,IT,OT,IDT,ODT,IET,OET,EI,EO,C}
     const inputs::I
     const outputs::O
     const input_types::IT
     const output_types::OT
+    const input_declaration_types::IDT
+    const output_declaration_types::ODT
+    const input_element_types::IET
     const output_element_types::OET
     const environment_inputs::EI
     const environment_outputs::EO
@@ -122,15 +125,18 @@ function _prepare_authored_ports(spec::ModelSpec, application_id::Symbol)
     output_schema = _output_schema(spec)
     output_ports = _authored_output_ports(spec, output_schema)
     output_types = _authored_port_types(_output_value_type, output_schema)
+    output_declaration_types = _authored_port_types(typeof, output_schema)
     output_element_types = _authored_output_element_types(output_schema)
     model = model_(spec)
     input_metadata = _capture_authored_metadata(:input_ports, application_id) do
         schema = _input_schema(model)
         (AuthoredPortNames(Tuple(Symbol(name) for name in keys(schema))),
-            _authored_port_types(_input_expected_type, schema))
+            _authored_port_types(_input_expected_type, schema),
+            _authored_port_types(typeof, schema),
+            _authored_output_element_types(schema))
     end
-    inputs, input_types = if input_metadata isa ScenarioPreparationFailure
-        input_metadata, input_metadata
+    inputs, input_types, input_declaration_types, input_element_types = if input_metadata isa ScenarioPreparationFailure
+        input_metadata, input_metadata, input_metadata, input_metadata
     else
         input_metadata
     end
@@ -160,5 +166,6 @@ function _prepare_authored_ports(spec::ModelSpec, application_id::Symbol)
         end
     end
     return AuthoredPortInventory(inputs, output_ports, input_types, output_types,
+        input_declaration_types, output_declaration_types, input_element_types,
         output_element_types, environment_inputs, environment_outputs, contracts)
 end
