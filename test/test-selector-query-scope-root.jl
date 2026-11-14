@@ -165,4 +165,29 @@ end
     end
 end
 
+
+@testset "selector context and relation conflicts retain their rules and diagnostics" begin
+    model = scope_scene()
+    children = sorted_ids(:axis_a, Symbol("2"))
+    @test resolve_object_ids(model,
+        Many(Relation(:children), Relation(:children)); context=:plant_a) == children
+    @test resolve_object_ids(model,
+        Many(Relation(:children); relation=:children); context=:plant_a) == children
+
+    error = query_error(model,
+        Many(Relation(:children), Relation(:children), Relation(:parent));
+        context=:plant_a)
+    @test occursin("Conflicting `Relation(...)` selector values", error)
+    @test occursin(r"children.*children.*parent", error)
+
+    error = query_error(model,
+        Many(Relation(:children); relation=:parent); context=:plant_a)
+    @test occursin("Conflicting selector values for `relation`", error)
+    @test occursin("children", error) && occursin("parent", error)
+
+    error = query_error(model, Many(scale=:Leaf, application=:reader))
+    @test occursin("not valid in object-query selectors", error)
+    @test occursin("application", error)
+    @test occursin("Allowed fields", error) && occursin("scale", error)
+end
 end

@@ -4602,43 +4602,51 @@ function _extend_compiled_scene(
     applications_by_id = compiled.applications_by_id
     new_target_application_ids = sort!(
         collect(keys(new_targets));
-        by=application_id -> applications_by_id[application_id].slot,
+        by=application_id -> begin
+            Base.@inline _with_metadata_entry(applications_by_id, application_id) do application
+                application.slot
+            end
+        end,
     )
-    new_target_applications = Tuple(
-        applications_by_id[application_id]
-        for application_id in new_target_application_ids
-    )
-    for application in new_target_applications
-        _insert_sorted_object_ids!(
-            application.target_ids,
-            new_targets[application.id],
-        )
+    for application_id in new_target_application_ids
+        Base.@inline _with_metadata_entry(applications_by_id, application_id) do application
+            _insert_sorted_object_ids!(
+                application.target_ids,
+                new_targets[application.id],
+            )
+            return nothing
+        end
     end
     changed_application_ids = union(
         Set(new_target_application_ids),
         changed_application_ids_seed,
     )
     for application_id in changed_application_ids
-        application = applications_by_id[application_id]
-        if application.id in changed_application_ids_seed
-            target_count = length(application.target_ids)
-            if application.applies_to isa One && target_count != 1
-                error(
-                    "Lifecycle refresh left application `$(application.id)` with ",
-                    "$(target_count) targets for a `One` selector.",
-                )
-            elseif application.applies_to isa OptionalOne && target_count > 1
-                error(
-                    "Lifecycle refresh left application `$(application.id)` with ",
-                    "$(target_count) targets for an `OptionalOne` selector.",
-                )
+        Base.@inline _with_metadata_entry(applications_by_id, application_id) do application
+            if application.id in changed_application_ids_seed
+                target_count = length(application.target_ids)
+                if application.applies_to isa One && target_count != 1
+                    error(
+                        "Lifecycle refresh left application `$(application.id)` with ",
+                        "$(target_count) targets for a `One` selector.",
+                    )
+                elseif application.applies_to isa OptionalOne && target_count > 1
+                    error(
+                        "Lifecycle refresh left application `$(application.id)` with ",
+                        "$(target_count) targets for an `OptionalOne` selector.",
+                    )
+                end
             end
+            return nothing
         end
     end
     applications_by_object = compiled.applications_by_object
-    for application in new_target_applications
-        for object_id in new_targets[application.id]
-            push!(get!(applications_by_object, object_id, Any[]), application)
+    for application_id in new_target_application_ids
+        Base.@inline _with_metadata_entry(applications_by_id, application_id) do application
+            for object_id in new_targets[application.id]
+                push!(get!(applications_by_object, object_id, Any[]), application)
+            end
+            return nothing
         end
     end
     manual_application_ids = compiled.scenario_plan.manual_application_ids
@@ -4666,10 +4674,14 @@ function _extend_compiled_scene(
     )
 
     started_at = _runtime_performance_start(performance)
-    added_applications = CompiledModelApplication[
-        _partial_model_application(application, new_targets[application.id])
-        for application in new_target_applications
-    ]
+    added_applications = CompiledModelApplication[]
+    for application_id in new_target_application_ids
+        Base.@inline _with_metadata_entry(applications_by_id, application_id) do application
+            push!(added_applications,
+                _partial_model_application(application, new_targets[application.id]))
+            return nothing
+        end
+    end
     new_call_bindings, changed_call_target_keys, observed_manual_call_binding_indices_by_callee_target =
         _refresh_scene_call_bindings!(
             model,
@@ -4838,15 +4850,21 @@ function _extend_compiled_scene(
         end
         for application_id in sort!(
             collect(keys(targets_by_application));
-            by=id -> applications_by_id[id].slot,
+            by=id -> begin
+                Base.@inline _with_metadata_entry(applications_by_id, id) do application
+                    application.slot
+                end
+            end,
         )
-            application = applications_by_id[application_id]
-            target_ids = targets_by_application[application_id]
-            _sort_object_ids!(target_ids)
-            push!(
-                rewired_applications,
-                _partial_model_application(application, target_ids),
-            )
+            Base.@inline _with_metadata_entry(applications_by_id, application_id) do application
+                target_ids = targets_by_application[application_id]
+                _sort_object_ids!(target_ids)
+                push!(
+                    rewired_applications,
+                    _partial_model_application(application, target_ids),
+                )
+                return nothing
+            end
         end
         rewired_applications
     end

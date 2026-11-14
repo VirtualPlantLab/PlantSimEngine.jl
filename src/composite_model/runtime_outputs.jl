@@ -4779,6 +4779,18 @@ function _model_output_retention_covers_binding(
     end
 end
 
+_model_output_retention_covers_inputs(::Tuple{}, plan, compiled) = true
+
+function _model_output_retention_covers_inputs(inputs::Tuple, plan, compiled)
+    _model_output_retention_covers_binding(plan, compiled, first(inputs).binding) ||
+        return false
+    return _model_output_retention_covers_inputs(Base.tail(inputs), plan, compiled)
+end
+
+function _model_output_retention_covers_view(view, plan, compiled)
+    return _model_output_retention_covers_inputs(view.temporal_inputs, plan, compiled)
+end
+
 function _model_output_retention_covers_addition(
     plan::OutputRetentionPlan,
     compiled::CompiledCompositeModel,
@@ -4787,13 +4799,11 @@ function _model_output_retention_covers_addition(
         id = _index_object_id(compiled.model.registry.objects, object_id)
         view = get(compiled.status_views_by_target, (application_id, id), nothing)
         isnothing(view) && continue
-        view isa CompiledModelStatusView || throw(ArgumentError("Invalid compiled status view for temporal retention."))
-        temporal_inputs = getfield(view, :temporal_inputs)::Tuple
-        for temporal_input in temporal_inputs
-            temporal_input isa CompiledTemporalInput || throw(ArgumentError("Invalid temporal retention input."))
-            binding = getfield(temporal_input, :binding)::CompiledModelInputBinding
-            _model_output_retention_covers_binding(plan, compiled, binding) || return false
-        end
+        covers = Base.@inline _with_model_status_view(
+            _model_output_retention_covers_view, compiled.status_view_schema,
+            application_id, view, plan, compiled,
+        )
+        covers || return false
     end
     return true
 end

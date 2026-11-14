@@ -220,12 +220,25 @@ function _validate_selector_context(
     context::Symbol,
 )
     allowed = _selector_context_fields(context)
-    invalid = Symbol[field for field in _selector_semantic_fields(selector) if !(field in allowed)]
-    isempty(invalid) || error(
-        "Selector field(s) `$(Tuple(invalid))` are not valid in ",
-        "$(_selector_context_description(context)) selectors. ",
-        "Allowed fields are `$(allowed)`."
-    )
+    invalid = Symbol[]
+    for field in _selector_semantic_fields(selector)
+        field in allowed || push!(invalid, field)
+    end
+    if !isempty(invalid)
+        allowed_fields = Symbol[]
+        for field in allowed
+            push!(allowed_fields, field)
+        end
+        io = IOBuffer()
+        ancestors = Any[]
+        print(io, "Selector field(s) `")
+        _print_selector_diagnostic(io, invalid, ancestors)
+        print(io, "` are not valid in ", _selector_context_description(context),
+            " selectors. Allowed fields are `")
+        _print_selector_diagnostic(io, allowed_fields, ancestors)
+        print(io, "`.")
+        error(String(take!(io)))
+    end
     if context == :application_target
         scope = _criteria_scope(criteria(selector))
         scope isa Union{Nothing,SceneScope,Scope} || error(
@@ -667,17 +680,36 @@ function _selector_scope_from_positional(selectors)
 end
 
 function _selector_value_from_positional(selectors, ::Type{Relation})
-    values = [selector.relation for selector in selectors if selector isa Relation]
+    values = Symbol[]
+    for selector in selectors
+        selector isa Relation && push!(values, selector.relation)
+    end
     isempty(values) && return nothing
-    length(unique(values)) == 1 || error("Conflicting `Relation(...)` selector values: $(values).")
-    return only(unique(values))
+    first_value = first(values)
+    for value in values
+        if value != first_value
+            io = IOBuffer()
+            print(io, "Conflicting `Relation(...)` selector values: ")
+            _print_selector_diagnostic(io, values, Any[])
+            print(io, '.')
+            error(String(take!(io)))
+        end
+    end
+    return first_value
 end
 
 function _criteria_value(criteria, key::Symbol, selector_type)
     positional = _selector_value_from_positional(criteria.selectors, selector_type)
     keyword = haskey(criteria, key) ? getproperty(criteria, key) : nothing
     if !isnothing(positional) && !isnothing(keyword) && positional != keyword
-        error("Conflicting selector values for `$(key)`: `$(positional)` and `$(keyword)`.")
+        io = IOBuffer()
+        ancestors = Any[]
+        print(io, "Conflicting selector values for `", String(key), "`: `")
+        _print_selector_diagnostic(io, positional, ancestors)
+        print(io, "` and `")
+        _print_selector_diagnostic(io, keyword, ancestors)
+        print(io, "`.")
+        error(String(take!(io)))
     end
     return isnothing(keyword) ? positional : keyword
 end
