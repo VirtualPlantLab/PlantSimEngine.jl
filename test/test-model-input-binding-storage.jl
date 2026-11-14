@@ -151,6 +151,25 @@ end
         identity, incomplete, control.future)
 end
 
+@testset "direct Many extension stages every admitted reference before committing" begin
+    data = fixture()
+    simulation = prepare(data.model)
+    current = binding(simulation, :a, :values)
+    references, source_ids = parent(current.carrier), current.source_ids
+    first = Status(x=7.0)
+    second = Status(x=9f0)
+    register_object!(data.model, Object(:first; scale=:Leaf, parent=:scene, status=first))
+    register_object!(data.model, Object(:second; scale=:Leaf, parent=:scene, status=second))
+    @test !PSE._append_stable_many_source_references!(data.model, current,
+        ObjectId[ObjectId(:first), ObjectId(:second)], nothing)
+    @test parent(current.carrier) === references
+    @test current.source_ids === source_ids
+    @test isempty(references) && isempty(source_ids)
+    @test PSE.refvalue(first, :x)[] === 7.0
+    @test PSE.refvalue(second, :x)[] === 9f0
+    @test check_carriers(data, simulation).carrier === current.carrier
+end
+
 @testset "explicit storage is admitted even after a clean zero-step preparation" begin
     control = ordinary_control()
     data = fixture()

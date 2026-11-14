@@ -2852,7 +2852,8 @@ function _application_target_template(
     matched_slots = Int[]
     for slot in sorted_candidates
         matches = Base.@inline _with_metadata_entry(compiled.applications_by_id, slot) do application
-            _selector_matches_object_id(model, application.target_matcher, object_id)
+            _selector_matches_object_id(model, application.target_matcher, object_id,
+                nothing, false, nothing, false)
         end
         matches && push!(matched_slots, slot)
     end
@@ -3393,6 +3394,19 @@ function _can_append_stable_many_sources(binding::CompiledModelInputBinding)
     )
 end
 
+# Resolve one real registered reference within its Status family, and retain
+# only the actual carrier's admitted Ref family. Absence/incompatibility asks
+# the caller to use its existing fallback before any shared storage changes.
+@inline function _registered_source_reference(catalog, status, ::Val{VARIABLE},
+    ::Type{R},
+) where {VARIABLE,R}
+    status isa Status || return nothing
+    return Base.@inline _with_registered_status(catalog, status) do admitted
+        reference = _status_ref_or_nothing(admitted, Val{VARIABLE}())
+        return reference isa R ? reference::R : nothing
+    end
+end
+
 function _append_stable_many_source_references!(
     model::CompositeModel,
     binding::CompiledModelInputBinding,
@@ -3404,11 +3418,11 @@ function _append_stable_many_source_references!(
     added_references = eltype(existing_references)[]
     sizehint!(added_references, length(new_source_ids))
     for object_id in new_source_ids
-        reference = _status_ref_or_nothing(
-            _model_object(model, object_id).status,
-            binding.source_var,
+        reference = _registered_source_reference(
+            model.registry.objects.catalog, _model_object(model, object_id).status,
+            _input_route_source(binding.plan.route), eltype(existing_references),
         )
-        reference isa eltype(existing_references) || return false
+        isnothing(reference) && return false
         push!(added_references, reference)
     end
 
@@ -3458,8 +3472,8 @@ function _append_added_many_sources!(
                     binding.consumer_id, default_scope)
                 query_prepared = true
             end
-            _selector_matches_object_topology(model, matching_matcher, object_id;
-                context=binding.consumer_id, default_scope) || continue
+            _selector_matches_object_topology(model, matching_matcher, object_id,
+                binding.consumer_id, default_scope, false) || continue
         end
         first(_sorted_object_id_position(source_ids, object_id)) ||
             push!(new_source_ids, object_id)
@@ -3568,18 +3582,22 @@ function _update_structural_many_sources!(
     isnothing(binding.application) && return :fallback
     carrier_references = parent(binding.carrier)
     default_scope = _default_dependency_scope(model, binding.consumer_id)
-    changes = Tuple{ObjectId,Bool,Any}[]
-    for object_id in dirty_ids
+    I = keytype(model.registry.objects)
+    R = eltype(carrier_references)
+    changes = Tuple{I,Bool,Union{Nothing,R}}[]
+    for raw_id in dirty_ids
+        object_id = _index_object_id(model.registry.objects, raw_id)
         was_source, _ =
             _sorted_object_id_position(binding.source_ids, object_id)
         is_source = haskey(model.registry.objects, object_id) &&
                     _selector_matches_object_id(
             model,
             binding.matcher,
-            object_id;
-            context=binding.consumer_id,
-            default_to_context=true,
-            default_scope=default_scope,
+            object_id,
+            binding.consumer_id,
+            true,
+            default_scope,
+            false,
         ) && _matches_input_source_writer(
             object_id,
             binding.source_var,
@@ -3593,11 +3611,11 @@ function _update_structural_many_sources!(
         source_reference = nothing
         if is_source
             source = _model_object(model, object_id)
-            source_reference =
-                _status_ref_or_nothing(source.status, binding.source_var)
+            source_reference = _registered_source_reference(
+                model.registry.objects.catalog, source.status,
+                _input_route_source(binding.plan.route), R,
+            )
             isnothing(source_reference) && return :fallback
-            source_reference isa eltype(carrier_references) ||
-                return :fallback
         end
         push!(changes, (object_id, is_source, source_reference))
     end
@@ -3616,7 +3634,7 @@ function _update_structural_many_sources!(
             _insert_with_spare_capacity!(
                 carrier_references,
                 position,
-                source_reference,
+                source_reference::R,
             )
         end
     end
@@ -4017,10 +4035,11 @@ function _append_added_many_call_targets!(
         if _selector_matches_object_id(
             model,
             binding.matcher,
-            object_id;
-            context=binding.consumer_id,
-            default_to_context=true,
-            default_scope=default_scope,
+            object_id,
+            binding.consumer_id,
+            true,
+            default_scope,
+            false,
         ) && !first(
             _sorted_object_id_position(
                 binding.callee_object_ids,
@@ -4563,7 +4582,7 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
     end
     previous_source_ids = binding.carrier_hint == :temporal_stream ?
                           copy(source_ids) :
-                          ObjectId[]
+                          empty(source_ids)
     binding.multiplicity == :many &&
         binding.carrier_hint == :temporal_stream &&
         (previous_shared_many_sources[binding.source_ids] = copy(source_ids))
@@ -4836,7 +4855,7 @@ function _extend_compiled_scene(
     affected_temporal_keys = Set{Tuple{Symbol,ObjectId}}()
     previous_temporal_sources = copy(previous_temporal_sources_seed)
     processed_many_sources = IdDict{Any,Nothing}()
-    previous_shared_many_sources = IdDict{Any,Vector{ObjectId}}()
+    previous_shared_many_sources = IdDict{Any,Vector{I}}()
     rebuild_dynamic_input_index = !pure_addition
     candidate_binding_indices = Set{Int}()
     writer_rebind_keys = nothing
@@ -6664,26 +6683,31 @@ function _ensure_model_object_status!(model::CompositeModel, object_id::ObjectId
     return Base.@inline _with_registered_status(identity, model.registry.objects.catalog, status)
 end
 
-_stage_model_output_defaults!(::Tuple{}, ::Tuple{}, preparation, context) = nothing
+_stage_model_output_defaults!(preparation, ::Tuple{}, ::Tuple{}, context) = nothing
 
 function _stage_model_output_defaults!(
+    preparation,
     variables::Tuple{Symbol,Vararg{Symbol}},
     defaults::Tuple{V,Vararg},
-    preparation,
     context,
 ) where {V}
     variable = first(variables)
     value = first(defaults)
     if _publish_mode_for_output(context.application.spec, variable) == :canonical
-        if !(preparation isa Status && variable in propertynames(preparation))
-            if preparation isa Status
-                preparation = _status_recipe_for_object!(
+        if preparation isa Status
+            if !(variable in propertynames(preparation))
+                recipe = _status_recipe_for_object!(
                     context.recipes,
                     context.recipe_order,
                     context.model,
                     context.object_id,
                 )
+                return Base.@inline _with_canonical_status_recipe(
+                    _stage_model_output_defaults!, context.recipes, recipe,
+                    variables, defaults, context,
+                )
             end
+        else
             Base.@inline _status_recipe_add_default!(
                 context.model,
                 preparation,
@@ -6697,7 +6721,7 @@ function _stage_model_output_defaults!(
         end
     end
     return _stage_model_output_defaults!(
-        Base.tail(variables), Base.tail(defaults), preparation, context,
+        preparation, Base.tail(variables), Base.tail(defaults), context,
     )
 end
 
@@ -6726,8 +6750,10 @@ function _prepare_model_output_statuses!(
                     )
                     context = (; model, application, object_id, recipes,
                         recipe_order, conversion_records)
-                    _stage_model_output_defaults!(
-                        keys(defaults), values(defaults), preparation, context,
+                    Base.@inline _with_canonical_status_preparation(
+                        _stage_model_output_defaults!, recipes,
+                        model.registry.objects.catalog, preparation,
+                        keys(defaults), values(defaults), context,
                     )
                 end
             end
@@ -7102,10 +7128,11 @@ function _incremental_distributed_output_addition!(
             if _selector_matches_object_id(
                 model,
                 binding.matcher,
-                object_id;
-                context=binding.execution_object_id,
-                default_to_context=true,
-                default_scope=default_scope,
+                object_id,
+                binding.execution_object_id,
+                true,
+                default_scope,
+                false,
             ) && !first(
                 _sorted_object_id_position(
                     binding.destination_ids,
@@ -7336,10 +7363,11 @@ function _force_distributed_producer_rebinds!(forced, model, bindings, by_variab
             _selector_matches_object_id(
                 model,
                 binding.matcher,
-                destination;
-                context=binding.consumer_id,
-                default_to_context=true,
+                destination,
+                binding.consumer_id,
+                true,
                 default_scope,
+                false,
             ) || continue
             push!(forced, (binding.application_id, binding.consumer_id, binding.input))
             break

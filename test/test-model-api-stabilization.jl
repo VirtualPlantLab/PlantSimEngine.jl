@@ -1084,8 +1084,11 @@ function stabilization_compiled_selector_allocations(
     return @allocated PlantSimEngine._selector_matches_object_id(
         model,
         matcher,
-        object_id;
-        context=context,
+        object_id,
+        context,
+        false,
+        nothing,
+        false,
     )
 end
 
@@ -1121,8 +1124,11 @@ end
             if PlantSimEngine._selector_matches_object_id(
                 model,
                 matcher,
-                object_id;
-                context=context,
+                object_id,
+                context,
+                false,
+                nothing,
+                false,
             )
         ]
         PlantSimEngine._sort_object_ids!(matched)
@@ -1157,8 +1163,11 @@ end
     @test_throws "No matching ancestor" PlantSimEngine._selector_matches_object_id(
         model,
         ancestor_matcher,
-        ObjectId(:scene);
-        context=ObjectId(:scene),
+        ObjectId(:scene),
+        ObjectId(:scene),
+        false,
+        nothing,
+        false,
     )
 end
 

@@ -1354,17 +1354,17 @@ _compiled_relation_symbol(::Val{RELATION}) where {RELATION} = RELATION
 function _selector_matches_object_id(
     model::CompositeModel,
     matcher::CompiledSelectorMatcher,
-    object_id::ObjectId;
-    context=nothing,
-    default_to_context::Bool=false,
-    default_scope=nothing,
-    relation_resolved::Bool=false,
+    object_id::ObjectId,
+    context,
+    default_to_context::Bool,
+    default_scope,
+    relation_resolved::Bool,
 )
     if default_to_context && matcher.defaults_to_context && !isnothing(context)
         return object_id == _object_id_from_context(context)
     end
     _selector_matches_object_labels(model, matcher, object_id) || return false
-    return _selector_matches_object_topology(model, matcher, object_id;
+    return _selector_matches_object_topology(model, matcher, object_id,
         context, default_scope, relation_resolved)
 end
 
@@ -1375,8 +1375,8 @@ end
 end
 
 function _selector_matches_object_topology(model::CompositeModel,
-    matcher::CompiledSelectorMatcher, object_id::ObjectId;
-    context=nothing, default_scope=nothing, relation_resolved::Bool=false)
+    matcher::CompiledSelectorMatcher, object_id::ObjectId,
+    context, default_scope, relation_resolved::Bool)
     scope = isnothing(matcher.scope) ? default_scope : matcher.scope
     if isnothing(matcher.relation)
         if scope isa Ancestor &&
@@ -1406,24 +1406,6 @@ function _selector_matches_object_topology(model::CompositeModel,
            _scope_contains_object(model, matcher.scope, context, object_id)
 end
 
-function _selector_matches_object_id(
-    model::CompositeModel,
-    selector::AbstractObjectMultiplicity,
-    object_id::ObjectId;
-    context=nothing,
-    default_to_context::Bool=false,
-    default_scope=nothing,
-)
-    return _selector_matches_object_id(
-        model,
-        _compile_selector_matcher(model, selector),
-        object_id;
-        context=context,
-        default_to_context=default_to_context,
-        default_scope=default_scope,
-    )
-end
-
 function _selector_matches_any_object_id(
     model::CompositeModel,
     matcher::CompiledSelectorMatcher,
@@ -1436,10 +1418,11 @@ function _selector_matches_any_object_id(
         _selector_matches_object_id(
             model,
             matcher,
-            object_id;
-            context=context,
-            default_to_context=default_to_context,
-            default_scope=default_scope,
+            object_id,
+            context,
+            default_to_context,
+            default_scope,
+            false,
         ) && return true
     end
     return false
@@ -1486,7 +1469,7 @@ function _matching_selector_ids(
         id = candidate::I
         haskey(model.registry.objects, id) || continue
         _selector_matches_object_id(
-            model, matcher, id; context, default_to_context, default_scope, relation_resolved,
+            model, matcher, id, context, default_to_context, default_scope, relation_resolved,
         ) && push!(ids, id)
     end
     return _sort_object_ids!(unique!(ids))

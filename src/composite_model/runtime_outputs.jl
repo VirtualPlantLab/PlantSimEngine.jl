@@ -5974,10 +5974,11 @@ function _targeted_new_object_call_targets(
         if !_selector_matches_object_id(
             model,
             binding.matcher,
-            object_id;
-            context=context.object_id,
-            default_to_context=true,
-            default_scope=default_scope,
+            object_id,
+            context.object_id,
+            true,
+            default_scope,
+            false,
         )
     ]
     isempty(unresolved_ids) || error(
@@ -6321,10 +6322,11 @@ function _current_topology_call_targets(
         if !_selector_matches_object_id(
             model,
             resolved_binding.matcher,
-            object_id;
-            context=context.object_id,
-            default_to_context=true,
-            default_scope=default_scope,
+            object_id,
+            context.object_id,
+            true,
+            default_scope,
+            false,
         )
             push!(unresolved_ids, object_id)
             continue
@@ -7973,8 +7975,8 @@ function _refresh_output_request_for_application!(application, record, simulatio
             :output_request_incremental_object_checks, length(added_object_ids))
         for raw_id in added_object_ids
             object_id = _index_object_id(objects, raw_id)
-            _selector_matches_object_id(simulation.model, record.matcher, object_id;
-                context=request.context) && push!(matched_ids, object_id)
+            _selector_matches_object_id(simulation.model, record.matcher, object_id,
+                request.context, false, nothing, false) && push!(matched_ids, object_id)
         end
     end
     owned_ids = Set{I}()
