@@ -7838,11 +7838,22 @@ end
         record, reference, record, operation, args...)
 end
 
+# The action crosses several metadata gates without being called there. Keep
+# its concrete callable type when forwarding it alongside the scientific data.
+struct _OutputRequestAction{F}
+    operation::F
+end
+
+function (action::_OutputRequestAction{F})(args::Vararg{Any,N}) where {F,N}
+    return action.operation(args...)
+end
+
 function _with_output_request_initial(operation::F, record, compiled, application,
     object_id, args::Vararg{Any,N},
 ) where {F,N}
+    action = _OutputRequestAction(operation)
     return Base.@inline _with_model_output_reference(_output_request_from_reference,
-        compiled, application, object_id, record.request.var, record, operation, args...)
+        compiled, application, object_id, record.request.var, record, action, args...)
 end
 
 function _compile_output_request(model, compiled, request)
