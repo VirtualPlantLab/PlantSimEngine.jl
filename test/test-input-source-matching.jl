@@ -53,6 +53,9 @@ end
     alternative = compiled.applications_by_id[:f]
     @test matched(compiled, distributed, (1, 2); process=alternative.process) == [:f]
     @test matched(compiled, distributed, (1, 2); potential=(:c,)) == [:c]
+    # The planned producer is absent from the first object's local/remote
+    # ownership and present only on the second object.
+    @test matched(compiled, distributed, (1, 2); potential=(:f,)) == [:f]
     @test isempty(matched(compiled, distributed, (1, 2);
         application=:missing, potential=(:missing,), allow_empty=true))
     @test_throws ErrorException matched(compiled, distributed, (1, 2);

@@ -3130,13 +3130,20 @@ struct _ManyBindingQueryKey{S,I<:ObjectId}
     carrier_hint::Symbol
     carrier_type::DataType
 end
-_many_binding_query_components(key::_ManyBindingQueryKey) =
-    (key.selector, key.anchor, key.source_var, key.process, key.application,
-        key.carrier_hint, key.carrier_type)
 Base.isequal(left::_ManyBindingQueryKey, right::_ManyBindingQueryKey) =
-    isequal(_many_binding_query_components(left), _many_binding_query_components(right))
-Base.hash(key::_ManyBindingQueryKey, seed::UInt) =
-    hash(_many_binding_query_components(key), seed)
+    isequal(left.selector, right.selector) && isequal(left.anchor, right.anchor) &&
+    left.source_var === right.source_var && isequal(left.process, right.process) &&
+    isequal(left.application, right.application) && left.carrier_hint === right.carrier_hint &&
+    left.carrier_type === right.carrier_type
+function Base.hash(key::_ManyBindingQueryKey, seed::UInt)
+    seed = hash(key.selector, seed)
+    seed = hash(key.anchor, seed)
+    seed = hash(key.source_var, seed)
+    seed = hash(key.process, seed)
+    seed = hash(key.application, seed)
+    seed = hash(key.carrier_hint, seed)
+    return hash(key.carrier_type, seed)
+end
 
 struct _ManyBindingPlanKey{I<:ObjectId}
     slot::Int
@@ -7721,19 +7728,18 @@ function _matching_input_source_applications(
     application_filter,
     distributed_outputs=NoCompiledDistributedOutputs(),
     potential_source_application_ids=();
-    applications_by_id=nothing,
+    applications_by_id::CompiledMetadataTable,
     allow_empty::Bool=false,
 )
     potential_application_id =
         length(potential_source_application_ids) == 1 ?
         only(potential_source_application_ids) : nothing
     use_planned_singleton = !isnothing(potential_application_id) &&
-                            !isnothing(applications_by_id) &&
                             haskey(applications_by_id, potential_application_id)
     matches = if use_planned_singleton
         application_id = potential_application_id
         matched = _with_metadata_entry(applications_by_id, application_id) do application
-            any(source_ids) do source_id
+            for source_id in source_ids
                 _application_writes_object_variable(
                     distributed_outputs,
                     application,
@@ -7742,21 +7748,34 @@ function _matching_input_source_applications(
                 ) && return true
                 # Targeted newborn initializers use a partial application
                 # overlay until the lifecycle barrier extends the application.
-                return any(get(applications_by_object, source_id, ())) do candidate
-                    candidate.id == application_id || return false
-                    return source_var in _model_output_names(candidate)
+                for raw_candidate in get(applications_by_object, source_id, ())
+                    candidate_matches = Base.@inline _with_model_application(
+                        applications_by_id, raw_candidate::CompiledModelApplication,
+                        application_id, source_var,
+                    ) do candidate, id, variable
+                        candidate.id == id || return false
+                        return variable in _model_output_names(candidate)
+                    end
+                    candidate_matches && return true
                 end
             end
+            return false
         end
         matched ? Symbol[application_id] : Symbol[]
     else
         resolved = Symbol[]
         for source_id in source_ids
-            for application in get(applications_by_object, source_id, ())
-                source_var in _model_output_names(application) || continue
-                isnothing(process_filter) || application.process == process_filter || continue
-                isnothing(application_filter) || application.id == application_filter || continue
-                application.id in resolved || push!(resolved, application.id)
+            for raw_application in get(applications_by_object, source_id, ())
+                Base.@inline _with_model_application(
+                    applications_by_id, raw_application::CompiledModelApplication,
+                    resolved, source_var, process_filter, application_filter,
+                ) do application, matches, variable, process, application_name
+                    variable in _model_output_names(application) || return nothing
+                    isnothing(process) || application.process == process || return nothing
+                    isnothing(application_name) || application.id == application_name || return nothing
+                    application.id in matches || push!(matches, application.id)
+                    return nothing
+                end
             end
             _append_distributed_input_source_applications!(
                 resolved,
@@ -8912,21 +8931,25 @@ function _validate_model_input_source!(
     consumer_id::ObjectId,
     input_sym::Symbol,
     source_var::Symbol,
-    source_ids::AbstractVector{<:ObjectId},
+    source_ids::AbstractVector{I},
     carrier,
     carrier_hint::Symbol,
-)
+) where {I<:ObjectId}
     !isnothing(carrier) && return nothing
-    status_source_ids = ObjectId[
+    status_source_ids = I[
         source_id for source_id in source_ids
         if _model_object(model, source_id).status isa Status
     ]
     isempty(status_source_ids) && return nothing
-    error(
-        "Input binding `$(input_sym)` on application `$(application_id)` for object ",
-        "`$(consumer_id.value)` reads `$(source_var)` from objects ",
-        "`$([id.value for id in status_source_ids])`, but no source `Status` reference is available."
-    )
+    io = IOBuffer()
+    print(io, "Input binding `", input_sym, "` on application `", application_id,
+        "` for object `", consumer_id.value, "` reads `", source_var, "` from objects `[")
+    for (index, source_id) in pairs(status_source_ids)
+        index == 1 || print(io, ", ")
+        _print_selector_diagnostic(io, source_id.value, Any[])
+    end
+    print(io, "]`, but no source `Status` reference is available.")
+    error(String(take!(io)))
 end
 
 function _validate_declared_model_input_name!(application, input_sym::Symbol)
