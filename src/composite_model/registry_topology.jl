@@ -133,7 +133,7 @@ separately to `CompositeModel`. `objects` contains additional owned descendants.
 implementing the same process. `object_overrides` contains `Override` entries
 for exceptional organs.
 """
-struct ObjectInstance{T,R,O,OV,OOV}
+struct ObjectInstance{T<:CompositeModelTemplate,R<:Union{Object,ObjectId},O,OV,OOV}
     name::Symbol
     template::T
     root::R
@@ -164,7 +164,7 @@ function ObjectInstance(
     return ObjectInstance(
         Symbol(name),
         template,
-        root,
+        root isa Object ? root : ObjectId(root),
         normalized_objects,
         overrides,
         normalized_object_overrides,
@@ -448,8 +448,9 @@ function _normalize_object_instances(instances)
     return normalized
 end
 
-function _instance_root_id(instance::ObjectInstance)
-    return instance.root isa Object ? instance.root.id : ObjectId(instance.root)
+@inline function _instance_root_id(instance::ObjectInstance)
+    root = instance.root
+    return root isa Object ? root.id : root
 end
 
 function _collect_model_items(items, instances)
@@ -1081,17 +1082,19 @@ function _validate_status_identity_available!(
     return _validate_object_family_status_owner!(registry.objects, status, object_id)
 end
 
-function _validate_status_source_identity_available!(
+@inline function _validate_status_source_identity_available!(
     model::CompositeModel,
     status,
     object_id::ObjectId,
 )
     status isa Status || return nothing
-    existing = get(
+    raw_existing = get(
         model.status_source_owners,
         _status_identity(status),
         nothing,
     )
+    existing = isnothing(raw_existing) ? nothing :
+        _index_object_id(model.registry.objects, raw_existing)
     if !isnothing(existing) && existing != object_id
         throw(
             ArgumentError(
@@ -1291,6 +1294,7 @@ function _lifecycle_object_snapshot(model::CompositeModel, object::Object)
         id,
         (),
     )
+    ancestor_snapshot = ancestors isa Tuple ? ancestors : Tuple(ancestors)
     # Freeze topology, but retain the same passive geometry object without copying.
     return LifecycleObjectSnapshot(
         id,
@@ -1300,7 +1304,7 @@ function _lifecycle_object_snapshot(model::CompositeModel, object::Object)
         object.name,
         object.parent,
         Tuple(object.children),
-        Tuple(ancestors),
+        ancestor_snapshot,
         object.geometry,
     )
 end
@@ -1353,19 +1357,26 @@ end
 
 function _instance_for_object(model::CompositeModel, id)
     isempty(model.instances) && return nothing
-    current_id = ObjectId(id)
-    while haskey(model.registry.objects, current_id)
+    objects = model.registry.objects
+    I = keytype(objects)
+    raw_id = ObjectId(id)
+    raw_id isa I || return nothing
+    current_id = raw_id::I
+    while haskey(objects, current_id)
         for instance in model.instances
-            _instance_root_id(instance) == current_id && return instance
+            root_id = _instance_root_id(instance)
+            root_id isa I || continue
+            (root_id::I) == current_id && return instance
         end
-        parent = model.registry.objects[current_id].parent
+        parent = objects[current_id].parent
         isnothing(parent) && return nothing
-        current_id = parent
+        parent isa I || return nothing
+        current_id = parent::I
     end
     return nothing
 end
 
-function _apply_instance_labels!(object::Object, instance)
+@inline function _apply_instance_labels!(object::Object, instance)
     isnothing(instance) && return object
     isnothing(object.kind) && (object.kind = instance.template.kind)
     isnothing(object.species) && (object.species = instance.template.species)

@@ -90,6 +90,46 @@ end
     end
 end
 
+
+@testset "instance roots retain identity through nested registration and missing lookups" begin
+    for root_value in (:instance_root, 17, (:plant, 2)), form in (:object, :id, :value), closed in (false, true)
+        root = Object(root_value; scale=:Plant, status=Status(x=1f0))
+        branch = Object(:branch; parent=root.id, status=Status(x=2f0))
+        template = CompositeModelTemplate(; kind=:tree, species=:configured)
+        supplied = form === :object ? root : form === :id ? root.id : root_value
+        instance = ObjectInstance(:plant, template; root=supplied)
+        @test instance.root === (form === :object ? root : root.id)
+        items = form === :object ? (branch,) : (root, branch)
+        model = CompositeModel(items...; instances=(instance,))
+        closed && (model = close_registry(model))
+        @test PSE._instance_root_id(instance) === root.id
+        @test PSE._instance_for_object(model, branch.id) === instance
+
+        status = Status(x=3f0)
+        reference = PSE.refvalue(status, :x)
+        newborn = Object(:newborn; parent=branch.id, status)
+        @test register_object!(model, newborn) === newborn
+        @test newborn.kind === :tree
+        @test newborn.species === :configured
+        @test PSE._instance_for_object(model, newborn.id) === instance
+        @test PSE.refvalue(model_status(model, newborn.id), :x) === reference
+        @test resolve_object_ids(model, Many(within=Scope(:plant))) ==
+            PSE._sort_object_ids!([root.id, branch.id, newborn.id])
+
+        remove_object!(model, newborn.id)
+        @test isnothing(PSE._instance_for_object(model, newborn.id))
+        @test isnothing(PSE._instance_for_object(model, ObjectId(:missing)))
+        @test isnothing(PSE._instance_for_object(model, ObjectId(999f0)))
+        @test PSE._instance_for_object(model, branch.id) === instance
+    end
+
+    root = Object(:string_root; status=Status(x=1f0))
+    instance = ObjectInstance(:string_instance, CompositeModelTemplate(); root="string_root")
+    model = CompositeModel(root; instances=(instance,))
+    @test instance.root === root.id
+    @test PSE._instance_for_object(model, root.id) === instance
+end
+
 function call_fixture(closed)
     capture = Ref{Any}(nothing)
     model = CompositeModel(
