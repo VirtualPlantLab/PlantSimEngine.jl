@@ -108,12 +108,6 @@ function _object_family_status_at(::OpenObjectFamilyCatalog, location::ObjectFam
     return getfield(location.object, :status)
 end
 
-@inline function _object_family_status_at(family::ObjectFamily{I,S}, row::Int) where {I,S}
-    entry = family.rows[row]
-    isnothing(entry) && throw(ArgumentError("The object family row is no longer registered."))
-    return entry.status::S
-end
-
 # A finite union retains the concrete Status families across a runtime slot.
 # Object counts, IDs and row positions are deliberately absent from the type.
 @generated function _object_family_status_at(catalog::ClosedObjectFamilyCatalog{F}, location::ObjectFamilyLocation) where {F}
@@ -122,10 +116,20 @@ end
     result_type = Union{status_types...}
     branch = :(throw(BoundsError(catalog.families, location.family)))
     for slot in reverse(1:fieldcount(F))
-        value = :(_object_family_status_at(getfield(catalog.families, $slot), location.row))
-        branch = Expr(:if, :(location.family == $slot), value, branch)
+        check = quote
+            family = getfield(catalog.families, $slot)
+            isnothing(family.rows[location.row]) && throw(ArgumentError(
+                "The object family row is no longer registered.",
+            ))
+        end
+        branch = Expr(:if, :(location.family == $slot), check, branch)
     end
-    return Expr(:(::), branch, result_type)
+    return quote
+        $branch
+        # Reuse the official box; extracting the immutable header from a typed
+        # family row would rebox it when the caller stores the result as Any.
+        getfield(location.object, :status)::$result_type
+    end
 end
 
 _object_family_status(store::ObjectFamilyStore, id) =

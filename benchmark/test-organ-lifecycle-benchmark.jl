@@ -53,7 +53,7 @@ function PlantSimEngine.run!(
 end
 
 _organ_lifecycle_status(node) =
-    PlantSimEngine.Status(node=node, signal=0.0)
+    PlantSimEngine.Status(signal=0.0)
 
 function setup_organ_topology_benchmark(nobjects::Int)
     nobjects > 0 || throw(ArgumentError("`nobjects` must be positive."))
@@ -104,7 +104,7 @@ Base.@noinline function benchmark_adapt_organ_status_recipe_model(topology)
                 on=PlantSimEngine.Many(scale=:Leaf),
             ),
         ),
-        status=node -> PlantSimEngine.Status(node=node),
+        status=node -> PlantSimEngine.Status(),
     )
 end
 

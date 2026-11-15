@@ -220,14 +220,16 @@ end
 end
 
 PSE.@process "force_authority_new_status_field" verbose=false
-struct ChangingFields{M,D,K} <: AbstractForce_Authority_New_Status_FieldModel
+struct ChangingFields{M,F,D,K} <: AbstractForce_Authority_New_Status_FieldModel
     extra::M
+    fail::F
     declarations::D
     kernels::K
 end
 PSE.inputs_(::ChangingFields) = (;)
 function PSE.outputs_(model::ChangingFields)
     model.declarations[] += 1
+    model.fail[] && error("intentional captured output declaration failure")
     return model.extra[] ? (visits=0, extra=0) : (visits=0,)
 end
 function PSE.run!(model::ChangingFields, status, environment, constants, context)
@@ -238,10 +240,14 @@ end
 
 @testset "an incompatible mutable declaration records an authoritative error without publishing state" begin
     extra, declarations, kernels = Ref(false), Ref(0), Ref(0)
-    original = ModelSpec(ChangingFields(extra, declarations, kernels); name=:probe, on=One(id=:leaf))
+    original = ModelSpec(ChangingFields(extra, Ref(false), declarations, kernels); name=:probe, on=One(id=:leaf))
     supplied = Status(visits=5)
     model = CompositeModel(Object(:leaf; status=supplied); applications=(original,))
-    run!(model; steps=0, outputs=:none)
+    simulation = run!(model; steps=0, outputs=:all)
+    fixed = PSE._simulation_with_execution_plan(simulation,
+        PSE._fixed_execution_plan(simulation.execution_plan))
+    history = copy(outputs(simulation)[(:probe,ObjectId(:leaf),:visits)])
+    step = simulation.current_step
     registry, preparation, compiled = model.registry, model.scenario_plan_cache, model.binding_cache
     environment = model.environment_binding_cache
     status = model_status(model, :leaf)
@@ -273,6 +279,16 @@ end
     @test model.status_source_identities == source_ids
     @test object_id(model, status) === ObjectId(:leaf)
     after_failure = declarations[]
+    continued_failure = try
+        continue!(simulation; steps=1)
+        nothing
+    catch exception
+        exception
+    end
+    @test continued_failure === failure
+    @test_throws ArgumentError continue!(fixed; steps=1)
+    @test simulation.current_step == fixed.current_step == step
+    @test outputs(simulation)[(:probe,ObjectId(:leaf),:visits)] == history
     @test_throws ArgumentError run!(model; steps=1, outputs=:none)
     @test_throws ArgumentError Advanced.refresh_bindings!(model)
     @test declarations[] == after_failure
@@ -289,6 +305,42 @@ end
     @test PSE.refvalue(status, :visits) === reference
     @test status.visits == 6
     @test kernels[] == 1
+end
+
+@testset "a captured declaration failure also blocks an existing timeline" begin
+    fail, declarations, kernels = Ref(false), Ref(0), Ref(0)
+    process = ChangingFields(Ref(false), fail, declarations, kernels)
+    spec = ModelSpec(process; name=:probe, on=One(id=:leaf))
+    model = CompositeModel(Object(:leaf; status=Status(visits=5)); applications=(spec,))
+    simulation = run!(model; steps=0, outputs=:all)
+    status = model_status(model, :leaf)
+    reference = PSE.refvalue(status, :visits)
+    history = copy(outputs(simulation)[(:probe,ObjectId(:leaf),:visits)])
+    step, registry, compiled = simulation.current_step, model.registry, model.binding_cache
+    fail[] = true
+    failure = try
+        Advanced.refresh_bindings!(model; force=true)
+        nothing
+    catch exception
+        exception
+    end
+    @test failure isa ErrorException
+    after_failure = declarations[]
+    continued_failure = try
+        continue!(simulation; steps=1)
+        nothing
+    catch exception
+        exception
+    end
+    @test continued_failure === failure
+    @test only(model.applications) === spec
+    @test simulation.current_step == step
+    @test outputs(simulation)[(:probe,ObjectId(:leaf),:visits)] == history
+    @test model.registry === registry && model.binding_cache === compiled
+    @test model_status(model, :leaf) === status
+    @test PSE.refvalue(status, :visits) === reference
+    @test status.visits == 5 && kernels[] == 0
+    @test declarations[] == after_failure
 end
 
 end

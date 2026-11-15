@@ -227,10 +227,14 @@ end
     initial_status = Status((external_value=external_reference,))
     @test PlantSimEngine.refvalue(initial_status, :external_value) ===
           external_reference
+    existing_storage = [1.5]
+    existing_reference = Ref(existing_storage, 1)
+    existing_source = Status((external_value=existing_reference,))
 
     model = CompositeModel(
         Object(:scene; scale=:Scene),
-        Object(:plant; scale=:Plant, parent=:scene);
+        Object(:plant; scale=:Plant, parent=:scene),
+        Object(:existing_leaf; scale=:Leaf, parent=:plant, status=existing_source);
         applications=(
             ModelSpec(
                 StatusTypeLifecycleIncrementModel();
@@ -253,7 +257,11 @@ end
         environment=(duration=Hour(1),),
     )
     Advanced.refresh_bindings!(model)
-    register_object!(
+    existing = model_status(model, :existing_leaf)
+    @test existing !== existing_source
+    @test PlantSimEngine.refvalue(existing, :external_value) === existing_reference
+    @test existing.external_value == 1.5
+    registered = register_object!(
         model,
         Object(
             :late_leaf;
@@ -262,11 +270,16 @@ end
             status=initial_status,
         ),
     )
+    official = registered.status
+    @test official !== initial_status
+    @test PlantSimEngine.refvalue(official, :external_value) === external_reference
+    @test_throws ArgumentError object_id(model, initial_status)
 
     Advanced.refresh_bindings!(model)
     refreshed = model_status(model, :late_leaf)
+    @test refreshed === official
     @test propertynames(refreshed) ==
-          (:external_value, :value, :seen, :bound_value)
+          (:value, :seen, :bound_value, :external_value)
     @test PlantSimEngine.refvalue(refreshed, :external_value) ===
           external_reference
     @test PlantSimEngine.refvalue(refreshed, :bound_value) ===
@@ -354,9 +367,11 @@ end
 end
 
 @testset "register_object! converts status after compilation" begin
+    existing_source = Status(initial_value=1.5)
     model = CompositeModel(
         Object(:scene; scale=:Scene),
-        Object(:plant; scale=:Plant, parent=:scene);
+        Object(:plant; scale=:Plant, parent=:scene),
+        Object(:existing_leaf; scale=:Leaf, parent=:plant, status=existing_source);
         applications=(
             ModelSpec(
                 StatusTypeLifecycleIncrementModel();
@@ -368,6 +383,8 @@ end
         type_promotion=Dict(Float64 => Float32),
     )
     simulation = run!(model; outputs=:all)
+    @test model_status(model, :existing_leaf).initial_value === Float32(1.5)
+    @test existing_source.initial_value === 1.5
 
     late_leaf = Object(
         :late_leaf;
@@ -375,9 +392,13 @@ end
         parent=:plant,
         status=Status(initial_value=2.5),
     )
+    source = late_leaf.status
     registered = register_object!(model, late_leaf)
 
     @test registered === late_leaf
+    @test registered.status !== source
+    @test source.initial_value === 2.5
+    @test_throws ArgumentError object_id(model, source)
     @test registered.status === model_status(model, :late_leaf)
     @test registered.status.initial_value === Float32(2.5)
     @test !(:value in propertynames(registered.status))

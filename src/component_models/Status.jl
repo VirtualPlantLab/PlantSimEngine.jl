@@ -309,4 +309,20 @@ function _projected_status_type(::Type{C}, hot_names::Tuple, hot_references::Typ
     return Status{names,_ProjectedStatusStorage{names,R,Hot,Slots}}
 end
 
-Base.hasproperty(status::Status, name::Symbol) = _initial_status_reference(status, name) !== nothing
+@inline _status_storage_hasproperty(storage::NamedTuple, name::Symbol) =
+    hasfield(typeof(storage), name)
+@generated function _status_storage_hasproperty(
+    storage::Union{_FixedStatusStorage{N},_ProjectedStatusStorage{N}},
+    name::Symbol,
+) where {N}
+    branches = [:(name === $(QuoteNode(field)) &&
+        return getfield(getfield(storage, :refs), $index) !== nothing)
+        for (index, field) in enumerate(N)]
+    return quote
+        $(Expr(:meta, :inline))
+        $(branches...)
+        return false
+    end
+end
+Base.@constprop :aggressive @inline Base.hasproperty(status::Status, name::Symbol) =
+    _status_storage_hasproperty(_status_vars(status), name)

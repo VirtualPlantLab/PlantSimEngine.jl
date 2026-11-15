@@ -170,7 +170,8 @@ if benchmark_test_enabled("organ lifecycle benchmark API smoke")
         added_id = PlantSimEngine.ObjectId(data.next_node_id)
         @test PlantSimEngine.object_id(data.model, status) == added_id
         @test PlantSimEngine.model_status(data.model, added_id) === status
-        @test PlantSimEngine.source_node(data.model, status) === status.node
+        @test PlantSimEngine.source_node(data.model, status) ===
+              MultiScaleTreeGraph.get_node(data.root, data.next_node_id)
         @test status.signal == 1.0
         @test data.model.bindings_dirty
         nodes = Any[]

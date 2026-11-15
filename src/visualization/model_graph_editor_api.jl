@@ -863,7 +863,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::BreakModelCycle)
     for application in applications
         for object_id in application.target_ids
             object = _model_object(model, object_id)
-            supplied = object.status isa Status && edit.input in Symbol.(propertynames(object.status))
+            supplied = object.status isa Status && hasproperty(object.status, edit.input)
             supplied || _set_model_object_status!(model, object_id, edit.input, edit.initial_value)
         end
     end

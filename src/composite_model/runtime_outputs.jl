@@ -1752,7 +1752,7 @@ end
 end
 
 function _set_status_if_present!(status::Status, variable::Symbol, value)
-    variable in propertynames(status) || error(
+    hasproperty(status, variable) || error(
         "Cannot materialize input `$(variable)` because consumer status has no such variable."
     )
     status[variable] = value
@@ -1861,7 +1861,7 @@ end
 @inline function _output_reference_from_status(status::S, operation::F,
     ::Val{VARIABLE}, args::Vararg{Any,N},
 ) where {S,F,VARIABLE,N}
-    status isa Status && VARIABLE in propertynames(status) || throw(ArgumentError(
+    status isa Status && hasproperty(status, VARIABLE) || throw(ArgumentError(
         "The requested output is absent from the selected status.",
     ))
     return operation(refvalue(status, VARIABLE), args...)

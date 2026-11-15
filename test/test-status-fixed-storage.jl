@@ -118,4 +118,39 @@ end
     @test typeof(PSE.refvalue(state,:abstract)) === Base.RefValue{Real}
     @test typeof(PSE.refvalue(state,:opaque)) === Base.RefValue{Any}
 end
+
+_fixed_status_presence(status, name::Symbol) = hasproperty(status, name)
+function _store_fixed_status_presence!(result::Base.RefValue{Bool}, status, name::Symbol)
+    result[] = hasproperty(status, name)
+    return nothing
+end
+_fixed_status_presence_allocations(result, status, name::Symbol) =
+    @allocated _store_fixed_status_presence!(result, status, name)
+
+@testset "presence queries inspect cells without reading values or constructing names" begin
+    dense = Status((x=Ref{Float32}(), literal=Ref(nothing)))
+    fixed = PSE._new_prepared_status(SCHEMA,Status(x=3f0,q=1//2,seed=Float32[]))
+    Projected = PSE._projected_status_type(SCHEMA,(:private_only,),Tuple{RF32})
+    view = PSE._construct_status(
+        PSE.ExactReferenceFactory(SCHEMA,Tuple{RF32},Projected,(:private_only,)),
+        fixed,(Ref(7f0),))
+    result = Ref(false)
+    for (status, name, expected) in ((dense,:x,true), (dense,:literal,true),
+        (dense,:missing,false), (dense,:vars,false), (Status(),:missing,false),
+        (fixed,:x,true), (fixed,:literal,false), (fixed,:private_only,false),
+        (fixed,:missing,false), (view,:private_only,true), (view,:literal,false),
+        (view,:missing,false))
+        @test (@inferred _fixed_status_presence(status,name)) === expected
+        _store_fixed_status_presence!(result,status,name)
+        _fixed_status_presence_allocations(result,status,name)
+        @test _fixed_status_presence_allocations(result,status,name) == 0
+        @test result[] === expected
+    end
+    PSE._set_status_reference!(fixed,:literal,Ref(nothing))
+    @test (@inferred _fixed_status_presence(fixed,:literal)) === true
+    @test fixed.literal === nothing
+    @test (@inferred _fixed_status_presence(view,:literal)) === false
+    @test keys(fixed) === (:x,:q,:seed,:literal)
+    @test keys(view) === (:x,:q,:seed,:private_only)
+end
 end

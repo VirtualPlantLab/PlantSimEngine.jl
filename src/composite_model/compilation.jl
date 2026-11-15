@@ -974,6 +974,16 @@ end
     end
 end
 
+function _publish_failed_scenario_preparation!(model::CompositeModel, preparation)
+    previous = getfield(model, :scenario_plan_cache)
+    model.scenario_plan_cache = preparation
+    model.bindings_dirty = true
+    # Reuse the generation already checked by fixed plans and application
+    # barriers; ordinary execution gains no new lookup or scan.
+    _record_runtime_owner_replacement!(model, previous, preparation)
+    return preparation
+end
+
 function _scenario_preparation(model::CompositeModel; force::Bool=false)
     preparation = model.scenario_plan_cache
     if force || isnothing(preparation) ||
@@ -982,8 +992,7 @@ function _scenario_preparation(model::CompositeModel; force::Bool=false)
         if !isnothing(candidate.failure) || candidate.status_manifest isa ScenarioPreparationFailure
             # Keep captured authoring failures authoritative, as before. A later
             # run must not silently fall back to an older compiled preparation.
-            model.scenario_plan_cache = candidate
-            return candidate
+            return _publish_failed_scenario_preparation!(model, candidate)
         end
         registry = try
             _registry_with_prepared_status_manifest(model, candidate.status_manifest)
@@ -994,8 +1003,7 @@ function _scenario_preparation(model::CompositeModel; force::Bool=false)
                 candidate.authored, candidate.failure, candidate.program, failure, nothing)
             # Only the captured diagnostic becomes authoritative. The registry,
             # scientific headers and compiled caches remain exactly unchanged.
-            model.scenario_plan_cache = rejected
-            return rejected
+            return _publish_failed_scenario_preparation!(model, rejected)
         end
         # Validation and all potentially failing construction finished first.
         # These two assignments invoke no user code and preserve every header,
@@ -2200,7 +2208,12 @@ function _refresh_owned_runtime_bindings!(
 )
     preparation = getfield(getfield(current.scenario_plan, :authoring), :preparation)
     preparation.owner === model || _unprepared_runtime_configuration()
-    getfield(model, :scenario_plan_cache) === preparation || _unprepared_runtime_configuration()
+    published = getfield(model, :scenario_plan_cache)
+    if published !== preparation
+        published isa ScenarioPreparation || _unprepared_runtime_configuration()
+        _validate_authored_scenario(published)
+        _unprepared_runtime_configuration()
+    end
     _authored_specs_match(preparation, model) || _unprepared_runtime_configuration()
     # Adapter snapshots do not replace live metadata. The current published
     # owner and lifecycle delta determine the running simulation's refresh.
@@ -5254,7 +5267,7 @@ function _initialization_effective_value(
         (application_id, object_id),
         nothing,
     )
-    if !isnothing(view) && variable in propertynames(view.status)
+    if !isnothing(view) && hasproperty(view.status, variable)
         return true, view.status[variable]
     end
     status = _model_object(model, object_id).status
@@ -8209,7 +8222,7 @@ function _prepare_input_reference_types(model, consumer, input, selector,
                     _matches_object_criteria(object; scale=matcher.scale, kind=matcher.kind,
                         species=matcher.species, id=matcher.id) || continue
                     status = object.status
-                    status isa Status && source_var in propertynames(status) || continue
+                    status isa Status && hasproperty(status, source_var) || continue
                     reference = refvalue(status, source_var)
                     reference isa Base.RefValue || continue
                     add(typeof(reference))
@@ -9080,7 +9093,7 @@ end
 function _status_has_variable(model::CompositeModel, object_id::ObjectId, variable::Symbol)
     object = _model_object(model, object_id)
     object.status isa Status || return false
-    return variable in propertynames(object.status)
+    return hasproperty(object.status, variable)
 end
 
 function _validate_model_required_inputs!(model::CompositeModel, applications, applications_by_id, input_bindings)
