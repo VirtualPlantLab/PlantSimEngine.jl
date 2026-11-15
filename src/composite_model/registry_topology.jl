@@ -1480,10 +1480,14 @@ end
 # unconverted source need not be a canonical family when conversion is active.
 @inline function _register_object_status!(model, object, id, parent_id, source_status,
     status_values_materialized, prepared::Bool)
+    source_status isa Union{Nothing,Status} || throw(ArgumentError(
+        "Initial object status must be a Status or nothing."))
     _validate_status_source_identity_available!(model, source_status, id)
     conversion_records = Dict{Any,Any}()
     converted = status_values_materialized || _no_status_conversion(model.status_conversion) ?
         source_status : _convert_registered_status(model, id, source_status; conversion_records)
+    converted isa Union{Nothing,Status} || throw(ArgumentError(
+        "Converted object status must be a Status or nothing."))
     registered = if prepared
         Base.@inline _with_prepared_canonical_status_type(_register_prepared_object_status!,
             model, model, object, id, parent_id, source_status, converted)
@@ -1537,14 +1541,14 @@ refresh boundary. Prefer [`add_organ!`](@ref) for MTG-backed growth.
         _validate_authored_scenario(_scenario_preparation(model))
         throw(ArgumentError("The model has no executable prepared canonical registry."))
     end
-    registered = _register_object_without_lifecycle!(
+    _register_object_without_lifecycle!(
         model,
         object;
         parent=parent,
         prepared=true,
     )
-    _record_added_objects!(model, (registered,))
-    return registered
+    _record_added_objects!(model, (object,))
+    return object
 end
 
 function _validate_organ_attributes(attributes)

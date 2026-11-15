@@ -117,6 +117,43 @@ end
         binding.input === :left ? :x : :y) for binding in fresh)
 end
 
+@testset "restaging admitted scalar and Many inputs retains official cells" begin
+    many_model = CompositeModel(Object(:reader; scale=:Reader),
+        Object(:source; scale=:Leaf);
+        applications=(
+            ModelSpec(Writer(3f0); name=:source, on=One(id=:source)),
+            ModelSpec(AggregateReader(); name=:aggregate, on=One(id=:reader),
+                inputs=(values=Many(SceneScope(); scale=:Leaf,
+                    application=:source, var=:x),)),
+        ), environment=(duration=Hour(1),))
+    for model in (pair_model(), many_model)
+        simulation = run!(model; steps=0, outputs=:all)
+        compiled = simulation.compiled
+        # The finite owner contains only the real bindings just compiled here.
+        B = Union{map(typeof, compiled.input_bindings)...}
+        bindings = Vector{B}(compiled.input_bindings)
+        statuses = Dict(id => model_status(model,id) for id in keys(model.registry.objects))
+        references = Dict((binding.application_id,binding.consumer_id,binding.input) =>
+            PSE.refvalue(statuses[binding.consumer_id],binding.input) for binding in bindings)
+        before = copy(model.status_conversion_records)
+        PSE._prepare_model_input_statuses_batched!(model,compiled.applications,
+            compiled.applications_by_id,bindings; final_references=references)
+        @test all(model_status(model,id) === status for (id,status) in statuses)
+        @test all(PSE.refvalue(model_status(model,binding.consumer_id),binding.input) ===
+            references[(binding.application_id,binding.consumer_id,binding.input)] for binding in bindings)
+        @test model.status_conversion_records == before
+        continue!(simulation)
+        if model === many_model
+            @test input_carrier(only(bindings)) isa PSE.RefVector{Float32}
+            @test model_status(model,:reader).total === 3.0
+            @test outputs(simulation)[(:aggregate,ObjectId(:reader),:total)] == [(1.0,3.0)]
+        else
+            @test model_status(model,2).total === 6f0
+            @test outputs(simulation)[(:reader,ObjectId(2),:total)] == [(1.0,6f0)]
+        end
+    end
+end
+
 @testset "inferred input groups drive initial and newborn execution in dependency order" begin
     model = CompositeModel(Object(1; scale=:Leaf);
         applications=(

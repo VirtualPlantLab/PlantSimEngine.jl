@@ -7570,20 +7570,20 @@ function _stage_model_bound_input_reference!(binding, context)
         get(context.final_references,
             (binding.application_id, binding.consumer_id, binding.input), nothing)
     isnothing(reference) && (reference = _model_input_status_reference(binding))
+    return Base.@inline _with_canonical_status_preparation(
+        _stage_model_bound_input_reference_with_preparation!, context.recipes,
+        context.model.registry.objects.catalog, preparation, reference, binding, context)
+end
+
+@inline function _stage_model_bound_input_reference_with_preparation!(preparation,
+    reference, binding, context,
+)
     return Base.@inline _with_model_input_status_reference(
-        _stage_model_bound_input_reference_with_reference!, binding,
+        _stage_admitted_model_input_reference!, binding,
         reference, preparation, binding, context)
 end
 
-function _stage_model_bound_input_reference_with_reference!(reference,
-    preparation, binding, context,
-)
-    return _with_canonical_status_preparation(_stage_admitted_model_input_reference!,
-        context.recipes, context.model.registry.objects.catalog, preparation,
-        reference, binding, context)
-end
-
-function _stage_admitted_model_input_reference!(preparation, reference, binding,
+function _stage_admitted_model_input_reference!(reference, preparation, binding,
     context,
 )
     if preparation isa Status

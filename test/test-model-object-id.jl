@@ -349,10 +349,15 @@ end
 end
 
 @testset "registered Status identity resolution" begin
-    status = Status(signal=1.0)
-    object = Object(:leaf; scale=:Leaf, status=status)
+    supplied_status = Status(signal=1.0)
+    signal_reference = PlantSimEngine.refvalue(supplied_status, :signal)
+    object = Object(:leaf; scale=:Leaf, status=supplied_status)
     model = CompositeModel(object)
+    status = model_status(model, object)
 
+    @test status !== supplied_status
+    @test PlantSimEngine.refvalue(status, :signal) === signal_reference
+    @test_throws ArgumentError object_id(model, supplied_status)
     @test object_id(model, status) == ObjectId(:leaf)
     @test _registered_object_id_allocations(model, status) == 0
     @test object_id(model, object) == ObjectId(:leaf)
@@ -370,8 +375,15 @@ end
         Object(:empty_a; scale=:Leaf, status=empty_status_a),
         Object(:empty_b; scale=:Leaf, status=empty_status_b),
     )
-    @test object_id(empty_model, empty_status_a) == ObjectId(:empty_a)
-    @test object_id(empty_model, empty_status_b) == ObjectId(:empty_b)
+    registered_empty_a = model_status(empty_model, :empty_a)
+    registered_empty_b = model_status(empty_model, :empty_b)
+    @test registered_empty_a !== empty_status_a
+    @test registered_empty_b !== empty_status_b
+    @test registered_empty_a !== registered_empty_b
+    @test object_id(empty_model, registered_empty_a) == ObjectId(:empty_a)
+    @test object_id(empty_model, registered_empty_b) == ObjectId(:empty_b)
+    @test_throws ArgumentError object_id(empty_model, empty_status_a)
+    @test_throws ArgumentError object_id(empty_model, empty_status_b)
 
     shared_status = Status(signal=2.0)
     @test_throws ArgumentError CompositeModel(

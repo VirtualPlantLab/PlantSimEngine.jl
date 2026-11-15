@@ -319,11 +319,26 @@ function _prepared_status_destinations_allow(plans::Tuple, manifest, model, obje
     return _prepared_status_destinations_allow(Base.tail(plans), manifest,
         model, object, parent_id, name, reference)
 end
-function _prepared_status_configured_reference_allowed(manifest, model, object, parent_id, name, reference)
-    return _prepared_status_application_reference_allowed(manifest.authored, manifest.permissions,
-        model, object, parent_id, name, reference) ||
-        _prepared_status_destinations_allow(manifest.destinations, manifest,
-            model, object, parent_id, name, reference)
+@generated function _prepared_status_configured_reference_allowed(
+    manifest::PreparedStatusManifest{S}, model, object, parent_id, name, reference,
+) where {S}
+    # The sparse CSR keeps Ref instances erased; admit them through the SAME
+    # prepared physical bounds before visiting the active configuration.
+    references = unique(R for slot in fieldtypes(_status_schema_references(S))
+        for R in Base.uniontypes(slot) if R <: Ref)
+    branches = [quote
+        if reference isa $R
+            return _prepared_status_application_reference_allowed(manifest.authored, manifest.permissions,
+                model, object, parent_id, name, reference::$R) ||
+                _prepared_status_destinations_allow(manifest.destinations, manifest,
+                    model, object, parent_id, name, reference::$R)
+        end
+    end for R in references]
+    return quote
+        $(Expr(:meta, :inline))
+        $(branches...)
+        return false
+    end
 end
 
 function _prepared_status_raw_variant(raw, slot)
@@ -453,12 +468,14 @@ function _validate_prepared_status_recipe(model, object_id, recipe)
             throw(ArgumentError("Prepared status source ownership changed."))
     end
     manifest = _prepared_status_manifest(model)
+    raw_parent = object.parent
+    parent_id = isnothing(raw_parent) ? nothing : _index_object_id(store, raw_parent)
     # A reparent/Scope change never revokes cells already owned by this object.
     # Only NEW edits need active permissions; old aliases grant no new rights.
     for (name, reference) in zip(recipe.edit_names, recipe.edit_references)
         _initial_status_reference(original, name) === reference && continue
         _prepared_status_configured_reference_allowed(manifest, model, object,
-            object.parent, name, reference) || throw(ArgumentError(
+            parent_id, name, reference) || throw(ArgumentError(
                 "A staged status reference is incompatible with the prepared object configuration."))
     end
     return nothing
