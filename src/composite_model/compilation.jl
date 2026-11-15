@@ -6333,8 +6333,8 @@ end
 
 @inline function _checked_input_reference(reference)
     isnothing(reference) && return nothing
-    reference isa Base.RefValue || throw(ArgumentError(
-        "Input reference carriers require Base.RefValue storage; got `$(typeof(reference))`.",
+    reference isa Ref || throw(ArgumentError(
+        "Input reference carriers require Ref storage; got `$(typeof(reference))`.",
     ))
     return reference
 end
@@ -6343,10 +6343,11 @@ end
 function _many_input_carrier_type(::Type{RT}) where {RT<:Tuple}
     types = fieldtypes(RT)
     isempty(types) && throw(ArgumentError("A Many input requires a prepared reference family."))
-    all(R -> R <: Base.RefValue && isconcretetype(R), types) ||
+    all(R -> R <: Ref && isconcretetype(R), types) ||
         throw(ArgumentError("A Many input requires exact prepared reference types."))
     R = Union{types...}
-    return length(types) == 1 && isconcretetype(eltype(only(types))) ?
+    return length(types) == 1 && only(types) <: Base.RefValue &&
+        isconcretetype(eltype(only(types))) ?
         RefVector{eltype(only(types))} : ObjectRefVector{Vector{R}}
 end
 
@@ -6358,7 +6359,7 @@ end
         isempty(source_ids) && return nothing
         throw(ArgumentError("An input source is outside its empty prepared reference family."))
     end
-    all(R -> R <: Base.RefValue && isconcretetype(R), types) ||
+    all(R -> R <: Ref && isconcretetype(R), types) ||
         return :(throw(ArgumentError("An input requires exact prepared reference classes.")))
     R = Union{types...}
     return quote
@@ -6375,7 +6376,7 @@ end
 ) where {F,RT<:Tuple}
     types = fieldtypes(RT)
     isempty(types) && return :(throw(ArgumentError("A Many input requires a prepared reference family.")))
-    all(R -> R <: Base.RefValue && isconcretetype(R), types) ||
+    all(R -> R <: Ref && isconcretetype(R), types) ||
         return :(throw(ArgumentError("A Many input requires exact prepared reference types.")))
     R = Union{types...}
     C = _many_input_carrier_type(RT)
@@ -7443,7 +7444,7 @@ function _force_distributed_producer_rebinds!(forced, model, bindings, by_variab
 end
 
 _model_input_status_reference(binding) =
-    binding.carrier isa Base.RefValue ?
+    binding.carrier isa Ref ?
     binding.carrier : Ref(binding.carrier)
 
 function _model_input_status_references(bindings)
@@ -7469,7 +7470,7 @@ function _model_input_status_reference_types(B)
         Carrier === Nothing && continue
         isconcretetype(Carrier) || throw(ArgumentError(
             "An input status reference requires an exact prepared carrier type."))
-        Reference = Carrier <: Base.RefValue ? Carrier : Base.RefValue{Carrier}
+        Reference = Carrier <: Ref ? Carrier : Base.RefValue{Carrier}
         isconcretetype(Reference) || throw(ArgumentError(
             "An input status reference requires an exact prepared reference type."))
         Reference in references || push!(references, Reference)
@@ -7815,7 +7816,7 @@ input_carrier(binding::CompiledModelInputBinding) = binding.carrier
 has_reference_carrier(binding::CompiledModelInputBinding) = !isnothing(binding.carrier)
 input_value(binding::CompiledModelInputBinding) = _input_value(binding.carrier)
 _input_value(::Nothing) = nothing
-_input_value(carrier::Base.RefValue) = carrier[]
+_input_value(carrier::Ref) = carrier[]
 _input_value(carrier::RefVector) = carrier
 _input_value(carrier::ObjectRefVector) = carrier
 
@@ -8235,7 +8236,7 @@ function _prepare_input_reference_types(model, consumer, input, selector,
                     status = object.status
                     status isa Status && hasproperty(status, source_var) || continue
                     reference = refvalue(status, source_var)
-                    reference isa Base.RefValue || continue
+                    reference isa Ref || continue
                     add(typeof(reference))
                     observed_any = true
                     delete!(missing_current, object.id)
@@ -9646,7 +9647,7 @@ function _model_binding_carrier_kind(binding::CompiledModelInputBinding)
     binding.carrier_hint == :optional_default && return :optional_default
     carrier = binding.carrier
     isnothing(carrier) && return :unresolved
-    carrier isa Base.RefValue && return :ref
+    carrier isa Ref && return :ref
     carrier isa RefVector && return :ref_vector
     carrier isa ObjectRefVector && return :object_ref_vector
     return :custom

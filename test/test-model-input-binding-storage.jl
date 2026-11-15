@@ -6,8 +6,9 @@ const PSE = PlantSimEngine
 PSE.@process "input_binding_storage_reader" verbose=false
 PSE.@process "input_binding_storage_capture" verbose=false
 
-struct Reader <: AbstractInput_Binding_Storage_ReaderModel end
-PSE.inputs_(::Reader) = (single=Required(Float32), values=Default(Float64[]))
+struct Reader{T} <: AbstractInput_Binding_Storage_ReaderModel end
+Reader() = Reader{Float64}()
+PSE.inputs_(::Reader{T}) where {T} = (single=Required(Float32), values=Default(T[]))
 PSE.outputs_(::Reader) = (total=0.0,)
 function PSE.run!(::Reader, status, environment, constants, context)
     status.total = Float64(status.single) + sum(bound_input(context, :values); init=0.0)
@@ -159,7 +160,13 @@ end
     first = Status(x=7.0)
     second = Status(x=9f0)
     register_object!(data.model, Object(:first; scale=:Leaf, parent=:scene, status=first))
-    register_object!(data.model, Object(:second; scale=:Leaf, parent=:scene, status=second))
+    # The unprepared numerical class is rejected before it can become active.
+    @test_throws ArgumentError register_object!(data.model,
+        Object(:second; scale=:Leaf, parent=:scene, status=second))
+    @test !haskey(data.model.registry.objects,ObjectId(:second))
+    register_object!(data.model,Object(:second;scale=:Leaf,parent=:scene))
+    @test model_status(data.model,:second) === nothing
+    # A valid first reference followed by genuine absence must not append either.
     @test !PSE._append_stable_many_source_references!(data.model, current,
         ObjectId[ObjectId(:first), ObjectId(:second)], nothing)
     @test parent(current.carrier) === references
@@ -168,6 +175,161 @@ end
     @test PSE.refvalue(first, :x)[] === 7.0
     @test PSE.refvalue(second, :x)[] === 9f0
     @test check_carriers(data, simulation).carrier === current.carrier
+end
+
+@testset "from-status permissions retain source route and numerical configuration" begin
+    model = CompositeModel(Object(:scene;scale=:Scene),
+        Object(:root_a;parent=:scene),Object(:root_b;parent=:scene),
+        Object(:anchor;scale=:Anchor,parent=:scene,status=Status(x=3f0)),
+        Object(:reader_a;scale=:Reader,parent=:root_a),
+        Object(:reader_b;scale=:Reader,parent=:root_b),
+        Object(:leaf_a;scale=:Leaf,parent=:root_a,status=Status(x=5f0));
+        applications=Tuple(ModelSpec(Reader{T}();name=name,on=One(id=id),inputs=(
+            single=One(id=:anchor,within=SceneScope(),var=:x,from_status=true),
+            values=Many(scale=:Leaf,within=Scope(ObjectId(root)),var=:x,from_status=true),
+        )) for (T,name,id,root) in ((Float32,:reader_a,:reader_a,:root_a),
+            (Float64,:reader_b,:reader_b,:root_b))))
+    simulation = run!(model;steps=0,outputs=:all)
+    first = model_status(model,:leaf_a)
+    old_reference = PSE.refvalue(first,:x)
+    # B's RT also keeps A's real Ref32 for reparenting. It is not a new RAW right.
+    rt_b = binding(simulation,:reader_b,:values).plan.reference_types
+    @test Base.RefValue{Float32} in fieldtypes(rt_b)
+    bad = Status(x=7f0)
+    identity_before = copy(model.status_source_identities)
+    revision = model.revision
+    @test_throws ArgumentError register_object!(model,
+        Object(:bad;scale=:Leaf,parent=:root_b,status=bad))
+    @test !haskey(model.registry.objects,ObjectId(:bad))
+    @test model.status_source_identities == identity_before
+    @test model.revision == revision
+    good = Status(x=7.0)
+    good_reference = PSE.refvalue(good,:x)
+    register_object!(model,Object(:good;scale=:Leaf,parent=:root_b,status=good))
+    step!(simulation)
+    @test model_status(model,:leaf_a) === first
+    @test PSE.refvalue(first,:x) === old_reference
+    @test PSE.refvalue(model_status(model,:good),:x) === good_reference
+    @test model_status(model,:reader_a).total == 8.0
+    @test model_status(model,:reader_b).total == 10.0
+    @test outputs(simulation)[(:reader_a,ObjectId(:reader_a),:total)] == [(1.0,8.0)]
+    @test outputs(simulation)[(:reader_b,ObjectId(:reader_b),:total)] == [(1.0,10.0)]
+    reparent_object!(model,:leaf_a,:root_b)
+    step!(simulation)
+    @test model_status(model,:leaf_a) === first
+    @test PSE.refvalue(first,:x) === old_reference
+    @test model_status(model,:reader_a).total == 3.0
+    @test model_status(model,:reader_b).total == 15.0
+    @test_throws ArgumentError register_object!(model,
+        Object(:still_bad;scale=:Leaf,parent=:root_b,status=Status(x=9f0)))
+    @test !haskey(model.registry.objects,ObjectId(:still_bad))
+end
+
+@testset "from-status routes preserve real array references in One and Many" begin
+    anchor_storage, known_storage, born_storage = Float32[3], [5.0], [7.0]
+    anchor_reference = Ref(anchor_storage,1)
+    known_reference = Ref(known_storage,1)
+    born_reference = Ref(born_storage,1)
+    model = CompositeModel(Object(:scene;scale=:Scene),
+        Object(:outside;parent=:scene),Object(:inside;parent=:scene),
+        Object(:anchor;scale=:Anchor,parent=:scene,status=Status((x=anchor_reference,))),
+        Object(:known;scale=:Leaf,parent=:outside,status=Status((x=known_reference,))),
+        Object(:reader;scale=:Reader,parent=:inside);
+        applications=(ModelSpec(Reader();name=:reader,on=One(id=:reader),inputs=(
+            single=One(id=:anchor,within=SceneScope(),var=:x,from_status=true),
+            values=Many(scale=:Leaf,within=Scope(ObjectId(:inside)),var=:x,from_status=true),
+        )),))
+    simulation = run!(model;steps=0,outputs=:all)
+    single = binding(simulation,:reader,:single)
+    many = binding(simulation,:reader,:values)
+    @test typeof(anchor_reference) in fieldtypes(single.plan.reference_types)
+    @test typeof(known_reference) in fieldtypes(many.plan.reference_types)
+    @test single.carrier === anchor_reference
+    @test PSE.refvalue(model_status(model,:reader),:single) === anchor_reference
+    @test PSE.input_value(single) === 3f0
+    carrier, source_ids = many.carrier, many.source_ids
+    @test carrier isa PSE.ObjectRefVector && isempty(carrier)
+    @test eltype(typeof(born_reference)) === Float64
+    register_object!(model,Object(:born;scale=:Leaf,parent=:inside,
+        status=Status((x=born_reference,))))
+    @test PSE.refvalue(model_status(model,:born),:x) === born_reference
+    step!(simulation)
+    many = binding(simulation,:reader,:values)
+    @test many.carrier === carrier && many.source_ids === source_ids
+    @test only(parent(carrier)) === born_reference
+    @test model_status(model,:reader).total === 10.0
+    anchor_storage[1] = 4f0
+    born_storage[1] = 9.0
+    step!(simulation)
+    @test PSE.refvalue(model_status(model,:anchor),:x) === anchor_reference
+    @test PSE.refvalue(model_status(model,:reader),:single) === anchor_reference
+    @test PSE.refvalue(model_status(model,:born),:x) === born_reference
+    @test only(parent(binding(simulation,:reader,:values).carrier)) === born_reference
+    @test PSE.input_value(binding(simulation,:reader,:single)) === 4f0
+    @test model_status(model,:reader).total === 13.0
+    @test outputs(simulation)[(:reader,ObjectId(:reader),:total)] == [(1.0,10.0),(2.0,13.0)]
+end
+
+@testset "abstract from-status value bounds preserve their finite real Ref classes" begin
+    for T in (Real,Any)
+        model = CompositeModel(Object(:scene;scale=:Scene),
+            Object(:outside;parent=:scene),Object(:inside;parent=:scene),
+            Object(:anchor;scale=:Anchor,parent=:scene,status=Status(x=3f0)),
+            Object(:reader;scale=:Reader,parent=:inside),
+            Object(:known32;scale=:Leaf,parent=:outside,status=Status(x=1f0)),
+            Object(:known64;scale=:Leaf,parent=:outside,status=Status(x=2.0)),
+            Object(:known_real;scale=:Leaf,parent=:outside,status=Status((x=Ref{Real}(3f0),))),
+            Object(:known_any;scale=:Leaf,parent=:outside,status=Status((x=Ref{Any}(4f0),)));
+            applications=(ModelSpec(Reader{T}();name=:reader,on=One(id=:reader),inputs=(
+                single=One(id=:anchor,within=SceneScope(),var=:x,from_status=true),
+                values=Many(scale=:Leaf,within=Scope(ObjectId(:inside)),var=:x,from_status=true),
+            )),))
+        simulation = run!(model;steps=0,outputs=:all)
+        current = binding(simulation,:reader,:values)
+        carrier, ids = current.carrier, current.source_ids
+        @test isempty(carrier)
+        statuses = [Status(x=5f0),Status(x=7.0),Status((x=Ref{Real}(9f0),))]
+        T === Any && push!(statuses,Status((x=Ref{Any}(11f0),)))
+        cells = [PSE.refvalue(status,:x) for status in statuses]
+        for (index,status) in enumerate(statuses)
+            id = Symbol(:born_,index)
+            register_object!(model,Object(id;scale=:Leaf,parent=:inside,status))
+            @test PSE.refvalue(model_status(model,id),:x) === cells[index]
+        end
+        # Any remains a finite prepared family, not permission to invent Ref{BigFloat}.
+        @test_throws ArgumentError register_object!(model,
+            Object(:unknown;scale=:Leaf,parent=:inside,status=Status(x=BigFloat(1))))
+        @test !haskey(model.registry.objects,ObjectId(:unknown))
+        step!(simulation)
+        current = binding(simulation,:reader,:values)
+        @test current.carrier === carrier && current.source_ids === ids
+        @test all(actual === expected for (actual,expected) in zip(parent(carrier),cells))
+        @test cells[1][] === 5f0 && cells[2][] === 7.0 && cells[3][] === 9f0
+        T === Any && @test cells[4][] === 11f0
+        @test model_status(model,:reader).total == (T === Any ? 35.0 : 24.0)
+    end
+end
+
+@testset "all applicable from-status route reference bounds precede RAW fallback" begin
+    model = CompositeModel(Object(:scene;scale=:Scene),
+        Object(:anchor;scale=:Anchor,parent=:scene,status=Status(x=3f0)),
+        Object(:reader_a;scale=:Reader,parent=:scene),Object(:reader_b;scale=:Reader,parent=:scene),
+        Object(:leaf_a;scale=:Leaf,parent=:scene,status=Status(x=5f0));
+        applications=(
+            ModelSpec(Reader{Float32}();name=:reader_a,on=One(id=:reader_a),inputs=(
+                single=One(id=:anchor,within=SceneScope(),var=:x,from_status=true),
+                values=Many(scale=:Leaf,within=SceneScope(),var=:x,from_status=true))),
+            ModelSpec(Reader{Float64}();name=:reader_b,on=One(id=:reader_b),inputs=(
+                single=One(id=:anchor,within=SceneScope(),var=:x,from_status=true),
+                values=Many(id=:future,within=SceneScope(),var=:x,from_status=true)))))
+    simulation = prepare(model)
+    @test fieldtypes(binding(simulation,:reader_b,:values).plan.reference_types) == (Base.RefValue{Float64},)
+    reference = Status(x=9f0)
+    @test_throws ArgumentError register_object!(model,
+        Object(:future;scale=:Leaf,parent=:scene,status=reference))
+    @test !haskey(model.registry.objects,ObjectId(:future))
+    @test PSE.refvalue(reference,:x)[] === 9f0
+    @test isempty(binding(simulation,:reader_b,:values).source_ids)
 end
 
 @testset "explicit storage is admitted even after a clean zero-step preparation" begin

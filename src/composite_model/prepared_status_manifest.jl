@@ -58,7 +58,7 @@ function _prepared_status_declared_reference(policy, T, elements)
     return Union{map(T -> Base.RefValue{T}, members)...}
 end
 
-function _prepared_status_variant_permission(model, application, ports)
+function _prepared_status_variant_permission(model, application, ports, plans)
     names = Symbol[]; refs = Any[]
     output_names = Symbol[]; output_refs = Any[]
     for name in keys(ports.output_types)
@@ -73,8 +73,27 @@ function _prepared_status_variant_permission(model, application, ports)
             getproperty(ports.input_types, name), get(ports.input_element_types, name, nothing))
         _prepared_status_add_type!(names, refs, name, R)
     end
+    source_names = Symbol[]; source_refs = Any[]
+    for plan in plans
+        _input_route_from_status(plan.route) || continue
+        configured = _configured_status_value_type(model.status_conversion,
+            getproperty(ports.input_types, plan.input),
+            get(ports.input_element_types, plan.input, nothing))
+        T = plan.selector isa Many ?
+            (!isnothing(configured) && configured <: AbstractVector ? eltype(configured) : Union{}) :
+            (isnothing(configured) ? Union{} : configured)
+        T === Union{} && continue
+        # Real/Any are value bounds, not requests to replace Ref32/Ref64 by
+        # invariant Ref{Real}/Ref{Any}. Keep only already prepared real classes.
+        classes = Tuple(R for slot in fieldtypes(plan.reference_types)
+            for R in Base.uniontypes(slot) if R <: Ref &&
+                isconcretetype(R) && eltype(R) <: T)
+        isempty(classes) && continue
+        _prepared_status_add_type!(source_names, source_refs, plan.input, Union{classes...})
+    end
     return (canonical=_prepared_status_type_map(names, refs),
-        outputs=_prepared_status_type_map(output_names, output_refs))
+        outputs=_prepared_status_type_map(output_names, output_refs),
+        source_inputs=_prepared_status_type_map(source_names, source_refs))
 end
 
 # Project the SAME prepared source-reference family used by the runtime carrier
@@ -90,12 +109,12 @@ end
 
 function _prepared_status_application_permissions(model, recipes, program)
     return map(recipes) do application
-        variants = Any[]
-        _foreach_application_variant(application) do _, ports
-            push!(variants, _prepared_status_variant_permission(model, application, ports))
-        end
         plans = Tuple(plan for plan in program.input_records
             if plan isa CompiledModelInputPlan && plan.application_slot == application.slot)
+        variants = Any[]
+        _foreach_application_variant(application) do _, ports
+            push!(variants, _prepared_status_variant_permission(model, application, ports, plans))
+        end
         # Plan reference classes are common route evidence. Effective model
         # default classes above stay in their individual configured variant.
         alias_names = Symbol[]; alias_refs = Any[]
@@ -104,11 +123,15 @@ function _prepared_status_application_permissions(model, recipes, program)
                 plan.input, _prepared_status_input_reference(plan))
         end
         aliases = _prepared_status_type_map(alias_names, alias_refs)
-        (slot=application.slot, id=application.id, variants=Tuple(variants), aliases=aliases)
+        sources = Tuple((plan=plan, references=_prepared_status_type_map(
+            (plan.source_var,), (Union{fieldtypes(plan.reference_types)...},)))
+            for plan in plans if _input_route_from_status(plan.route))
+        (slot=application.slot, id=application.id, variants=Tuple(variants),
+            aliases=aliases, sources=sources)
     end
 end
 
-function _prepared_status_raw_signature(model, object, recipes, destinations)
+function _prepared_status_raw_signature(model, object, recipes, permissions, destinations)
     selected = Tuple((application.slot, _prepared_status_variant_slot(application, object.id))
         for application in recipes
         if _prepared_status_application_matches(model, object, object.parent, application))
@@ -117,15 +140,25 @@ function _prepared_status_raw_signature(model, object, recipes, destinations)
         application = only(a for a in recipes if a.slot == plan.application_slot)
         for (execution_id, producer) in model.registry.objects
             _prepared_status_application_matches(model, producer, producer.parent, application) || continue
-            _prepared_status_destination_matches(model, object, object.parent,
+            _prepared_status_route_matches(model, object, object.parent,
                 application, plan, execution_id) || continue
             push!(routes, (plan.slot, execution_id,
                 _prepared_status_variant_slot(application, execution_id)))
         end
     end
+    sources = Any[]
+    for (application, permission) in zip(recipes, permissions), source in permission.sources
+        for (consumer_id, consumer) in model.registry.objects
+            _prepared_status_application_matches(model, consumer, consumer.parent, application) || continue
+            _prepared_status_route_matches(model, object, object.parent,
+                application, source.plan, consumer_id) || continue
+            push!(sources, (source.plan.slot, consumer_id,
+                _prepared_status_variant_slot(application, consumer_id)))
+        end
+    end
     labels = _prepared_status_object_labels(model, object, object.parent)
     return (labels=(labels.scale, labels.kind, labels.species),
-        selected=selected, destinations=Tuple(routes))
+        selected=selected, destinations=Tuple(routes), sources=Tuple(sources))
 end
 
 function _prepare_status_manifest(model, authored, program, raw_basis)
@@ -149,7 +182,7 @@ function _prepare_status_manifest(model, authored, program, raw_basis)
             source isa Status || continue
             raw_names = propertynames(source)
             raw_refs = Tuple(typeof(refvalue(source, name)) for name in raw_names)
-            signature = _prepared_status_raw_signature(model, object, recipes, destinations)
+            signature = _prepared_status_raw_signature(model, object, recipes, permissions, destinations)
             entry = (signature=signature,
                 schema=_prepared_status_type_map(raw_names, raw_refs))
             entry in observed || push!(observed, entry)
@@ -169,6 +202,12 @@ function _prepare_status_manifest(model, authored, program, raw_basis)
         end
         for (name, R) in pairs(permission.aliases)
             _prepared_status_add_type!(names, refs, name, R)
+        end
+        for source in permission.sources, variant in permission.variants
+            input = source.plan.input
+            hasproperty(variant.source_inputs, input) || continue
+            _prepared_status_add_type!(names, refs, source.plan.source_var,
+                getproperty(variant.source_inputs, input))
         end
     end
     # Distributed default types use the corresponding producer variant owner.
@@ -288,7 +327,7 @@ function _prepared_status_destination_reference_allowed(applications::Tuple,
         for (execution_id, producer) in model.registry.objects
             _prepared_status_application_matches(model, producer, producer.parent, application) || continue
             has_producer = true
-            _prepared_status_destination_matches(model, object, parent_id,
+            _prepared_status_route_matches(model, object, parent_id,
                 application, plan, execution_id) || continue
             variant = _prepared_status_variant_slot(application, execution_id)
             _with_metadata_entry(_prepared_status_output_reference_allowed,
@@ -319,7 +358,67 @@ function _prepared_status_destinations_allow(plans::Tuple, manifest, model, obje
     return _prepared_status_destinations_allow(Base.tail(plans), manifest,
         model, object, parent_id, name, reference)
 end
-@generated function _prepared_status_configured_reference_allowed(
+_prepared_status_source_input_admission(variant, input, reference) =
+    hasproperty(variant.source_inputs, input) ?
+        (true, _prepared_status_reference_allowed(variant.source_inputs, input, reference)) :
+        (false, true)
+
+# Return whether a declaration contributes a right, all declarations agree,
+# and every applicable route reference family admits the actual class.
+# Observed extra RT classes support existing references/reparenting; they do not
+# create new initial-data permissions in a different configured source context.
+_prepared_status_source_routes_admission(::Tuple{}, application, permission,
+    model, object, parent_id, name, reference) = (false, true, true)
+function _prepared_status_source_routes_admission(sources::Tuple, application, permission,
+    model, object, parent_id, name, reference)
+    source = first(sources)
+    declared, allowed = false, true
+    if source.plan.source_var === name
+        has_consumer = false
+        for (consumer_id, consumer) in model.registry.objects
+            _prepared_status_application_matches(model, consumer, consumer.parent, application) || continue
+            has_consumer = true
+            _prepared_status_route_matches(model, object, parent_id,
+                application, source.plan, consumer_id) || continue
+            _prepared_status_reference_allowed(source.references, name, reference) ||
+                return (false, false, false)
+            has_type, matches = _with_metadata_entry(_prepared_status_source_input_admission,
+                permission.variants, _prepared_status_variant_slot(application, consumer_id),
+                source.plan.input, reference)
+            declared |= has_type
+            allowed &= matches
+        end
+        matcher = source.plan.matcher
+        if !has_consumer && matcher.scope isa SceneScope && isnothing(matcher.relation)
+            id = _index_object_id(model.registry.objects, object.id)
+            topology = _prepared_status_topology(model, object, id, parent_id)
+            if _selector_matches_object_id(topology, matcher, id,
+                nothing, false, nothing, false)
+                _prepared_status_reference_allowed(source.references, name, reference) ||
+                    return (false, false, false)
+                declared, allowed = _prepared_status_source_input_admission(
+                    first(permission.variants), source.plan.input, reference)
+            end
+        end
+    end
+    next_declared, next_allowed, compatible = _prepared_status_source_routes_admission(
+        Base.tail(sources), application, permission, model, object, parent_id, name, reference)
+    return (declared | next_declared, allowed & next_allowed, compatible)
+end
+_prepared_status_sources_admission(::Tuple{}, ::Tuple{}, model, object,
+    parent_id, name, reference) = (false, true, true)
+function _prepared_status_sources_admission(applications::Tuple, permissions::Tuple,
+    model, object, parent_id, name, reference)
+    declared, allowed, compatible = _prepared_status_source_routes_admission(
+        first(permissions).sources, first(applications), first(permissions),
+        model, object, parent_id, name, reference)
+    compatible || return (false, false, false)
+    next_declared, next_allowed, compatible = _prepared_status_sources_admission(
+        Base.tail(applications), Base.tail(permissions), model, object, parent_id, name, reference)
+    return (declared | next_declared, allowed & next_allowed, compatible)
+end
+
+@generated function _prepared_status_configured_reference_admission(
     manifest::PreparedStatusManifest{S}, model, object, parent_id, name, reference,
 ) where {S}
     # The sparse CSR keeps Ref instances erased; admit them through the SAME
@@ -328,16 +427,22 @@ end
         for R in Base.uniontypes(slot) if R <: Ref)
     branches = [quote
         if reference isa $R
-            return _prepared_status_application_reference_allowed(manifest.authored, manifest.permissions,
-                model, object, parent_id, name, reference::$R) ||
+            declared, source_allowed, compatible = _prepared_status_sources_admission(
+                manifest.authored, manifest.permissions, model, object, parent_id,
+                name, reference::$R)
+            compatible || return (false, false)
+            allowed = (declared && source_allowed) ||
+                _prepared_status_application_reference_allowed(manifest.authored, manifest.permissions,
+                    model, object, parent_id, name, reference::$R) ||
                 _prepared_status_destinations_allow(manifest.destinations, manifest,
                     model, object, parent_id, name, reference::$R)
+            return (allowed, true)
         end
     end for R in references]
     return quote
         $(Expr(:meta, :inline))
         $(branches...)
-        return false
+        return (false, false)
     end
 end
 
@@ -359,9 +464,9 @@ function _prepared_status_raw_membership_matches(applications::Tuple, raw, model
     end
     return _prepared_status_raw_membership_matches(Base.tail(applications), raw, model, object, parent_id)
 end
-function _prepared_status_raw_has_destination(raw, plan, execution_id, variant)
-    for entry in raw.signature.destinations
-        entry[1] == plan.slot && entry[2] == execution_id && entry[3] == variant && return true
+function _prepared_status_raw_has_context(contexts, plan, origin_id, variant)
+    for entry in contexts
+        entry[1] == plan.slot && entry[2] == origin_id && entry[3] == variant && return true
     end
     return false
 end
@@ -373,10 +478,10 @@ function _prepared_status_raw_destination_count(applications::Tuple, plan, raw, 
     count = 0
     for (execution_id, producer) in model.registry.objects
         _prepared_status_application_matches(model, producer, producer.parent, application) || continue
-        _prepared_status_destination_matches(model, object, parent_id,
+        _prepared_status_route_matches(model, object, parent_id,
             application, plan, execution_id) || continue
         variant = _prepared_status_variant_slot(application, execution_id)
-        _prepared_status_raw_has_destination(raw, plan, execution_id, variant) || return -1
+        _prepared_status_raw_has_context(raw.signature.destinations, plan, execution_id, variant) || return -1
         count += 1
     end
     return count
@@ -389,12 +494,41 @@ function _prepared_status_raw_destination_total(plans::Tuple, manifest, raw, mod
     rest = _prepared_status_raw_destination_total(Base.tail(plans), manifest, raw, model, object, parent_id)
     return rest < 0 ? -1 : count + rest
 end
+_prepared_status_raw_source_count(::Tuple{}, application, raw, model, object, parent_id) = 0
+function _prepared_status_raw_source_count(sources::Tuple, application, raw, model, object, parent_id)
+    source = first(sources)
+    count = 0
+    for (consumer_id, consumer) in model.registry.objects
+        _prepared_status_application_matches(model, consumer, consumer.parent, application) || continue
+        _prepared_status_route_matches(model, object, parent_id,
+            application, source.plan, consumer_id) || continue
+        variant = _prepared_status_variant_slot(application, consumer_id)
+        _prepared_status_raw_has_context(raw.signature.sources, source.plan,
+            consumer_id, variant) || return -1
+        count += 1
+    end
+    rest = _prepared_status_raw_source_count(Base.tail(sources), application,
+        raw, model, object, parent_id)
+    return rest < 0 ? -1 : count + rest
+end
+_prepared_status_raw_source_total(::Tuple{}, ::Tuple{}, raw, model, object, parent_id) = 0
+function _prepared_status_raw_source_total(applications::Tuple, permissions::Tuple,
+    raw, model, object, parent_id)
+    count = _prepared_status_raw_source_count(first(permissions).sources,
+        first(applications), raw, model, object, parent_id)
+    count < 0 && return -1
+    rest = _prepared_status_raw_source_total(Base.tail(applications), Base.tail(permissions),
+        raw, model, object, parent_id)
+    return rest < 0 ? -1 : count + rest
+end
 function _prepared_status_raw_matches(raw, manifest, model, object, parent_id)
     labels = _prepared_status_object_labels(model, object, parent_id)
     raw.signature.labels == (labels.scale, labels.kind, labels.species) || return false
     _prepared_status_raw_membership_matches(manifest.authored, raw, model, object, parent_id) || return false
-    return _prepared_status_raw_destination_total(manifest.destinations, manifest,
-        raw, model, object, parent_id) == length(raw.signature.destinations)
+    _prepared_status_raw_destination_total(manifest.destinations, manifest,
+        raw, model, object, parent_id) == length(raw.signature.destinations) || return false
+    return _prepared_status_raw_source_total(manifest.authored, manifest.permissions,
+        raw, model, object, parent_id) == length(raw.signature.sources)
 end
 _prepared_status_raw_reference_allowed(::Nothing, name, reference) = false
 _prepared_status_raw_reference_allowed(raw, name, reference) =
@@ -411,8 +545,9 @@ _prepared_status_raw_reference_allowed(raw, name, reference) =
             reference = _initial_status_reference(source, $(QuoteNode(name)))
             if reference !== nothing
                 present += 1
-                (_prepared_status_configured_reference_allowed(manifest, model,
-                    object, parent_id, $(QuoteNode(name)), reference) ||
+                allowed, compatible = _prepared_status_configured_reference_admission(manifest, model,
+                    object, parent_id, $(QuoteNode(name)), reference)
+                compatible && (allowed ||
                     _prepared_status_raw_reference_allowed(raw, $(QuoteNode(name)), reference)) || return false
             end
         end)
@@ -474,9 +609,10 @@ function _validate_prepared_status_recipe(model, object_id, recipe)
     # Only NEW edits need active permissions; old aliases grant no new rights.
     for (name, reference) in zip(recipe.edit_names, recipe.edit_references)
         _initial_status_reference(original, name) === reference && continue
-        _prepared_status_configured_reference_allowed(manifest, model, object,
-            parent_id, name, reference) || throw(ArgumentError(
-                "A staged status reference is incompatible with the prepared object configuration."))
+        allowed, compatible = _prepared_status_configured_reference_admission(manifest,
+            model, object, parent_id, name, reference)
+        allowed && compatible || throw(ArgumentError(
+            "A staged status reference is incompatible with the prepared object configuration."))
     end
     return nothing
 end

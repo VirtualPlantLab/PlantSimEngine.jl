@@ -1702,10 +1702,10 @@ function _prepared_status_application_matches(model, object, parent_id, applicat
         id, nothing, false, nothing, false)
 end
 
-function _prepared_status_destination_matches(model, object, parent_id, application,
+function _prepared_status_route_matches(model, object, parent_id, application,
     destination_plan, execution_id)
-    # The permission caller owns this REAL producer and its configured variant.
-    # Do not aggregate contexts or infer a producer from destination labels.
+    # The permission caller owns this REAL route origin and configured variant.
+    # Output destinations and from-status input sources use the same predicate.
     id = _index_object_id(model.registry.objects, object.id)
     topology = _prepared_status_topology(model, object, id, parent_id)
     _prepared_status_scope_is_current(model, topology, destination_plan.matcher.scope) || return false
