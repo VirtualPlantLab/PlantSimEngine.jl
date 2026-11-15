@@ -1483,13 +1483,13 @@ end
     source_status::Union{Nothing,Status}, status_values_materialized)
     _validate_status_source_identity_available!(model, source_status, id)
     if status_values_materialized || _no_status_conversion(model.status_conversion)
-        return _register_converted_status!(model, object, id, parent_id, source_status, source_status)
+        return Base.@inline _register_converted_status!(model, object, id, parent_id, source_status, source_status)
     end
     conversion_records = Dict{Any,Any}()
     converted = _convert_registered_status(model, id, source_status; conversion_records)
     converted isa Union{Nothing,Status} || throw(ArgumentError(
         "Converted object status must be a Status or nothing."))
-    registered = _register_converted_status!(model, object, id, parent_id, source_status, converted)
+    registered = Base.@inline _register_converted_status!(model, object, id, parent_id, source_status, converted)
     merge!(model.status_conversion_records, conversion_records)
     return registered
 end
