@@ -270,6 +270,44 @@ end
     @test outputs(simulation)[(:reader,ObjectId(:reader),:total)] == [(1.0,10.0),(2.0,13.0)]
 end
 
+@testset "a real pending Self consumer admits its declared source field" begin
+    model = CompositeModel(Object(:scene;scale=:Scene);applications=(
+        ModelSpec(Reader{Float32}();name=:reader,on=Many(scale=:Leaf),inputs=(
+            single=One(within=Self(),var=:x,from_status=true),
+            values=Many(scale=:Absent,within=SceneScope(),var=:x,from_status=true),
+        )),))
+    first = Status(x=3f0)
+    first_cell = PSE.refvalue(first,:x)
+    register_object!(model,Object(:first;scale=:Leaf,parent=:scene,status=first))
+    official_first = model_status(model,:first)
+    @test PSE.refvalue(official_first,:x) === first_cell
+    @test !hasproperty(official_first,:single) # Wiring still belongs to the barrier.
+    simulation = run!(model;steps=1,outputs=:all)
+    @test PSE.refvalue(official_first,:single) === first_cell
+    @test model_status(model,:first).total === 3.0
+    second = Status(x=5f0)
+    second_cell = PSE.refvalue(second,:x)
+    register_object!(model,Object(:second;scale=:Leaf,parent=:scene,status=second))
+    official_second = model_status(model,:second)
+    @test PSE.refvalue(official_second,:x) === second_cell
+    @test !hasproperty(official_second,:single)
+    step!(simulation)
+    @test model_status(model,:first) === official_first
+    @test model_status(model,:second) === official_second
+    @test PSE.refvalue(official_first,:single) === first_cell
+    @test PSE.refvalue(official_second,:single) === second_cell
+    @test binding(simulation,:first,:single).carrier === first_cell
+    @test binding(simulation,:second,:single).carrier === second_cell
+    @test model_status(model,:second).total === 5.0
+    @test outputs(simulation)[(:reader,ObjectId(:first),:total)] == [(1.0,3.0),(2.0,3.0)]
+    @test outputs(simulation)[(:reader,ObjectId(:second),:total)] == [(2.0,5.0)]
+    # The globally prepared x class is not a right for an unrelated object role.
+    before = length(model.registry.objects)
+    @test_throws ArgumentError register_object!(model,
+        Object(:wrong_role;scale=:Other,parent=:scene,status=Status(x=7f0)))
+    @test length(model.registry.objects) == before
+end
+
 @testset "abstract from-status value bounds preserve their finite real Ref classes" begin
     for T in (Real,Any)
         model = CompositeModel(Object(:scene;scale=:Scene),

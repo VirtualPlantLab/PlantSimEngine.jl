@@ -126,13 +126,43 @@ _matching_status_type_rule(rules, value) =
 # The value materializer and the type-only preparation use the same join.
 _status_array_element_type(types) = foldl(typejoin, types)
 
+# The variable is a type parameter only in this cold preparation query. The
+# scientific callback is not evaluated; the real materializer below still owns
+# its one invocation and validates the actual resulting reference class.
+struct _StatusTransformForVariable{VARIABLE,F}
+    transform::F
+end
+(operation::_StatusTransformForVariable{VARIABLE})(value) where {VARIABLE} =
+    operation.transform(VARIABLE, value)
+
+function _configured_status_value_type(policy::StatusConversionPolicy,
+    variable::Symbol, T, elements)
+    isnothing(policy.transform) && return _configured_status_type_rules(policy, T, elements)
+    T === Union{} && return nothing
+    operation = _StatusTransformForVariable{variable,typeof(policy.transform)}(policy.transform)
+    transformed = Base.promote_op(operation, T)
+    # An always-throwing callback cannot produce an incompatible value. Preserve
+    # its declared storage and let the real worker report its original failure.
+    transformed === Union{} && return _configured_status_type_rules(policy, T, elements)
+    finite = all(isconcretetype, Base.uniontypes(transformed))
+    # Keep an unchanged abstract Required bound (Real/Any), which filters real RT
+    # classes later. An unknown result for a concrete declaration proves no class.
+    (finite || transformed === T) || return nothing
+    # When the outer type is unchanged, retained element types choose the same
+    # declared numeric configuration as before. They do not promise callback
+    # semantics: the real result must still pass exact reference admission.
+    # A different outer type has no captured element configuration.
+    configured_elements = transformed === T ? elements : nothing
+    return _configured_status_type_rules(policy, transformed, configured_elements)
+end
+
 # No conversion function or initializer is called here. A concrete target fixes
 # the converted scalar type. An abstract target cannot be predicted in general.
-function _configured_status_value_type(policy::StatusConversionPolicy, T, elements)
+function _configured_status_type_rules(policy::StatusConversionPolicy, T, elements)
     T === Union{} && return nothing
     if T isa Union
         results = map(Base.uniontypes(T)) do member
-            _configured_status_value_type(policy, member, nothing)
+            _configured_status_type_rules(policy, member, nothing)
         end
         any(isnothing, results) && return nothing
         return Union{results...}

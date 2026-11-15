@@ -51,6 +51,9 @@ PSE.process(::BadProcess) = 42
     @test preparation.failure === preparation.authored[2]
     @test preparation.failure.phase === :output_ports
     @test preparation.failure.application_id === :broken
+    @test preparation.status_manifest isa PSE.PreparedStatusManifest
+    @test model.registry.objects.catalog isa PSE.ClosedObjectFamilyCatalog
+    @test PSE._prepared_status_manifest(model) === preparation.status_manifest
 
     for _ in 1:2
         report = PSE.compile_model_report(model)
@@ -61,6 +64,9 @@ PSE.process(::BadProcess) = 42
         @test broken_calls[] == 1 # module-global state cannot be hidden by deepcopy
         @test report.model !== model
         @test report.model.scenario_plan_cache.failure.error === preparation.failure.error
+        @test report.model.registry.objects.catalog isa PSE.ClosedObjectFamilyCatalog
+        @test PSE._prepared_status_manifest(report.model) ===
+            report.model.scenario_plan_cache.status_manifest
     end
     @test isnothing(model_status(model, :root))
     @test model.scenario_plan_cache === preparation
@@ -69,6 +75,9 @@ PSE.process(::BadProcess) = 42
 
     # Runtime and topology/cadence refreshes keep the original error frozen.
     register_object!(model, Object(:other; scale=:Scene))
+    @test model_status(model, :other) === nothing
+    @test PSE._prepared_status_manifest(model) === preparation.status_manifest
+    @test broken_calls[] == 1
     model.environment = (duration=Hour(2),)
     mark_environment_binding_dirty!(model)
     @test_throws OpaqueDeclarationError run!(model; steps=0)
@@ -88,18 +97,29 @@ end
         ModelSpec(Coupled(); name=:after, on=One(id=:root),
             inputs=(driver=One(within=Self(), application=:before, var=:before),)),
     ))
+    preparation = model.scenario_plan_cache
+    original = model_status(model, :root)
+    original_driver = PSE.refvalue(original, :driver)
+    @test model.registry.objects.catalog isa PSE.ClosedObjectFamilyCatalog
     report = PSE.compile_model_report(model)
     @test [application.id for application in report.applications] == [:before, :after]
     @test [application.slot for application in report.applications] == [1, 3]
+    @test typeof(model_status(report.model, :root)) === preparation.status_manifest.status_type
     @test length(report.input_bindings) == 1
     binding = only(report.input_bindings)
     @test binding.application_id === :after
     @test binding.input === :driver
     @test binding.source_ids == [ObjectId(:root)]
     @test binding.source_application_ids == [:before]
+    @test binding.plan.application_slot == 3
+    @test binding.plan.slot == only(preparation.program.input_records).slot
     @test PSE.refvalue(model_status(report.model, :root), :driver) ===
           PSE.refvalue(model_status(report.model, :root), :before)
     @test model_status(model, :root).driver == 0.0
+    @test model_status(model, :root) === original
+    @test PSE.refvalue(original, :driver) === original_driver
+    @test PSE.refvalue(model_status(report.model, :root), :driver) !== original_driver
+    @test !any(row -> row.phase === :input_status, report.diagnostics)
     @test !any(row -> occursin("BoundsError", row.message), report.diagnostics)
     @test broken_calls[] == 1
 end
@@ -198,6 +218,59 @@ end
             occursin("opaque declaration failed once", diagnostic.message),
             report.diagnostics)
     end
+end
+
+const masked_contract_reads = Ref(0)
+struct MaskedContractReader <: AbstractDiagnostic_Authoring_Recovery_CoupledModel end
+PSE.inputs_(::MaskedContractReader) = (driver=Required(Real),)
+PSE.outputs_(::MaskedContractReader) = (after=0.0,)
+PSE.run!(::MaskedContractReader, status, environment, constants, context) = nothing
+PSE.variable_contracts_(::Good{:contract_signal}) =
+    (contract_signal=VariableContract(unit=:source_unit),)
+function PSE.variable_contracts_(::MaskedContractReader)
+    masked_contract_reads[] += 1
+    return (driver=VariableContract(unit=:sink_unit),)
+end
+
+@testset "a captured route contract error precedes its missing manifest family" begin
+    masked_contract_reads[] = 0
+    model = CompositeModel(Object(:source), Object(:reader); applications=(
+        ModelSpec(Good{:contract_signal}(); name=:source, on=One(id=:source)),
+        ModelSpec(MaskedContractReader(); name=:reader, on=One(id=:reader),
+            inputs=(driver=One(SceneScope(); id=:source,
+                application=:source, var=:contract_signal),)),
+    ), environment=(duration=Hour(1),))
+    preparation = model.scenario_plan_cache
+    route_failure = only(preparation.program.input_records)
+    @test route_failure isa PSE.ScenarioPreparationFailure
+    @test route_failure.phase === :input_plans
+    @test occursin("Incompatible variable contracts", sprint(showerror, route_failure.error))
+    @test preparation.status_manifest isa PSE.ScenarioPreparationFailure
+    @test preparation.status_manifest.error !== route_failure.error
+    @test preparation.failure === route_failure
+    reads = masked_contract_reads[]
+    @test reads > 0
+    for operation in (
+        () -> run!(model; steps=0, outputs=:none),
+        () -> Advanced.refresh_bindings!(model),
+    )
+        caught = try
+            operation()
+        catch error
+            error
+        end
+        @test caught === route_failure.error
+        @test model.scenario_plan_cache === preparation
+        @test masked_contract_reads[] == reads
+        @test model_status(model, :source) === nothing
+        @test model_status(model, :reader) === nothing
+    end
+    # The aggregate first failure does not erase the valid authored records.
+    report = PSE.compile_model_report(model)
+    @test [application.id for application in report.applications] == [:source, :reader]
+    @test any(row -> row.phase === :input_plans &&
+        occursin("Incompatible variable contracts", row.message), report.diagnostics)
+    @test masked_contract_reads[] == reads
 end
 
 end

@@ -67,4 +67,53 @@ end
     @test PSE.refvalue(model_status(model, :scene), :x) === x
     @test source.calls[] == 2 # ordinary fresh staging read, no manifest replay
 end
+@testset "RAW evidence cardinality does not alter an otherwise equal prepared owner" begin
+    make = function (leaves)
+        source = Source(1.0,2.0,Ref(0))
+        objects = Object[Object(:scene;scale=:Scene)]
+        leaves && push!(objects,Object(:leaf;scale=:Leaf,parent=:scene,
+            status=Status(x=3.0,y=4.0)))
+        return CompositeModel(objects...;applications=(
+            ModelSpec(source;name=:source,on=Many(scale=:Leaf)),))
+    end
+    populated, empty = make(true), make(false)
+    left = PSE._prepared_status_manifest(populated)
+    right = PSE._prepared_status_manifest(empty)
+    @test left.status_type === right.status_type
+    owner_type_equal = typeof(left) === typeof(right)
+    @test owner_type_equal
+    model_type_equal = typeof(populated) === typeof(empty)
+    @test model_type_equal
+    @test length(left.raw_families) == 1 # Even redundant evidence is retained.
+    @test isempty(right.raw_families)
+    @test only(left.raw_families).names == [:x,:y]
+    @test only(left.raw_families).reference_types == [Base.RefValue{Float64},Base.RefValue{Float64}]
+end
+
+@testset "nominal RAW data retains unique classes, exact aliases and force provenance" begin
+    storage = Float32[3]
+    external = Ref(storage,1)
+    initial = Status((x=Ref{Real}(5f0),y=Ref(4.0),external=external))
+    source = Source(1.0,2.0,Ref(0))
+    model = CompositeModel(Object(:leaf;scale=:Leaf,status=initial);
+        applications=(ModelSpec(source;name=:source,on=Many(scale=:Leaf)),))
+    raw = PSE._prepared_status_manifest(model).raw_families
+    @test length(raw) == 1
+    @test only(raw).names == [:x,:y,:external]
+    @test PSE.refvalue(model_status(model,:leaf),:external) === external
+    late_storage = Float32[7]
+    late = Status((x=Ref{Real}(9f0),y=Ref(8.0),external=Ref(late_storage,1)))
+    late_cells = PSE.refvalues(late)
+    register_object!(model,Object(:late;scale=:Leaf,status=late))
+    official = model_status(model,:late)
+    @test all(PSE.refvalue(official,name) === reference for
+        (name,reference) in zip((:x,:y,:external),late_cells))
+    Advanced.refresh_bindings!(model;force=true)
+    @test PSE._prepared_status_manifest(model).raw_families === raw
+    @test model_status(model,:late) === official
+    @test PSE.refvalue(official,:external) === late_cells[3]
+    late_storage[1] = 11f0
+    @test official.external === 11f0
+end
+
 end

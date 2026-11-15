@@ -677,9 +677,11 @@ end
 
 function _install_prepared_canonical_registry(model::CompositeModel, preparation)
     manifest = preparation.status_manifest
-    # Authoring failures stay inspectable, but the execution validator rethrows
-    # them; this raw assembly is not an executable legacy fallback.
-    (!isnothing(preparation.failure) || manifest isa ScenarioPreparationFailure) && return model
+    # A valid captured manifest can represent the raw data and the valid
+    # authored recipes even when another declaration failed. Install that same
+    # schema for topology admission and partial diagnostics, without retrying a
+    # hook. The preparation validator still blocks all execution on its error.
+    manifest isa ScenarioPreparationFailure && return model
     return _install_prepared_canonical_registry(model, manifest, manifest.status_type)
 end
 
@@ -1174,15 +1176,14 @@ end
 function _set_status_source_identity!(
     model::CompositeModel,
     object_id::ObjectId,
-    status,
+    identity::Union{Nothing,Base.RefValue{Nothing}},
 )
     previous = get(model.status_source_identities, object_id, nothing)
     if !isnothing(previous) &&
        get(model.status_source_owners, previous, nothing) == object_id
         delete!(model.status_source_owners, previous)
     end
-    if status isa Status
-        identity = _status_identity(status)
+    if !isnothing(identity)
         model.status_source_owners[identity] = object_id
         model.status_source_identities[object_id] = identity
     else
@@ -1219,7 +1220,8 @@ function _replace_model_object_status!(
         admitted = isnothing(source) ? nothing : _new_prepared_status(S, source)
         _store_object_family_row!(store, object, object_id, admitted)
         setfield!(object, :status, admitted)
-        _set_status_source_identity!(model, object_id, source)
+        identity = isnothing(source) ? nothing : _status_identity(source)
+        _set_status_source_identity!(model, object_id, identity)
         return admitted
     end
 end
@@ -1506,7 +1508,8 @@ end
     store = registry.objects
     _store_object_family_row!(store, object, id, status)
     _index_object!(registry, object)
-    _set_status_source_identity!(model, id, source_status)
+    identity = isnothing(source_status) ? nothing : _status_identity(source_status)
+    _set_status_source_identity!(model, id, identity)
     ancestors = isnothing(parent_id) ?
                 ObjectId[id] :
                 _append_object_ancestor_id(

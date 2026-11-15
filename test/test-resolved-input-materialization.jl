@@ -140,7 +140,7 @@ PSE.run!(model::ManyReader, status, environment, constants, context) =
     end
 end
 
-function array_scene(values, policy; existing)
+function array_scene(values, policy; existing, status_transform=nothing)
     source = ArraySource(values, Ref(0))
     objects = existing ? (Object(:leaf; scale=:Leaf), Object(:reader; scale=:Reader)) :
         (Object(:reader; scale=:Reader),)
@@ -148,7 +148,7 @@ function array_scene(values, policy; existing)
         ModelSpec(source; name=:source, on=Many(scale=:Leaf)),
         ModelSpec(ArrayManyReader(0f0); name=:reader, on=One(id=:reader),
             inputs=(x=Many(SceneScope(); scale=:Leaf, application=:source, var=:x),)),
-    ), environment=(duration=Hour(1),), type_promotion=policy)
+    ), environment=(duration=Hour(1),), type_promotion=policy, status_transform)
     return model, source
 end
 
@@ -230,6 +230,74 @@ end
     @test model_status(model, :leaf).x == Float32[1, 2, 4]
     @test model_status(model, :leaf).x isa Vector{Float32}
     @test model_status(model, :reader).seen === 7f0
+end
+
+
+@testset "unchanged array transform types retain their configured element family" begin
+    calls = Dict{Symbol,Int}()
+    transform = (variable, value) -> begin
+        calls[variable] = get(calls, variable, 0) + 1
+        value
+    end
+    model, source = array_scene(Real[1.0, 2.0], Dict(Float64=>Float32);
+        existing=false, status_transform=transform)
+    @test isempty(calls)
+    @test source.declarations[] == 1
+    preparation = model.scenario_plan_cache
+    source_ports = only(recipe for recipe in preparation.authored if recipe.id === :source).ports
+    plan = only(preparation.program.input_records)
+    @test plan.reference_types === Tuple{Base.RefValue{Vector{Float32}}}
+    simulation = run!(model; steps=0, outputs=:all)
+    carrier = only(simulation.compiled.input_bindings).carrier
+    # Output staging reads fresh defaults once, even with no source targets.
+    @test source.declarations[] == 2
+    @test get(calls, :x, 0) == 0
+    @test model.scenario_plan_cache === preparation
+    @test PSE._application_ports(simulation.compiled.applications_by_id[:source]) === source_ports
+    @test only(preparation.program.input_records) === plan
+    register_object!(model, Object(:leaf; scale=:Leaf))
+    @test source.declarations[] == 2
+    @test get(calls, :x, 0) == 0
+    continue!(simulation; steps=1)
+    @test model_status(model, :leaf).x isa Vector{Float32}
+    @test model_status(model, :leaf).x == Float32[1, 2]
+    @test model_status(model, :reader).seen === 3f0
+    @test get(calls, :x, 0) == 1
+    # Growth stages fresh defaults for the added source; metadata stays owned.
+    @test source.declarations[] == 3
+    @test model.scenario_plan_cache === preparation
+    @test PSE._application_ports(simulation.compiled.applications_by_id[:source]) === source_ports
+    @test only(preparation.program.input_records) === plan
+    @test plan.reference_types === Tuple{Base.RefValue{Vector{Float32}}}
+    @test only(simulation.compiled.input_bindings).carrier === carrier
+    @test only(parent(carrier)) === PSE.refvalue(model_status(model, :leaf), :x)
+end
+
+@testset "changed array elements cannot silently widen a prepared transform family" begin
+    changed = Ref(false)
+    calls = Dict{Symbol,Int}()
+    transform = (variable, value) -> begin
+        calls[variable] = get(calls, variable, 0) + 1
+        variable === :x && value isa Vector{Real} && changed[] && return Real[1, 2.0]
+        value
+    end
+    model, source = array_scene(Real[1.0, 2.0], Dict(Float64=>Float32);
+        existing=false, status_transform=transform)
+    @test isempty(calls)
+    @test only(model.scenario_plan_cache.program.input_records).reference_types ===
+        Tuple{Base.RefValue{Vector{Float32}}}
+    register_object!(model, Object(:leaf; scale=:Leaf))
+    previous_reader = model_status(model, :reader)
+    previous_leaf = model_status(model, :leaf)
+    records = copy(model.status_conversion_records)
+    changed[] = true
+    @test_throws ArgumentError Advanced.refresh_bindings!(model)
+    @test model_status(model, :reader) === previous_reader === nothing
+    @test model_status(model, :leaf) === previous_leaf === nothing
+    @test model.status_conversion_records == records
+    @test get(calls, :x, 0) == 1
+    @test source.value == Real[1.0, 2.0]
+    @test all(value -> value isa Float64, source.value)
 end
 
 @testset "configured Float32 refs coexist with prospective Float64 producer defaults" begin
@@ -483,6 +551,7 @@ end
         PSE.RefVector{Float32}
     ambiguous = required_scene(AbstractVector)
     @test only(ambiguous.scenario_plan_cache.program.input_records) isa PSE.ScenarioPreparationFailure
+    @test ambiguous.scenario_plan_cache.failure === only(ambiguous.scenario_plan_cache.program.input_records)
     @test_throws "no concrete configured source type" run!(ambiguous; steps=0, outputs=:none)
 
     # A known Ref in another scope is eligible after reparenting, but cannot
@@ -497,6 +566,10 @@ end
                         application=:writer, var=:x),)),
             ), environment=(duration=Hour(1),))
     @test only(scoped.scenario_plan_cache.program.input_records) isa PSE.ScenarioPreparationFailure
+    @test scoped.scenario_plan_cache.status_manifest isa PSE.PreparedStatusManifest
+    @test scoped.scenario_plan_cache.failure === nothing
+    @test PSE._first_authored_program_failure(scoped.scenario_plan_cache.program) ===
+        only(scoped.scenario_plan_cache.program.input_records)
     @test_throws "no concrete configured source type" run!(scoped; steps=0, outputs=:none)
 end
 
@@ -532,6 +605,7 @@ end
     @test only(simulation.compiled.input_bindings).carrier isa PSE.RefVector{Float32}
     ambiguous = status_only(AbstractVector)
     @test only(ambiguous.scenario_plan_cache.program.input_records) isa PSE.ScenarioPreparationFailure
+    @test ambiguous.scenario_plan_cache.failure === only(ambiguous.scenario_plan_cache.program.input_records)
     @test_throws "no concrete configured source type" run!(ambiguous; steps=0, outputs=:none)
 end
 
@@ -700,10 +774,11 @@ end
     cells = [Ref(1.0), Ref(2.0), Ref(3.0)]
     visited = Int[]
     reference_for(id) = (push!(visited, id.value); cells[id.value])
-    @test PSE._input_reference_carrier(One(), ids[1:1], reference_for, Tuple{}) === cells[1]
+    RT = Tuple{eltype(cells)}
+    @test PSE._input_reference_carrier(One(), ids[1:1], reference_for, RT) === cells[1]
     @test visited == [1]
     empty!(visited)
-    @test isnothing(PSE._input_reference_carrier(OptionalOne(), ObjectId{Int}[], reference_for, Tuple{}))
+    @test isnothing(PSE._input_reference_carrier(OptionalOne(), ObjectId{Int}[], reference_for, RT))
     @test isempty(visited)
     homogeneous = PSE._input_reference_carrier(Many(), ids, reference_for, Tuple{Base.RefValue{Float64}})
     @test homogeneous isa PSE.RefVector{Float64}
@@ -726,14 +801,25 @@ end
     abstract = Ref{Real}(1.0)
     @test PSE._input_reference_carrier(Many(), ids[1:1], _ -> abstract, Tuple{Base.RefValue{Real}}) isa PSE.ObjectRefVector
     @test PSE._input_reference_carrier(Many(), ObjectId{Int}[], reference_for, Tuple{Base.RefValue{Float64}}) isa PSE.RefVector{Float64}
-    @test isnothing(PSE._input_reference_carrier(One(), ids[1:1], _ -> nothing, Tuple{}))
+    empty!(visited)
+    missing_one(id) = (push!(visited, id.value); nothing)
+    @test isnothing(PSE._input_reference_carrier(One(), ids[1:1], missing_one, RT))
+    @test visited == [1]
     empty!(visited)
     missing_for(id) = (push!(visited, id.value); id.value == 2 ? nothing : cells[id.value])
     @test isnothing(PSE._input_reference_carrier(Many(), ids, missing_for, Tuple{Base.RefValue{Float64}}))
     @test visited == [1, 2]
     external = Ref([4.0], 1)
-    @test_throws ArgumentError PSE._input_reference_carrier(One(), ids[1:1], _ -> external, Tuple{})
-    @test_throws ArgumentError PSE._input_reference_carrier(Many(), ids[1:1], _ -> external, Tuple{Base.RefValue{Float64}})
+    external_types = Tuple{typeof(external)}
+    @test PSE._input_reference_carrier(One(), ids[1:1], _ -> external, external_types) === external
+    external_many = PSE._input_reference_carrier(Many(), ids[1:1], _ -> external, external_types)
+    @test external_many isa PSE.ObjectRefVector
+    @test only(parent(external_many)) === external
+    @test_throws ArgumentError PSE._input_reference_carrier(Many(), ids[1:1], _ -> external, RT)
+    # A genuinely empty prepared family is distinct from a missing live source.
+    never_called(id) = error("empty reference family must reject before reading")
+    @test isnothing(PSE._input_reference_carrier(OptionalOne(), ObjectId{Int}[], never_called, Tuple{}))
+    @test_throws ArgumentError PSE._input_reference_carrier(One(), ids[1:1], never_called, Tuple{})
 end
 
 struct OffsetSourceIds{T} <: AbstractVector{T}
@@ -784,20 +870,21 @@ end
     for selector in (One(), OptionalOne())
         ids = OffsetSourceIds([ObjectId(1)], 7)
         cell = Ref(5.0)
-        @test PSE._input_reference_carrier(selector, ids, _ -> cell, Tuple{}) === cell
+        @test PSE._input_reference_carrier(selector, ids, _ -> cell, Tuple{typeof(cell)}) === cell
         @test ids.reads == [7]
     end
 end
 
-@noinline function repeat_point_carrier(model, selector, ids, expected, repetitions)
+@noinline function repeat_point_carrier(model, selector, ids, expected,
+    reference_types::Type{RT}, repetitions) where {RT<:Tuple}
     same = true
     for _ in 1:repetitions
-        same &= PSE._input_carrier(model, selector, ids, Val(:x), Tuple{}) === expected
+        same &= PSE._input_carrier(model, selector, ids, Val(:x), reference_types) === expected
     end
     return same
 end
-@noinline point_allocations(model, selector, ids, expected, repetitions) =
-    @allocated repeat_point_carrier(model, selector, ids, expected, repetitions)
+@noinline point_allocations(model, selector, ids, expected, reference_types::Type{RT}, repetitions) where {RT<:Tuple} =
+    @allocated repeat_point_carrier(model, selector, ids, expected, reference_types, repetitions)
 @noinline many_allocations(ids, getter) =
     @allocated PSE._input_reference_carrier(Many(), ids, getter, Tuple{Base.RefValue{Float64}})
 
@@ -806,10 +893,11 @@ end
     model = CompositeModel(Object(1; status))
     ids = [ObjectId(1)]
     expected = PSE.refvalue(status, :x)
+    reference_types = Tuple{typeof(expected)}
     for selector in (One(), OptionalOne())
-        @test repeat_point_carrier(model, selector, ids, expected, 2)
-        point_allocations(model, selector, ids, expected, 1000)
-        allocated = minimum(point_allocations(model, selector, ids, expected, 1000) for _ in 1:3)
+        @test repeat_point_carrier(model, selector, ids, expected, reference_types, 2)
+        point_allocations(model, selector, ids, expected, reference_types, 1000)
+        allocated = minimum(point_allocations(model, selector, ids, expected, reference_types, 1000) for _ in 1:3)
         # A small fixed allowance accommodates instrumentation on the Kaimon
         # task; the former temporary vector per call exceeds this by far.
         @test allocated <= 4096

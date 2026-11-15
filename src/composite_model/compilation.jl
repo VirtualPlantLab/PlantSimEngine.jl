@@ -837,6 +837,25 @@ function _authored_specs_match(source_specs, specs)
     return all(pair -> pair[1] === pair[2], zip(source_specs, specs))
 end
 
+# Select an existing captured cause in the same order as scene resolution.
+# This runs only while building a failed preparation, never in a kernel or the
+# runtime validator, and does not re-evaluate a declaration or route.
+function _first_authored_program_failure(program::AuthoredScenarioProgram)
+    for records in program.output_records
+        records isa ScenarioPreparationFailure && return records
+        for record in records
+            record isa ScenarioPreparationFailure && return record
+        end
+    end
+    for record in program.input_records
+        record isa ScenarioPreparationFailure && return record
+    end
+    for failure in values(program.graph.failures)
+        failure isa ScenarioPreparationFailure && return failure
+    end
+    return nothing
+end
+
 function _prepare_authored_scenario(model::CompositeModel, raw_specs;
     raw_families=_prepared_raw_status_families(model))
     source_specs = Tuple(raw_specs)
@@ -929,6 +948,13 @@ function _prepare_authored_scenario(model::CompositeModel, raw_specs;
     program = _prepare_authored_scenario_program(model, recipes)
     status_manifest = _capture_authored_metadata(:status_manifest, nothing) do
         _prepare_status_manifest(model, authored_records, program, raw_families)
+    end
+    if isnothing(failure) && status_manifest isa ScenarioPreparationFailure
+        # A missing field family may be downstream of a rejected logical route
+        # or contract. Preserve that original cause rather than replacing it
+        # with the secondary manifest diagnostic. Every saved record remains
+        # available to the partial diagnostic compiler.
+        failure = _first_authored_program_failure(program)
     end
     return ScenarioPreparation(model, source_specs, authored_records, failure,
         program, status_manifest, nothing)
@@ -8200,7 +8226,7 @@ function _prepare_input_reference_types(model, consumer, input, selector,
     source_var, producer_ids, applications_by_id, distributed_output_plans)
     references = Any[]
     add(R) = R in references || push!(references, R)
-    declared_input = _configured_status_value_type(model.status_conversion,
+    declared_input = _configured_status_value_type(model.status_conversion, input,
         getproperty(_application_ports(consumer).input_types, input), nothing)
     fallback = if selector isa Many
         !isnothing(declared_input) && declared_input <: AbstractVector ? eltype(declared_input) : Union{}
@@ -8250,7 +8276,7 @@ function _prepare_input_reference_types(model, consumer, input, selector,
             T = if isnothing(producer)
                 fallback
             else
-                _configured_status_value_type(model.status_conversion,
+                _configured_status_value_type(model.status_conversion, source_var,
                     getproperty(output_types, source_var), get(element_types, source_var, nothing))
             end
             candidates = isnothing(T) ? () : Base.uniontypes(T)

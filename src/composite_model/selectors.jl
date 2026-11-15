@@ -1670,6 +1670,11 @@ end
     isnothing(topology.parent) && return nothing
     return _scope_ancestor(topology.model, topology.parent, scale, true)
 end
+function _default_dependency_scope(topology::_PreparedStatusObjectTopology, context::ObjectId)
+    context == topology.id || return _default_dependency_scope(topology.model, context)
+    (topology.object.scale == :Scene || topology.kind == :scene) && return SceneScope()
+    return Self()
+end
 _missing_point_scope_anchor(topology::_PreparedStatusObjectTopology, scope, id) =
     _missing_point_scope_anchor(topology.model, scope, id)
 @inline _point_scope_root_exists(topology::_PreparedStatusObjectTopology, id) =
@@ -1710,5 +1715,13 @@ function _prepared_status_route_matches(model, object, parent_id, application,
     topology = _prepared_status_topology(model, object, id, parent_id)
     _prepared_status_scope_is_current(model, topology, destination_plan.matcher.scope) || return false
     return _selector_matches_object_id(topology, destination_plan.matcher,
-        id, execution_id, true, _default_dependency_scope(model, execution_id), false)
+        id, execution_id, true, _default_dependency_scope(topology, execution_id), false)
+end
+
+# This is the actual object awaiting registration, never a manufactured origin.
+function _prepared_status_pending_consumer_id(model, object, parent_id, application)
+    id = _index_object_id(model.registry.objects, object.id)
+    get(model.registry.objects, id, nothing) === object && return nothing
+    _prepared_status_application_matches(model, object, parent_id, application) || return nothing
+    return id
 end

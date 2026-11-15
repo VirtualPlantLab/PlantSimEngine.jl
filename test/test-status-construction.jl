@@ -181,4 +181,50 @@ PSE.run!(::DistributedDefaults, status, environment, constants, context) = nothi
     @test model_status(model, :right_leaf).flow == Float32[2]
 end
 
+# A canonical input reference introduced by one applicable application is also
+# visible to another model on that same object. No raw/default TEff cell exists.
+struct SharedThermalBinder <: AbstractStatus_Construction_ConsumerModel end
+struct SharedThermalObserver <: AbstractStatus_Construction_ConsumerModel end
+PSE.inputs_(::SharedThermalBinder) = (TEff=Required(Real),)
+PSE.outputs_(::SharedThermalBinder) = NamedTuple()
+PSE.run!(::SharedThermalBinder, status, environment, constants, context) = nothing
+PSE.inputs_(::SharedThermalObserver) = (TEff=Required(Real),)
+PSE.outputs_(::SharedThermalObserver) = (observed_thermal=0.0,)
+PSE.run!(::SharedThermalObserver, status, environment, constants, context) =
+    (status.observed_thermal = status.TEff; nothing)
+
+@testset "a prepared canonical input serves other same-object Required readers" begin
+    model = CompositeModel(Object(:source; scale=:Scene); applications=(
+        ModelSpec(Producer(); name=:producer, on=One(id=:source)),
+        ModelSpec(SharedThermalBinder(); name=:thermal, on=Many(scale=:Leaf, kind=:wired),
+            inputs=(TEff=One(SceneScope(); id=:source, application=:producer, var=:value),)),
+        ModelSpec(SharedThermalObserver(); name=:observer, on=Many(scale=:Leaf)),
+    ), environment=(duration=Hour(1),))
+    @test model.scenario_plan_cache.status_manifest isa PSE.PreparedStatusManifest
+    simulation = run!(model; steps=0, outputs=:all)
+    @test isempty(model_objects(model; scale=:Leaf))
+    source_reference = PSE.refvalue(model_status(model, :source), :value)
+    register_object!(model, Object(:new_leaf; scale=:Leaf, kind=:wired))
+    continue!(simulation; steps=1)
+    official = model_status(model, :new_leaf)
+    @test official.TEff === official.observed_thermal === 7.0
+    @test PSE.refvalue(official, :TEff) === source_reference
+    @test last.(outputs(simulation)[(:observer, ObjectId(:new_leaf), :observed_thermal)]) == [7.0]
+
+    # The observer gains type evidence, not permission to populate that field
+    # on an object outside the actual binding application's selector.
+    unauthorized = Status(TEff=9.0)
+    candidate = Object(:outside; scale=:Leaf, kind=:unwired, status=unauthorized)
+    records = copy(model.status_conversion_records)
+    before_count = length(model.registry.objects)
+    @test_throws ArgumentError register_object!(model, candidate)
+    @test length(model.registry.objects) == before_count
+    @test !haskey(model.registry.objects, ObjectId(:outside))
+    @test candidate.status === unauthorized
+    @test model.status_conversion_records == records
+    @test model_status(model, :new_leaf) === official
+    @test PSE.refvalue(official, :TEff) === source_reference
+    @test source_reference[] === 7.0
+end
+
 end

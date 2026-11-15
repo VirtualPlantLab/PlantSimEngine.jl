@@ -102,9 +102,20 @@ new object is registered. Existing objects retain their admitted references
 when they move between application scopes.
 
 Declaration-based type preparation does not execute `status_transform` on
-future defaults. The callback runs when the real value is materialized, and
-its result must fit the prepared type family. A callback whose return type
-varies outside that family needs a new, explicit model configuration.
+future defaults. It queries the callback's return type for each variable and
+declared value type, then applies the configured numeric rules to that type.
+The callback still runs once when the real value is materialized, and its
+actual result must fit the prepared family.
+
+Choose value-type parameters explicitly in the callback. For example,
+`Particles{Float64,2}([value - spread, value + spread])` fixes the particle count
+without sampling or converting a dummy value during preparation. Constructing
+`Particles(vector)` can leave the count unknown to inference even when the
+vector happens to contain two values. If Julia cannot determine a fixed set of
+concrete result types, preparation reports a diagnostic instead of using `Any`. Type inference
+can differ between Julia versions, so prefer a concrete constructor for a
+configured scientific type. Changes outside the prepared family need a new
+model configuration.
 
 `Diagnostics.explain_initialization(model)` shows the type declared by the
 model, the type of the supplied value, the type after `status_transform`, and
