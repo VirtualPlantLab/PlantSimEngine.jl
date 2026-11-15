@@ -10,9 +10,9 @@ PSE.inputs_(::Source) = NamedTuple()
 PSE.outputs_(model::Source) = (x=model.initial,)
 PSE.run!(::Source, status, environment, constants, context) = nothing
 
-function fixture()
+function fixture(second_id=17)
     first = Object(:plant_a; scale=:Plant)
-    second = Object(17; scale=:Plant)
+    second = Object(second_id; scale=:Plant)
     a = Object(:leaf_a; scale=:Leaf, parent=first.id, status=Status(x=1f0))
     b = Object(:leaf_b; scale=:Leaf, parent=second.id, status=Status(x=2.0))
     template(value) = CompositeModelTemplate((
@@ -70,6 +70,38 @@ end
     @test PSE.refvalue(model_status(model, moved_parent.id), :x) === override_ref
     @test PSE._prepared_status_application_matches(model, moved_parent, data.second.id,
         only(recipe for recipe in manifest.authored if recipe.id === :b__source))
+end
+
+@testset "prospective matching uses the finite registry identity family" begin
+    data = fixture(:plant_b)
+    previous = data.model.registry
+    objects = PSE._closed_object_family_store(previous.objects)
+    registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
+        previous.by_species, previous.ancestor_ids_by_object)
+    fields = map(fieldnames(typeof(data.model))) do name
+        name === :registry ? registry : getfield(data.model, name)
+    end
+    model = PSE.CompositeModel(fields...)
+    @test keytype(model.registry.objects) === ObjectId{Symbol}
+
+    wrong = Object(:wrong_closed; scale=:Leaf, status=Status(x=6.0))
+    wrong_source = wrong.status
+    children = copy(data.first.children)
+    @test_throws ArgumentError register_object!(model, wrong; parent=data.first.id)
+    @test wrong.status === wrong_source
+    @test isnothing(wrong.parent) && isnothing(wrong.kind) && isnothing(wrong.species)
+    @test data.first.children == children
+    @test !haskey(model.registry.objects, wrong.id)
+
+    source = Status(x=7.0)
+    cell = PSE.refvalue(source, :x)
+    newborn = Object(:new_closed; scale=:Leaf, parent=data.first.id, status=source)
+    @test register_object!(model, newborn; parent=data.second.id) === newborn
+    @test newborn.parent === data.second.id
+    @test newborn.kind === :tree && newborn.species === :same
+    @test PSE.refvalue(model_status(model, newborn.id), :x) === cell
+    @test resolve_object_ids(model, Many(Scope(:b), scale=:Leaf)) == [data.b.id, newborn.id]
+    @test resolve_object_ids(model, Many(Scope(:a), scale=:Leaf)) == [data.a.id]
 end
 
 @testset "empty prepared catalogs retain None and S without biological values" begin

@@ -89,6 +89,33 @@ function assert_cells(data, before)
     @test all(after[name] === reference for (name, reference) in before)
 end
 
+@testset "view construction uses the finite authored hot namespace" begin
+    for mode in (:one, :many)
+        data = fixture(mode)
+        compiled = data.simulation.compiled
+        application = compiled.applications_by_id[:consumer]
+        ports = PSE._application_ports(application)
+        names = @inferred PSE._status_view_hot_names(ports.inputs,ports.outputs)
+        @test names === (mode === :many ? (:signals,:value,:visits) : (:signal,:value,:visits))
+        @test typeof(names) === Tuple{Symbol,Symbol,Symbol}
+        previous = view_cache(data)[VIEW_KEY]
+        schema = PSE.CompiledMetadataTable((consumer=typeof(previous)[],))
+        bindings = [binding for binding in compiled.input_bindings
+            if binding.application_id === :consumer]
+        positions = Dict(id => index for (index,id) in pairs(compiled.application_order))
+        current = PSE._compile_model_status_view(data.model,application,ObjectId(:consumer),
+            bindings,compiled.applications_by_id,positions,compiled.distributed_outputs,
+            previous.execution_stamp,schema,compiled.input_bindings)
+        @test typeof(current) === typeof(previous)
+        @test current.canonical_status === previous.canonical_status
+        @test fieldnames(fieldtype(typeof(PSE._status_vars(current.status)),:hot)) === names
+        @test all(PSE.refvalue(current.status,name) === PSE.refvalue(previous.status,name)
+            for name in names)
+        @test current.execution_stamp === previous.execution_stamp
+        @test isempty(schema[:consumer])
+    end
+end
+
 @testset "cached view admission keeps compatible scalar, Many and temporal owners" begin
     for mode in (:one, :many, :temporal)
         data, control = fixture(mode), fixture(mode)

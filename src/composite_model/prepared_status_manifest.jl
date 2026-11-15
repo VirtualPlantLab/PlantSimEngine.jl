@@ -299,8 +299,9 @@ function _prepared_status_destination_reference_allowed(applications::Tuple,
         # a prospective permission; no RAW family or override is substituted.
         matcher = plan.matcher
         if !has_producer && matcher.scope isa SceneScope && isnothing(matcher.relation)
-            topology = _prepared_status_topology(model, object, parent_id)
-            if _selector_matches_object_id(topology, matcher, object.id,
+            id = _index_object_id(model.registry.objects, object.id)
+            topology = _prepared_status_topology(model, object, id, parent_id)
+            if _selector_matches_object_id(topology, matcher, id,
                 nothing, false, nothing, false)
                 return _prepared_status_output_reference_allowed(
                     first(permission.variants), name, reference)

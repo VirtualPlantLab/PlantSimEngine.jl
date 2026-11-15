@@ -1213,7 +1213,9 @@ function _replace_model_object_status!(
     store = model.registry.objects
     object_id = object.id::keytype(store)
     _validate_status_source_identity_available!(model, status, object_id)
-    _validate_prepared_initial_status(model, object, status, object.parent)
+    raw_parent = object.parent
+    parent_id = isnothing(raw_parent) ? nothing : _index_object_id(store, raw_parent)
+    _validate_prepared_initial_status(model, object, status, parent_id)
     return Base.@inline _with_prepared_canonical_status_type(model, object, object_id, status) do S, object, object_id, source
         admitted = isnothing(source) ? nothing : _new_prepared_status(S, source)
         _store_object_family_row!(store, object, object_id, admitted)

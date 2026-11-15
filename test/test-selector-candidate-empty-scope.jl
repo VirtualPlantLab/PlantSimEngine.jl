@@ -123,8 +123,10 @@ end
                 Object(leaf_id; scale=:Leaf, kind, species, parent=axis_id),
             )
             closed && (model = _closed_selector_candidate_fixture(model))
-            @test (model.registry.objects.catalog isa PlantSimEngine.ClosedObjectFamilyCatalog) === closed
+            @test model.registry.objects.catalog isa PlantSimEngine.ClosedObjectFamilyCatalog
             I = keytype(model.registry.objects)
+            expected_id_type = closed ? Union{map(id -> typeof(ObjectId(id)), ids)...} : ObjectId
+            @test I === expected_id_type
             index = PlantSimEngine._selector_candidate_index(model, nothing)
             frozen_empty = PlantSimEngine._freeze_selector_candidate_index(index)
             @test keytype(index.by_id) === keytype(frozen_empty.by_id) === I
@@ -159,7 +161,9 @@ end
             end
 
             # Both reverse indexes exist BEFORE the selected future object.
-            # Open accepts every identity family; Closed keeps its actual union.
+            # Ordinary ID storage accepts every identity family; explicitly
+            # narrowed ID storage keeps its actual union. Both use the prepared
+            # canonical Status catalog.
             for raw_future in (leaf_id + 1000, :future_leaf, 1.5)
                 future_id = ObjectId(raw_future)
                 @test !haskey(model.registry.objects, future_id)

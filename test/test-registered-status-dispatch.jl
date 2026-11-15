@@ -45,6 +45,32 @@ PSE.inputs_(::Finisher) = NamedTuple()
 PSE.outputs_(::Finisher) = (value=0.5, visits=0)
 PSE.run!(::Finisher, status, environment, constants, context) = nothing
 
+@testset "ensuring a required status admits root and registered parent identities" begin
+    model = with_finite_registry(CompositeModel(
+        Object(:root; scale=:Leaf),Object(:child; scale=:Leaf,parent=:root);
+        applications=(ModelSpec(Finisher();name=:finish,on=Many(scale=:Leaf)),)))
+    I = keytype(model.registry.objects)
+    S = PSE._scenario_preparation(model).status_manifest.status_type
+    @test I === typeof(ObjectId(:root))
+    statuses = map((:root,:child)) do id
+        @test model_status(model,id) === nothing
+        status = @inferred PSE._ensure_model_object_status!(model,ObjectId(id))
+        @test typeof(status) === S
+        @test model_status(model,id) === status
+        @test isempty(status)
+        @test (@inferred PSE._ensure_model_object_status!(model,ObjectId(id))) === status
+        status
+    end
+    @test model_object(model,:root).parent === nothing
+    @test model_object(model,:child).parent === ObjectId(:root)
+    simulation = run!(model;steps=1,outputs=:all)
+    for (id,status) in zip((:root,:child),statuses)
+        @test model_status(model,id) === status
+        @test status.value === 0.5 && status.visits === 0
+        @test outputs(simulation)[(:finish,ObjectId(id),:value)] == [(1.0,0.5)]
+    end
+end
+
 @testset "newborn registration and finishing retain real reference classes" begin
     # These are genuine initial data, all retained and checked below. Their Ref
     # classes provide the raw seed family; ports provide value/visits permissions.

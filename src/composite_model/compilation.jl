@@ -1015,9 +1015,15 @@ function _scenario_preparation(model::CompositeModel; force::Bool=false)
     return _model_owned_scenario_preparation(model, preparation)
 end
 
-function _validate_authored_scenario(preparation::ScenarioPreparation)
-    isnothing(preparation.failure) || throw(preparation.failure.error)
-    _authored_metadata_value(preparation.status_manifest)
+@inline function _validate_authored_scenario(preparation::ScenarioPreparation)
+    failure = getfield(preparation, :failure)
+    if failure isa ScenarioPreparationFailure
+        _throw_preparation_error(getfield(failure, :error))
+    end
+    manifest = getfield(preparation, :status_manifest)
+    if manifest isa ScenarioPreparationFailure
+        _throw_preparation_error(getfield(manifest, :error))
+    end
     return nothing
 end
 
@@ -6721,21 +6727,26 @@ end
 
 function _ensure_model_object_status!(model::CompositeModel, object_id::ObjectId)
     object = _model_object(model, object_id)
-    status = object.status
+    return Base.@inline _with_prepared_canonical_status_type(
+        _ensure_prepared_model_object_status!, model, model, object, object_id)
+end
+
+@inline function _ensure_prepared_model_object_status!(::Type{S}, model, object,
+    object_id,
+) where {S<:Status}
+    status = getfield(object, :status)
     if isnothing(status)
-        return Base.@inline _with_prepared_canonical_status_type(
-            _ensure_prepared_model_object_status!, model, model, object)
+        replacement = Base.@inline _new_prepared_status(S, nothing)
+        status = _replace_model_object_status!(model, object, replacement)
     end
     status isa Status || error(
         "Model object `$(object_id.value)` uses model applications but its status has type ",
         "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
     )
-    return Base.@inline _with_registered_status(identity, model.registry.objects.catalog, status)
-end
-
-function _ensure_prepared_model_object_status!(::Type{S}, model, object) where {S<:Status}
-    status = Base.@inline _new_prepared_status(S, nothing)
-    return _replace_model_object_status!(model, object, status)
+    status isa S || throw(ArgumentError(
+        "The status schema is outside the prepared object family catalog.",
+    ))
+    return status::S
 end
 
 _stage_model_output_defaults!(preparation, ::Tuple{}, ::Tuple{}, context) = nothing

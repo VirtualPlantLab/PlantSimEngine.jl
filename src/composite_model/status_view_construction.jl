@@ -197,6 +197,15 @@ function _compile_model_status_view_for_application(application, model, object_i
         distributed_outputs, execution_stamp, status_view_schema, input_binding_storage)
 end
 
+# Use the existing authored name witnesses before constructing the gathered
+# record. Runtime unique/Vector -> Tuple loses the hot namespace cardinality.
+@generated function _status_view_hot_names(::AuthoredPortNames{INPUTS},
+    ::AuthoredOutputPorts{ALL,LOCAL},
+) where {INPUTS,ALL,LOCAL}
+    names = Tuple(unique((INPUTS..., LOCAL...)))
+    return QuoteNode(names)
+end
+
 # All modes gather the same values, in the original conversion/snapshot order.
 # Selection below concerns exact component construction, never scientific logic.
 function _assemble_model_status_view(canonical_status, model, application, object_id,
@@ -251,7 +260,8 @@ function _assemble_model_status_view(canonical_status, model, application, objec
             "Compiled application input `$(name)` has more than one Many binding.")
         push!(seen_many, name)
     end
-    hot_names = Tuple(unique((_model_input_names(application)..., _model_output_names(application)...)))
+    ports = _application_ports(application)
+    hot_names = _status_view_hot_names(ports.inputs, ports.outputs)
     parts = (; canonical_status, temporal, private_names, private_values, hot_names,
         many_names, many_ids, execution_stamp)
     view = _construct_model_status_view(status_view_schema, application.id, parts)
