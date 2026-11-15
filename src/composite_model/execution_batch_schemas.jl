@@ -675,7 +675,7 @@ function _execution_batch_type_with_call_schemas(::Type{B}, schemas::NamedTuple)
     I = fieldtype(prepared_target,:object_id)
     Store = fieldtype(fieldtype(B, :targets), :store)
     Owner = _execution_store_owner_type(Store)
-    Rows = ExecutionCohortRows{prepared_target,ExecutionCohort{prepared_target,I,Owner},Store}
+    Rows = ExecutionCohortRows{prepared_target,I,Owner,Store}
     return CompiledExecutionBatch{fieldtype(B,:application),Rows,
         fieldtype(B,:environment_provider),fieldtype(B,:output_publication)}
 end

@@ -786,12 +786,13 @@ mutable struct AuthoredScenarioGraph{CO,MA,AC,AO,F}
     const failures::F
 end
 
-mutable struct ScenarioPreparation{M,S,A,F,P}
+mutable struct ScenarioPreparation{M,S,A,F,P,SM}
     const owner::M
     const source_specs::S
     const authored::A
     const failure::F
     const program::P
+    const status_manifest::SM
     resolved::Any
 end
 
@@ -836,7 +837,8 @@ function _authored_specs_match(source_specs, specs)
     return all(pair -> pair[1] === pair[2], zip(source_specs, specs))
 end
 
-function _prepare_authored_scenario(model::CompositeModel, raw_specs)
+function _prepare_authored_scenario(model::CompositeModel, raw_specs;
+    raw_families=_prepared_raw_status_families(model))
     source_specs = Tuple(raw_specs)
     # Capture one declaration result per application. Invalid authoring does
     # not hide later valid applications from a read-only diagnostic report.
@@ -925,7 +927,11 @@ function _prepare_authored_scenario(model::CompositeModel, raw_specs)
     recipes = Tuple(record for record in authored_records
         if record isa AuthoredApplicationRecipe)
     program = _prepare_authored_scenario_program(model, recipes)
-    return ScenarioPreparation(model, source_specs, authored_records, failure, program, nothing)
+    status_manifest = _capture_authored_metadata(:status_manifest, nothing) do
+        _prepare_status_manifest(model, authored_records, program, raw_families)
+    end
+    return ScenarioPreparation(model, source_specs, authored_records, failure,
+        program, status_manifest, nothing)
 end
 
 function _model_owned_scenario_preparation(model::CompositeModel, preparation::ScenarioPreparation)
@@ -933,7 +939,8 @@ function _model_owned_scenario_preparation(model::CompositeModel, preparation::S
     # Internal reconstruction can share authored metadata, never the mutable
     # resolved target snapshot. This check is O(1) on lifecycle invalidation.
     owned = ScenarioPreparation(model, preparation.source_specs,
-        preparation.authored, preparation.failure, preparation.program, nothing)
+        preparation.authored, preparation.failure, preparation.program,
+        preparation.status_manifest, nothing)
     model.scenario_plan_cache = owned
     return owned
 end
@@ -971,14 +978,38 @@ function _scenario_preparation(model::CompositeModel; force::Bool=false)
     preparation = model.scenario_plan_cache
     if force || isnothing(preparation) ||
        !_authored_specs_match(preparation, model)
-        preparation = _prepare_authored_scenario(model, model.applications)
-        model.scenario_plan_cache = preparation
+        candidate = _prepare_authored_scenario(model, model.applications)
+        if !isnothing(candidate.failure) || candidate.status_manifest isa ScenarioPreparationFailure
+            # Keep captured authoring failures authoritative, as before. A later
+            # run must not silently fall back to an older compiled preparation.
+            model.scenario_plan_cache = candidate
+            return candidate
+        end
+        registry = try
+            _registry_with_prepared_status_manifest(model, candidate.status_manifest)
+        catch error
+            error isa ArgumentError || rethrow()
+            failure = ScenarioPreparationFailure(:status_manifest, nothing, error, catch_backtrace())
+            rejected = ScenarioPreparation(model, candidate.source_specs,
+                candidate.authored, candidate.failure, candidate.program, failure, nothing)
+            # Only the captured diagnostic becomes authoritative. The registry,
+            # scientific headers and compiled caches remain exactly unchanged.
+            model.scenario_plan_cache = rejected
+            return rejected
+        end
+        # Validation and all potentially failing construction finished first.
+        # These two assignments invoke no user code and preserve every header,
+        # row, identity index and source reservation.
+        model.registry = registry
+        model.scenario_plan_cache = candidate
+        preparation = candidate
     end
     return _model_owned_scenario_preparation(model, preparation)
 end
 
 function _validate_authored_scenario(preparation::ScenarioPreparation)
     isnothing(preparation.failure) || throw(preparation.failure.error)
+    _authored_metadata_value(preparation.status_manifest)
     return nothing
 end
 
@@ -2068,6 +2099,10 @@ function _refresh_bindings!(
     input_binding_storage=nothing,
     status_view_schema=nothing,
 )
+    if force && !(model.registry.objects.catalog isa ClosedObjectFamilyCatalog)
+        throw(ArgumentError("This model has no prepared canonical Status registry. " *
+            "Fix the authoring declarations and construct a new CompositeModel."))
+    end
     if specs !== model.applications
         raw_specs = specs isa Tuple ? specs : specs isa AbstractVector ? Tuple(specs) : (specs,)
         return _compile_scene(model, raw_specs; performance, input_binding_storage, status_view_schema)
@@ -3722,11 +3757,14 @@ end
     C = fieldtype(CV, :canonical_status)
     edited_types = Tuple{private_types..., (fieldtype(TI, :reference) for TI in fieldtypes(CT))...}
     edited_names = (private_names..., current_names...)
-    construction = StatusConstructionRecipe(_status_schema_names(C), edited_names)
-    selected = map(construction.actions) do action
-        _selected_status_reference_type(action, _status_schema_references(C), edited_types)
+    CurrentStatus = fieldtype(CV, :status)
+    Hot = fieldtype(fieldtype(CurrentStatus, :vars), :hot)
+    hot_names = fieldnames(Hot)
+    hot_types = map(hot_names) do name
+        index = findlast(isequal(name), edited_names)
+        isnothing(index) ? fieldtype(Hot,name) : fieldtype(edited_types,index)
     end
-    Result = Status{_status_schema_names(fieldtype(CV, :status)),Tuple{selected...}}
+    Result = _projected_status_type(C, hot_names, Tuple{hot_types...})
     factory = ExactReferenceFactory(C, edited_types, Result, edited_names)
     edited = Expr(:tuple,
         [:(getfield(private_outputs, $index)) for index in eachindex(private_names)]...,
@@ -3935,6 +3973,12 @@ function _extend_temporal_many_inputs_in_place!(view::CompiledModelStatusView,
     return _apply_temporal_many_extensions!(staged)
 end
 
+@inline function _status_view_epoch_is_current(view, model, object_id)
+    canonical = model_status(model, object_id)
+    return view.canonical_status === canonical &&
+        _status_reference_epoch(view.status) == _status_reference_epoch(canonical)
+end
+
 function _extend_model_status_views(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -3970,6 +4014,15 @@ function _extend_model_status_views(
         end
     end
 
+    for (key, previous_view) in views
+        application_id, raw_id = key
+        object_id = _index_object_id(model.registry.objects, raw_id)
+        haskey(model.registry.objects, object_id) || continue
+        current = Base.@inline _with_model_status_view(_status_view_epoch_is_current,
+            compiled.status_view_schema, application_id, previous_view, model, object_id)
+        current || push!(affected_keys, (application_id, object_id))
+    end
+
     positions = Dict(
         application_id => index
         for (index, application_id) in pairs(application_order)
@@ -3984,7 +4037,9 @@ function _extend_model_status_views(
             previous_temporal_sources, applications_by_id, positions, distributed_outputs,
             compiled.status_view_schema)
         if extended
-            delete!(affected_keys, key)
+            current = Base.@inline _with_model_status_view(_status_view_epoch_is_current,
+                compiled.status_view_schema, application_id, view, model, object_id)
+            current && delete!(affected_keys, key)
         end
     end
     for key in affected_keys
@@ -5203,7 +5258,7 @@ function _initialization_effective_value(
         return true, view.status[variable]
     end
     status = _model_object(model, object_id).status
-    if status isa Status && variable in propertynames(status)
+    if status isa Status && hasproperty(status, variable)
         return true, status[variable]
     end
     return false, nothing
@@ -6253,7 +6308,7 @@ _input_reference_name(::Val{VARIABLE}) where {VARIABLE} = VARIABLE
 function _status_ref_or_nothing(status::S, variable) where {S}
     status isa Status || return nothing
     name = _input_reference_name(variable)
-    name in propertynames(status) || return nothing
+    hasproperty(status, name) || return nothing
     return refvalue(status, name)
 end
 
@@ -6265,11 +6320,35 @@ end
     return reference
 end
 
-function _input_reference_carrier(
-    ::Union{One,OptionalOne}, source_ids, reference_for, ::Type{<:Tuple},
-)
-    isempty(source_ids) && return nothing
-    return _checked_input_reference(reference_for(only(source_ids)))
+# Type-only projection shared by the canonical Many constructor and manifest.
+function _many_input_carrier_type(::Type{RT}) where {RT<:Tuple}
+    types = fieldtypes(RT)
+    isempty(types) && throw(ArgumentError("A Many input requires a prepared reference family."))
+    all(R -> R <: Base.RefValue && isconcretetype(R), types) ||
+        throw(ArgumentError("A Many input requires exact prepared reference types."))
+    R = Union{types...}
+    return length(types) == 1 && isconcretetype(eltype(only(types))) ?
+        RefVector{eltype(only(types))} : ObjectRefVector{Vector{R}}
+end
+
+@generated function _input_reference_carrier(
+    ::Union{One,OptionalOne}, source_ids, reference_for::F, ::Type{RT},
+) where {F,RT<:Tuple}
+    types = fieldtypes(RT)
+    isempty(types) && return quote
+        isempty(source_ids) && return nothing
+        throw(ArgumentError("An input source is outside its empty prepared reference family."))
+    end
+    all(R -> R <: Base.RefValue && isconcretetype(R), types) ||
+        return :(throw(ArgumentError("An input requires exact prepared reference classes.")))
+    R = Union{types...}
+    return quote
+        isempty(source_ids) && return nothing
+        reference = _checked_input_reference(reference_for(only(source_ids)))
+        isnothing(reference) && return nothing
+        reference isa $R || throw(ArgumentError("An input source reference is outside its prepared family."))
+        return reference::$R
+    end
 end
 
 @generated function _input_reference_carrier(
@@ -6280,8 +6359,8 @@ end
     all(R -> R <: Base.RefValue && isconcretetype(R), types) ||
         return :(throw(ArgumentError("A Many input requires exact prepared reference types.")))
     R = Union{types...}
-    homogeneous = length(types) == 1 && isconcretetype(eltype(only(types)))
-    result = homogeneous ? :(RefVector(references)) : :(ObjectRefVector(references))
+    C = _many_input_carrier_type(RT)
+    result = :($C(references))
     return quote
         references = $R[]
         sizehint!(references, length(source_ids) + 1)
@@ -6386,44 +6465,29 @@ Sparse reference edits staged before committing one canonical object status.
 Unchanged fields remain in the original status. A model-owned construction
 recipe supplies their order when the staged edits are committed.
 """
-mutable struct _CanonicalStatusRecipe{S<:Union{Nothing,Status}}
+mutable struct _CanonicalStatusRecipe{S<:Status}
     original::S
+    fresh::Bool
     edit_names::Vector{Symbol}
     edit_references::Vector{Ref}
     changed::Bool
     field_changes::Int
 end
 
-function _CanonicalStatusRecipe(status::S) where {S<:Union{Nothing,Status}}
-    return _CanonicalStatusRecipe{S}(
-        status,
-        Symbol[],
-        Ref[],
-        isnothing(status),
-        0,
-    )
+function _CanonicalStatusRecipe(status::S, fresh::Bool) where {N,T,S<:Status{N,T}}
+    T <: _FixedStatusStorage || throw(ArgumentError("Canonical preparation requires its prepared fixed backing."))
+    return _CanonicalStatusRecipe{S}(status, fresh, Symbol[], Ref[], fresh, 0)
 end
 
-# The finite catalog witnesses every original status type before sparse edits.
-# Open preparation keeps the same recipe algorithm behind its ordinary JIT barrier.
-_canonical_status_recipe_storage(::OpenObjectFamilyCatalog, ::Type{I}) where {I<:ObjectId} =
-    Dict{I,_CanonicalStatusRecipe}()
-
-@generated function _canonical_status_recipe_storage(::ClosedObjectFamilyCatalog{F},
-    ::Type{I},
-) where {F,I<:ObjectId}
-    schemas = unique([Nothing; [family.parameters[2] for family in fieldtypes(F)
-        if family.parameters[2] <: Status]])
-    R = Union{map(S -> _CanonicalStatusRecipe{S}, schemas)...}
-    return :(Dict{$I,$R}())
+# Both registry modes use the SAME prepared physical status schema. The registry
+# may remain open to identity values; canonical layouts never reopen at runtime.
+@inline function _canonical_status_recipe_storage(model::CompositeModel, ::Type{I}) where {I<:ObjectId}
+    return Base.@inline _with_prepared_canonical_status_type(
+        _canonical_status_recipe_storage_for_schema, model, I)
 end
+_canonical_status_recipe_storage_for_schema(::Type{S}, ::Type{I}) where {S<:Status,I<:ObjectId} =
+    Dict{I,_CanonicalStatusRecipe{S}}()
 
-# The existing recipe dictionary is the witness for its actual CSR instances.
-@inline function _with_canonical_status_recipe(f::F,
-    ::AbstractDict{I,_CanonicalStatusRecipe}, recipe, args::Vararg{Any,N},
-) where {F,I,N}
-    return f(recipe::_CanonicalStatusRecipe, args...)
-end
 @generated function _with_canonical_status_recipe(f::F, ::AbstractDict{I,R},
     recipe, args::Vararg{Any,N},
 ) where {F,I,R,N}
@@ -6449,7 +6513,7 @@ end
 
 @inline function _status_recipe_has_variable(recipe::_CanonicalStatusRecipe, variable::Symbol)
     variable in recipe.edit_names && return true
-    return !isnothing(recipe.original) && variable in propertynames(recipe.original)
+    return _initial_status_reference(recipe.original, variable) !== nothing
 end
 
 function _status_recipe_reference(
@@ -6462,9 +6526,9 @@ end
 function _status_recipe_reference(original, edit_names, edit_references, variable::Symbol)
     position = findfirst(isequal(variable), edit_names)
     isnothing(position) || return edit_references[position]
-    isnothing(original) && throw(KeyError(variable))
-    variable in propertynames(original) || throw(KeyError(variable))
-    return refvalue(original, variable)
+    reference = _initial_status_reference(original, variable)
+    reference === nothing && throw(KeyError(variable))
+    return reference
 end
 
 function _status_recipe_set_reference!(
@@ -6472,10 +6536,11 @@ function _status_recipe_set_reference!(
     variable::Symbol,
     reference::Ref,
 )
+    _validate_status_reference(recipe.original, variable, reference)
     position = findfirst(isequal(variable), recipe.edit_names)
     if isnothing(position)
         original = recipe.original
-        if !isnothing(original) && variable in propertynames(original) &&
+        if hasproperty(original, variable) &&
            refvalue(original, variable) === reference
             return false
         end
@@ -6514,84 +6579,33 @@ function _status_recipe_add_default!(
     return _status_recipe_set_reference!(recipe, variable, Ref(initial))
 end
 
-# Open canonical construction discovers the reference layout in the same cache.
-function _finish_canonical_status_recipe(f::Callback, ::OpenObjectFamilyCatalog,
-    cache, recipe::_CanonicalStatusRecipe,
-) where {Callback}
-    recipe.changed || return f(recipe.original)
-    original = recipe.original
-    existing_names = isnothing(original) ? () : propertynames(original)
-    existing_references = isnothing(original) ? () : refvalues(original)
-    construction = _status_construction_recipe!(
-        cache,
-        existing_names,
-        Tuple(recipe.edit_names),
-    )
-    return f(_construct_status(construction, existing_references, Tuple(recipe.edit_references)))
-end
-
-function _finish_canonical_status_recipe(f::Callback, model::CompositeModel,
-    recipe::_CanonicalStatusRecipe,
-) where {Callback}
-    return Base.@inline _finish_canonical_status_recipe(f, model.registry.objects.catalog,
-        model.registry.objects.layout_cache, recipe)
-end
-
-function _finish_canonical_status_recipe(f::Callback, catalog::ClosedObjectFamilyCatalog,
-    cache, recipe::_CanonicalStatusRecipe,
-) where {Callback}
-    return _with_registered_status(catalog, recipe.original) do original
-        recipe.changed || return f(original)
-        _finish_admitted_status_recipe(f, catalog, original, recipe.edit_names, recipe.edit_references)
-    end
-end
-
-# Canonical order is the original fields followed by genuinely new fields in
-# edit order. Replacements do not move an existing field.
-function _status_edit_schema_matches(edit_names, original_names::Tuple, result_names::Tuple)
-    length(result_names) >= length(original_names) || return false
-    for index in eachindex(original_names)
-        result_names[index] === original_names[index] || return false
-    end
-    next = length(original_names) + 1
-    for name in edit_names
-        name in original_names && continue
-        next <= length(result_names) && name === result_names[next] || return false
-        next += 1
-    end
-    return next == length(result_names) + 1
-end
-
-# Select and consume actual references in the exact branch. Result schema
-# alternatives never escape as a large union before registration/view creation.
-@generated function _finish_admitted_status_recipe(f::Callback, ::ClosedObjectFamilyCatalog{F}, original::S, edit_names, edit_references) where {Callback,F,S}
-    original_names = _status_schema_names(S)
-    results = unique(family.parameters[2] for family in fieldtypes(F) if family.parameters[2] <: Status)
-    branches = Expr[]
-    for Result in results
-        names = _status_schema_names(Result)
-        length(names) >= length(original_names) && names[1:length(original_names)] == original_names || continue
-        Refs = _status_schema_references(Result)
-        all(isconcretetype, fieldtypes(Refs)) || continue
-        factory = ExactReferenceFactory(S, Refs, Result, names)
-        refs = [gensym(:reference) for _ in names]
-        reads = [:($(refs[index]) = _status_recipe_reference(original, edit_names, edit_references, $(QuoteNode(name))))
-            for (index,name) in enumerate(names)]
-        checks = [:( $(refs[index]) isa $(fieldtype(Refs,index)) ) for index in eachindex(names)]
-        matches = isempty(checks) ? true : reduce((left,right)->:($left && $right), checks)
-        typed = Expr(:tuple, [:( $(refs[index])::$(fieldtype(Refs,index)) ) for index in eachindex(names)]...)
-        push!(branches, quote
-            if _status_edit_schema_matches(edit_names, $(QuoteNode(original_names)), $(QuoteNode(names)))
-                $(reads...)
-                if $matches
-                    return f(_construct_status($(QuoteNode(factory)), original, $typed))
-                end
-            end
-        end)
-    end
+# One prepared physical schema handles every presence pattern. Slot construction
+# validates ALL edits before its single metadata assignment; no runtime type/name
+# discovery, terminal-layout enumeration or alternate Open algorithm remains.
+@generated function _finish_canonical_status_recipe(f::F,
+    recipe::_CanonicalStatusRecipe{S},
+) where {F,N,R,T,S<:Status{N,_FixedStatusStorage{N,R,T}}}
+    cells = [gensym(:cell) for _ in N]
+    reads = [quote
+        position = findfirst(isequal($(QuoteNode(name))), recipe.edit_names)
+        $(cells[i]) = isnothing(position) ?
+            getfield(_status_vars(recipe.original).refs, $i) : recipe.edit_references[position]
+        $(cells[i]) isa $(fieldtype(T,i)) || throw(ArgumentError("Staged reference is outside its prepared slot family."))
+    end for (i,name) in enumerate(N)]
+    values = Expr(:tuple, [:( $(cells[i])::$(fieldtype(T,i)) ) for i in eachindex(N)]...)
     return quote
-        $(branches...)
-        throw(ArgumentError("The constructed reference schema is outside the prepared object family catalog."))
+        recipe.changed || return f(recipe.original)
+        for name in recipe.edit_names
+            name in $(QuoteNode(N)) || throw(KeyError(name))
+        end
+        $(reads...)
+        storage = _status_vars(recipe.original)
+        references = $T($values)
+        if references !== storage.refs
+            storage.refs = references
+            storage.reference_epoch += UInt(1)
+        end
+        return f(recipe.original)
     end
 end
 
@@ -6608,19 +6622,28 @@ function _model_object_status_for_preparation(
 end
 
 function _status_recipe_for_object!(
-    recipes::AbstractDict{I,R},
-    recipe_order::AbstractVector{I},
-    model::CompositeModel,
-    object_id::ObjectId,
+    recipes::AbstractDict{I,R}, recipe_order::AbstractVector{I},
+    model::CompositeModel, raw_id::ObjectId,
 ) where {I<:ObjectId,R<:_CanonicalStatusRecipe}
-    object_id = _index_object_id(recipes, object_id)
-    return get!(recipes, object_id) do
-        status = _model_object_status_for_preparation(model, object_id)
-        Base.@inline _with_registered_status(model.registry.objects.catalog, status) do original
-            push!(recipe_order, object_id)
-            _CanonicalStatusRecipe(original)
-        end
+    object_id = _index_object_id(recipes, raw_id)
+    existing = get(recipes, object_id, nothing)
+    isnothing(existing) || return existing
+    original = _model_object_status_for_preparation(model, object_id)
+    return Base.@inline _with_prepared_canonical_status_type(
+        _create_status_recipe_for_object!, model, original, recipes, recipe_order, object_id)
+end
+
+function _create_status_recipe_for_object!(::Type{S}, original, recipes, order, object_id) where {S<:Status}
+    fresh = isnothing(original)
+    if fresh
+        original = Base.@inline _new_prepared_status(S, nothing)
+    else
+        original isa S || throw(ArgumentError("Register canonical data in the prepared status schema before execution."))
     end
+    recipe = _CanonicalStatusRecipe(original::S, fresh)
+    push!(order, object_id)
+    recipes[object_id] = recipe
+    return recipe
 end
 
 function _status_preparation_for_object!(
@@ -6645,10 +6668,17 @@ function _apply_status_recipes!(
     recipe_order::AbstractVector{I};
     performance=nothing,
 ) where {I<:ObjectId,R<:_CanonicalStatusRecipe}
+    # Admission of the whole transaction precedes publication of any owner.
     for object_id in recipe_order
         recipe = recipes[object_id]
         recipe.changed || continue
-        _finish_canonical_status_recipe(model, recipe) do status
+        Base.@inline _with_canonical_status_recipe(_validate_status_recipe_configuration!,
+            recipes, recipe, model, object_id)
+    end
+    for object_id in recipe_order
+        recipe = recipes[object_id]
+        recipe.changed || continue
+        _finish_canonical_status_recipe(recipe) do status
             _replace_model_object_status!(model, object_id, status)
         end
         _runtime_performance_count!(
@@ -6664,7 +6694,7 @@ function _apply_status_recipes!(
             performance,
             :lifecycle_binding_refresh_status_recipe_materializations_avoided,
             max(
-                recipe.field_changes - (isnothing(recipe.original) ? 0 : 1),
+                recipe.field_changes - (recipe.fresh ? 0 : 1),
                 0,
             ),
         )
@@ -6672,15 +6702,27 @@ function _apply_status_recipes!(
     return model
 end
 
+@inline function _validate_status_recipe_configuration!(recipe, model, object_id)
+    return _validate_prepared_status_recipe(model, object_id, recipe)
+end
+
 function _ensure_model_object_status!(model::CompositeModel, object_id::ObjectId)
     object = _model_object(model, object_id)
     status = object.status
-    isnothing(status) && (status = _replace_model_object_status!(model, object, Status()))
+    if isnothing(status)
+        return Base.@inline _with_prepared_canonical_status_type(
+            _ensure_prepared_model_object_status!, model, model, object)
+    end
     status isa Status || error(
         "Model object `$(object_id.value)` uses model applications but its status has type ",
         "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
     )
     return Base.@inline _with_registered_status(identity, model.registry.objects.catalog, status)
+end
+
+function _ensure_prepared_model_object_status!(::Type{S}, model, object) where {S<:Status}
+    status = Base.@inline _new_prepared_status(S, nothing)
+    return _replace_model_object_status!(model, object, status)
 end
 
 _stage_model_output_defaults!(preparation, ::Tuple{}, ::Tuple{}, context) = nothing
@@ -6695,7 +6737,7 @@ function _stage_model_output_defaults!(
     value = first(defaults)
     if _publish_mode_for_output(context.application.spec, variable) == :canonical
         if preparation isa Status
-            if !(variable in propertynames(preparation))
+            if !(hasproperty(preparation, variable))
                 recipe = _status_recipe_for_object!(
                     context.recipes,
                     context.recipe_order,
@@ -6733,7 +6775,7 @@ function _prepare_model_output_statuses!(
 )
     isempty(applications) && return model
     I = keytype(model.registry.objects)
-    recipes = _canonical_status_recipe_storage(model.registry.objects.catalog, I)
+    recipes = _canonical_status_recipe_storage(model, I)
     recipe_order = I[]
     record_conversions = !_no_status_conversion(model.status_conversion)
     conversion_records = record_conversions ? Dict{Any,Any}() : model.status_conversion_records
@@ -6844,7 +6886,7 @@ function _prepare_model_output_destination_statuses!(
     resolved_destinations,
 )
     I = keytype(model.registry.objects)
-    recipes = _canonical_status_recipe_storage(model.registry.objects.catalog, I)
+    recipes = _canonical_status_recipe_storage(model, I)
     recipe_order = I[]
     records_before = copy(model.status_conversion_records)
     try
@@ -6860,7 +6902,7 @@ function _prepare_model_output_destination_statuses!(
                     declaration isa Default || continue
                     variable = Symbol(variable_)
                     if preparation isa Status
-                        variable in propertynames(preparation) && continue
+                        hasproperty(preparation, variable) && continue
                         preparation = _status_recipe_for_object!(
                             recipes,
                             recipe_order,
@@ -6880,12 +6922,12 @@ function _prepare_model_output_destination_statuses!(
                 end
             end
         end
+        return _apply_status_recipes!(model, recipes, recipe_order)
     catch
         empty!(model.status_conversion_records)
         merge!(model.status_conversion_records, records_before)
         rethrow()
     end
-    return _apply_status_recipes!(model, recipes, recipe_order)
 end
 
 function _model_output_destination_columns(
@@ -7448,7 +7490,7 @@ function _stage_model_input_defaults!(preparation, variables::Tuple,
 ) where {V}
     variable, value = first(variables), first(defaults)
     if preparation isa Status
-        if !(variable in propertynames(preparation))
+        if !(hasproperty(preparation, variable))
             recipe = _status_recipe_for_object!(context.recipes,
                 context.recipe_order, context.model, context.object_id)
             return _with_canonical_status_recipe(_stage_model_input_defaults!,
@@ -7521,7 +7563,7 @@ function _stage_admitted_model_input_reference!(preparation, reference, binding,
     context,
 )
     if preparation isa Status
-        if binding.input in propertynames(preparation) &&
+        if hasproperty(preparation, binding.input) &&
            refvalue(preparation, binding.input) === reference
             context.default_status_updates[(binding.consumer_id, binding.input)] = false
             return nothing
@@ -7553,7 +7595,7 @@ function _prepare_model_input_statuses_batched!(
     performance=nothing,
 )
     I = keytype(model.registry.objects)
-    recipes = _canonical_status_recipe_storage(model.registry.objects.catalog, I)
+    recipes = _canonical_status_recipe_storage(model, I)
     recipe_order = I[]
     record_conversions = !_no_status_conversion(model.status_conversion)
     conversion_records = record_conversions ? Dict{Any,Any}() : model.status_conversion_records
@@ -8129,14 +8171,17 @@ function _many_model_variant_types(producer)
     return ((model, ports.output_types, ports.output_element_types),)
 end
 
-function _prepare_many_reference_types(model, consumer, input, selector,
+function _prepare_input_reference_types(model, consumer, input, selector,
     source_var, producer_ids, applications_by_id, distributed_output_plans)
     references = Any[]
     add(R) = R in references || push!(references, R)
     declared_input = _configured_status_value_type(model.status_conversion,
         getproperty(_application_ports(consumer).input_types, input), nothing)
-    fallback = !isnothing(declared_input) && declared_input <: AbstractVector ?
-        eltype(declared_input) : Union{}
+    fallback = if selector isa Many
+        !isnothing(declared_input) && declared_input <: AbstractVector ? eltype(declared_input) : Union{}
+    else
+        isnothing(declared_input) ? Union{} : declared_input
+    end
     isconcretetype(fallback) || (fallback = Union{})
     producers = isempty(producer_ids) ? (nothing,) : producer_ids
     for producer_id in producers
@@ -8175,7 +8220,9 @@ function _prepare_many_reference_types(model, consumer, input, selector,
             # Real current cells need no conversion. A concrete declared future
             # family is still admissible even when every current source has a cell.
             current_complete = !isempty(current) && isempty(missing_current)
-            T = if isnothing(producer) || !isnothing(model.status_conversion.transform)
+            # The producer declaration chooses a prospective storage family;
+            # actual transformed source references are still admitted by RT.
+            T = if isnothing(producer)
                 fallback
             else
                 _configured_status_value_type(model.status_conversion,
@@ -8185,10 +8232,12 @@ function _prepare_many_reference_types(model, consumer, input, selector,
             if isempty(candidates) || !all(isconcretetype, candidates)
                 candidates = fallback === Union{} ? () : (fallback,)
             end
-            # A transform or abstract Required may leave the prospective type
-            # unknown. Existing complete references remain valid evidence.
+            # An abstract Required may leave the prospective family unknown.
+            # Existing complete references remain valid evidence; no transform
+            # is called here to manufacture an additional type witness.
             if isempty(candidates)
-                (current_complete || (isnothing(producer) && observed_any)) && continue
+                (current_complete || (isnothing(producer) && observed_any) ||
+                    (selector isa OptionalOne && isempty(current))) && continue
             end
             isempty(candidates) && throw(ArgumentError(
                 "Many input `$(input)` on application `$(consumer.id)` has no concrete " *
@@ -8201,7 +8250,8 @@ function _prepare_many_reference_types(model, consumer, input, selector,
             end
         end
     end
-    isempty(references) && throw(ArgumentError("A Many input has no prepared reference family."))
+    isempty(references) && !(selector isa OptionalOne) &&
+        throw(ArgumentError("An input has no prepared reference family."))
     # Julia canonicalizes the union; its members give deterministic witness order.
     return Tuple{Base.uniontypes(Union{references...})...}
 end
@@ -8282,9 +8332,9 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
         potential_source_application_ids,
         breaks_same_step_cycle,
         _selector_window(selector),
-        selector isa Many ? _prepare_many_reference_types(model, application,
-            input, selector, source_var, potential_source_application_ids,
-            applications_by_id, distributed_output_plans) : Tuple{},
+        _prepare_input_reference_types(model, application, input, selector,
+            source_var, potential_source_application_ids,
+            applications_by_id, distributed_output_plans),
     )
 end
 

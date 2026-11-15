@@ -16,8 +16,9 @@ const PSE = PlantSimEngine
     store = model.registry.objects
 
     @test store isa PSE.ObjectFamilyStore
-    @test store.catalog isa PSE.OpenObjectFamilyCatalog
-    @test length(store.catalog.families) == 3
+    @test store.catalog isa PSE.ClosedObjectFamilyCatalog
+    @test length(store.catalog.families) == 2 # None + one prepared physical S
+    canonical = model_status(model, 1)
     @test model_object(model, 1) === first
     for object in (first, second, empty)
         @test model_object(model, object.id) === object
@@ -32,23 +33,35 @@ const PSE = PlantSimEngine
         @test failure isa ErrorException
         @test sprint(showerror, failure) == "No model object with id `$(id)`."
     end
-    @test model_status(model, 1) === supplied
-    @test PSE.refvalue(model_status(model, supplied), :value) === reference
+    @test canonical !== supplied
+    @test PSE.refvalue(canonical, :value) === reference
+    @test_throws ArgumentError model_status(model, supplied)
     @test isnothing(model_status(model, (:plant, 3)))
     @test Set(keys(store)) == Set((ObjectId(1), ObjectId(:leaf), ObjectId((:plant, 3))))
     @test Set(values(store)) == Set((first, second, empty))
     @test Dict(store)[ObjectId(1)] === first
     @test copy(store)[ObjectId(:leaf)] === second
     @test get(store, ObjectId(:absent), nothing) === nothing
-    @test object_id(model, supplied) === ObjectId(1)
+    @test object_id(model, canonical) === ObjectId(1)
+    @test_throws ArgumentError object_id(model, supplied)
 
     model_status(model, 1).value = 4f0
     @test supplied.value === first.status.value === 4f0
     location = store.locations[ObjectId(1)]
     family = store.catalog.families[location.family]
-    @test family isa PSE.ObjectFamily{ObjectId{Int},typeof(supplied)}
-    @test family.rows[location.row].status === supplied
+    @test family isa PSE.ObjectFamily{keytype(store),typeof(canonical)}
+    @test family.rows[location.row].status === canonical
 end
+
+# Genuine model configuration declares the replacement's numerical types at
+# preparation; no dummy object or explicit canonical Status prototype is needed.
+PSE.@process "canonical_family_replacement" verbose=false
+struct FamilyReplacement{D} <: AbstractCanonical_Family_ReplacementModel
+    defaults::D
+end
+PSE.inputs_(::FamilyReplacement) = (;)
+PSE.outputs_(model::FamilyReplacement) = model.defaults
+PSE.run!(::FamilyReplacement, status, environment, constants, context) = nothing
 
 @noinline function escape_registered_status!(sink, model, id, count)
     for _ in 1:count
@@ -60,10 +73,13 @@ end
 registered_status_allocations(sink, model, id, count) =
     @allocated escape_registered_status!(sink, model, id, count)
 
-@testset "escaping open-family lookups reuse the canonical Status box" begin
+@testset "escaping prepared-family lookups reuse the official Status box" begin
     supplied = Status(value=1f0, items=Float32[2], counter=0, label=:leaf, active=true)
     object = Object(:leaf; status=supplied)
-    model = CompositeModel(object)
+    replacement_defaults = (value=4.0, items=[5.0], counter=1, label=:updated, active=false)
+    model = CompositeModel(object; applications=(ModelSpec(
+        FamilyReplacement(replacement_defaults); name=:replacement, on=One(id=:leaf)),))
+    canonical = model_status(model, object.id)
     sink = Ref{Any}()
     for _ in 1:2
         escape_registered_status!(sink, model, object.id, 1000)
@@ -71,7 +87,8 @@ registered_status_allocations(sink, model, id, count) =
     end
     @test registered_status_allocations(sink, model, object.id, 1) == 0
     @test registered_status_allocations(sink, model, object.id, 1000) == 0
-    @test sink[] === supplied === object.status
+    @test sink[] === canonical === object.status
+    @test sink[] !== supplied
     @test all(index -> PSE.refvalues(sink[])[index] === PSE.refvalues(supplied)[index],
               eachindex(PSE.refvalues(supplied)))
     location = model.registry.objects.locations[object.id]
@@ -82,53 +99,69 @@ registered_status_allocations(sink, model, id, count) =
     @test supplied.items == Float32[3]
 
     replacement = Status(value=4.0, items=[5.0], counter=1, label=:updated, active=false)
-    PSE._replace_model_object_status!(model, object, replacement)
+    official_replacement = PSE._replace_model_object_status!(model, object, replacement)
     for _ in 1:2
         escape_registered_status!(sink, model, object.id, 1000)
         registered_status_allocations(sink, model, object.id, 1000)
     end
     @test registered_status_allocations(sink, model, object.id, 1000) == 0
-    @test sink[] === replacement === object.status
+    @test sink[] === official_replacement === object.status
+    @test sink[] !== replacement
     @test PSE.refvalue(sink[], :items) === PSE.refvalue(replacement, :items)
-    @test object_id(model, replacement) === object.id
+    @test object_id(model, official_replacement) === object.id
+    @test_throws ArgumentError object_id(model, replacement)
+    @test_throws ArgumentError object_id(model, canonical)
     @test_throws ArgumentError object_id(model, supplied)
     @test supplied.items == Float32[3]
 end
 
-@testset "status replacement moves family membership and exclusive ownership" begin
+@testset "status replacement keeps the prepared family and exclusive official ownership" begin
     original = Status(value=1f0)
     first = Object(:first; status=original)
     occupied = Status(value=9.0)
     second = Object(:second; status=occupied)
-    model = CompositeModel(first, second)
+    model = CompositeModel(first, second; applications=(ModelSpec(
+        FamilyReplacement((value=3.0, counter=2)); name=:replacement, on=One(id=:first)),))
     store = model.registry.objects
+    first_official = model_status(model, :first)
+    second_official = model_status(model, :second)
     previous = store.locations[first.id]
     replacement = Status(value=3.0, counter=2)
 
-    @test PSE._replace_model_object_status!(model, first, replacement) === replacement
+    official = PSE._replace_model_object_status!(model, first, replacement)
+    @test official !== replacement
     current = store.locations[first.id]
-    @test current.family != previous.family
-    @test isnothing(store.catalog.families[previous.family].rows[previous.row])
+    @test current.family == previous.family
+    @test current.row == previous.row
+    @test store.catalog.families[current.family].rows[current.row].status === official
     @test model_object(model, :first) === first
-    @test first.status === model_status(model, :first) === replacement
-    @test object_id(model, replacement) === first.id
+    @test first.status === model_status(model, :first) === official
+    @test PSE.refvalue(official, :value) === PSE.refvalue(replacement, :value)
+    @test object_id(model, official) === first.id
+    @test_throws ArgumentError object_id(model, replacement)
+    @test_throws ArgumentError object_id(model, first_official)
     @test_throws ArgumentError object_id(model, original)
     @test original.value === 1f0
 
     @test_throws ArgumentError PSE._replace_model_object_status!(model, first, occupied)
-    @test first.status === model_status(model, :first) === replacement
-    @test model_status(model, :second) === occupied
+    @test_throws ArgumentError PSE._replace_model_object_status!(model, first, second_official)
+    @test first.status === model_status(model, :first) === official
+    @test model_status(model, :second) === second_official
     @test store.locations[first.id] == current
     @test_throws ArgumentError PSE._replace_model_object_status!(
         model, Object(:first; status=Status(value=0.0)), Status(value=12.0))
     @test model_object(model, :first) === first
-    @test model_status(model, :first) === replacement
+    @test model_status(model, :first) === official
 
     @test isnothing(PSE._replace_model_object_status!(model, first, nothing))
     @test isnothing(model_status(model, :first))
-    @test_throws ArgumentError object_id(model, replacement)
-    @test PSE._replace_model_object_status!(model, first, original) === original
-    @test object_id(model, original) === first.id
+    @test_throws ArgumentError object_id(model, official)
+    restored = PSE._replace_model_object_status!(model, first, original)
+    @test restored !== original
+    @test restored === model_status(model, :first)
+    @test PSE.refvalue(restored, :value) === PSE.refvalue(original, :value)
+    @test object_id(model, restored) === first.id
+    @test_throws ArgumentError object_id(model, original)
 end
 
 PSE.@process "canonical_family_increment" verbose = false
@@ -200,7 +233,7 @@ end
     id = object_id(model, born)
     node = source_node(model, born)
     @test model_status(model, node) === born
-    @test born.node === node
+    @test !hasproperty(born, :node)
     @test source_node(model, id) === node
     @test object_id(model, node) === id
     @test born.value === 7f0
@@ -240,7 +273,8 @@ end
 
     grown = add_organ!(tip, model, :+, :Tip, 2; attributes=(new_field=4,))
     @test typeof(source_node(model, grown)) === typeof(root)
-    @test grown.new_field === 4
+    @test !hasproperty(grown, :new_field)
+    @test source_node(model, grown)[:new_field] === 4
 
     # Explicit raw construction can create a different detached node family,
     # but cannot attach it to the homogeneous children vector of this tree.
@@ -261,6 +295,7 @@ end
     copied_object = model_object(copied, :leaf)
     copied_status = model_status(copied, :leaf)
     @test copied_object !== object
+    @test copied_status !== model_status(model, :leaf)
     @test copied_status !== original
     @test copied_object.status === copied_status
     @test object_id(copied, copied_status) === ObjectId(:leaf)
@@ -283,23 +318,33 @@ end
     @test closed.catalog.families isa Tuple
     @test keytype(closed.locations) === ObjectId{Int}
     @test closed[first.id] === first
-    @test (@inferred PSE._object_family_status(closed, first.id)) === first_status
+    canonical = model_status(model, first.id)
+    S = typeof(canonical)
+    inferred = Core.Compiler.return_type(PSE._object_family_status,
+        Tuple{typeof(closed),typeof(first.id)})
+    @test inferred === Union{Nothing,S}
+    @test PSE._object_family_status(closed, first.id) === canonical
+    @test PSE.refvalue(canonical, :value) === PSE.refvalue(first_status, :value)
     store_type = typeof(closed)
 
     born = Object(2; status=Status(value=2f0))
+    register_object!(model, born)
     closed[born.id] = born
     @test typeof(closed) === store_type
     @test length(closed) == 2
     @test PSE._object_family_status(closed, born.id) === born.status
     @test closed.status_owners[PSE._status_identity(born.status)] === born.id
-    @test_throws ArgumentError setindex!(closed, Object(3; status=Status(value=3.0)), ObjectId(3))
+    foreign = CompositeModel(Object(3; status=Status(value=3.0)))
+    @test_throws ArgumentError setindex!(closed, model_object(foreign, 3), ObjectId(3))
     @test !haskey(closed, ObjectId(3))
     @test length(closed) == 2
 
     delete!(closed, born.id)
     @test length(closed) == 1
     @test !haskey(closed.status_owners, PSE._status_identity(born.status))
+    remove_object!(model, born.id)
     replacement = Object(2; status=Status(value=8f0))
+    register_object!(model, replacement)
     closed[replacement.id] = replacement
     @test closed[replacement.id] === replacement
     @test PSE._object_family_status(closed, replacement.id).value === 8f0
@@ -310,24 +355,23 @@ end
     @test PSE._object_family_status(mixed_closed, ObjectId(1)).value === 1f0
     @test isnothing(PSE._object_family_status(mixed_closed, ObjectId(:leaf)))
 
-    historical = CompositeModel(Object(:leaf; status=Status(value=1f0)))
-    PSE._replace_model_object_status!(historical, :leaf, Status(value=2.0, count=1))
-    @test length(historical.registry.objects.catalog.families) == 2
-    active = PSE._closed_object_family_store(historical.registry.objects)
-    @test length(active.catalog.families) == 1
-    @test PSE._object_family_status(active, ObjectId(:leaf)).value === 2.0
-    @test_throws ArgumentError setindex!(active,
-        Object(:newborn; status=Status(value=3f0)), ObjectId(:newborn))
+    # Runtime discovery/retirement of arbitrary Status types is obsolete.
+    # Empty None+S retention is covered by test-prepared-status-registration.
 
     statuses = [Status(value=Float32(index), payload=ntuple(identity, index)) for index in 1:8]
     eight = CompositeModel((Object(index; status=status) for (index, status) in enumerate(statuses))...)
     eight_closed = PSE._closed_object_family_store(eight.registry.objects)
-    allowed = Union{typeof.(statuses)...}
+    official = [model_status(eight, index) for index in 1:8]
+    S = typeof(Base.first(official))
+    allowed = Union{Nothing,S}
     inferred = Core.Compiler.return_type(PSE._object_family_status,
         Tuple{typeof(eight_closed),ObjectId{Int}})
     @test inferred === allowed
     for (index, status) in enumerate(statuses)
-        @test PSE._object_family_status(eight_closed, ObjectId(index)) === status
+        canonical = PSE._object_family_status(eight_closed, ObjectId(index))
+        @test canonical === official[index]
+        @test PSE.refvalue(canonical, :value) === PSE.refvalue(status, :value)
+        @test PSE.refvalue(canonical, :payload) === PSE.refvalue(status, :payload)
     end
 end
 

@@ -26,7 +26,7 @@ PSE.outputs_(::HardController) = (ticks=0, pulse_total=0.0)
 PSE.outputs_(::GrowthController) = (
     ticks=0, pulse_total=0.0, created=false, births=0, born_value=0.0,
 )
-PSE.inputs_(::LeafState) = (seed=Required(Real),)
+PSE.inputs_(::LeafState) = (seed=Required(Float64),)
 PSE.outputs_(::LeafState) = (value=0.0, visits=0)
 
 function PSE.run!(::Pulse, status, environment, constants, context)
@@ -98,32 +98,15 @@ function make_growth(; environment=nothing, fail_initializer=false)
     return (; model, birth_day, seed)
 end
 
-# Exact reference-field types required by this deliberately finite fixture.
-# These are empty family descriptors, never fake scientific statuses or values.
-const LeafSeedStatus = Status{(:seed,),Tuple{Base.RefValue{Float64}}}
-const LeafFullStatus = Status{(:seed,:value,:visits),
-    Tuple{Base.RefValue{Float64},Base.RefValue{Float64},Base.RefValue{Int}}}
-
-empty_family(::Type{S}) where {S} = PSE.ObjectFamily{ObjectId{Symbol},S}(
-    Union{Nothing,PSE.ObjectFamilyRow{ObjectId{Symbol},S}}[])
-
-function with_closed_registry(model::PSE.CompositeModel; future=())
+function with_finite_registry(model::PSE.CompositeModel)
     previous = model.registry
-    closed = PSE._closed_object_family_store(previous.objects)
-    families = (closed.catalog.families..., map(empty_family, future)...)
-    store = PSE.ObjectFamilyStore(PSE.ClosedObjectFamilyCatalog(families),
-        closed.locations, closed.status_owners, copy(closed.layout_cache))
-    registry = PSE.ObjectRegistry(store, previous.by_scale, previous.by_kind,
+    objects = PSE._closed_object_family_store(previous.objects)
+    registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
         previous.by_species, previous.ancestor_ids_by_object)
-    return PSE.CompositeModel(
-        registry, model.applications, model.environment, model.instances,
-        model.source_adapter, model.status_conversion, model.status_conversion_records,
-        model.status_source_owners, model.status_source_identities,
-        model.scenario_plan_cache, model.binding_cache, model.environment_binding_cache,
-        model.bindings_dirty, model.environment_bindings_dirty, model.lifecycle_delta,
-        model.input_default_status_variables, model.runtime_revision, model.revision,
-        model.environment_revision,
-    )
+    fields = map(fieldnames(typeof(model))) do name
+        name === :registry ? registry : getfield(model, name)
+    end
+    return PSE.CompositeModel(fields...)
 end
 
 function future_leaf_batch_type(simulation)
@@ -135,9 +118,16 @@ function future_leaf_batch_type(simulation)
     @assert isempty(application.target_ids)
     Empty = NamedTuple{(),Tuple{}}
     I = ObjectId{Symbol}
-    # This descriptor is explicitly admitted alongside LeafSeedStatus above.
-    # No Leaf, Status, scientific default, or callback is instantiated here.
-    View = PSE.CompiledModelStatusView{LeafFullStatus,LeafFullStatus,Tuple{},Empty,Empty}
+    # Project the already prepared physical namespace and exact port references.
+    # No future Leaf, default value, Status, getter or kernel is constructed.
+    Canonical = PSE._scenario_preparation(simulation.model).status_manifest.status_type
+    ports = PSE._application_ports(application)
+    names = Tuple(unique((ports.input_names..., keys(ports.output_types)...)))
+    references = PSE._status_schema_references(Canonical)
+    HotReferences = Tuple{(fieldtype(references,
+        findfirst(isequal(name), PSE._status_schema_names(Canonical))) for name in names)...}
+    Hot = PSE._projected_status_type(Canonical, names, HotReferences)
+    View = PSE.CompiledModelStatusView{Hot,Canonical,Tuple{},Empty,Empty}
     Context = PSE.RunContext{typeof(compiled),typeof(application),Tuple{},Empty,Empty,
         typeof(simulation.temporal_streams),typeof(simulation.output_retention),
         typeof(simulation.constants),PSE.NoEnvironmentOverride,I,typeof(simulation.environment_bindings)}
@@ -146,7 +136,7 @@ function future_leaf_batch_type(simulation)
         Tuple{},Empty,Empty,Tuple{},Tuple{},Binding,Context,I}
     Store = typeof(simulation.temporal_streams.cohorts)
     Owner = PSE._execution_store_owner_type(Store)
-    Rows = PSE.ExecutionCohortRows{Target,PSE.ExecutionCohort{Target,I,Owner},Store}
+    Rows = PSE.ExecutionCohortRows{Target,I,Owner,Store}
     return PSE.CompiledExecutionBatch{typeof(application),Rows,
         PSE.RawGlobalModelEnvironment{typeof(environment_plan.prepared_source)},
         PSE.CompiledOutputPublication{Tuple{}}}
@@ -154,7 +144,7 @@ end
 
 function prepare_schema_growth(; environment=nothing, fail_initializer=false)
     setup = make_growth(; environment, fail_initializer)
-    model = with_closed_registry(setup.model;future=(LeafSeedStatus,LeafFullStatus))
+    model = with_finite_registry(setup.model)
     simulation = run!(model;steps=0,outputs=:none)
     controller = only(simulation.execution_plan.groups)
     controller_batch = only(controller.batches)

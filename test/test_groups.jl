@@ -6,6 +6,8 @@ const TEST_GROUPS = (
     "Registered object identity" => (
         "test-model-object-id.jl",
         "test-object-families.jl",
+        "test-prepared-status-registration.jl",
+        "test-fixed-status-scope-growth.jl",
     ),
     "Concrete runtime object identities" => (
         "test-model-concrete-object-identities.jl",
@@ -54,6 +56,7 @@ const TEST_GROUPS = (
         "test-model-prepared-scenario.jl",
         "test-model-scenario-authoring.jl",
         "test-model-authored-port-inventory.jl",
+        "test-fixed-status-manifest.jl",
         "test-model-authored-input-graph.jl",
         "test-model-prepared-authoring-owner.jl",
         "test-model-public-refresh-owners.jl",
@@ -237,6 +240,7 @@ const TEST_GROUPS = (
     ),
     "Distributed output runtime" => (
         "test-model-distributed-output-runtime.jl",
+        "test-fixed-status-prospective-distributed.jl",
         "test-model-runtime-stream-extensions.jl",
     ),
     "Distributed output assignment API" => (
@@ -277,6 +281,7 @@ const TEST_GROUPS = (
     ),
     "Status" => (
         "test-Status.jl",
+        "test-status-fixed-storage.jl",
     ),
     "TimeStepTable" => (
         "test-TimeStepTable.jl",

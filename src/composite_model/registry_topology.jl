@@ -536,6 +536,7 @@ function _register_objects!(
                     model,
                     object;
                     status_values_materialized=status_values_materialized,
+                    prepared=false,
                 )
                 push!(added, object)
                 deleteat!(pending, index)
@@ -586,8 +587,8 @@ function CompositeModel(
         type_promotion, status_transform, _status_conversion,
         _status_values_materialized, _status_conversion_records,
     )
-    _scenario_preparation(model)
-    return model
+    preparation = _scenario_preparation(model)
+    return _install_prepared_canonical_registry(model, preparation)
 end
 
 # Graph-editor transactions also use this assembler, then finalize authored
@@ -652,6 +653,68 @@ function _assemble_composite_model(
         status_values_materialized=_status_values_materialized,
     )
     return model
+end
+
+
+# Host-side candidate only: the caller publishes it together with its new
+# ScenarioPreparation after every representability check has succeeded.
+function _registry_with_prepared_status_manifest(model, manifest)
+    previous = model.registry
+    store = previous.objects
+    catalog = store.catalog
+    catalog isa ClosedObjectFamilyCatalog || return previous # constructor assembly
+    old = catalog.status_manifest
+    (manifest.status_type === old.status_type && typeof(manifest) === typeof(old)) ||
+        throw(ArgumentError("This authoring refresh changes the prepared Status or typed configuration schema. " *
+            "Construct a new CompositeModel for this configuration."))
+    replacement = ObjectFamilyStore(ClosedObjectFamilyCatalog(catalog.families, manifest),
+        store.locations, store.status_owners)
+    registry = ObjectRegistry(replacement, previous.by_scale, previous.by_kind,
+        previous.by_species, previous.ancestor_ids_by_object)
+    typeof(registry) === typeof(previous) || throw(ArgumentError(
+        "This authoring refresh needs a new registry schema. Construct a new CompositeModel."))
+    return registry
+end
+
+function _install_prepared_canonical_registry(model::CompositeModel, preparation)
+    manifest = preparation.status_manifest
+    # Authoring failures stay inspectable, but the execution validator rethrows
+    # them; this raw assembly is not an executable legacy fallback.
+    (!isnothing(preparation.failure) || manifest isa ScenarioPreparationFailure) && return model
+    return _install_prepared_canonical_registry(model, manifest, manifest.status_type)
+end
+
+function _install_prepared_canonical_registry(model, manifest, ::Type{S}) where {S<:Status}
+    previous = model.registry
+    K = keytype(previous.objects)
+    pending = Pair{Object,Union{Nothing,S}}[]
+    for object in values(previous.objects)
+        source = object.status
+        _validate_prepared_initial_status(manifest, model, object, source, object.parent)
+        push!(pending, object => (isnothing(source) ? nothing : _new_prepared_status(S, source)))
+    end
+    families = (ObjectFamily{K,Nothing}(Union{Nothing,ObjectFamilyRow{K,Nothing}}[]),
+        ObjectFamily{K,S}(Union{Nothing,ObjectFamilyRow{K,S}}[]))
+    store = ObjectFamilyStore(ClosedObjectFamilyCatalog(families, manifest),
+        Dict{K,ObjectFamilyLocation}(), IdDict{Base.RefValue{Nothing},K}())
+    for (object, status) in pending
+        _store_object_family_row!(store, object, object.id::K, status)
+    end
+    # Publish only after every source/configuration and owner check succeeded.
+    # A dense->fixed header gets its own token; source reservations stay exactly
+    # those recorded by the original one-time registration/conversion.
+    for (object, status) in pending
+        setfield!(object, :status, status)
+    end
+    registry = ObjectRegistry(store, previous.by_scale, previous.by_kind,
+        previous.by_species, previous.ancestor_ids_by_object)
+    fields = map(fieldnames(typeof(model))) do name
+        name === :registry ? registry : getfield(model, name)
+    end
+    prepared = CompositeModel(fields...)
+    preparation = model.scenario_plan_cache
+    _model_owned_scenario_preparation(prepared, preparation)
+    return prepared
 end
 
 """
@@ -858,7 +921,9 @@ end
     id=node_id, scale=symbol, status=..., ...)
 
 Build a unified model directly from an MTG subtree. The MTG accessors are
-retained and reused by [`add_organ!`](@ref) when the topology grows.
+retained for labels, geometry and source identity during [`add_organ!`](@ref).
+The `status(node)` accessor imports initial scientific values only; growth
+receives its scientific data through `initial_status`.
 """
 function CompositeModel(
     root::MultiScaleTreeGraph.Node;
@@ -1147,10 +1212,13 @@ function _replace_model_object_status!(
     object.status === status && return status
     store = model.registry.objects
     object_id = object.id::keytype(store)
-    return _with_registered_status(store.catalog, status) do admitted
+    _validate_status_source_identity_available!(model, status, object_id)
+    _validate_prepared_initial_status(model, object, status, object.parent)
+    return Base.@inline _with_prepared_canonical_status_type(model, object, object_id, status) do S, object, object_id, source
+        admitted = isnothing(source) ? nothing : _new_prepared_status(S, source)
         _store_object_family_row!(store, object, object_id, admitted)
         setfield!(object, :status, admitted)
-        _set_status_source_identity!(model, object_id, admitted)
+        _set_status_source_identity!(model, object_id, source)
         return admitted
     end
 end
@@ -1376,10 +1444,16 @@ function _instance_for_object(model::CompositeModel, id)
     return nothing
 end
 
+@inline function _instance_object_labels(object::Object, instance)
+    isnothing(instance) && return (kind=object.kind, species=object.species)
+    return (kind=isnothing(object.kind) ? instance.template.kind : object.kind,
+        species=isnothing(object.species) ? instance.template.species : object.species)
+end
+
 @inline function _apply_instance_labels!(object::Object, instance)
-    isnothing(instance) && return object
-    isnothing(object.kind) && (object.kind = instance.template.kind)
-    isnothing(object.species) && (object.species = instance.template.species)
+    labels = _instance_object_labels(object, instance)
+    object.kind = labels.kind
+    object.species = labels.species
     return object
 end
 
@@ -1388,6 +1462,7 @@ end
     object::Object;
     parent=object.parent,
     status_values_materialized::Bool=false,
+    prepared::Bool,
 )
     registry = model.registry
     id = _index_object_id(registry.objects, object.id)
@@ -1396,26 +1471,32 @@ end
     if !isnothing(parent_id) && !haskey(registry.objects, parent_id)
         error("No model object with id `$(parent_id.value)`.")
     end
-    return _register_object_status!(model, object, id, parent_id, object.status, status_values_materialized)
+    return _register_object_status!(model, object, id, parent_id, object.status, status_values_materialized, prepared)
 end
 
 # The same conversion and ownership operations serve both catalog forms. An
 # unconverted source need not be a canonical family when conversion is active.
-@inline function _register_object_status!(model, object, id, parent_id, source_status, status_values_materialized)
+@inline function _register_object_status!(model, object, id, parent_id, source_status,
+    status_values_materialized, prepared::Bool)
     _validate_status_source_identity_available!(model, source_status, id)
-    catalog = model.registry.objects.catalog
-    if status_values_materialized || _no_status_conversion(model.status_conversion)
-        return _with_registered_status(catalog, source_status) do status
-            _register_converted_object!(model, object, id, parent_id, status, status)
-        end
-    end
     conversion_records = Dict{Any,Any}()
-    status = _convert_registered_status(model, id, source_status; conversion_records)
-    registered = _with_registered_status(catalog, status) do converted
+    converted = status_values_materialized || _no_status_conversion(model.status_conversion) ?
+        source_status : _convert_registered_status(model, id, source_status; conversion_records)
+    registered = if prepared
+        Base.@inline _with_prepared_canonical_status_type(_register_prepared_object_status!,
+            model, model, object, id, parent_id, source_status, converted)
+    else
         _register_converted_object!(model, object, id, parent_id, source_status, converted)
     end
     merge!(model.status_conversion_records, conversion_records)
     return registered
+end
+
+@inline function _register_prepared_object_status!(::Type{S}, model, object, id,
+    parent_id, source_status, converted) where {S}
+    _validate_prepared_initial_status(model, object, converted, parent_id)
+    status = isnothing(converted) ? nothing : _new_prepared_status(S, converted)
+    return _register_converted_object!(model, object, id, parent_id, source_status, status)
 end
 
 function _register_converted_object!(model, object, id, parent_id, source_status, status)
@@ -1450,37 +1531,18 @@ are marked dirty and become visible to execution after the next lifecycle
 refresh boundary. Prefer [`add_organ!`](@ref) for MTG-backed growth.
 """
 @inline function register_object!(model::CompositeModel, object::Object; parent=object.parent)
+    if !(model.registry.objects.catalog isa ClosedObjectFamilyCatalog)
+        _validate_authored_scenario(_scenario_preparation(model))
+        throw(ArgumentError("The model has no executable prepared canonical registry."))
+    end
     registered = _register_object_without_lifecycle!(
         model,
         object;
         parent=parent,
+        prepared=true,
     )
     _record_added_objects!(model, (registered,))
     return registered
-end
-
-function _status_data!(data::Dict{Symbol,Any}, values)
-    values === nothing && return data
-    source = values isa Status ? NamedTuple(values) : values
-    source isa Union{NamedTuple,AbstractDict,Base.Pairs} || error(
-        "Initial organ status must be a `Status`, `NamedTuple`, `AbstractDict`, ",
-        "`Base.Pairs`, or `nothing`, got `$(typeof(values))`."
-    )
-    for (key, value) in pairs(source)
-        if Symbol(key) == :plantsimengine_status
-            # ColumnarAttrs retains an empty column after a rejected node is
-            # removed. Treat that schema placeholder as absent without deleting
-            # the shared column; a real runtime status value remains forbidden.
-            isnothing(value) && continue
-            error(
-                "`plantsimengine_status` is runtime state, not an organ attribute. " *
-                "Pass scientific initial values through `initial_status` and resolve " *
-                "runtime status with `model_status`.",
-            )
-        end
-        data[Symbol(key)] = value
-    end
-    return data
 end
 
 function _validate_organ_attributes(attributes)
@@ -1496,46 +1558,32 @@ function _validate_organ_attributes(attributes)
     return attributes
 end
 
-# Use a concrete name carrier at dynamic assembly sites. Constructing the
-# partially specified Status{names} type for every organ allocates a UnionAll.
-@inline function _organ_status_from_values(::Val{names}, values::Tuple) where {names}
-    return Status(NamedTuple{names}(Ref.(values)))
+# MTG metadata never supplies newborn variables implicitly. A supplied Status
+# retains its real references; registration admits the official prepared header.
+_organ_status(status::Status) = (_validate_organ_attributes(status); status)
+_organ_status(::Nothing) = Status()
+function _organ_status(values::Union{NamedTuple,AbstractDict,Base.Pairs})
+    _validate_organ_attributes(values)
+    data = values isa NamedTuple ? values :
+        (; (Symbol(key) => value for (key, value) in pairs(values))...)
+    return Status(data)
 end
-
-function _organ_status(
-    adapter::MTGObjectAdapter,
-    node,
-    initial_status;
-    use_status_adapter::Bool=true,
-)
-    # Keep this call before reading node attributes: a status accessor may
-    # initialize attributes that must participate in the merged status.
-    adapted_status = use_status_adapter ? adapter.status(node) : nothing
-    data = Dict{Symbol,Any}()
-    _status_data!(data, MultiScaleTreeGraph.node_attributes(node))
-    _status_data!(data, adapted_status)
-    data[:node] = node
-    _status_data!(data, initial_status)
-    data[:node] = node
-    status_names = Tuple(keys(data))
-    status_values = Tuple(values(data))
-    return _organ_status_from_values(Val(status_names), status_values)
+function _organ_status(values)
+    throw(ArgumentError("Initial organ status must be a Status, NamedTuple, AbstractDict, Base.Pairs or nothing."))
 end
 
 """
     add_organ!(parent, runtime, link, symbol, scale; index=0, id, attributes=(),
-               initial_status=(), use_status_adapter=true, kind=nothing,
+               initial_status=(), kind=nothing,
                species=nothing, name=nothing)
 
 Create an MTG node and register its corresponding model object as one operation.
 `runtime` may be a [`CompositeModel`](@ref), [`RunContext`](@ref), or
-[`Simulation`](@ref). The model reuses the MTG accessors and status
-initializer supplied when it was constructed, then overlays `initial_status`.
-
-Set `use_status_adapter=false` only when the caller guarantees that the new
-node's attributes and `initial_status` completely define its initial status.
-In that mode the configured MTG status accessor is not called for the new
-node. The `node` status field is always forced to the newly created node.
+[`Simulation`](@ref). Only `initial_status` supplies scientific initial values.
+MTG `attributes` remain annotations and geometry on the source node. The
+initial-import `status(node)` accessor is not called during growth, and no
+`node` variable is inserted. Use [`source_node`](@ref) to retrieve that node.
+The model's normal status conversion and prepared-family checks still apply.
 
 This is the public growth API. [`register_object!`](@ref) remains the low-level
 registry operation for callers that already own a fully initialized `Object`.
@@ -1550,7 +1598,6 @@ function add_organ!(
     id=nothing,
     attributes=NamedTuple(),
     initial_status=NamedTuple(),
-    use_status_adapter::Bool=true,
     kind=nothing,
     species=nothing,
     name=nothing,
@@ -1565,6 +1612,7 @@ function add_organ!(
     # rejected ColumnarAttrs insertion would otherwise leave an empty schema
     # column visible on later nodes of the same organ symbol.
     _validate_organ_attributes(attributes)
+    status = _organ_status(initial_status)
     # Resolve the exact registered node before advancing ids or mutating either
     # the source MTG or the runtime registry.
     parent_id = object_id(model, parent_node)
@@ -1573,11 +1621,10 @@ function add_organ!(
         # attribute store (store-wide for a columnar MTG) and is updated for
         # every explicit insertion, so the next automatic id is unique without
         # an O(n) tree lookup.
-        adapter.max_node_id[] += 1
+        adapter.max_node_id[] + 1
     else
         root = MultiScaleTreeGraph.get_root(parent_node)
         explicit_id = Int(id)
-        adapter.max_node_id[] = max(adapter.max_node_id[], explicit_id)
         isnothing(MultiScaleTreeGraph.get_node(root, explicit_id)) || error(
             "MTG node id `$(explicit_id)` already exists."
         )
@@ -1597,12 +1644,6 @@ function add_organ!(
     )
     try
         new_object_id = _register_mtg_object_identity!(adapter, node)
-        status = _organ_status(
-            adapter,
-            node,
-            initial_status;
-            use_status_adapter=use_status_adapter,
-        )
         object = Object(
             new_object_id;
             scale=adapter.scale(node),
@@ -1614,6 +1655,7 @@ function add_organ!(
             status=status,
         )
         registered = register_object!(model, object)
+        adapter.max_node_id[] = max(adapter.max_node_id[], node_id)
         return registered.status
     catch
         _unregister_mtg_object_identity!(adapter, node)

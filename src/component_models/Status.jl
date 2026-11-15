@@ -1,12 +1,30 @@
+# N is the prepared namespace; the backing determines currently visible fields.
+mutable struct _FixedStatusStorage{N,R<:Tuple,T<:NamedTuple}
+    refs::T
+    reference_epoch::UInt
+end
+
+
+# Kernel ports remain a dense NT. The immutable full snapshot captures the SAME
+# refs and presence, including private/temporal overlays, never a latest owner.
+struct _ProjectedStatusStorage{N,R<:Tuple,H<:NamedTuple,T<:NamedTuple}
+    hot::H
+    refs::T
+    reference_epoch::UInt
+end
+
 """
     Status(vars)
 
-Status type used to store the values of the variables during simulation. It is mainly used
-as the structure to store the variables in the `TimeStepRow` of a `TimeStepTable` (see 
-[`PlantMeteo.jl` docs](https://palmstudio.github.io/PlantMeteo.jl/stable/)).
+Named values stored through mutable references. A standalone `Status` contains
+its supplied fields. [`CompositeModel`](@ref) prepares the official registry
+container and its allowed field types; use [`model_status`](@ref) to retrieve it.
+Unchanged values share their references with the supplied status, while numeric
+conversion can create new references. Fields without a real reference remain
+absent. Positional access follows the order chosen at preparation.
 
-Most of the code is taken from MasonProtter/MutableNamedTuples.jl, so `Status` is a MutableNamedTuples with a few modifications,
-so in essence, it is a stuct that stores a `NamedTuple` of the references to the values of the variables, which makes it mutable.
+The standalone reference container is adapted from
+MasonProtter/MutableNamedTuples.jl.
 
 # Examples
 
@@ -54,18 +72,90 @@ julia> st[1] = 22.0
 22.0
 ```
 """
-struct Status{N,T<:Tuple{Vararg{Ref}}}
-    vars::NamedTuple{N,T}
-    # `Status()` has no Ref-valued variable from which Julia could derive object
-    # identity. Keep an opaque token so every runtime status, including an empty
-    # one created before compilation adds variables, has a distinct identity.
+struct Status{N,T}
+    vars::T
     identity::Base.RefValue{Nothing}
-
-    function Status(vars::NamedTuple{N,T}) where {N,T<:Tuple{Vararg{Ref}}}
-        return new{N,T}(vars, Ref(nothing))
+    function Status(vars::NamedTuple{N,R}) where {N,R<:Tuple{Vararg{Ref}}}
+        return new{N,typeof(vars)}(vars, Ref(nothing))
+    end
+    function Status(vars::_FixedStatusStorage{N}) where {N}
+        return new{N,typeof(vars)}(vars, Ref(nothing))
+    end
+    function Status(vars::_ProjectedStatusStorage{N}) where {N}
+        return new{N,typeof(vars)}(vars, Ref(nothing))
     end
 end
 
+# The physical namespace has one finite reference union per slot. This is a
+# storage bound; configuration admission is checked separately before activation.
+# Nothing marks a namespace slot with no canonical Ref family. Ref{Nothing}
+# remains a real present cell whose biological value is nothing.
+function _fixed_status_type(names::Tuple, references::Type{<:Tuple})
+    length(names) == fieldcount(references) && all(n -> n isa Symbol, names) &&
+        length(unique(names)) == length(names) || throw(ArgumentError("Invalid prepared status namespace."))
+    valid = all(fieldtypes(references)) do R
+        R === Nothing || all(T -> T <: Ref && isconcretetype(T), Base.uniontypes(R))
+    end
+    valid || throw(ArgumentError("Each prepared status slot needs a finite exact reference family."))
+    Slots = NamedTuple{names,Tuple{map(R -> Union{Nothing,R}, fieldtypes(references))...}}
+    return Status{names,_FixedStatusStorage{names,references,Slots}}
+end
+@generated function _fixed_status(::Type{S}) where {N,R,T,S<:Status{N,_FixedStatusStorage{N,R,T}}}
+    empty = Expr(:tuple, fill(nothing, length(N))...)
+    return :(Status(_FixedStatusStorage{$(QuoteNode(N)),$R,$T}($T($empty), UInt(0))))
+end
+_fixed_status(names::Val{N}, references::Type{<:Tuple}) where {N} =
+    _fixed_status(_fixed_status_type(N, references))
+
+_status_storage_names(storage::NamedTuple) = keys(storage)
+_status_storage_names(storage::Union{_FixedStatusStorage{N},_ProjectedStatusStorage{N}}) where {N} =
+    filter(name -> getfield(storage.refs, name) !== nothing, N)
+_status_storage_reference_types(::Type{NamedTuple{N,R}}) where {N,R} = R
+_status_storage_reference_types(::Type{<:_FixedStatusStorage{N,R}}) where {N,R} = R
+_status_storage_reference_types(::Type{<:_ProjectedStatusStorage{N,R}}) where {N,R} = R
+@inline _status_reference(storage::NamedTuple, key) = getfield(storage, key)
+@inline function _status_reference(storage::Union{_FixedStatusStorage,_ProjectedStatusStorage}, key::Symbol)
+    reference = getfield(storage.refs, key)
+    reference === nothing && throw(KeyError(key))
+    return reference
+end
+@inline function _status_reference(storage::_ProjectedStatusStorage{N,R,H}, key::Symbol) where {N,R,H}
+    hasfield(H, key) && return getfield(storage.hot, key)
+    reference = getfield(storage.refs, key)
+    reference === nothing && throw(KeyError(key))
+    return reference
+end
+@inline _status_reference(storage::Union{_FixedStatusStorage,_ProjectedStatusStorage}, key::Int) =
+    _status_reference(storage, _status_storage_names(storage)[key])
+_status_storage_references(storage::NamedTuple) = values(storage)
+_status_storage_references(storage::Union{_FixedStatusStorage,_ProjectedStatusStorage}) =
+    map(key -> _status_reference(storage, key), _status_storage_names(storage))
+
+# Reference/presence edits invalidate projections; ref[] = value does not.
+_status_reference_epoch(storage::NamedTuple) = UInt(0)
+_status_reference_epoch(storage::Union{_FixedStatusStorage,_ProjectedStatusStorage}) = storage.reference_epoch
+_status_reference_epoch(status::Status) = _status_reference_epoch(_status_vars(status))
+function _set_status_reference!(status::Status{N,<:_FixedStatusStorage}, name::Symbol, reference::Ref) where {N}
+    storage = _status_vars(status)
+    index = findfirst(isequal(name), N)
+    index === nothing && throw(KeyError(name))
+    R = fieldtype(_status_storage_reference_types(typeof(storage)), index)
+    reference isa R || throw(ArgumentError("Reference is outside its prepared slot type."))
+    old = getfield(storage.refs, index)
+    old === reference && return reference
+    storage.refs = typeof(storage.refs)(Base.setindex(values(storage.refs), reference, index))
+    storage.reference_epoch += UInt(1)
+    return reference
+end
+function _drop_status_reference!(status::Status{N,<:_FixedStatusStorage}, name::Symbol) where {N}
+    storage = _status_vars(status)
+    old = getfield(storage.refs, name)
+    old === nothing && return nothing
+    index = findfirst(isequal(name), N)
+    storage.refs = typeof(storage.refs)(Base.setindex(values(storage.refs), nothing, index))
+    storage.reference_epoch += UInt(1)
+    return old
+end
 Status(; kwargs...) = Status(NamedTuple{keys(kwargs)}(Ref.(values(values(kwargs)))))
 function Status{names}(tuple::Tuple) where {names}
     Status(NamedTuple{names}(Ref.(tuple)))
@@ -76,19 +166,19 @@ function Status(nt::NamedTuple{names}) where {names}
 end
 
 _status_vars(status) = getfield(status, :vars)
-_status_values(status) = getindex.(values(_status_vars(status)))
+_status_values(status) = getindex.(refvalues(status))
 _status_namedtuple(status) = NamedTuple{keys(status)}(values(status))
 _status_tuple(status) = values(status)
-_status_iterate(status, iter=1) = iterate(NamedTuple(status), iter)
+_status_iterate(status, iter=1) = iterate(values(status), iter)
 _status_firstindex(status) = 1
-_status_lastindex(status) = lastindex(NamedTuple(status))
-_status_indexed_iterate(status, i::Int, state=1) = Base.indexed_iterate(NamedTuple(status), i, state)
+_status_lastindex(status) = length(status)
+_status_indexed_iterate(status, i::Int, state=1) = Base.indexed_iterate(values(status), i, state)
 
-Base.keys(::Status{names}) where {names} = names
+Base.keys(status::Status) = _status_storage_names(_status_vars(status))
 Base.values(st::Status) = _status_values(st)
 _status_identity(status::Status) = getfield(status, :identity)
-refvalues(mnt::Status) = values(getfield(mnt, :vars))
-Base.@constprop :aggressive @inline refvalue(mnt::Status, key::Symbol) = getfield(getfield(mnt, :vars), key)
+refvalues(mnt::Status) = _status_storage_references(_status_vars(mnt))
+Base.@constprop :aggressive @inline refvalue(mnt::Status, key::Symbol) = _status_reference(_status_vars(mnt), key)
 
 Base.NamedTuple(mnt::Status) = _status_namedtuple(mnt)
 Base.Tuple(mnt::Status) = _status_tuple(mnt)
@@ -109,18 +199,16 @@ function Base.show(io::IO, t::Status)
     print(io, "Status", NamedTuple(t))
 end
 
-Base.@constprop :aggressive @inline Base.getproperty(mnt::Status, s::Symbol) = getproperty(getfield(mnt, :vars), s)[]
-Base.@constprop :aggressive @inline Base.getindex(mnt::Status, i::Int) = getfield(getfield(mnt, :vars), i)[]
+Base.@constprop :aggressive @inline Base.getproperty(mnt::Status, s::Symbol) = refvalue(mnt, s)[]
+Base.@constprop :aggressive @inline Base.getindex(mnt::Status, i::Int) = _status_reference(_status_vars(mnt), i)[]
 Base.@constprop :aggressive @inline Base.getindex(mnt::Status, i::Symbol) = getproperty(mnt, i)
 
 Base.@constprop :aggressive @inline function Base.setproperty!(mnt::Status, s::Symbol, x)
-    nt = getfield(mnt, :vars)
-    getfield(nt, s)[] = x
+    refvalue(mnt, s)[] = x
 end
 
 Base.@constprop :aggressive @inline function Base.setproperty!(mnt::Status, i::Int, x)
-    nt = getfield(mnt, :vars)
-    getindex(nt, i)[] = x
+    _status_reference(_status_vars(mnt), i)[] = x
 end
 
 Base.@constprop :aggressive @inline function Base.setindex!(mnt::Status, x, i::Symbol)
@@ -131,9 +219,9 @@ Base.@constprop :aggressive @inline function Base.setindex!(mnt::Status, x, i::I
     setproperty!(mnt, i, x)
 end
 
-Base.propertynames(::Status{T,R}) where {T,R} = T
-Base.length(mnt::Status) = length(getfield(mnt, :vars))
-Base.eltype(::Type{Status{N,T}}) where {N,T} = eltype.(eltype(T))
+Base.propertynames(status::Status) = keys(status)
+Base.length(mnt::Status) = length(keys(mnt))
+Base.eltype(::Type{Status{N,T}}) where {N,T} = eltype.(eltype(_status_storage_reference_types(T)))
 
 Base.iterate(mnt::Status, iter=1) = _status_iterate(mnt, iter)
 
@@ -149,3 +237,76 @@ function Base.:(==)(s1::Status, s2::Status)
            (propertynames(s1) == propertynames(s2)) &&
            (values(s1) == values(s2))
 end
+
+# A shallow copy owns its header/presence, shares biological cells, and is unregistered.
+_copy_status_storage(storage::Union{NamedTuple,_ProjectedStatusStorage}) = storage
+_copy_status_storage(storage::_FixedStatusStorage{N,R,T}) where {N,R,T} =
+    _FixedStatusStorage{N,R,T}(storage.refs, storage.reference_epoch)
+Base.copy(status::Status) = Status(_copy_status_storage(_status_vars(status)))
+# Keep Base's single-IdDict deepcopy: it preserves internal aliases/cycles and
+# copies refs, owner metadata and the identity token together; no elementwise map.
+
+@inline function _initial_status_reference_storage(source::Status)
+    storage = _status_vars(source)
+    storage isa NamedTuple && return storage
+    storage isa Union{_FixedStatusStorage,_ProjectedStatusStorage} || throw(ArgumentError("Unknown Status backing."))
+    return getfield(storage, :refs)
+end
+@inline function _initial_status_reference_count(source::Status)
+    references = _initial_status_reference_storage(source)
+    count = 0
+    for index in 1:nfields(references)
+        getfield(references, index) === nothing || (count += 1)
+    end
+    return count
+end
+@inline function _initial_status_reference(source::Status, name::Symbol)
+    references = _initial_status_reference_storage(source)
+    return isdefined(references, name) ? getfield(references, name) : nothing
+end
+
+# S is admitted by the prepared owner BEFORE this generated operation. No source
+# NamedTuple subtype, field-count permutation or initializer value becomes proof.
+@generated function _new_prepared_status(::Type{S}, source) where {N,R,T,S<:Status{N,_FixedStatusStorage{N,R,T}}}
+    cells = [gensym(:cell) for _ in N]
+    reads = [:($(cells[i]) = _initial_status_reference(source, $(QuoteNode(name)))) for (i,name) in enumerate(N)]
+    checks = [:( $(cells[i]) isa $(fieldtype(T,i)) || throw(ArgumentError("Initial reference is outside its prepared slot family.")) ) for i in eachindex(N)]
+    count = foldl((a,b)->:($a + $b), [:(Int($(cell) !== nothing)) for cell in cells]; init=:(0))
+    refs = Expr(:tuple, [:( $(cells[i])::$(fieldtype(T,i)) ) for i in eachindex(N)]...)
+    return quote
+        $(Expr(:meta, :inline))
+        source isa S && return source
+        source === nothing && return _fixed_status(S)
+        source isa Status || throw(ArgumentError("Initial status must be a Status or nothing."))
+        $(reads...)
+        $(checks...)
+        $count == _initial_status_reference_count(source) || throw(ArgumentError("Initial status contains a name outside its prepared namespace."))
+        return Status(_FixedStatusStorage{$(QuoteNode(N)),$R,$T}($T($refs), UInt(0)))
+    end
+end
+
+@inline function _validate_status_reference(status::Status{N,<:_FixedStatusStorage}, name::Symbol, reference::Ref) where {N}
+    index = findfirst(isequal(name), N)
+    index === nothing && throw(KeyError(name))
+    R = fieldtype(_status_storage_reference_types(typeof(_status_vars(status))), index)
+    reference isa R || throw(ArgumentError("Reference is outside its prepared canonical slot family."))
+    return nothing
+end
+
+_status_snapshot_references(status::Status) = _initial_status_reference_storage(status)
+_dense_status_type(names::Tuple, references::Type{<:Tuple}) = Status{names,NamedTuple{names,references}}
+function _projected_status_type(::Type{C}, hot_names::Tuple, hot_references::Type{<:Tuple}) where {C<:Status}
+    names = _status_schema_names(C)
+    all(n -> n in names, hot_names) || throw(ArgumentError("A kernel port is outside the prepared namespace."))
+    canonical = _status_schema_references(C)
+    refs = map(eachindex(names)) do index
+        hot_index = findfirst(isequal(names[index]), hot_names)
+        isnothing(hot_index) ? fieldtype(canonical,index) : fieldtype(hot_references,hot_index)
+    end
+    R = Tuple{refs...}
+    Slots = NamedTuple{names,Tuple{map(T -> Union{Nothing,T}, refs)...}}
+    Hot = NamedTuple{hot_names,hot_references}
+    return Status{names,_ProjectedStatusStorage{names,R,Hot,Slots}}
+end
+
+Base.hasproperty(status::Status, name::Symbol) = _initial_status_reference(status, name) !== nothing

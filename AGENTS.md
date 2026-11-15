@@ -196,8 +196,10 @@ know its scenario timestep unless the scientific model explicitly requires it.
 ## Lifecycle
 
 - `add_organ!` is the high-level operation for MTG-backed growth. It creates
-  the node, reuses the model's MTG status policy, applies initial values,
-  registers the object, and returns its runtime `Status`.
+  the node from explicit `initial_status` data, applies the model's status
+  conversion/prepared-family checks, registers the object, and returns its
+  runtime `Status`. The MTG status accessor imports the initial tree only;
+  annotations/geometry stay in MTG attributes and no `node` field is inserted.
 - Runtime status belongs to the model registry and is not stored in MTG
   attributes. Use `model_status(model, node)` to access an MTG-backed object's
   status and `source_node(model, object)` to retrieve its associated MTG node.

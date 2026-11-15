@@ -289,10 +289,12 @@ function PlantSimEngine.run!(
     )
     status.returned_status_is_registered =
         model_status(runtime, leaf_status) === leaf_status
+    leaf_node = source_node(runtime, leaf_status)
     status.source_identity_matches =
-        source_node(runtime, leaf_status) === leaf_status.node
+        object_id(runtime, leaf_node) == object_id(runtime, leaf_status) &&
+        MultiScaleTreeGraph.parent(leaf_node) === source_node(context)
     status.runtime_attribute_absent = !haskey(
-        node_attributes(leaf_status.node),
+        node_attributes(leaf_node),
         :plantsimengine_status,
     )
     status.initialized_mass = run_initializer!(

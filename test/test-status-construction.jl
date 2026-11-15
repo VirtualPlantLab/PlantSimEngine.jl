@@ -6,79 +6,41 @@ using Test
 
 const PSE = PlantSimEngine
 
-@testset "cached layouts preserve order and use the actual reference types" begin
-    model = CompositeModel(Object(:object; status=Status()))
+@testset "exact projection preserves order and actual reference identities" begin
     original = Status(keep=1, replace=2.0)
     keep = PSE.refvalue(original, :keep)
     replacement = Ref(3.0f0)
     tail = Ref([4.0])
-    edits = PSE._CanonicalStatusRecipe(original)
-    @test fieldtype(typeof(edits), :original) === typeof(original)
-    @test (@inferred PSE._status_recipe_has_variable(edits, :keep))
-    @test isempty(edits.edit_names)
-    @test isempty(edits.edit_references)
-    @test !PSE._status_recipe_set_reference!(edits, :keep, keep)
-    @test PSE._status_recipe_set_reference!(edits, :replace, replacement)
-    @test PSE._status_recipe_set_reference!(edits, :tail, tail)
-    @test !PSE._status_recipe_set_reference!(edits, :tail, tail)
-    constructed = PSE._finish_canonical_status_recipe(identity, model, edits)
-    @test propertynames(constructed) == (:keep, :replace, :tail)
-    @test PSE.refvalue(constructed, :keep) === keep
-    @test PSE.refvalue(constructed, :replace) === replacement
-    @test PSE.refvalue(constructed, :tail) === tail
-    @test PSE._status_recipe_reference(edits, :keep) === keep
-    @test PSE._status_recipe_reference(edits, :replace) === replacement
-    @test_throws KeyError PSE._status_recipe_reference(edits, :absent)
-    @test PSE._finish_canonical_status_recipe(identity, model, PSE._CanonicalStatusRecipe(original)) === original
-
-    cache = model.registry.objects.layout_cache
-    layout = only(values(cache))
-    same_shape = PSE._CanonicalStatusRecipe(Status(keep=8, replace=9.0))
-    PSE._status_recipe_set_reference!(same_shape, :replace, Ref(big"10.0"))
-    PSE._status_recipe_set_reference!(same_shape, :tail, Ref([11.0f0]))
-    another = PSE._finish_canonical_status_recipe(identity, model, same_shape)
-    @test typeof(another) !== typeof(constructed)
-    @test another.replace isa BigFloat
-    @test another.tail isa Vector{Float32}
-    @test length(cache) == 1
-    @test only(values(cache)) === layout
-    @test all(isbits, values(cache))
-    @test all(key -> key isa Tuple{Tuple{Vararg{Symbol}},Tuple{Vararg{Symbol}}}, keys(cache))
+    Result = PSE._dense_status_type((:keep, :replace, :tail),
+        Tuple{typeof(keep),typeof(replacement),typeof(tail)})
+    Edited = Tuple{typeof(replacement),typeof(tail)}
+    factory = PSE.ExactReferenceFactory(typeof(original), Edited, Result, (:replace,:tail))
+    constructed = PSE._construct_status(factory, original, (replacement,tail))
+    @test propertynames(constructed) == (:keep,:replace,:tail)
+    @test PSE.refvalue(constructed,:keep) === keep
+    @test PSE.refvalue(constructed,:replace) === replacement
+    @test PSE.refvalue(constructed,:tail) === tail
+    @test Tuple(constructed) == (1,3f0,[4.0])
+    constructed.replace = 5f0
+    @test replacement[] === 5f0
+    @test original.replace === 2.0
 
     storage = [12.0]
-    external = Ref(storage, 1)
-    external_edit = PSE._CanonicalStatusRecipe(Status(keep=1))
-    PSE._status_recipe_set_reference!(external_edit, :external, external)
-    external_status = PSE._finish_canonical_status_recipe(identity, model, external_edit)
-    @test PSE.refvalue(external_status, :external) === external
+    external = Ref(storage,1)
+    External = PSE._dense_status_type((:keep,:external),Tuple{typeof(keep),typeof(external)})
+    external_factory = PSE.ExactReferenceFactory(typeof(original),Tuple{typeof(external)},
+        External,(:external,))
+    external_status = PSE._construct_status(external_factory,original,(external,))
+    @test PSE.refvalue(external_status,:external) === external
     storage[1] = 13.0
-    @test external_status.external == 13.0
+    @test external_status.external === 13.0
 
-    empty_a = PSE._finish_canonical_status_recipe(identity, model, PSE._CanonicalStatusRecipe(nothing))
-    empty_b = PSE._finish_canonical_status_recipe(identity, model, PSE._CanonicalStatusRecipe(nothing))
+    Empty = PSE._dense_status_type((),Tuple{})
+    empty_factory = PSE.ExactReferenceFactory(Nothing,Tuple{},Empty,())
+    empty_a = PSE._construct_status(empty_factory,nothing,())
+    empty_b = PSE._construct_status(empty_factory,nothing,())
     @test propertynames(empty_a) == ()
-    @test getfield(empty_a, :identity) !== getfield(empty_b, :identity)
-    @test all(isbits, values(cache))
-    projected = PSE._closed_object_family_store(model.registry.objects)
-    @test projected.layout_cache == cache
-    @test projected.layout_cache !== cache
-    recipes = @inferred PSE._canonical_status_recipe_storage(projected.catalog, keytype(projected))
-    Original = typeof(model_status(model, :object))
-    @test valtype(typeof(recipes)) === Union{PSE._CanonicalStatusRecipe{Nothing},
-        PSE._CanonicalStatusRecipe{Original}}
-    @test isempty(recipes)
-    order = keytype(projected)[]
-    staged = PSE._status_recipe_for_object!(recipes, order, model, ObjectId(:object))
-    @test staged.original === model_status(model, :object)
-    @test typeof(staged) === PSE._CanonicalStatusRecipe{Original}
-    @test PSE._status_recipe_for_object!(recipes, order, model, ObjectId(:object)) === staged
-    @test order == [ObjectId(:object)]
-    @test isempty(CompositeModel(Object(:other)).registry.objects.layout_cache)
-    discarded = PSE.ObjectFamilyStore()
-    merge!(discarded.layout_cache, cache)
-    empty!(discarded)
-    @test isempty(discarded.layout_cache)
-    @test !isempty(cache)
+    @test getfield(empty_a,:identity) !== getfield(empty_b,:identity)
 end
 
 PSE.@process "status_construction_defaults" verbose=false
@@ -112,7 +74,6 @@ PSE.run!(::MutableDefaults, status, environment, constants, context) = nothing
     @test second == Float32[1]
     @test third == Float32[9]
     @test initial[] == [9.0]
-    @test all(isbits, values(model.registry.objects.layout_cache))
 end
 
 PSE.@process "status_construction_producer" verbose=false
@@ -171,6 +132,7 @@ PSE.run!(::TransactionDefault, status, environment, constants, context) = nothin
             ModelSpec(TransactionDefault(1.0); name=:first_default, on=One(id=:first)),
             ModelSpec(TransactionDefault(2.0); name=:second_default, on=One(id=:second)),
         ), environment=(duration=Hour(1),), status_transform=transform)
+    @test isempty(converted) # type preparation never runs the pending transform
     first = model_status(model, :first)
     second = model_status(model, :second)
     records = copy(model.status_conversion_records)
@@ -217,7 +179,6 @@ PSE.run!(::DistributedDefaults, status, environment, constants, context) = nothi
     @test model_status(model, :right_new).flow == Float32[4]
     @test model_status(model, :left_leaf).flow == Float32[1]
     @test model_status(model, :right_leaf).flow == Float32[2]
-    @test all(isbits, values(model.registry.objects.layout_cache))
 end
 
 end

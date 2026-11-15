@@ -274,7 +274,13 @@ PSE.run!(::BrokenDeclarations, status, environment, constants, context) = (statu
     @test any(row -> occursin("intentional authored declaration failure", row.message), report.diagnostics)
     @test calls[] == 1 # diagnostic recovery works on its owned structural copy
     fail[] = false
-    PSE.Advanced.refresh_bindings!(model; force=true)
+    # The failed output hook supplied no schema at construction. Fixing it
+    # requires an actual prepared model, not in-place discovery of a new S.
+    original_preparation = model.scenario_plan_cache
+    @test_throws ArgumentError PSE.Advanced.refresh_bindings!(model; force=true)
+    @test model.scenario_plan_cache === original_preparation
+    model = CompositeModel(Object(:root; scale=:Scene);
+        applications=Tuple(model.applications), environment=model.environment)
     @test isnothing(model.scenario_plan_cache.failure)
     @test final_state(run!(model)).visits == 1
     # A failed force refresh must not let an older compiled cache hide the

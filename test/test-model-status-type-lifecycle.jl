@@ -406,7 +406,7 @@ end
         plant,
         MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2),
     )
-    imported_source = Status(node=leaf, biomass=2.5)
+    imported_source = Status(biomass=2.5, area=1.0)
 
     model = CompositeModel(
         root;
@@ -416,7 +416,8 @@ end
     imported = model_status(model, leaf)
 
     @test imported !== imported_source
-    @test imported.node === leaf
+    @test source_node(model, imported) === leaf
+    @test imported.area === Float32(1)
     @test imported.biomass === Float32(2.5)
     @test imported_source.biomass === 2.5
 
@@ -430,13 +431,14 @@ end
         index=2,
         initial_status=(biomass=3.5, area=2.0),
     )
-    registered = model_status(model, added.node)
+    registered = model_status(model, source_node(model, added))
 
     @test added === registered
-    @test model_object(model, added.node).status === added
+    @test model_object(model, source_node(model, added)).status === added
     @test added.biomass === Float32(3.5)
     @test added.area === Float32(2)
-    @test added.node isa MultiScaleTreeGraph.Node
+    @test source_node(model, added) isa MultiScaleTreeGraph.Node
+    @test !hasproperty(added, :node)
 end
 
 @testset "refresh, reparent, steps, and removal do not repeat transforms" begin

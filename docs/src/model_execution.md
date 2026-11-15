@@ -73,6 +73,33 @@ application identifiers, input/output and environment port names, variable
 contracts, selector rules, declared value and call connections, and the dependency
 order between applications. Objects and weather rows can be added later. The
 constructor registers the objects you supplied without running their equations.
+It also fixes the field order and allowed reference types for the configured
+object statuses, including fields declared for objects that may appear later.
+Values, object counts, and vector lengths remain dynamic. A field stays absent
+until real data, a default, or a connection supplies its reference.
+
+Use `model_status` to keep the official status after construction:
+
+```julia
+supplied = Status(x=1f0)
+model = CompositeModel(Object(:leaf; scale=:Leaf, status=supplied))
+status = model_status(model, :leaf)
+status.x = 2f0
+@assert supplied.x == 2f0
+object_id(model, status) # ObjectId(:leaf)
+```
+
+The official container shares unchanged references with the supplied status.
+Its identity belongs to the registry; `object_id(model, supplied)` raises an
+`ArgumentError` because the supplied container is no longer registered. Retain
+`model_status(model, object)` when you need both values and object identity.
+Conversions may create new references, as described in
+[numeric type configuration](guides/data/numerical_reliability.md).
+
+Field access such as `status.x` follows names. Positional access with `status[i]`
+and `Tuple(status)` follows the order fixed at preparation, rather than the
+order in which producers first supplied their values. Obtain `keys(status)`
+when you need to inspect the currently present fields.
 
 Starting a simulation resolves those declarations against the current objects
 and environment. This preparation is called **compilation**. It:
@@ -119,11 +146,15 @@ initializer. Creating a fresh mutable default, such as an empty vector, is
 supported; object preparation keeps defaults private to each object.
 
 Keep declaration names and layouts stable while a prepared model is in use.
-Graph-editor configuration changes prepare the declarations again. When redefining
-layout methods interactively, explicitly refresh with
-`PlantSimEngine.Advanced.refresh_bindings!(model; force=true)` before starting a
-new simulation. Environment changes resolve clocks and bindings while retaining
-unchanged application declarations.
+Use `PlantSimEngine.Advanced.refresh_bindings!(model; force=true)` to refresh
+selectors or declaration metadata within the same prepared field and type schemas.
+A change that needs a different canonical Status or typed configuration schema
+requires constructing a new `CompositeModel`; it cannot replace the old schema in
+place. The same applies after an initial declaration failure prevented a schema
+from being prepared: fix the declaration, then construct the model again.
+Graph-editor configuration changes already return a newly prepared model.
+Environment changes resolve clocks and bindings while retaining unchanged
+application declarations.
 
 Useful inspection helpers:
 
@@ -474,14 +505,12 @@ update_geometry!(model, :leaf_5, new_geometry)
 ```
 
 Use `add_organ!` when the plant structure comes from an MTG. It creates the
-node, prepares its starting values, adds the object to the simulation, and
-marks its connections for updating. By default, it reuses the function you
-provided to initialize values from MTG nodes.
-
-Set `use_status_adapter=false` only if you supply all the new organ's
-attributes and values yourself, and that initialization function has no
-additional work to do. Use `register_object!` when you already have a fully
-prepared `Object` to add.
+node, registers its explicit `initial_status`, and marks its connections for
+updating. MTG `attributes` remain annotations and geometry; they do not become
+runtime variables. The `status(node)` accessor supplied to `CompositeModel`
+imports the initial tree only. Supply newborn scientific values explicitly,
+and use `source_node(model, leaf_status)` to retrieve the new source node.
+Use `register_object!` when you already have a fully prepared `Object` to add.
 
 Adding or removing objects can change which models run and where their
 inputs come from, so PlantSimEngine updates the affected connections. Moving

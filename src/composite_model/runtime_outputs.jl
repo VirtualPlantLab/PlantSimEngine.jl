@@ -4028,6 +4028,7 @@ function _model_execution_target_change_reason(
     V = typeof(target.status_view)
     status_view isa V || return :status_view
     status_view = status_view::V
+    _status_reference_epoch(status_view.status) == _status_reference_epoch(status_view.canonical_status) || return :status_epoch
     target.status_view.status === status_view.status || return :status_view
     target.status_view.canonical_status === status_view.canonical_status ||
         return :canonical_status

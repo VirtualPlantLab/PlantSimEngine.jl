@@ -957,6 +957,9 @@ end
     return root_id in _object_ancestor_ids(model.registry, object_id)
 end
 
+@inline _point_named_scope_root(model::CompositeModel, scope::Scope) = _named_scope_root_id(model, scope)
+@inline _point_scope_root_exists(model::CompositeModel, id) = haskey(model.registry.objects, id)
+
 @inline _point_scope_contains(topology, ::Union{Nothing,SceneScope}, origin, object) = true
 
 @inline _point_scope_contains(topology, ::Self, origin, object) =
@@ -992,7 +995,7 @@ _missing_point_scope_anchor(::CompositeModel, scope::Ancestor, id) =
     return !isnothing(ancestor) && _relation_same_object(topology, ancestor, object)
 end
 
-function _scope_contains_object(model::CompositeModel, scope, context, object_id::ObjectId)
+function _scope_contains_object(model, scope, context, object_id::ObjectId)
     scope isa Union{Nothing,SceneScope} &&
         return _point_scope_contains(model, scope, context, object_id)
     return if scope isa Self
@@ -1012,14 +1015,10 @@ function _scope_contains_object(model::CompositeModel, scope, context, object_id
         isnothing(current_id) && error("`Ancestor(...)` selectors require a current object context.")
         _point_scope_contains(model, scope, current_id, object_id)
     elseif scope isa Scope
-        _object_is_in_subtree(
-            model,
-            object_id,
-            _named_scope_root_id(model, scope),
-        )
+        _relation_in_subtree(model, object_id, _point_named_scope_root(model, scope))
     elseif scope isa CompiledNamedScope
-        haskey(model.registry.objects, scope.root_id) &&
-            _object_is_in_subtree(model, object_id, scope.root_id)
+        _point_scope_root_exists(model, scope.root_id) &&
+            _relation_in_subtree(model, object_id, scope.root_id)
     else
         error(
             "Unsupported object scope selector `$(scope)` of type `$(typeof(scope))`.",
@@ -1344,7 +1343,7 @@ function _selector_resolution_error(
     error(String(take!(io)))
 end
 
-function _matches_object_criteria(object::Object; scale=nothing, kind=nothing, species=nothing, id=nothing)
+function _matches_object_criteria(object; scale=nothing, kind=nothing, species=nothing, id=nothing)
     _object_matches_selector_value(object.scale, scale) || return false
     _object_matches_selector_value(object.kind, kind) || return false
     _object_matches_selector_value(object.species, species) || return false
@@ -1355,7 +1354,7 @@ end
 _compiled_relation_symbol(::Val{RELATION}) where {RELATION} = RELATION
 
 function _selector_matches_object_id(
-    model::CompositeModel,
+    model,
     matcher::CompiledSelectorMatcher,
     object_id::ObjectId,
     context,
@@ -1377,7 +1376,7 @@ end
         scale=matcher.scale, kind=matcher.kind, species=matcher.species, id=matcher.id)
 end
 
-function _selector_matches_object_topology(model::CompositeModel,
+function _selector_matches_object_topology(model,
     matcher::CompiledSelectorMatcher, object_id::ObjectId,
     context, default_scope, relation_resolved::Bool)
     scope = isnothing(matcher.scope) ? default_scope : matcher.scope
@@ -1624,4 +1623,88 @@ function _default_dependency_scope(model::CompositeModel, context::ObjectId)
     object = _model_object(model, context)
     (object.scale == :Scene || object.kind == :scene) && return SceneScope()
     return Self()
+end
+
+
+# Pre-registration matching sees the exact admitted parent and the labels that
+# normal registration would inherit. Every other object remains the real model.
+struct _PreparedStatusObjectTopology{M,P,K,SP}
+    model::M
+    object::Object
+    parent::P
+    kind::K
+    species::SP
+end
+
+function _prepared_status_object_labels(model, object, parent_id)
+    instance = isnothing(parent_id) ? nothing : _instance_for_object(model, parent_id)
+    labels = _instance_object_labels(object, instance)
+    return (scale=object.scale, kind=labels.kind, species=labels.species, id=object.id)
+end
+
+function _prepared_status_topology(model, object, parent_id)
+    if get(model.registry.objects, object.id, nothing) === object &&
+       isequal(object.parent, parent_id)
+        return model
+    end
+    labels = _prepared_status_object_labels(model, object, parent_id)
+    return _PreparedStatusObjectTopology(model, object, parent_id, labels.kind, labels.species)
+end
+
+@inline _relation_same_object(topology::_PreparedStatusObjectTopology, left, right) =
+    _relation_same_object(topology.model, left, right)
+@inline function _relation_parent(topology::_PreparedStatusObjectTopology, id)
+    return id == topology.object.id ? topology.parent : _relation_parent(topology.model, id)
+end
+@inline function _relation_in_subtree(topology::_PreparedStatusObjectTopology, id, root)
+    id == topology.object.id || return _relation_in_subtree(topology.model, id, root)
+    id == root && return true
+    isnothing(topology.parent) && return false
+    return _relation_in_subtree(topology.model, topology.parent, root)
+end
+@inline function _scope_ancestor(topology::_PreparedStatusObjectTopology, origin, scale, include_self)
+    origin == topology.object.id || return _scope_ancestor(topology.model, origin, scale, include_self)
+    include_self && (isnothing(scale) || topology.object.scale == scale) && return origin
+    isnothing(topology.parent) && return nothing
+    return _scope_ancestor(topology.model, topology.parent, scale, true)
+end
+_missing_point_scope_anchor(topology::_PreparedStatusObjectTopology, scope, id) =
+    _missing_point_scope_anchor(topology.model, scope, id)
+@inline _point_scope_root_exists(topology::_PreparedStatusObjectTopology, id) =
+    id == topology.object.id || _point_scope_root_exists(topology.model, id)
+@inline function _point_named_scope_root(topology::_PreparedStatusObjectTopology, scope::Scope)
+    root_id, _ = _named_scope_root_candidate(topology.model, scope)
+    _point_scope_root_exists(topology, root_id) && return root_id
+    return _named_scope_root_id(topology.model, scope) # Preserve the existing diagnostic.
+end
+@inline function _selector_matches_object_labels(topology::_PreparedStatusObjectTopology,
+    matcher::CompiledSelectorMatcher, id::ObjectId)
+    id == topology.object.id || return _selector_matches_object_labels(topology.model, matcher, id)
+    labels = (scale=topology.object.scale, kind=topology.kind, species=topology.species, id=id)
+    return _matches_object_criteria(labels; scale=matcher.scale, kind=matcher.kind,
+        species=matcher.species, id=matcher.id)
+end
+
+function _prepared_status_scope_is_current(model, topology, scope)
+    scope isa Scope && return _point_scope_root_exists(topology,
+        first(_named_scope_root_candidate(model, scope)))
+    scope isa CompiledNamedScope && return _point_scope_root_exists(topology, scope.root_id)
+    return true
+end
+
+function _prepared_status_application_matches(model, object, parent_id, application)
+    topology = _prepared_status_topology(model, object, parent_id)
+    _prepared_status_scope_is_current(model, topology, application.target_matcher.scope) || return false
+    return _selector_matches_object_id(topology, application.target_matcher,
+        object.id, nothing, false, nothing, false)
+end
+
+function _prepared_status_destination_matches(model, object, parent_id, application,
+    destination_plan, execution_id)
+    # The permission caller owns this REAL producer and its configured variant.
+    # Do not aggregate contexts or infer a producer from destination labels.
+    topology = _prepared_status_topology(model, object, parent_id)
+    _prepared_status_scope_is_current(model, topology, destination_plan.matcher.scope) || return false
+    return _selector_matches_object_id(topology, destination_plan.matcher,
+        object.id, execution_id, true, _default_dependency_scope(model, execution_id), false)
 end

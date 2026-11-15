@@ -160,7 +160,6 @@ end
         :Leaf,
         2;
         index=2,
-        initial_status=(signal=0.0,),
     )
     @test length(MultiScaleTreeGraph.children(copied_plant)) == copied_child_count
     @test object_ids(model) == registered_before
@@ -172,14 +171,13 @@ end
         :Leaf,
         2;
         index=2,
-        initial_status=(signal=0.0,),
     )
     new_leaf_id = ObjectId((:Leaf, 4))
-    @test MultiScaleTreeGraph.node_id(new_leaf_status.node) == 4
+    @test MultiScaleTreeGraph.node_id(source_node(model, new_leaf_status)) == 4
     @test object_id(model, new_leaf_status) == new_leaf_id
-    @test object_id(model, new_leaf_status.node) == new_leaf_id
+    @test object_id(model, source_node(model, new_leaf_status)) == new_leaf_id
     @test model_status(model, new_leaf_id) === new_leaf_status
-    @test source_node(model, new_leaf_status) === new_leaf_status.node
+    @test source_node(model, new_leaf_status) === source_node(model, new_leaf_status)
 
     simulation = run!(model; steps=1, outputs=:none)
     probe_status = model_object(model, (:Scene, 1)).status
@@ -215,12 +213,11 @@ end
         :Leaf,
         2;
         index=1,
-        initial_status=(signal=1.0,),
     )
 
-    @test MultiScaleTreeGraph.node_id(added.node) == 4
-    @test MultiScaleTreeGraph.parent(added.node) === plant
-    @test source_node(model, ObjectId(4)) === added.node
+    @test MultiScaleTreeGraph.node_id(source_node(model, added)) == 4
+    @test MultiScaleTreeGraph.parent(source_node(model, added)) === plant
+    @test source_node(model, ObjectId(4)) === source_node(model, added)
     @test MultiScaleTreeGraph.new_id(root) == 5
     @test MultiScaleTreeGraph.node_id(detached) == 3
 end
@@ -317,11 +314,10 @@ end
         index=2,
         id=10,
         attributes=(runtime_id=:reusable_leaf,),
-        initial_status=(signal=0.0,),
     )
-    @test new_leaf_status.node !== old_leaf
-    @test MultiScaleTreeGraph.node_id(new_leaf_status.node) != old_raw_id
-    @test object_id(model, new_leaf_status.node) == reusable_id
+    @test source_node(model, new_leaf_status) !== old_leaf
+    @test MultiScaleTreeGraph.node_id(source_node(model, new_leaf_status)) != old_raw_id
+    @test object_id(model, source_node(model, new_leaf_status)) == reusable_id
     @test_throws ArgumentError object_id(model, old_leaf)
 end
 
@@ -331,7 +327,7 @@ end
     Node(plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
     model = CompositeModel(
         root;
-        status=node -> Status(node=node, signal=0.0),
+        status=node -> Status(signal=0.0),
     )
     simulation = run!(model; steps=1, outputs=:none)
     initial_step = current_step(simulation)

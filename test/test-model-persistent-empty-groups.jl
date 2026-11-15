@@ -48,10 +48,16 @@ end
     environment_plan = simulation.environment_bindings.application_plans_by_id[:counter]
     Empty = NamedTuple{(),Tuple{}}
     I = ObjectId{Symbol}
-    # This is a supplied future reference descriptor, not inferred from an
-    # output default and not instantiated as a placeholder Status.
-    Full = Status{(:count,),Tuple{Base.RefValue{Int}}}
-    View = PSE.CompiledModelStatusView{Full,Full,Tuple{},Empty,Empty}
+    # The real constructor already prepared count's prospective Ref class.
+    # Project only the model's hot ports; instantiate no future Status/default.
+    Canonical = model.scenario_plan_cache.status_manifest.status_type
+    ports = PSE._application_ports(application)
+    names = Tuple(unique((ports.input_names..., keys(ports.output_types)...)))
+    references = PSE._status_schema_references(Canonical)
+    HotReferences = Tuple{(fieldtype(references,
+        findfirst(isequal(name), PSE._status_schema_names(Canonical))) for name in names)...}
+    Hot = PSE._projected_status_type(Canonical, names, HotReferences)
+    View = PSE.CompiledModelStatusView{Hot,Canonical,Tuple{},Empty,Empty}
     Context = PSE.RunContext{typeof(compiled),typeof(application),Tuple{},Empty,Empty,
         typeof(simulation.temporal_streams),typeof(simulation.output_retention),
         typeof(simulation.constants),PSE.NoEnvironmentOverride,I,typeof(simulation.environment_bindings)}
@@ -60,7 +66,7 @@ end
         Tuple{},Empty,Empty,Tuple{},Tuple{},Binding,Context,I}
     Store = typeof(simulation.temporal_streams.cohorts)
     Owner = PSE._execution_store_owner_type(Store)
-    Rows = PSE.ExecutionCohortRows{Target,PSE.ExecutionCohort{Target,I,Owner},Store}
+    Rows = PSE.ExecutionCohortRows{Target,I,Owner,Store}
     Batch = PSE.CompiledExecutionBatch{typeof(application),Rows,
         PSE.RawGlobalModelEnvironment{Nothing},PSE.CompiledOutputPublication{Tuple{}}}
     before_callbacks = declarations[]
@@ -88,7 +94,9 @@ end
     @test only(simulation.execution_plan.groups) === future
     @test only(simulation.execution_plan.groups_by_application_slot) === future
     @test eltype(future.batches) === Batch
-    @test only(only(future.batches).targets).status_view.status === born.status
+    view = only(only(future.batches).targets).status_view
+    @test view.canonical_status === born.status
+    @test PSE.refvalue(view.status, :count) === PSE.refvalue(born.status, :count)
     remove_object!(model,:born)
     step!(simulation)
     @test typeof(simulation.execution_plan) === Plan

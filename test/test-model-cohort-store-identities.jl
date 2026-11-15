@@ -37,15 +37,7 @@ function fixture(closed)
             ModelSpec(Leaf(); name=:leaf, on=Many(scale=:Leaf))))
     if closed
         previous = model.registry
-        store = PSE._closed_object_family_store(previous.objects)
-        # Admit this ID/status family by the type of the real supplied Leaf.
-        # No future object, value, callback or status is constructed here.
-        S = typeof(model_status(model, 1))
-        future = PSE.ObjectFamily{ObjectId{Symbol},S}(
-            Union{Nothing,PSE.ObjectFamilyRow{ObjectId{Symbol},S}}[])
-        objects = PSE.ObjectFamilyStore(
-            PSE.ClosedObjectFamilyCatalog((store.catalog.families...,future)),
-            store.locations, store.status_owners, copy(store.layout_cache))
+        objects = PSE._closed_object_family_store(previous.objects)
         registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
             previous.by_species, previous.ancestor_ids_by_object)
         model = PSE.CompositeModel(registry, model.applications, model.environment,
@@ -65,9 +57,9 @@ end
 function check_store(simulation, closed)
     store = simulation.temporal_streams.cohorts
     I = closed ? Union{ObjectId{Int},ObjectId{Symbol}} : ObjectId
-    O = closed ? Union{Nothing,Tuple{Symbol,I,Symbol,Symbol}} : Any
-    CK = closed ? PSE.ExecutionCohortKey{O,DataType} : Tuple{O,Symbol,DataType}
-    LK = closed ? PSE.ExecutionCohortKey{O,I} : Tuple{O,Symbol,I}
+    O = Union{Nothing,Tuple{Symbol,I,Symbol,Symbol}}
+    CK = PSE.ExecutionCohortKey{O,DataType}
+    LK = PSE.ExecutionCohortKey{O,I}
     @test typeof(store) === PSE.ExecutionCohortStore{I,O,CK,LK}
     @test typeof(typeof(store)()) === typeof(store)
     @test fieldtype(typeof(simulation.execution_plan), :cohorts) === typeof(store)
@@ -256,7 +248,7 @@ end
     end
 end
 
-@testset "open refresh retires an unvisited scheduled owner through the same store" begin
+@testset "ordinary refresh retires an unvisited scheduled owner through the same store" begin
     for closed in (false,true)
         data = fixture(closed)
         simulation = run!(data.model;steps=0,outputs=:none)

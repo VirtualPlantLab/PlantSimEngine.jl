@@ -30,8 +30,12 @@ function _temporal_copy_payload_types(V, B, C)
     end
     if C <: Status && input in _status_schema_names(C)
         index = findfirst(isequal(input), _status_schema_names(C))
-        Value = eltype(fieldtype(_status_schema_references(C), index))
-        add(many && Value <: AbstractVector ? eltype(Value) : Value)
+        for Reference in Base.uniontypes(fieldtype(_status_schema_references(C), index))
+            Reference === Nothing && continue
+            Reference <: Ref || continue
+            Value = eltype(Reference)
+            add(many && Value <: AbstractVector ? eltype(Value) : Value)
+        end
     end
     for View in _model_status_view_family_types(V), TI in fieldtypes(fieldtype(View, :temporal_inputs))
         Other = fieldtype(TI, :binding)
@@ -83,7 +87,7 @@ end
 function _gather_temporal_initial(binding::CompiledModelInputBinding, status::Status, payloads)
     initial = _input_value(binding.carrier)
     if isnothing(initial)
-        binding.input in propertynames(status) || error(
+        hasproperty(status, binding.input) || error(
             "Temporal input `$(binding.input)` on application ",
             "`$(binding.application_id)` has neither a resolved source carrier nor an ",
             "initialized status value. Resolved source objects: ",
@@ -247,9 +251,9 @@ function _assemble_model_status_view(canonical_status, model, application, objec
             "Compiled application input `$(name)` has more than one Many binding.")
         push!(seen_many, name)
     end
-    parts = (; canonical_status, temporal, private_names, private_values,
-        many_names, many_ids, execution_stamp,
-        layout_cache=model.registry.objects.layout_cache)
+    hot_names = Tuple(unique((_model_input_names(application)..., _model_output_names(application)...)))
+    parts = (; canonical_status, temporal, private_names, private_values, hot_names,
+        many_names, many_ids, execution_stamp)
     view = _construct_model_status_view(status_view_schema, application.id, parts)
     return _admit_model_status_view!(status_view_schema, application.id, view)
 end
@@ -378,6 +382,27 @@ end
         :(length(parts.private_values) == $(fieldcount(P))),
         :(length(parts.many_names) == $(fieldcount(BI))),
         :(length(parts.many_ids) == $(fieldcount(BI)))]
+    S = fieldtype(V, :status)
+    Backing = fieldtype(S, :vars)
+    Backing <: _ProjectedStatusStorage || return :(false)
+    Hot = fieldtype(Backing, :hot)
+    append!(checks, [:(parts.hot_names == $(QuoteNode(fieldnames(Hot))))])
+    temporal_names = map(fieldtypes(T)) do TI
+        fieldtype(fieldtype(fieldtype(TI,:binding),:plan),:route).parameters[1]
+    end
+    for (index, name) in enumerate(fieldnames(Hot))
+        private_index = findfirst(isequal(name), fieldnames(P))
+        temporal_index = findfirst(isequal(name), temporal_names)
+        R = fieldtype(Hot,index)
+        if !isnothing(private_index)
+            fieldtype(P,private_index) === R || return :(false)
+        elseif !isnothing(temporal_index)
+            fieldtype(fieldtype(T,temporal_index),:reference) === R || return :(false)
+        else
+            push!(checks, :(hasproperty(parts.canonical_status,$(QuoteNode(name))) &&
+                refvalue(parts.canonical_status,$(QuoteNode(name))) isa $R))
+        end
+    end
     for (index, TI) in enumerate(fieldtypes(T))
         B, SA = fieldtype(TI, :binding), fieldtype(TI, :source_applications)
         I, R = fieldtype(TI, :initial), fieldtype(TI, :reference)
@@ -421,8 +446,7 @@ end
     edited = Expr(:tuple,
         [:(getfield(private_outputs, $index)) for index in 1:fieldcount(P)]...,
         [:(getfield(getfield(temporal_inputs, $index), :reference)) for index in 1:fieldcount(T)]...)
-    status = fieldcount(P) + fieldcount(T) == 0 ? :(parts.canonical_status) :
-        :(_construct_status($(QuoteNode(factory)), parts.canonical_status, $edited))
+    status = :(_construct_status($(QuoteNode(factory)), parts.canonical_status, $edited))
     bound = Expr(:tuple, [begin
         B = fieldtype(BI, index)
         I = fieldtype(fieldtype(B, :ids), :ids)
@@ -497,17 +521,15 @@ function _open_status_view_type(parts)
     T = Tuple{temporals...}
     P = NamedTuple{Tuple(parts.private_names),
         Tuple{(Base.RefValue{typeof(value)} for value in parts.private_values)...}}
-    S = if isempty(parts.private_names) && isempty(parts.temporal)
-        C
-    else
-        factory = _status_construction_recipe!(parts.layout_cache,
-            propertynames(parts.canonical_status),
-            (parts.private_names..., (recipe.input for recipe in parts.temporal)...))
-        original = _status_schema_references(C)
-        edited = Tuple{fieldtypes(P)..., (fieldtype(TI, :reference) for TI in temporals)...}
-        selections = map(action -> _selected_status_reference_type(action, original, edited), factory.actions)
-        Status{typeof(factory).parameters[1], Tuple{selections...}}
+    hot_references = map(parts.hot_names) do name
+        private_index = findfirst(isequal(name), parts.private_names)
+        isnothing(private_index) || return fieldtype(P,private_index)
+        temporal_index = findfirst(recipe -> recipe.input === name, parts.temporal)
+        isnothing(temporal_index) || return fieldtype(T,temporal_index).parameters[4]
+        hasproperty(parts.canonical_status,name) || throw(ArgumentError("A declared kernel port has no initialized value."))
+        typeof(refvalue(parts.canonical_status,name))
     end
+    S = _projected_status_type(C, parts.hot_names, Tuple{hot_references...})
     bound_types = map(parts.many_names, parts.many_ids) do name, ids
         Value = if (index = findfirst(recipe -> recipe.input === name, parts.temporal)) !== nothing
             _open_status_view_storage_type(parts.temporal[index])

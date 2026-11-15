@@ -20,15 +20,16 @@ end
 
 mutable struct OpenObjectFamilyCatalog
     families::Vector{AbstractObjectFamily}
-    slots::Dict{Tuple{DataType,DataType},Int}
+    slots::Dict{Tuple{Type,Type},Int}
 end
 
 OpenObjectFamilyCatalog() = OpenObjectFamilyCatalog(
-    AbstractObjectFamily[], Dict{Tuple{DataType,DataType},Int}(),
+    AbstractObjectFamily[], Dict{Tuple{Type,Type},Int}(),
 )
 
-struct ClosedObjectFamilyCatalog{F<:Tuple}
+struct ClosedObjectFamilyCatalog{F<:Tuple,M}
     families::F
+    status_manifest::M
 end
 
 # Open registration crosses the ordinary JIT function barrier. Closed
@@ -54,13 +55,11 @@ struct ObjectFamilyStore{I<:ObjectId,C} <: AbstractDict{I,Object}
     catalog::C
     locations::Dict{I,ObjectFamilyLocation}
     status_owners::IdDict{Base.RefValue{Nothing},I}
-    layout_cache::Dict{Tuple{Tuple,Tuple},Any}
 end
 
 ObjectFamilyStore{I}() where {I<:ObjectId} = ObjectFamilyStore(
     OpenObjectFamilyCatalog(), Dict{I,ObjectFamilyLocation}(),
     IdDict{Base.RefValue{Nothing},I}(),
-    Dict{Tuple{Tuple,Tuple},Any}(),
 )
 ObjectFamilyStore() = ObjectFamilyStore{ObjectId}()
 
@@ -163,11 +162,11 @@ function _store_object_family_row!(store::ObjectFamilyStore{K}, object::Object, 
         throw(ArgumentError("Remove the registered Object before reusing its identity for another Object."))
     end
     _validate_object_family_status_owner!(store, status, id)
-    slot, family = _object_family_for_write!(store.catalog, I, S)
+    slot, family = _object_family_for_write!(store.catalog, K, S)
     if !isnothing(previous)
         _forget_object_family_status!(store, _object_family_status_at(store.catalog, previous), id)
     end
-    entry = ObjectFamilyRow(id, status)
+    entry = ObjectFamilyRow{K,S}(id, status)
     row = if !isnothing(previous) && previous.family == slot
         family.rows[previous.row] = entry
         previous.row
@@ -202,30 +201,28 @@ end
 function Base.empty!(store::ObjectFamilyStore)
     empty!(store.locations)
     empty!(store.status_owners)
-    empty!(store.layout_cache)
     for family in store.catalog.families
         empty!(family.rows)
     end
     return store
 end
 
-"""Close active families of a private model before execution; replace its old store."""
-function _closed_object_family_store(store::ObjectFamilyStore)
-    # Preparation may have replaced an object's status several times. Empty
-    # historical schemas are not promises about future newborn construction.
-    slots = sort!(unique([location.family for location in values(store.locations)]))
-    families = Tuple(store.catalog.families[slot] for slot in slots)
-    id_types = unique([typeof(family).parameters[1] for family in families])
-    isempty(id_types) && throw(ArgumentError("A closed object family store requires an identity schema."))
-    I = Union{id_types...}
-    closed_slots = Dict(slot => index for (index, slot) in enumerate(slots))
-    locations = Dict{I,ObjectFamilyLocation}(
-        id => ObjectFamilyLocation(closed_slots[location.family], location.row, location.object)
-        for (id, location) in store.locations
-    )
-    return ObjectFamilyStore(
-        ClosedObjectFamilyCatalog(families), locations,
-        IdDict{Base.RefValue{Nothing},I}(store.status_owners),
-        copy(store.layout_cache),
-    )
+"""Freeze the real ID domain of an already prepared private registry."""
+function _closed_object_family_store(store::ObjectFamilyStore{K,<:ClosedObjectFamilyCatalog}) where {K}
+    # Retain every known prepared family even after all its rows are removed.
+    # Ordinary registries admit arbitrary ObjectId value types; explicit private
+    # closure narrows only that ID domain, never discovers another Status layout.
+    K !== ObjectId && return store
+    I = isempty(store) ? K : Union{unique(typeof(id) for id in keys(store))...}
+    manifest = store.catalog.status_manifest
+    S = manifest.status_type
+    families = (ObjectFamily{I,Nothing}(Union{Nothing,ObjectFamilyRow{I,Nothing}}[]),
+        ObjectFamily{I,S}(Union{Nothing,ObjectFamilyRow{I,S}}[]))
+    closed = ObjectFamilyStore(ClosedObjectFamilyCatalog(families, manifest),
+        Dict{I,ObjectFamilyLocation}(), IdDict{Base.RefValue{Nothing},I}())
+    for (id, object) in store
+        status = _object_family_status(store, id)::Union{Nothing,S}
+        _store_object_family_row!(closed, object, id, status)
+    end
+    return closed
 end

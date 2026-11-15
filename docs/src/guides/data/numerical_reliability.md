@@ -85,11 +85,26 @@ the simulation. Model parameters and environment values keep their types.
 Conversion happens when status storage is created or a new object is added;
 it is not repeated every time a model runs.
 
-If you supply a `Status`, PlantSimEngine leaves that original object unchanged.
-It creates new storage for converted values and reuses existing references
-where possible for unchanged values. Each `Object` must have its own `Status`;
-sharing one `Status` between objects is rejected. The same conversion rules
-apply once to values added later through `register_object!` or `add_organ!`.
+Retrieve the official status with `model_status(model, object)` after constructing
+the model. PlantSimEngine creates a prepared container, creates new references
+for converted values, and shares existing references for unchanged values.
+The supplied container keeps its original fields; later writes through a shared
+reference are visible from both containers. Each `Object` must have its own
+`Status`; sharing one `Status` between objects is rejected. The same conversion
+rules apply once to values added later through `register_object!` or `add_organ!`.
+
+The prepared configuration also determines which field types a newborn can
+supply. Use concrete declarations for future fields and the same numeric
+configuration for their initial data. For example, a `Float32` configuration can
+use `type_promotion=Dict(Float64 => Float32)` to convert later `Float64` input
+data as well. Incompatible fields or reference types are rejected before the
+new object is registered. Existing objects retain their admitted references
+when they move between application scopes.
+
+Declaration-based type preparation does not execute `status_transform` on
+future defaults. The callback runs when the real value is materialized, and
+its result must fit the prepared type family. A callback whose return type
+varies outside that family needs a new, explicit model configuration.
 
 `Diagnostics.explain_initialization(model)` shows the type declared by the
 model, the type of the supplied value, the type after `status_transform`, and

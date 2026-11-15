@@ -314,8 +314,16 @@ function apply_model_graph_edit(
         candidate.scenario_plan_cache = preparation
         _model_owned_scenario_preparation(candidate, preparation).resolved = nothing
     end
-    _scenario_preparation(candidate)
-    return candidate
+    final_preparation = if !isnothing(preparation) && _authored_specs_match(preparation, candidate)
+        _scenario_preparation(candidate)
+    else
+        # This API already returns a NEW model. Its copied live state is the
+        # genuine input data for a newly prepared namespace, unlike force in place.
+        fresh = _prepare_authored_scenario(candidate, candidate.applications; raw_families=nothing)
+        candidate.scenario_plan_cache = fresh
+        fresh
+    end
+    return _install_prepared_canonical_registry(candidate, final_preparation)
 end
 
 function _model_edit_application_id(spec)

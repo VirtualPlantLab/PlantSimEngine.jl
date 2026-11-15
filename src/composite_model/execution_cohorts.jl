@@ -84,14 +84,14 @@ _execution_store_object_id(::ExecutionCohortStore{I}, object_id) where {I} = Obj
 @inline _execution_key_item(key::ExecutionCohortKey) = key.item
 
 """An ordered membership view over one application's concrete payload family."""
-struct ExecutionCohortRows{T,C<:ExecutionCohort{T},S<:ExecutionCohortStore} <: AbstractVector{T}
+struct ExecutionCohortRows{T,I<:ObjectId,O,S<:ExecutionCohortStore} <: AbstractVector{T}
     store::S
-    cohort::C
+    cohort::ExecutionCohort{T,I,O}
     indices::Vector{Int}
 end
 
-ExecutionCohortRows{T}(store::S, cohort::C, indices::Vector{Int}) where {T,C<:ExecutionCohort{T},S<:ExecutionCohortStore} =
-    ExecutionCohortRows{T,C,S}(store, cohort, indices)
+ExecutionCohortRows{T}(store::S, cohort::ExecutionCohort{T,I,O}, indices::Vector{Int}) where {T,I<:ObjectId,O,S<:ExecutionCohortStore} =
+    ExecutionCohortRows{T,I,O,S}(store, cohort, indices)
 
 # The finite witness belongs to one application/owner boundary, never to the
 # runtime store. In particular Target -> RunContext -> RuntimeStorage does not
@@ -206,7 +206,7 @@ _execution_cohort_types(::OpenExecutionCohortSchema, ::ExecutionCohortStore) =
     O = _execution_store_owner_type(S)
     ids = unique([fieldtype(Target, :object_id) for Target in targets])
     locations = [ExecutionCohortLocation{ExecutionCohort{Target,fieldtype(Target,:object_id),O}} for Target in targets]
-    rows = [ExecutionCohortRows{Target,ExecutionCohort{Target,fieldtype(Target,:object_id),O},S} for Target in targets]
+    rows = [ExecutionCohortRows{Target,fieldtype(Target,:object_id),O,S} for Target in targets]
     I, U, L, R = Union{ids...}, Union{targets...}, Union{locations...}, Union{rows...}
     return :((identity=$I, target=$U, location=$L, rows=$R))
 end
@@ -216,7 +216,7 @@ end
     branches = Expr[]
     O = _execution_store_owner_type(S)
     for Target in fieldtypes(T)
-        R = ExecutionCohortRows{Target,ExecutionCohort{Target,fieldtype(Target,:object_id),O},S}
+        R = ExecutionCohortRows{Target,fieldtype(Target,:object_id),O,S}
         push!(branches, :(rows isa $R && return f(rows)))
     end
     return quote

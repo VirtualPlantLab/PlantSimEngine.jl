@@ -83,10 +83,17 @@ end
     end
 end
 
+PlantSimEngine.@process "organ_creation_area" verbose=false
+struct OrganCreationAreaModel <: AbstractOrgan_Creation_AreaModel end
+PlantSimEngine.inputs_(::OrganCreationAreaModel) = NamedTuple()
+PlantSimEngine.outputs_(::OrganCreationAreaModel) = (area=0.0,)
+PlantSimEngine.run!(::OrganCreationAreaModel, status, environment, constants, context) = nothing
+
 @testset "organ insertion preserves ids, status identity, and lifecycle snapshots" begin
     root = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
     plant = Node(root, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
-    model = CompositeModel(root)
+    model = CompositeModel(root; applications=(
+        ModelSpec(OrganCreationAreaModel(); name=:area, on=Many(scale=:Leaf)),))
     @test isempty(model.instances)
     @test isnothing(PlantSimEngine._instance_for_object(model, ObjectId(2)))
 
@@ -95,7 +102,6 @@ end
     @test_throws ErrorException add_organ!(
         plant, model, :+, :Leaf, 2;
         attributes=(plantsimengine_status=nothing,),
-        use_status_adapter=false,
     )
     @test object_ids(model) == initial_ids
     @test model.source_adapter.max_node_id[] == initial_max_id
@@ -106,19 +112,19 @@ end
         id=40,
         attributes=(area=2.0,),
         initial_status=(area=3.0,),
-        use_status_adapter=false,
     )
     automatic = add_organ!(
         plant, model, :+, :Leaf, 2;
-        use_status_adapter=false,
     )
     @test object_id(model, explicit) == ObjectId(40)
     @test object_id(model, automatic) == ObjectId(41)
+    explicit_node = source_node(model, explicit)
+    automatic_node = source_node(model, automatic)
     @test explicit.area == 3.0
-    @test explicit.node[:area] == 2.0
-    @test model_status(model, explicit.node) === explicit
-    @test source_node(model, explicit) === explicit.node
-    @test !haskey(MultiScaleTreeGraph.node_attributes(explicit.node), :plantsimengine_status)
+    @test explicit_node[:area] == 2.0
+    @test model_status(model, explicit_node) === explicit
+    @test source_node(model, explicit) === explicit_node
+    @test !haskey(MultiScaleTreeGraph.node_attributes(explicit_node), :plantsimengine_status)
     @test last(model.lifecycle_delta.added).ancestors == (
         ObjectId(1), ObjectId(2), ObjectId(41),
     )
@@ -131,8 +137,8 @@ end
 
     remove_object!(model, ObjectId(40))
     @test_throws ArgumentError object_id(model, explicit)
-    @test_throws ArgumentError object_id(model, explicit.node)
-    @test model_status(model, automatic.node) === automatic
+    @test_throws ArgumentError object_id(model, explicit_node)
+    @test model_status(model, automatic_node) === automatic
     @test only(model.lifecycle_delta.removed).ancestors == (
         ObjectId(1), ObjectId(2), ObjectId(40),
     )
@@ -158,9 +164,9 @@ end
         environment=(duration=Hour(1),),
     )
     simulation = run!(model; steps=0, outputs=:none)
-    first = add_organ!(plant_a, model, :+, :Leaf, 2; use_status_adapter=false)
-    second = add_organ!(plant_b, model, :+, :Leaf, 2; use_status_adapter=false)
-    sibling = add_organ!(plant_a, model, :+, :Leaf, 2; use_status_adapter=false)
+    first = add_organ!(plant_a, model, :+, :Leaf, 2)
+    second = add_organ!(plant_b, model, :+, :Leaf, 2)
+    sibling = add_organ!(plant_a, model, :+, :Leaf, 2)
     first_id = object_id(model, first)
     second_id = object_id(model, second)
     sibling_id = object_id(model, sibling)
@@ -168,9 +174,9 @@ end
     @test model_object(model, second).species == :probe_species
     @test PlantSimEngine._instance_for_object(model, sibling_id).name == :first
     continue!(simulation)
-    @test model_status(model, first.node).signal == 1.0
-    @test model_status(model, sibling.node).signal == 1.0
-    @test model_status(model, second.node).signal == 10.0
+    @test model_status(model, source_node(model, first)).signal == 1.0
+    @test model_status(model, source_node(model, sibling)).signal == 1.0
+    @test model_status(model, source_node(model, second)).signal == 10.0
 
     compiled = simulation.compiled
     @test Set(compiled.applications_by_id[:first__allocation_probe].target_ids) ==
@@ -179,8 +185,8 @@ end
           [second_id]
     remove_object!(model, first_id)
     continue!(simulation)
-    @test model_status(model, sibling.node).signal == 2.0
-    @test model_status(model, second.node).signal == 20.0
+    @test model_status(model, source_node(model, sibling)).signal == 2.0
+    @test model_status(model, source_node(model, second)).signal == 20.0
     @test simulation.compiled.applications_by_id[:first__allocation_probe].target_ids ==
           [sibling_id]
 end

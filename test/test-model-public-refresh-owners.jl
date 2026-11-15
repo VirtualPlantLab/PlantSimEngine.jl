@@ -165,6 +165,132 @@ end
     end
 end
 
+
+@testset "force rebinds status permissions before staging a new selector's defaults" begin
+    first_spec = ModelSpec(Counter(); name=:probe, on=Many(kind=:a))
+    model = CompositeModel(Object(:a; kind=:a), Object(:b; kind=:b);
+        applications=(first_spec,))
+    previous = model.scenario_plan_cache
+    catalog = model.registry.objects.catalog
+    families = catalog.families
+    @test isempty(previous.status_manifest.raw_families)
+    replacement = ModelSpec(Counter(); name=:probe, on=Many(kind=:b))
+    @test typeof(replacement) === typeof(first_spec)
+    model.applications[1] = replacement
+    current = Advanced.refresh_bindings!(model; force=true)
+    preparation = model.scenario_plan_cache
+    @test preparation !== previous
+    @test preparation.status_manifest !== catalog.status_manifest
+    @test model.registry.objects.catalog.status_manifest === preparation.status_manifest
+    @test model.registry.objects.catalog.families === families
+    @test preparation.status_manifest.raw_families === previous.status_manifest.raw_families
+    @test isnothing(model_status(model, :a))
+    @test model_status(model, :b).visits == 0
+
+    b = Object(:born_b; kind=:b)
+    register_object!(model, b)
+    wrong = Object(:wrong_a; kind=:a, status=Status(visits=2))
+    source = wrong.status
+    @test_throws ArgumentError register_object!(model, wrong)
+    @test wrong.status === source
+    @test !haskey(model.registry.objects, wrong.id)
+    inactive = Object(:inactive_a; kind=:a)
+    register_object!(model, inactive)
+    run!(model; steps=1, outputs=:none)
+    @test model_status(model, :b).visits == 1
+    @test model_status(model, b.id).visits == 1
+    @test isnothing(model_status(model, inactive.id))
+    @test current.scenario_plan.authoring.preparation === preparation
+end
+
+@testset "force does not turn materialized defaults into RAW evidence" begin
+    model = CompositeModel(Object(:leaf; kind=:a);
+        applications=(ModelSpec(Counter(); name=:probe, on=Many(kind=:a)),))
+    raw = model.scenario_plan_cache.status_manifest.raw_families
+    @test isempty(raw)
+    run!(model; steps=0, outputs=:none)
+    status = model_status(model, :leaf)
+    reference = PSE.refvalue(status, :visits)
+    Advanced.refresh_bindings!(model; force=true)
+    @test model.scenario_plan_cache.status_manifest.raw_families === raw
+    @test model.registry.objects.catalog.status_manifest === model.scenario_plan_cache.status_manifest
+    @test model_status(model, :leaf) === status
+    @test PSE.refvalue(status, :visits) === reference
+    @test object_id(model, status) === ObjectId(:leaf)
+end
+
+PSE.@process "force_authority_new_status_field" verbose=false
+struct ChangingFields{M,D,K} <: AbstractForce_Authority_New_Status_FieldModel
+    extra::M
+    declarations::D
+    kernels::K
+end
+PSE.inputs_(::ChangingFields) = (;)
+function PSE.outputs_(model::ChangingFields)
+    model.declarations[] += 1
+    return model.extra[] ? (visits=0, extra=0) : (visits=0,)
+end
+function PSE.run!(model::ChangingFields, status, environment, constants, context)
+    model.kernels[] += 1
+    status.visits += 1
+    return nothing
+end
+
+@testset "an incompatible mutable declaration records an authoritative error without publishing state" begin
+    extra, declarations, kernels = Ref(false), Ref(0), Ref(0)
+    original = ModelSpec(ChangingFields(extra, declarations, kernels); name=:probe, on=One(id=:leaf))
+    supplied = Status(visits=5)
+    model = CompositeModel(Object(:leaf; status=supplied); applications=(original,))
+    run!(model; steps=0, outputs=:none)
+    registry, preparation, compiled = model.registry, model.scenario_plan_cache, model.binding_cache
+    environment = model.environment_binding_cache
+    status = model_status(model, :leaf)
+    reference = PSE.refvalue(status, :visits)
+    source_owners = copy(model.status_source_owners)
+    source_ids = copy(model.status_source_identities)
+    extra[] = true # SAME immutable ModelSpec and SAME mutable model instance
+    @test only(model.applications) === original
+    failure = try
+        Advanced.refresh_bindings!(model; force=true)
+        nothing
+    catch exception
+        exception
+    end
+    @test failure isa ArgumentError
+    @test occursin("Construct a new CompositeModel", sprint(showerror, failure))
+    rejected = model.scenario_plan_cache
+    @test rejected !== preparation
+    @test rejected.status_manifest isa PSE.ScenarioPreparationFailure
+    @test rejected.status_manifest.phase === :status_manifest
+    @test rejected.status_manifest.error === failure
+    @test model.registry === registry
+    @test model.binding_cache === compiled
+    @test model.environment_binding_cache === environment
+    @test model_status(model, :leaf) === status
+    @test PSE.refvalue(status, :visits) === reference
+    @test status.visits == 5
+    @test model.status_source_owners == source_owners
+    @test model.status_source_identities == source_ids
+    @test object_id(model, status) === ObjectId(:leaf)
+    after_failure = declarations[]
+    @test_throws ArgumentError run!(model; steps=1, outputs=:none)
+    @test_throws ArgumentError Advanced.refresh_bindings!(model)
+    @test declarations[] == after_failure
+    @test kernels[] == 0
+    @test status.visits == 5
+
+    extra[] = false
+    @test_throws ArgumentError run!(model; steps=0, outputs=:none)
+    @test declarations[] == after_failure
+    Advanced.refresh_bindings!(model; force=true) # explicit recovery within old S
+    @test model.registry.objects.catalog.status_manifest === model.scenario_plan_cache.status_manifest
+    run!(model; steps=1, outputs=:none)
+    @test model_status(model, :leaf) === status
+    @test PSE.refvalue(status, :visits) === reference
+    @test status.visits == 6
+    @test kernels[] == 1
+end
+
 end
 
 module SelectiveRefreshOwnerChecks

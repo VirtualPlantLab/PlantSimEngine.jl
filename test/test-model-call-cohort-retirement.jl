@@ -166,28 +166,17 @@ Base.hash(owner::OwnerAlias, seed::UInt) = hash(owner.value, seed)
     @test value.value[] === 3.0
 end
 
-# The future Symbol Leaf descriptor uses the type of an actual complete Leaf
-# status already owned by this scene. It constructs no future Status or object.
-function closed_registry_with_future_leaf(model)
+# Freeze only the real identity domain. The canonical Status schema is already
+# prepared at CompositeModel construction, even when no Leaf remains active.
+function with_finite_registry(model)
     previous = model.registry
-    closed = PSE._closed_object_family_store(previous.objects)
-    S = typeof(model_status(model, 1))
-    future = PSE.ObjectFamily{ObjectId{Symbol},S}(
-        Union{Nothing,PSE.ObjectFamilyRow{ObjectId{Symbol},S}}[])
-    families = (closed.catalog.families..., future)
-    store = PSE.ObjectFamilyStore(PSE.ClosedObjectFamilyCatalog(families),
-        closed.locations, closed.status_owners, copy(closed.layout_cache))
-    registry = PSE.ObjectRegistry(store, previous.by_scale, previous.by_kind,
+    objects = PSE._closed_object_family_store(previous.objects)
+    registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
         previous.by_species, previous.ancestor_ids_by_object)
-    return PSE.CompositeModel(
-        registry, model.applications, model.environment, model.instances,
-        model.source_adapter, model.status_conversion, model.status_conversion_records,
-        model.status_source_owners, model.status_source_identities,
-        model.scenario_plan_cache, model.binding_cache, model.environment_binding_cache,
-        model.bindings_dirty, model.environment_bindings_dirty, model.lifecycle_delta,
-        model.input_default_status_variables, model.runtime_revision, model.revision,
-        model.environment_revision,
-    )
+    fields = map(fieldnames(typeof(model))) do name
+        name === :registry ? registry : getfield(model, name)
+    end
+    return PSE.CompositeModel(fields...)
 end
 current_target(simulation) = only(only(only(simulation.execution_plan.groups).batches).targets)
 view_ids(values) = [target.object_id for target in values]
@@ -221,7 +210,7 @@ function publish_current_left!(data)
 end
 
 @testset "closed memberships use the global future identity schema" begin
-    data = fixture(; transform=closed_registry_with_future_leaf)
+    data = fixture(; transform=with_finite_registry)
     I = Union{ObjectId{Symbol},ObjectId{Int}}
     @test keytype(data.model.registry.objects) === I
     applications = data.simulation.compiled.applications_by_id
@@ -256,8 +245,8 @@ end
 end
 
 @testset "ordinary and prepared public calls retain state histories and membership through birth and removal" begin
-    ordinary = fixture(; transform=closed_registry_with_future_leaf, outputs=:all)
-    prepared = prepared_tree(fixture(; transform=closed_registry_with_future_leaf, outputs=:all))
+    ordinary = fixture(; transform=with_finite_registry, outputs=:all)
+    prepared = prepared_tree(fixture(; transform=with_finite_registry, outputs=:all))
     fixtures = (ordinary, prepared)
     references = [PSE.refvalue(model_status(data.model, 2), :leaf_visits) for data in fixtures]
     held = [data.left for data in fixtures]
@@ -296,7 +285,7 @@ end
     @test stream_values(ordinary.simulation) == stream_values(prepared.simulation)
 end
 
-@testset "ordinary open identity domains still accept a later Symbol Leaf" begin
+@testset "ordinary identity domains still accept a later Symbol Leaf" begin
     data = fixture()
     continue!(data.simulation; steps=2)
     register_object!(data.model, Object(:later_leaf; scale=:Leaf, parent=:caller,
@@ -307,9 +296,9 @@ end
     @test ObjectId(:later_leaf) in view_ids(call_targets(data.capture[], :left))
 end
 
-@testset "an initially empty Many keeps its explicit future Symbol Leaf identity family" begin
+@testset "an initially empty Many retains its prepared Status and real Symbol identity family" begin
     function empty_closed(model)
-        closed = closed_registry_with_future_leaf(model)
+        closed = with_finite_registry(model)
         remove_object!(closed, 1)
         remove_object!(closed, 2)
         return closed
@@ -327,8 +316,8 @@ end
     @test model_status(data.model, :future_leaf).leaf_visits == 2
     @test view_ids(data.left) == [ObjectId(:future_leaf)]
     @test eltype(data.left.binding.callee_object_ids) === I
-    # Identity metadata under ordinary open execution: no full prepared Target
-    # family for a future Symbol is claimed by this case.
+    # The caller already supplies the Symbol ID family. This checks canonical
+    # identity metadata; batch admission remains ordinary in this case.
     @test data.left.batch_schema isa PSE.OpenExecutionBatchSchema
 end
 
