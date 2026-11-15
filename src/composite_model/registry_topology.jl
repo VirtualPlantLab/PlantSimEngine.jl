@@ -1474,13 +1474,6 @@ end
     source_status = object.status
     source_status isa Union{Nothing,Status} || throw(ArgumentError(
         "Initial object status must be a Status or nothing."))
-    return _register_object_status!(model, object, id, parent_id, source_status, status_values_materialized)
-end
-
-# The same conversion and ownership operations serve both catalog forms. An
-# unconverted source need not be a canonical family when conversion is active.
-@inline function _register_object_status!(model, object, id, parent_id,
-    source_status::Union{Nothing,Status}, status_values_materialized)
     _validate_status_source_identity_available!(model, source_status, id)
     if status_values_materialized || _no_status_conversion(model.status_conversion)
         return Base.@inline _register_converted_status!(model, object, id, parent_id, source_status, source_status)
