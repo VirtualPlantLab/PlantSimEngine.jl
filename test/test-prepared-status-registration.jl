@@ -104,6 +104,37 @@ end
     @test resolve_object_ids(model, Many(Scope(:a), scale=:Leaf)) == [data.a.id]
 end
 
+@testset "registration retains conversion receipts only for actual materialization" begin
+    for promote in (false, true)
+        calls = Ref(0)
+        transform(variable, value) = (calls[] += 1; value)
+        model = CompositeModel(Object(:root; scale=:Scene),
+            Object(:seed; scale=:Leaf, parent=:root, status=Status(x=1f0));
+            applications=(ModelSpec(Source(0f0); name=:source, on=Many(scale=:Leaf)),),
+            type_promotion=promote ? Dict(Float64 => Float32) : nothing,
+            status_transform=promote ? transform : nothing)
+        @test model_status(model, :root) === nothing
+        calls[] = 0
+        records = copy(model.status_conversion_records)
+        supplied = promote ? Status(x=2.0) : Status(x=2f0)
+        reference = PSE.refvalue(supplied, :x)
+        object = Object(:born; scale=:Leaf, parent=:root, status=supplied)
+        @test register_object!(model, object) === object
+        official = model_status(model, object)
+        @test official.x === 2f0
+        @test supplied.x === (promote ? 2.0 : 2f0)
+        @test (PSE.refvalue(official, :x) === reference) === !promote
+        @test calls[] == Int(promote)
+        if promote
+            receipt = model.status_conversion_records[(:supplied_status, nothing, object.id, :x)]
+            @test receipt.original_type === Float64
+            @test receipt.effective_type === Float32
+        else
+            @test model.status_conversion_records == records
+        end
+    end
+end
+
 @testset "empty prepared catalogs retain None and S without biological values" begin
     model = CompositeModel(Object(:only))
     S = PSE._scenario_preparation(model).status_manifest.status_type

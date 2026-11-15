@@ -536,7 +536,6 @@ function _register_objects!(
                     model,
                     object;
                     status_values_materialized=status_values_materialized,
-                    prepared=false,
                 )
                 push!(added, object)
                 deleteat!(pending, index)
@@ -1464,7 +1463,6 @@ end
     object::Object;
     parent=object.parent,
     status_values_materialized::Bool=false,
-    prepared::Bool,
 )
     registry = model.registry
     id = _index_object_id(registry.objects, object.id)
@@ -1473,35 +1471,39 @@ end
     if !isnothing(parent_id) && !haskey(registry.objects, parent_id)
         error("No model object with id `$(parent_id.value)`.")
     end
-    return _register_object_status!(model, object, id, parent_id, object.status, status_values_materialized, prepared)
+    source_status = object.status
+    source_status isa Union{Nothing,Status} || throw(ArgumentError(
+        "Initial object status must be a Status or nothing."))
+    return _register_object_status!(model, object, id, parent_id, source_status, status_values_materialized)
 end
 
 # The same conversion and ownership operations serve both catalog forms. An
 # unconverted source need not be a canonical family when conversion is active.
-@inline function _register_object_status!(model, object, id, parent_id, source_status,
-    status_values_materialized, prepared::Bool)
-    source_status isa Union{Nothing,Status} || throw(ArgumentError(
-        "Initial object status must be a Status or nothing."))
+@inline function _register_object_status!(model, object, id, parent_id,
+    source_status::Union{Nothing,Status}, status_values_materialized)
     _validate_status_source_identity_available!(model, source_status, id)
+    if status_values_materialized || _no_status_conversion(model.status_conversion)
+        return _register_converted_status!(model, object, id, parent_id, source_status, source_status)
+    end
     conversion_records = Dict{Any,Any}()
-    converted = status_values_materialized || _no_status_conversion(model.status_conversion) ?
-        source_status : _convert_registered_status(model, id, source_status; conversion_records)
+    converted = _convert_registered_status(model, id, source_status; conversion_records)
     converted isa Union{Nothing,Status} || throw(ArgumentError(
         "Converted object status must be a Status or nothing."))
-    registered = if prepared
-        Base.@inline _with_prepared_canonical_status_type(_register_prepared_object_status!,
-            model, model, object, id, parent_id, source_status, converted)
-    else
-        _register_converted_object!(model, object, id, parent_id, source_status, converted)
-    end
+    registered = _register_converted_status!(model, object, id, parent_id, source_status, converted)
     merge!(model.status_conversion_records, conversion_records)
     return registered
 end
 
-@inline function _register_prepared_object_status!(::Type{S}, model, object, id,
-    parent_id, source_status, converted) where {S}
-    _validate_prepared_initial_status(model, object, converted, parent_id)
-    status = isnothing(converted) ? nothing : _new_prepared_status(S, converted)
+@inline function _register_converted_status!(model, object, id, parent_id,
+    source_status::Union{Nothing,Status}, converted::Union{Nothing,Status})
+    catalog = model.registry.objects.catalog
+    status = if catalog isa ClosedObjectFamilyCatalog
+        manifest = catalog.status_manifest
+        _validate_prepared_initial_status(manifest, model, object, converted, parent_id)
+        isnothing(converted) ? nothing : _new_prepared_status(manifest.status_type, converted)
+    else
+        converted
+    end
     return _register_converted_object!(model, object, id, parent_id, source_status, status)
 end
 
@@ -1545,7 +1547,6 @@ refresh boundary. Prefer [`add_organ!`](@ref) for MTG-backed growth.
         model,
         object;
         parent=parent,
-        prepared=true,
     )
     _record_added_objects!(model, (object,))
     return object
