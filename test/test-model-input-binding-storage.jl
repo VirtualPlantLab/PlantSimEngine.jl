@@ -310,6 +310,37 @@ end
     end
 end
 
+@testset "a canonical source right is independent of a consumer's Default seed" begin
+    source = ModelSpec(Reader{Float64}();name=:source,on=Many(scale=:Leaf),inputs=(
+        single=One(id=:anchor,within=SceneScope(),var=:x,from_status=true),
+        values=Many(scale=:Absent,within=SceneScope(),var=:x,from_status=true),
+    ))
+    reader = ModelSpec(Reader{Float32}();name=:reader,on=One(id=:reader),inputs=(
+        single=One(id=:anchor,within=SceneScope(),var=:x,from_status=true),
+        values=Many(scale=:Leaf,within=SceneScope(),var=:total,from_status=true,after=:source),
+    ))
+    model = CompositeModel(Object(:scene;scale=:Scene),
+        Object(:anchor;parent=:scene,scale=:Anchor,status=Status(x=3f0)),
+        Object(:existing;parent=:scene,scale=:Leaf,kind=:old,status=Status(total=0.0)),
+        Object(:reader;parent=:scene,scale=:Reader);applications=(source,reader))
+    simulation = run!(model;steps=0,outputs=:all)
+    route = binding(simulation,:reader,:values)
+    @test Base.RefValue{Float32} in fieldtypes(route.plan.reference_types)
+    @test Base.RefValue{Float64} in fieldtypes(route.plan.reference_types)
+    data = Status(total=7.0)
+    cell = PSE.refvalue(data,:total)
+    # kind=:new has no matching RAW family; the prepared source application
+    # declares total::Float64. The reader's Float32[] is its initial DATA role.
+    register_object!(model,Object(:new;parent=:scene,scale=:Leaf,kind=:new,status=data))
+    @test PSE.refvalue(model_status(model,:new),:total) === cell
+    step!(simulation)
+    route = binding(simulation,:reader,:values)
+    @test any(reference -> reference === cell,parent(route.carrier))
+    @test PSE.refvalue(model_status(model,:new),:total) === cell
+    @test model_status(model,:reader).total === 9.0
+    @test outputs(simulation)[(:reader,ObjectId(:reader),:total)] == [(1.0,9.0)]
+end
+
 @testset "all applicable from-status route reference bounds precede RAW fallback" begin
     model = CompositeModel(Object(:scene;scale=:Scene),
         Object(:anchor;scale=:Anchor,parent=:scene,status=Status(x=3f0)),

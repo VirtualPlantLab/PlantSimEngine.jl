@@ -1497,10 +1497,6 @@ end
     else
         converted
     end
-    return _register_converted_object!(model, object, id, parent_id, source_status, status)
-end
-
-function _register_converted_object!(model, object, id, parent_id, source_status, status)
     registry = model.registry
     _validate_status_identity_available!(registry, status, id)
     object.status = status
