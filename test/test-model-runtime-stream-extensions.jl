@@ -222,7 +222,8 @@ end
     a_reference = PSE.refvalue(model_status(data.model, 1), :a)
 
     register_object!(data.model, Object(2; scale=:Leaf, parent=0,
-        status=Status(a=0f0, b=0f0, z=0.0)))
+        status=Status(a=0f0, b=0f0)))
+    @test !hasproperty(model_status(data.model, 2), :z)
     step!(data.simulation)
     grown = check_reconstructed_groups(data, (1, 2))
     @test grown !== original

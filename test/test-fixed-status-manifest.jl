@@ -1,5 +1,5 @@
 module FixedStatusManifestChecks
-using PlantSimEngine, Test
+using Dates, PlantSimEngine, Test
 const PSE = PlantSimEngine
 PSE.@process "fixed_status_manifest_source" verbose=false
 PSE.@process "fixed_status_manifest_reader" verbose=false
@@ -114,6 +114,92 @@ end
     @test PSE.refvalue(official,:external) === late_cells[3]
     late_storage[1] = 11f0
     @test official.external === 11f0
+end
+
+# Environment variable names are configuration data, not status permissions.
+struct EnvironmentNamedSource{T} <: AbstractFixed_Status_Manifest_SourceModel
+    variable::Symbol
+    initial::T
+end
+PSE.inputs_(::EnvironmentNamedSource) = NamedTuple()
+PSE.outputs_(model::EnvironmentNamedSource) = (x=model.initial,)
+PSE.environment_inputs_(model::EnvironmentNamedSource) =
+    NamedTuple{(model.variable,)}((model.initial,))
+PSE.run!(model::EnvironmentNamedSource, status, environment, constants, context) =
+    (status.x = getproperty(environment, model.variable); nothing)
+
+@testset "environment remapping does not alter the status permission owner schema" begin
+    spec(variable) = ModelSpec(EnvironmentNamedSource(variable, 0f0);
+        name=:source, on=One(id=:leaf))
+    supplied = Status(x=9f0)
+    reference = PSE.refvalue(supplied, :x)
+    model = CompositeModel(Object(:leaf; status=supplied); applications=(spec(:T),),
+        environment=(duration=Hour(1), T=3f0, U=7f0))
+    official = model_status(model, :leaf)
+    manifest = PSE._prepared_status_manifest(model)
+    first = Advanced.refresh_bindings!(model)
+    model.applications[1] = spec(:U)
+    second = Advanced.refresh_bindings!(model; force=true)
+    current = PSE._prepared_status_manifest(model)
+    @test first.model === second.model === model
+    @test current.status_type === manifest.status_type
+    @test typeof(current) === typeof(manifest)
+    @test model.registry.objects.catalog.status_manifest === current
+    @test model_status(model, :leaf) === official
+    @test PSE.refvalue(official, :x) === reference
+    @test official.x === 9f0
+    @test fieldnames(typeof(only(current.authored))) ==
+        (:slot, :id, :target_matcher, :object_slots)
+    run!(model; steps=1, outputs=:none)
+    @test model_status(model, :leaf) === official
+    @test PSE.refvalue(official, :x) === reference
+    @test official.x === 7f0
+end
+
+@testset "projected admission preserves the real configured override slots" begin
+    base = Source(1f0, 2.0, Ref(0))
+    replacement = Source(1.0, 2f0, Ref(0))
+    template = CompositeModelTemplate((ModelSpec(base; name=:source,
+        on=Many(scale=:Leaf)),))
+    instance = ObjectInstance(:stand, template; root=Object(:plant; scale=:Plant),
+        objects=(Object(:future_override; scale=:Leaf, parent=:plant),),
+        object_overrides=(Override(object=:future_override, application=:source,
+            model=replacement),))
+    model = CompositeModel(instance)
+    preparation = model.scenario_plan_cache
+    manifest = PSE._prepared_status_manifest(model)
+    authored = only(preparation.authored)
+    projected = only(manifest.authored)
+    owner = PSE._application_model_overrides(authored)
+    counts = (base.calls[], replacement.calls[])
+    @test projected.object_slots === owner.object_slots
+    @test projected.slot == authored.slot
+    @test projected.id === authored.id
+    @test projected.target_matcher === authored.target_matcher
+    for (id, expected) in ((ObjectId(:future_override), 2), (ObjectId(:base), 1))
+        @test PSE._prepared_status_variant_slot(projected, id) == expected
+        @test PSE._prepared_status_variant_slot(projected, id) ==
+            PSE._prepared_status_variant_slot(authored, id)
+    end
+    @test (base.calls[], replacement.calls[]) == counts
+    # Mount the genuine target first, then reuse its vacant identity. Its None
+    # status contributes no RAW x/y cells; birth rights still come from ports.
+    @test model_status(model, :future_override) === nothing
+    remove_object!(model, :future_override)
+    @test !haskey(model.registry.objects, ObjectId(:future_override))
+    @test projected.object_slots === owner.object_slots
+    @test owner.object_slots[ObjectId(:future_override)] == 2
+    @test (base.calls[], replacement.calls[]) == counts
+    wrong = Object(:future_override; scale=:Leaf, parent=:plant, status=Status(x=3f0, y=4f0))
+    @test_throws ArgumentError register_object!(model, wrong)
+    @test !haskey(model.registry.objects, wrong.id)
+    supplied = Status(x=3.0, y=4f0)
+    reference = PSE.refvalue(supplied, :x)
+    register_object!(model, Object(:future_override; scale=:Leaf, parent=:plant, status=supplied))
+    @test PSE.refvalue(model_status(model, :future_override), :x) === reference
+    register_object!(model, Object(:base; scale=:Leaf, parent=:plant, status=Status(x=5f0, y=6.0)))
+    @test model_status(model, :base).x === 5f0
+    @test (base.calls[], replacement.calls[]) == counts
 end
 
 end

@@ -26,16 +26,21 @@ function _same_prepared_raw_family(left::PreparedRawStatusFamily,
         left.names == right.names && left.reference_types == right.reference_types
 end
 
-# One typed view of the SAME authored specification and ports. Environment
-# hint result types and call plans are irrelevant to status permissions.
-struct PreparedStatusApplication{S,M,P}
+# Runtime status admission needs only applicability and the effective variant
+# slot. Full specifications/ports stay in ScenarioPreparation; environment names
+# must not change an otherwise identical canonical registry schema.
+struct PreparedStatusApplication{M,O}
     slot::Int
     id::Symbol
-    spec::S
     target_matcher::M
-    ports::P
+    object_slots::O
 end
-_application_ports(application::PreparedStatusApplication) = application.ports
+@inline _prepared_status_object_slots(application::PreparedStatusApplication) =
+    application.object_slots
+function _prepared_status_object_slots(application)
+    owner = _application_model_overrides(application)
+    return isnothing(owner) ? nothing : owner.object_slots
+end
 
 function _prepared_raw_status_families(model)
     catalog = model.registry.objects.catalog
@@ -44,8 +49,8 @@ function _prepared_raw_status_families(model)
 end
 
 _prepared_status_variant_slot(application, object_id) = begin
-    owner = _application_model_overrides(application)
-    isnothing(owner) ? 1 : get(owner.object_slots, object_id, 1)
+    slots = _prepared_status_object_slots(application)
+    isnothing(slots) ? 1 : get(slots, object_id, 1)
 end
 
 function _prepared_status_type_map(names, types)
@@ -272,8 +277,8 @@ function _prepare_status_manifest(model, authored, program, raw_basis)
     physical_refs = map(R -> R === Union{} ? Nothing : R, refs)
     S = _fixed_status_type(Tuple(names), Tuple{physical_refs...})
     applications = map(recipes) do application
-        PreparedStatusApplication(application.slot, application.id, application.spec,
-            application.target_matcher, application.ports)
+        PreparedStatusApplication(application.slot, application.id,
+            application.target_matcher, _prepared_status_object_slots(application))
     end
     return PreparedStatusManifest(S, applications, permissions, destinations, raw)
 end

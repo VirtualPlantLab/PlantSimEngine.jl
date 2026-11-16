@@ -116,7 +116,9 @@ end
 
 @testset "lifecycle snapshots freeze topology and share geometry" begin
     geometry = Dict(:position => [1.0, 2.0])
-    model = CompositeModel(Object(:root; geometry=geometry))
+    # The future branch uses the same genuinely prepared initial-data family.
+    root_status = Status(signal=big"0.0", payload=Int[])
+    model = CompositeModel(Object(:root; geometry=geometry, status=root_status))
     root_snapshot = only(model.lifecycle_delta.added)
     source_status = Status(signal=big"1.25", payload=[1, 2])
     branch = register_object!(
@@ -125,9 +127,18 @@ end
     branch_snapshot = last(model.lifecycle_delta.added)
     leaf = register_object!(model, Object((:leaf, 1); parent=7))
     leaf_snapshot = last(model.lifecycle_delta.added)
-    @test branch.status === source_status
-    @test model_status(model, source_status) === source_status
-    @test object_id(model, source_status) == ObjectId(7)
+    official_status = model_status(model, branch.id)
+    @test branch.status === official_status
+    @test official_status !== source_status
+    @test PlantSimEngine.refvalue(official_status, :signal) ===
+          PlantSimEngine.refvalue(source_status, :signal)
+    @test PlantSimEngine.refvalue(official_status, :payload) ===
+          PlantSimEngine.refvalue(source_status, :payload)
+    @test official_status.signal isa BigFloat
+    @test official_status.signal == big"1.25"
+    @test official_status.payload == [1, 2]
+    @test object_id(model, official_status) == ObjectId(7)
+    @test_throws ArgumentError object_id(model, source_status)
     @test root_snapshot.children === ()
     @test branch_snapshot.children === ()
     @test branch_snapshot.ancestors == (ObjectId(:root), ObjectId(7))

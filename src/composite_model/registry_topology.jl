@@ -1494,7 +1494,7 @@ end
     catalog = model.registry.objects.catalog
     status = if catalog isa ClosedObjectFamilyCatalog
         manifest = catalog.status_manifest
-        _validate_prepared_initial_status(manifest, model, object, converted, parent_id)
+        Base.@inline _validate_prepared_initial_status(manifest, model, object, converted, parent_id)
         isnothing(converted) ? nothing : _new_prepared_status(manifest.status_type, converted)
     else
         converted
