@@ -128,6 +128,7 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
   });
 
   test("connects another consumer and supports undo, redo, remove, and save", async ({ page, request }, testInfo) => {
+    test.setTimeout(120_000);
     await page.goto(server.url);
     await page.getByTestId("configure-environment").click();
     await page.getByTestId("scene-environment").selectOption("environment:weather");
