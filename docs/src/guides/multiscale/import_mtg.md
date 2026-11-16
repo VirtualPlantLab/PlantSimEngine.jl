@@ -30,8 +30,14 @@ this reduced architecture omits stems and petioles. For an existing MTG file, re
 PlantSimEngine imports each node's ID and parent automatically. By default,
 it uses the MTG symbol, such as `:Leaf`, as the object's `scale` label.
 It does **not** automatically copy numerical attributes into `Status`,
-where models read and store their values. To do that, you can supply a function that returns a `Status` for each node. The function can read any attributes you have stored in the MTG, and it can supply default values for missing attributes. The function is called for each node when you create the `CompositeModel` or when you add a new organ with `add_organ!`. The function can return an empty `Status()` if you do not want to import any attributes for a node.
-In our example below, this function initializes carbon biomass only for leaves. The plant-scale model reads the leaf areas calculated from that biomass, so it does not need its own carbon biomass value.
+where models read and store their values. Supply a function that returns a
+`Status` for each node to choose which attributes to import. It can read the
+node's attributes, provide missing initial values, or return an empty
+`Status()`. This function runs when you create the `CompositeModel`.
+
+In the example below, it initializes carbon biomass only for leaves. The
+plant-scale model reads the leaf areas calculated from that biomass, so it
+does not need its own carbon biomass value.
 
 ```@example import_mtg
 initial_status(node) = MultiScaleTreeGraph.symbol(node) == :Leaf ?
@@ -69,10 +75,12 @@ plant_area
 
 `CompositeModel(root; ...)` keeps the relationship between MTG nodes and
 simulation objects. Use `object_id(model, leaf_1)` to find the object for a
-node. When you create an organ with `add_organ!`, PlantSimEngine reuses your
-`initial_status` function to set its initial values. The new node must have
-the attributes this function reads, or the function must supply suitable
-initial values itself.
+node. For a new organ, pass its scientific initial values explicitly, for
+example `add_organ!(parent_node, model, :+, :Leaf, 1;
+initial_status=(carbon_biomass=0.0,))`. The import function is not called
+during growth. The new organ uses the numeric conversion and field types
+prepared for its model configuration. MTG attributes remain annotations
+and geometry; use `source_node(model, object)` to retrieve its source node.
 See [Growth within a time step](../../tutorials/growing_plant/part1_growth.md).
 
 Use `objects_from_mtg(root; status=initial_status)` when you only want a
