@@ -114,6 +114,8 @@ function prepare(model::PSE.CompositeModel; constants=PSE.Constants())
     status = only(PSE.model_objects(owned)).status
     _has_scalar_status(status) ||
         throw(ArgumentError("Compilation requires concrete scalar numeric object status values."))
+    # Fix the present-field schema at build time while sharing the live cells.
+    status = PSE.Status(NamedTuple{keys(status)}(PSE.refvalues(status)))
     plan = PSE._fixed_execution_plan(simulation.execution_plan)
     return PreparedSimulation(PSE._simulation_with_execution_plan(simulation, plan), status)
 end

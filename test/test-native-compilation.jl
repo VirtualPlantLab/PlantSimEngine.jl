@@ -118,6 +118,39 @@ end
     @test NamedTuple(model_status(authored, :sample)) == before
 end
 
+@testset "Prepared native state shares canonical cells with a fixed schema" begin
+    constants = (scale=3.0f0,)
+    program = Compilation.prepare(native_compilation_scene(); constants)
+    official = model_status(program.simulation.model, :sample)
+    initial = @inferred final_state(program)
+
+    @test keys(program.status) == keys(official)
+    @test all(name -> PlantSimEngine.refvalue(program.status, name) ===
+        PlantSimEngine.refvalue(official, name), keys(official))
+    @test PlantSimEngine.refvalue(program.status, :incoming) ===
+          PlantSimEngine.refvalue(official, :total)
+    @test initial isa NamedTuple
+    @test initial == NamedTuple(official)
+
+    official.total = 5.0f0
+    @test final_state(program).total === 5.0f0
+    program.status.total = 7.0f0
+    @test official.total === 7.0f0
+    @test initial.total === 2.0f0
+
+    expected_model = native_compilation_scene()
+    model_status(expected_model, :sample).total = 7.0f0
+    expected = run!(expected_model; steps=2, constants)
+    continue!(program; steps=2)
+
+    @test current_step(program) == current_step(expected) == 2
+    @test (@inferred final_state(program)) == final_state(expected) == NamedTuple(official)
+    @test final_state(program).observed === 35.0f0
+    @test model_status(program.simulation.model, :sample) === official
+    @test all(name -> PlantSimEngine.refvalue(program.status, name) ===
+        PlantSimEngine.refvalue(official, name), keys(official))
+end
+
 @testset "Fixed environment rows use ordinary PSE bindings" begin
     function weather_scene(global_environment)
         on = One(id=:sample)

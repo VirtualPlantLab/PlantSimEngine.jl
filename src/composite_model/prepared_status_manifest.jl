@@ -497,32 +497,40 @@ function _prepared_status_sources_admission(applications::Tuple, permissions::Tu
     return (declared | next_declared, allowed & next_allowed, compatible)
 end
 
-Base.@constprop :none @generated function _prepared_status_configured_reference_admission(
+# Keep erased cells behind the prepared physical bounds before crossing the
+# permission worker's function boundary. The worker shares its typed body across
+# field names; no caller needs to inline an application scan for every slot.
+@generated function _prepared_status_configured_reference_admission(
     manifest::PreparedStatusManifest{S}, model, object, parent_id, name, reference,
 ) where {S}
-    # The sparse CSR keeps Ref instances erased; admit them through the SAME
-    # prepared physical bounds before visiting the active configuration.
     references = unique(R for slot in fieldtypes(_status_schema_references(S))
         for R in Base.uniontypes(slot) if R <: Ref)
     branches = [quote
         if reference isa $R
-            declared, source_allowed, compatible = _prepared_status_sources_admission(
-                manifest.authored, manifest.permissions, model, object, parent_id,
-                name, reference::$R)
-            compatible || return (false, false)
-            allowed = (declared && source_allowed) ||
-                _prepared_status_application_reference_allowed(manifest.authored, manifest.permissions,
-                    model, object, parent_id, name, reference::$R) ||
-                _prepared_status_destinations_allow(manifest.destinations, manifest,
-                    model, object, parent_id, name, reference::$R)
-            return (allowed, true)
+            return _prepared_status_reference_admission(
+                manifest, model, object, parent_id, name, reference::$R)
         end
     end for R in references]
     return quote
-        Base.@noinline
+        $(Expr(:meta, :inline))
         $(branches...)
         return (false, false)
     end
+end
+
+Base.@constprop :none Base.@noinline function _prepared_status_reference_admission(
+    manifest, model, object, parent_id, name, reference::R,
+) where {R<:Ref}
+    declared, source_allowed, compatible = _prepared_status_sources_admission(
+        manifest.authored, manifest.permissions, model, object, parent_id,
+        name, reference::R)
+    compatible || return (false, false)
+    allowed = (declared && source_allowed) ||
+        _prepared_status_application_reference_allowed(manifest.authored, manifest.permissions,
+            model, object, parent_id, name, reference::R) ||
+        _prepared_status_destinations_allow(manifest.destinations, manifest,
+            model, object, parent_id, name, reference::R)
+    return (allowed, true)
 end
 
 function _prepared_status_raw_variant(raw, slot)
