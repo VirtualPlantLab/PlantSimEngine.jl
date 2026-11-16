@@ -88,17 +88,32 @@ end
     @test model_status(data.model, :born).visits == 1
 end
 
-@testset "alternate compilation has its own owner without taking over the live cache" begin
+@testset "independently configured models keep their genuine preparation owners" begin
     data = fixture()
     simulation = run!(data.model; steps=0, outputs=:none)
     canonical = simulation.compiled
     preparation = data.model.scenario_plan_cache
     alternate_specs = (ModelSpec(Probe(Ref(0), Ref(false)); name=:alternate, on=One(id=:leaf)),)
-    alternate = Advanced.refresh_bindings!(data.model, alternate_specs)
+    before = data.hint_calls[]
+    @test_throws MethodError Advanced.compile_composite_model(data.model, alternate_specs)
+    @test_throws MethodError Advanced.compile_composite_model(data.model, collect(alternate_specs))
+    @test_throws MethodError Advanced.compile_composite_model(data.model, only(alternate_specs))
+    @test_throws MethodError Advanced.refresh_bindings!(data.model, alternate_specs)
+    @test data.hint_calls[] == before
+    alternate_model = CompositeModel(
+        Object(:root; scale=:Scene),
+        Object(:leaf; scale=:Leaf, parent=:root);
+        applications=alternate_specs,
+    )
+    alternate = Advanced.refresh_bindings!(alternate_model)
+    @test alternate_model.binding_cache === alternate
+    @test alternate_model.scenario_plan_cache.owner === alternate_model
+    @test PSE.refvalue(model_status(alternate_model, :leaf), :visits) !==
+          PSE.refvalue(model_status(data.model, :leaf), :visits)
     @test data.model.binding_cache === canonical
     @test data.model.scenario_plan_cache === preparation
     @test alternate.scenario_plan.authoring.preparation !== preparation
-    @test alternate.scenario_plan.authoring.preparation.owner === data.model
+    @test alternate.scenario_plan.authoring.preparation.owner === alternate_model
     @test alternate.scenario_plan.authoring.preparation.source_specs === alternate_specs
     @test PSE._refresh_runtime_bindings!(data.model, canonical) === canonical
     step!(simulation)

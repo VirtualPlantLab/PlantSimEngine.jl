@@ -192,7 +192,7 @@ end
     end
     # Compiler-only preparation must not replay any metadata getter.
     before_a, before_b = a.counter[], b.counter[]
-    applications = PSE._compile_model_applications(model, model.applications, PSE._model_timeline(model))
+    applications = PSE._compile_model_applications(model, PSE._model_timeline(model))
     destinations = PSE._resolve_model_output_destination_plans(model, PSE._scenario_preparation(model), applications)
     PSE._resolve_model_input_plans(model, PSE._scenario_preparation(model), applications, destinations)
     PSE._compile_environment_application_plans(model, applications,
@@ -440,7 +440,7 @@ end
                 environment=Environment(sources=NamedTuple())),))
         @test counter[] == 1
         @test isnothing(model.scenario_plan_cache.failure)
-        applications = PSE._compile_model_applications(model, model.applications, PSE._model_timeline(model))
+        applications = PSE._compile_model_applications(model, PSE._model_timeline(model))
         @test counter[] == 1 # empty remap must not demand failed names early
         destinations = PSE._resolve_model_output_destination_plans(model, PSE._scenario_preparation(model), applications)
         @test_throws message PSE._resolve_model_input_plans(model, PSE._scenario_preparation(model), applications, destinations)

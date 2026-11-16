@@ -856,9 +856,9 @@ function _first_authored_program_failure(program::AuthoredScenarioProgram)
     return nothing
 end
 
-function _prepare_authored_scenario(model::CompositeModel, raw_specs;
+function _prepare_authored_scenario(model::CompositeModel;
     raw_families=_prepared_raw_status_families(model))
-    source_specs = Tuple(raw_specs)
+    source_specs = Tuple(model.applications)
     # Capture one declaration result per application. Invalid authoring does
     # not hide later valid applications from a read-only diagnostic report.
     counts = Dict{Symbol,Int}()
@@ -1019,7 +1019,7 @@ function _scenario_preparation(model::CompositeModel; force::Bool=false)
     preparation = model.scenario_plan_cache
     if force || isnothing(preparation) ||
        !_authored_specs_match(preparation, model)
-        candidate = _prepare_authored_scenario(model, model.applications)
+        candidate = _prepare_authored_scenario(model)
         if isnothing(candidate.failure) &&
            model.registry.objects.catalog isa ClosedObjectFamilyCatalog
             # A rejected logical route can remove alias metadata from an
@@ -1073,13 +1073,6 @@ end
 function _authored_application_recipes(preparation::ScenarioPreparation)
     _validate_authored_scenario(preparation)
     return preparation.authored
-end
-
-function _scenario_preparation(model::CompositeModel, raw_specs)
-    if _authored_specs_match(model.applications, raw_specs)
-        return _scenario_preparation(model)
-    end
-    return _prepare_authored_scenario(model, raw_specs)
 end
 
 # The snapshot owns its target lists. Runtime application membership can
@@ -2140,17 +2133,15 @@ end
 # genuine preparation, then gives the shared worker a resolved snapshot only
 # when the existing lifecycle metadata cannot be extended.
 function refresh_bindings!(
-    model::CompositeModel,
-    specs=model.applications;
+    model::CompositeModel;
     force::Bool=false,
     performance=nothing,
 )
-    return _refresh_bindings!(model, specs; force, performance)
+    return _refresh_bindings!(model; force, performance)
 end
 
 function _refresh_bindings!(
-    model::CompositeModel,
-    specs=model.applications;
+    model::CompositeModel;
     force::Bool=false,
     performance=nothing,
     input_binding_storage=nothing,
@@ -2159,10 +2150,6 @@ function _refresh_bindings!(
     if force && !(model.registry.objects.catalog isa ClosedObjectFamilyCatalog)
         throw(ArgumentError("This model has no prepared canonical Status registry. " *
             "Fix the authoring declarations and construct a new CompositeModel."))
-    end
-    if specs !== model.applications
-        raw_specs = specs isa Tuple ? specs : specs isa AbstractVector ? Tuple(specs) : (specs,)
-        return _compile_scene(model, raw_specs; performance, input_binding_storage, status_view_schema)
     end
     rebuild = force || !isnothing(input_binding_storage) || !isnothing(status_view_schema)
     preparation = _scenario_preparation(model; force)
@@ -2608,42 +2595,18 @@ function _index_model_call_bindings(bindings::AbstractVector{B}, plans_by_applic
 end
 
 """
-    compile_composite_model(model[, applications...])
+    compile_composite_model(model::CompositeModel)
 
-Compile model applications, selectors, value bindings, hard calls, writer
-ordering, and schedules into the single Composite Model/Object runtime representation.
-Most callers can use [`run!`](@ref) directly, which compiles as needed.
+Compile the applications configured on `model`, including selectors, value
+bindings, hard calls, writer ordering and schedules. Configure applications
+in the `CompositeModel` constructor. Most callers can use `run!` directly,
+which uses the same prepared scenario.
 """
 function compile_composite_model(model::CompositeModel; performance=nothing)
-    return compile_composite_model(
-        model,
-        model.applications;
-        performance=performance,
-    )
-end
-
-function compile_composite_model(
-    model::CompositeModel,
-    specs::Tuple;
-    performance=nothing,
-)
-    return _compile_scene(model, specs; performance=performance)
-end
-
-function compile_composite_model(
-    model::CompositeModel,
-    specs::AbstractVector;
-    performance=nothing,
-)
-    return _compile_scene(model, Tuple(specs); performance=performance)
-end
-
-function compile_composite_model(
-    model::CompositeModel,
-    specs...;
-    performance=nothing,
-)
-    return _compile_scene(model, specs; performance=performance)
+    timeline = _model_timeline(model)
+    preparation = _scenario_preparation(model)
+    plan, applications = _resolve_prepared_scenario(model, preparation, timeline; performance)
+    return _compile_scene(model, plan, applications; performance)
 end
 
 function _model_timeline(model::CompositeModel)
@@ -2669,16 +2632,6 @@ function _compile_resolved_scenario_plan(
         distributed_output_plans,
         timeline,
     )
-end
-
-function _build_scenario_plan(
-    model::CompositeModel,
-    raw_specs,
-    timeline;
-    performance=nothing,
-)
-    preparation = _scenario_preparation(model, raw_specs)
-    return _resolve_prepared_scenario(model, preparation, timeline; performance)
 end
 
 function _resolve_prepared_scenario(
@@ -2744,19 +2697,6 @@ function _prepare_scenario_plan(
     end
     preparation.resolved = prepared
     return prepared
-end
-
-function _compile_scene(
-    model::CompositeModel,
-    raw_specs;
-    validate_required_inputs::Bool=true,
-    performance=nothing,
-    input_binding_storage=nothing,
-    status_view_schema=nothing,
-)
-    scenario_plan, applications = _build_scenario_plan(model, raw_specs, _model_timeline(model); performance)
-    return _compile_scene(model, scenario_plan, applications;
-        validate_required_inputs, performance, input_binding_storage, status_view_schema)
 end
 
 function _compile_scene(model::CompositeModel, prepared::PreparedScenario; kwargs...)
@@ -5642,8 +5582,8 @@ function _explain_initialization(model, applications, input_bindings,
     return rows
 end
 
-function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
-    recipes = _authored_application_recipes(_scenario_preparation(model, raw_specs))
+function _compile_model_applications(model::CompositeModel, timeline)
+    recipes = _authored_application_recipes(_scenario_preparation(model))
     return _resolve_application_recipes(model, recipes, timeline)
 end
 

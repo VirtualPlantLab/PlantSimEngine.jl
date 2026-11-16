@@ -99,7 +99,7 @@ plan_signature(plans) = [(plan.application_id, plan.input, plan.origin,
 @testset "one input-plan pass bounds output declaration queries as consumers grow" begin
     for T in (Float32, Float64), explicit in (false, true), count in (1, 8, 32)
         data = query_scene(T, count; explicit)
-        applications = PSE._compile_model_applications(data.model, data.model.applications,
+        applications = PSE._compile_model_applications(data.model,
             PSE._model_timeline(data.model))
         destinations = PSE._resolve_model_output_destination_plans(data.model, PSE._scenario_preparation(data.model), applications)
         plans, queries = planner_pass(data, applications, destinations)
@@ -132,7 +132,7 @@ end
 
 @testset "planner metadata supports filtered applications with non-dense slots" begin
     data = query_scene(Float64, 8)
-    applications = PSE._compile_model_applications(data.model, data.model.applications,
+    applications = PSE._compile_model_applications(data.model,
         PSE._model_timeline(data.model))
     selected = applications[[1, length(applications)]]
     @test getproperty.(selected, :slot) == [1, 9]
@@ -463,7 +463,7 @@ end
         ModelSpec(Reader(Float64; port=:sent); name=:reader,
             on=Many(scale=(:LocalFirst, :Destination, :LocalLast))),
     ), environment=(duration=Hour(1),))
-    applications = PSE._compile_model_applications(model, model.applications,
+    applications = PSE._compile_model_applications(model,
         PSE._model_timeline(model))
     preparation = PSE._scenario_preparation(model)
     authored = PSE._project_authored_applications(preparation, applications)

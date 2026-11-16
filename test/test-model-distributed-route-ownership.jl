@@ -103,7 +103,7 @@ end
     @test layout.coverage === :exact
     model = CompositeModel(Object(:scene; scale=:Scene),
         Object(:leaf; scale=:Leaf); applications=(spec,))
-    applications = PSE._compile_model_applications(model, model.applications,
+    applications = PSE._compile_model_applications(model,
         PSE._model_timeline(model))
     destinations = PSE._resolve_model_output_destination_plans(model, PSE._scenario_preparation(model), applications)
     plan = only(destinations.plans)

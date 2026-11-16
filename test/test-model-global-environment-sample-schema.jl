@@ -447,12 +447,13 @@ PSE._prepare_environment_sampler(source::MemoPreparationSource) =
 PSE._prepare_global_environment(source::MemoPreparationSource) =
     (source.source_preparations += 1; source)
 
-function memo_source_model(source)
+function memo_source_model(source; mapped_only=false)
+    mapped = ModelSpec(Probe(0f0); name=:mapped, on=One(id=:b),
+        environment=Environment(sources=(T=:U,)))
+    specs = mapped_only ? (mapped,) :
+        (ModelSpec(Probe(0f0); name=:raw, on=One(id=:a)), mapped)
     return CompositeModel(Object(:a; scale=:Leaf), Object(:b; scale=:Leaf);
-        applications=(
-            ModelSpec(Probe(0f0); name=:raw, on=One(id=:a)),
-            ModelSpec(Probe(0f0); name=:mapped, on=One(id=:b),
-                environment=Environment(sources=(T=:U,)))), environment=source)
+        applications=specs, environment=source)
 end
 memo_preparations(source) = (source.sampler_preparations, source.source_preparations)
 
@@ -515,13 +516,18 @@ memo_preparations(source) = (source.sampler_preparations, source.source_preparat
             @test_throws "raw` is outside its prepared family schema" PSE._refresh_environment_bindings!(
                 model, compiled, owner; environment_schema=mapped_schema)
             @test model.environment_binding_cache === owner
-            alternate = PSE.Advanced.compile_composite_model(model, (model.applications[2],))
-            replacement = PSE._refresh_environment_bindings!(model, alternate, owner;
+            mapped_model = memo_source_model(source; mapped_only=true)
+            alternate = PSE.Advanced.compile_composite_model(mapped_model)
+            replacement = PSE._refresh_environment_bindings!(mapped_model, alternate, nothing;
                 environment_schema=mapped_schema)
+            @test alternate.model === mapped_model
+            @test mapped_model.environment_binding_cache === replacement
+            @test model.environment_binding_cache === owner
+            @test model_object(mapped_model, :b) !== model_object(model, :b)
             @test replacement.environment_schema === mapped_schema
             @test only(replacement.application_plans).application_id === :mapped
             @test memo_preparations(source) == (2, 2)
-            again, _ = PSE._compile_environment_application_plans(model,
+            again, _ = PSE._compile_environment_application_plans(mapped_model,
                 alternate.applications, alternate.applications_by_id;
                 previous_plans_by_id=replacement.application_plans_by_id,
                 environment_schema=replacement.environment_schema)
@@ -671,7 +677,8 @@ end
         @test PSE._sample_compiled_global_environment(old, 3).T === 25.0
         replacement = recipe_window_spec(width, offset)
         @test typeof(replacement) === typeof(initial_spec)
-        compiled = PSE.Advanced.compile_composite_model(model, (replacement,))
+        model.applications[1] = replacement
+        compiled = PSE.Advanced.refresh_bindings!(model; force=true)
         refreshed = PSE._refresh_environment_bindings!(model, compiled, owner)
         current = refreshed.by_target[(:probe, ObjectId(:a))]
         @test model.environment_binding_cache === refreshed
@@ -743,7 +750,8 @@ end
     binding = owner.by_target[(:probe, ObjectId(:a))]
     @test PSE._model_environment_for_binding(owner, application, binding, 1.0).T === 10f0
 
-    compiled = PSE.Advanced.compile_composite_model(model, (specs[2],))
+    model.applications[1] = specs[2]
+    compiled = PSE.Advanced.refresh_bindings!(model; force=true)
     refreshed = PSE._refresh_environment_bindings!(model, compiled, owner)
     binding = refreshed.by_target[(:probe, ObjectId(:a))]
     @test model.environment_binding_cache === refreshed
@@ -756,7 +764,8 @@ end
         compiled.applications_by_id[:probe], binding, 1.0).T === 20f0
 
     admitted_application = compiled.applications_by_id[:probe]
-    unadmitted = PSE.Advanced.compile_composite_model(model, (specs[3],))
+    model.applications[1] = specs[3]
+    unadmitted = PSE.Advanced.refresh_bindings!(model; force=true)
     @test_throws "probe` is outside its prepared family schema" PSE._refresh_environment_bindings!(
         model, unadmitted, refreshed)
     @test model.environment_binding_cache === refreshed

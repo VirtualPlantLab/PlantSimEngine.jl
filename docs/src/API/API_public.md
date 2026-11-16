@@ -437,8 +437,13 @@ ordinary simulations, use `Diagnostics.explain_*` with a `CompositeModel`
 to inspect the setup.
 
 Examples include `Advanced.compile_composite_model`, `Advanced.refresh_bindings!`, and
-the `Advanced.CompiledCompositeModel` family. These qualified APIs may evolve more
-quickly than the default modeling interface.
+the `Advanced.CompiledCompositeModel` family. Configure applications and their
+connections in the `CompositeModel` constructor, then call
+`Advanced.compile_composite_model(model)` or `Advanced.refresh_bindings!(model)`.
+`force=true` refreshes declarations of the configuration already held by the
+model, subject to its prepared Status schema. Construct another `CompositeModel`
+for a different prepared schema. These qualified APIs may evolve more quickly
+than the default modeling interface.
 
 ## Index
 

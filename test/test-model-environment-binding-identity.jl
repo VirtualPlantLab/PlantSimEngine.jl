@@ -54,22 +54,33 @@ function PSE.run!(::Leaf, status, environment, constants, context)
     return nothing
 end
 
-function fixture(::Type{T}; steps=1, environment_schema=PSE.EnvironmentBindingSchema()) where {T}
+function fixture(::Type{T}; steps=1, environment_schema=PSE.EnvironmentBindingSchema(),
+    only_application=nothing, backend=nothing, moved_cell=:a) where {T}
     capture = Ref{Any}()
-    backend = Backend(Dict(:a => T(10), :b => T(20)), 0)
+    backend = isnothing(backend) ? Backend(Dict(:a => T(10), :b => T(20)), 0) : backend
+    specs = (
+        ModelSpec(Owner(capture); name=:owner, on=One(id=:scene),
+            calls=(leaves=Many(kind=:manual, within=Subtree(), application=:manual_probe),)),
+        ModelSpec(Leaf(zero(T)); name=:scheduled_probe, on=Many(kind=:scheduled),
+            environment=Environment(provider=:shell_probe)),
+        ModelSpec(Leaf(zero(T)); name=:manual_probe, on=Many(kind=:manual),
+            environment=Environment(provider=:shell_probe)),
+    )
+    selected_specs = if isnothing(only_application)
+        specs
+    elseif only_application === :scheduled_probe
+        (specs[2],)
+    elseif only_application === :manual_probe
+        (specs[3],)
+    else
+        throw(ArgumentError("Unknown fixture application."))
+    end
     model = CompositeModel(
         Object(:scene; scale=:Scene),
         Object(:scheduled_keep; scale=:Leaf, kind=:scheduled, parent=:scene, geometry=(cell=:a,)),
-        Object(:scheduled_move; scale=:Leaf, kind=:scheduled, parent=:scene, geometry=(cell=:a,)),
+        Object(:scheduled_move; scale=:Leaf, kind=:scheduled, parent=:scene, geometry=(cell=moved_cell,)),
         Object(:manual; scale=:Leaf, kind=:manual, parent=:scene, geometry=(cell=:a,));
-        applications=(
-            ModelSpec(Owner(capture); name=:owner, on=One(id=:scene),
-                calls=(leaves=Many(kind=:manual, within=Subtree(), application=:manual_probe),)),
-            ModelSpec(Leaf(zero(T)); name=:scheduled_probe, on=Many(kind=:scheduled),
-                environment=Environment(provider=:shell_probe)),
-            ModelSpec(Leaf(zero(T)); name=:manual_probe, on=Many(kind=:manual),
-                environment=Environment(provider=:shell_probe)),
-        ), environment=backend)
+        applications=selected_specs, environment=backend)
     simulation = if PSE._is_open_environment_schema(environment_schema)
         run!(model; steps, outputs=:all)
     else
@@ -77,9 +88,11 @@ function fixture(::Type{T}; steps=1, environment_schema=PSE.EnvironmentBindingSc
             constants=PSE.Constants(), environment_schema)
         PSE._continue_scene!(prepared, steps)
     end
-    batch = only(batch for batch in simulation.execution_plan.batches
-                 if batch.application.id == :scheduled_probe)
-    kept = only(target for target in batch.targets if target.object_id == ObjectId(:scheduled_keep))
+    batch = only_application === :manual_probe ? nothing :
+        only(batch for batch in simulation.execution_plan.batches
+            if batch.application.id == :scheduled_probe)
+    kept = isnothing(batch) ? nothing :
+        only(target for target in batch.targets if target.object_id == ObjectId(:scheduled_keep))
     return (; model, simulation, capture, backend, batch, kept)
 end
 
@@ -316,22 +329,25 @@ end
         @test same_schema
         @test current.by_target[(:scheduled_probe, ObjectId(:scheduled_move))].handle.cell === :b
 
-        # Advanced compilation may replace model metadata before this Simulation
-        # resumes. The current cache remains authoritative even for another set of
-        # applications; the common refresh algorithm reconciles it when requested.
-        alternate_compiled = PSE.Advanced.compile_composite_model(data.model, (
-            ModelSpec(Leaf(0.0f0); name=:scheduled_probe, on=Many(kind=:scheduled),
-                environment=Environment(provider=:shell_probe)),
-        ))
-        alternate = PSE.Advanced.refresh_environment_bindings!(data.model, alternate_compiled)
-        current = PSE._current_environment_binding_owner(data.model, prepared)
+        # A subset is a separate constructor-owned configuration. Preparing it
+        # with the same backend cannot publish a cache into this full model.
+        subset = fixture(Float32; steps=0, environment_schema=schema,
+            only_application=:scheduled_probe, backend=data.backend, moved_cell=:b)
+        alternate_compiled = subset.simulation.compiled
+        alternate = subset.simulation.environment_bindings
+        current = PSE._current_environment_binding_owner(subset.model, alternate)
+        @test alternate_compiled.model === subset.model
+        @test subset.model !== data.model
+        @test data.model.environment_binding_cache === full
+        @test all(model_object(subset.model, id) !== model_object(data.model, id)
+            for id in (:scene, :scheduled_keep, :scheduled_move, :manual))
         is_current_alternate = current === alternate && current !== full
         @test is_current_alternate
         @test length(current.bindings) == 2
         @test current.compiled_applications === alternate_compiled.applications
         @test current.environment_schema === schema
         samples = data.backend.samples
-        restored = PSE._refresh_environment_bindings!(data.model, simulation.compiled, current)
+        restored = PSE._refresh_environment_bindings!(data.model, simulation.compiled, full)
         is_restored = restored === PSE.compiled_environment_bindings(data.model)
         @test is_restored
         @test restored.compiled_applications === simulation.compiled.applications
@@ -404,15 +420,19 @@ end
         [(1.0, 10.0f0), (2.0, 20.0f0)]
 end
 
-@testset "a pending move reconciles an authoritative Advanced subset cache" begin
+@testset "a pending move stays correct beside an independent subset configuration" begin
     for schema in (PSE.EnvironmentBindingSchema(), fixture_environment_schema(Float32))
         data = fixture(Float32; environment_schema=schema)
         simulation = data.simulation
-        alternate_compiled = PSE.Advanced.compile_composite_model(data.model, (
-            ModelSpec(Leaf(0.0f0); name=:manual_probe, on=Many(kind=:manual),
-                environment=Environment(provider=:shell_probe)),
-        ))
-        alternate = PSE.Advanced.refresh_environment_bindings!(data.model, alternate_compiled)
+        subset = fixture(Float32; steps=0, environment_schema=schema,
+            only_application=:manual_probe, backend=data.backend)
+        alternate_compiled = subset.simulation.compiled
+        alternate = subset.simulation.environment_bindings
+        @test alternate_compiled.model === subset.model
+        @test data.model.environment_binding_cache === simulation.environment_bindings
+        @test subset.model.environment_binding_cache === alternate
+        @test all(model_object(subset.model, id) !== model_object(data.model, id)
+            for id in (:scene, :scheduled_keep, :scheduled_move, :manual))
         @test alternate.environment_schema === schema
         @test length(alternate.bindings) == 1
         @test !haskey(alternate.application_plans_by_id, :scheduled_probe)
@@ -669,7 +689,8 @@ end
     simulation = prepare_policy(a; schema=PSE._collecting_environment_binding_schema())
     first_types = policy_types(simulation)
     first_schema = PSE._freeze_environment_binding_schema(simulation.environment_bindings.environment_schema)
-    alternate = PSE.Advanced.compile_composite_model(a.model, (policy_spec(:U; active=false),))
+    a.model.applications[1] = policy_spec(:U; active=false)
+    alternate = PSE.Advanced.refresh_bindings!(a.model; force=true)
     future = PSE.Advanced.refresh_environment_bindings!(a.model, alternate; force=true)
     @test isempty(future.bindings)
     @test PSE._is_collecting_environment_schema(future.environment_schema)
@@ -677,14 +698,16 @@ end
     @test first_types != future_types
     b = policy_model(:T; active=false)
     fixed = prepare_policy(b; schema=first_schema)
-    alternate_b = PSE.Advanced.compile_composite_model(b.model, (policy_spec(:U; active=false),))
+    b.model.applications[1] = policy_spec(:U; active=false)
+    alternate_b = PSE.Advanced.refresh_bindings!(b.model; force=true)
     @test_throws "policy_probe` is outside its prepared family schema" PSE.Advanced.refresh_environment_bindings!(b.model, alternate_b)
     @test b.backend.binds == 0
     union_schema = PSE._freeze_environment_binding_schema(simulation.environment_bindings.environment_schema)
     c = policy_model(:T; active=false)
     admitted = prepare_policy(c; schema=union_schema)
     E = typeof(admitted.environment_bindings)
-    alternate_c = PSE.Advanced.compile_composite_model(c.model, (policy_spec(:U; active=false),))
+    c.model.applications[1] = policy_spec(:U; active=false)
+    alternate_c = PSE.Advanced.refresh_bindings!(c.model; force=true)
     current = PSE.Advanced.refresh_environment_bindings!(c.model, alternate_c; force=true)
     @test typeof(current) === E
     @test current.environment_schema === union_schema
@@ -725,7 +748,8 @@ end
         dirty && mark_environment_binding_dirty!(data.model)
         collected = prepare_policy(data; schema=PSE._collecting_environment_binding_schema())
         @test PSE._is_collecting_environment_schema(collected.environment_bindings.environment_schema)
-        alternate = PSE.Advanced.compile_composite_model(data.model, (policy_spec(:U),))
+        data.model.applications[1] = policy_spec(:U)
+        alternate = PSE.Advanced.refresh_bindings!(data.model; force=true)
         refreshed = PSE.Advanced.refresh_environment_bindings!(data.model, alternate)
         @test PSE._is_collecting_environment_schema(refreshed.environment_schema)
         @test only(refreshed.application_plans).compiled_sampling_rules !=
@@ -761,7 +785,8 @@ end
     control = policy_model(:T)
     observed = prepare_policy(control; schema=evidence)
     old_plan = only(observed.environment_bindings.application_plans)
-    alternate = PSE.Advanced.compile_composite_model(control.model, (policy_spec(:U),))
+    control.model.applications[1] = policy_spec(:U)
+    alternate = PSE.Advanced.refresh_bindings!(control.model; force=true)
     future = PSE.Advanced.refresh_environment_bindings!(control.model, alternate; force=true)
     new_plan = only(future.application_plans)
     @test typeof(new_plan) !== typeof(old_plan)
@@ -775,7 +800,8 @@ end
         data = policy_model(:T)
         simulation = prepare_policy(data; schema=policy)
         owner = simulation.environment_bindings
-        alternate = PSE.Advanced.compile_composite_model(data.model, (policy_spec(:U),))
+        data.model.applications[1] = policy_spec(:U)
+        alternate = PSE.Advanced.refresh_bindings!(data.model; force=true)
         before = policy_counts(data)
         refreshed = PSE.Advanced.refresh_environment_bindings!(data.model, alternate)
         @test refreshed !== owner
@@ -869,7 +895,8 @@ end
     evidence = PSE._collecting_environment_binding_schema()
     simulation = prepare_policy(data; schema=evidence)
     owner = simulation.environment_bindings
-    alternate = PSE.Advanced.compile_composite_model(data.model, (policy_spec(:U),))
+    data.model.applications[1] = policy_spec(:U)
+    alternate = PSE.Advanced.refresh_bindings!(data.model; force=true)
     ids = only(alternate.applications).target_ids
     first_id, later_id = first(ids), last(ids)
     # A stale later context makes the metadata fast path give up, after the

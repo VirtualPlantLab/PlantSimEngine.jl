@@ -84,10 +84,17 @@ function fixture(closed::Bool; environment_schema=PSE.EnvironmentBindingSchema()
     return (; model, simulation, backend)
 end
 
-function index_discovery_fixture(closed::Bool; extra_applications::Int=0)
-    events = Any[]
-    backend_a = Backend(Dict(:a => 10.0f0, :b => 20.0f0), 0, events, nothing)
-    backend_b = Backend(copy(backend_a.values), 0, events, nothing)
+function index_discovery_fixture(closed::Bool; extra_applications::Int=0,
+    application_slots=nothing, backends=nothing)
+    if isnothing(backends)
+        events = Any[]
+        backend_a = Backend(Dict(:a => 10.0f0, :b => 20.0f0), 0, events, nothing)
+        backend_b = Backend(copy(backend_a.values), 0, events, nothing)
+    else
+        backend_a, backend_b = backends
+        events = backend_a.index_updates
+        @assert backend_b.index_updates === events
+    end
     extra_objects = ntuple(extra_applications) do index
         Object(Symbol(:extra_, index); scale=:Leaf, parent=:root, geometry=(cell=:a,),
             status=Status(seen=0.0f0, visits=0))
@@ -97,24 +104,28 @@ function index_discovery_fixture(closed::Bool; extra_applications::Int=0)
         ModelSpec(Probe(); name, on=One(id=name),
             environment=Environment(backend=IndexDiscoverySource(backend_a, name)))
     end
+    specs = (
+        ModelSpec(Probe(); name=:first, on=One(id=1),
+            environment=Environment(backend=IndexDiscoverySource(backend_a, :first))),
+        ModelSpec(Probe(); name=:shared, on=One(id=:leaf),
+            environment=Environment(backend=IndexDiscoverySource(backend_a, :shared), provider=:shared)),
+        ModelSpec(Probe(); name=:other, on=One(id=:other),
+            environment=Environment(backend=IndexDiscoverySource(backend_b, :other))),
+        ModelSpec(Probe(); name=:global, on=One(id=:global),
+            environment=Environment(backend=EA.GlobalConstant((T=30.0f0,)))),
+        extra_specs...,
+    )
+    applications = isnothing(application_slots) ? specs :
+        Tuple(specs[slot] for slot in application_slots)
     model = CompositeModel(
-        Object(:root; scale=:Scene, status=Status(seen=0.0f0, visits=0)),
+        Object(:root; scale=:Scene, geometry=(cell=:a,),
+            status=Status(seen=0.0f0, visits=0)),
         Object(1; scale=:Leaf, parent=:root, geometry=(cell=:a,), status=Status(seen=0.0f0, visits=0)),
         Object(:leaf; scale=:Leaf, parent=:root, geometry=(cell=:b,), status=Status(seen=0.0f0, visits=0)),
         Object(:other; scale=:Leaf, parent=:root, geometry=(cell=:a,), status=Status(seen=0.0f0, visits=0)),
         Object(:global; scale=:Leaf, parent=:root, geometry=(cell=:b,), status=Status(seen=0.0f0, visits=0)),
         extra_objects...;
-        applications=(
-            ModelSpec(Probe(); name=:first, on=One(id=1),
-                environment=Environment(backend=IndexDiscoverySource(backend_a, :first))),
-            ModelSpec(Probe(); name=:shared, on=One(id=:leaf),
-                environment=Environment(backend=IndexDiscoverySource(backend_a, :shared), provider=:shared)),
-            ModelSpec(Probe(); name=:other, on=One(id=:other),
-                environment=Environment(backend=IndexDiscoverySource(backend_b, :other))),
-            ModelSpec(Probe(); name=:global, on=One(id=:global),
-                environment=Environment(backend=EA.GlobalConstant((T=30.0f0,)))),
-            extra_specs...,
-        ),
+        applications=applications,
         environment=backend_a)
     closed && (model = close_registry(model))
     return (; model, backend_a, backend_b, events)
@@ -180,19 +191,53 @@ end
         @test owner.environment_schema === active_schema
         @test index_trace(events) == vcat(discoveries, indexed, discoveries)
 
-        # A different current geometry owner must preserve its schema and the
-        # newly discovered backend order, rather than the witness-table order.
-        alternate = PSE.Advanced.compile_composite_model(model,
-            (model.applications[3], model.applications[2], model.applications[1], model.applications[4]))
+        # Reordering mixed-ID selectors changes the prepared configuration.
+        # A fresh model owns that configuration and discovers the same backend
+        # values in its authored order, independently of this model's cache.
+        reordered = index_discovery_fixture(fixed;
+            application_slots=(3, 2, 1, 4), backends=(data.backend_a, data.backend_b))
+        alternate = PSE.Advanced.compile_composite_model(reordered.model)
+        kept_handles = Dict(id => owner.by_target[(id, object)].handle
+            for (id, object) in ((:shared, ObjectId(:leaf)),
+                (:other, ObjectId(:other)), (:global, ObjectId(:global))))
         empty!(events)
-        PSE.Advanced.refresh_environment_bindings!(model, alternate; force=true)
+        alternate_owner = PSE._refresh_environment_bindings!(reordered.model,
+            alternate, nothing; force=true, environment_schema=active_schema)
         alternate_discoveries = [(:discover, :other), (:discover, :shared), (:discover, :first)]
         @test index_trace(events) == vcat(alternate_discoveries, reverse(indexed), alternate_discoveries)
+        @test alternate.model === reordered.model
+        @test reordered.model !== model
+        @test reordered.model.environment_binding_cache === alternate_owner
+        @test alternate_owner.environment_schema === active_schema
+        @test model.environment_binding_cache === owner
+        @test all(model_object(reordered.model, id) !== model_object(model, id)
+            for id in (:root, 1, :leaf, :other, :global))
+
+        # Its preparation cannot force provider discovery or replace untouched
+        # handles in this model's real targeted geometry refresh.
         empty!(events)
+        before_partial = (data.backend_a.binds, data.backend_b.binds)
         update_geometry!(model, 1, (cell=:b,))
         restored = PSE.Advanced.refresh_environment_bindings!(model, compiled)
         @test restored.environment_schema === active_schema
-        @test index_trace(events) == vcat(discoveries, [(:index, objectid(data.backend_a))])
+        @test index_trace(events) == [(:index, objectid(data.backend_a))]
+        @test (data.backend_a.binds, data.backend_b.binds) ==
+              (before_partial[1] + 1, before_partial[2])
+        @test all(restored.by_target[(id, object)].handle === kept_handles[id]
+            for (id, object) in ((:shared, ObjectId(:leaf)),
+                (:other, ObjectId(:other)), (:global, ObjectId(:global))))
+        @test only(last(events).entities).geometry == (cell=:b,)
+
+        # The explicit discovery/index worker visits all discovered backends;
+        # its dirty subset filters the entity list, not the backend list.
+        empty!(events)
+        before_explicit = (data.backend_a.binds, data.backend_b.binds)
+        PSE._update_model_environment_indices!(model, compiled, [ObjectId(1)])
+        @test index_trace(events) == vcat(discoveries, indexed)
+        explicit_updates = filter(event -> event.phase === :index, events)
+        @test all([entity.id for entity in update.entities] == [1]
+            for update in explicit_updates)
+        @test (data.backend_a.binds, data.backend_b.binds) == before_explicit
         @test only(last(events).entities).geometry == (cell=:b,)
 
         empty!(events)
@@ -247,12 +292,37 @@ end
             constants=PSE.Constants(), environment_schema=fixed ? schema : PSE.EnvironmentBindingSchema())
         compiled, owner = simulation.compiled, simulation.environment_bindings
 
-        # A previous target remains relevant even when the supplied compiled
-        # application set no longer contains that application ID.
-        subset = PSE.Advanced.compile_composite_model(model, (model.applications[1],))
+        # A genuine selector-value edit removes this object's current
+        # membership while the previous environment owner still remembers it.
+        # The replacement has the same declared family and uses the same model.
+        original_spec = model.applications[3]
+        replacement = PSE._replace_model_spec(original_spec; on=One(id=:root))
+        @test typeof(replacement) === typeof(original_spec)
+        model.applications[3] = replacement
+        retargeted = PSE.Advanced.refresh_bindings!(model; force=true)
+        @test retargeted.model === model
+        @test model.environment_binding_cache === owner
+        @test only(retargeted.applications_by_id[:other].target_ids) === ObjectId(:root)
+        current_ids = Symbol[]
+        PSE._foreach_object_application(retargeted, ObjectId(:other)) do application
+            push!(current_ids, application.id)
+        end
+        @test isempty(current_ids)
+        @test any(target -> target[1] === :other,
+            owner.targets_by_object[ObjectId(:other)])
         empty!(events)
-        PSE._update_model_environment_indices_for_objects!(model, subset, owner, [ObjectId(:other)])
+        PSE._update_model_environment_indices_for_objects!(model, retargeted, owner,
+            [ObjectId(:other)])
         @test index_trace(events) == [(:index, objectid(data.backend_b))]
+        @test only(only(events).entities).id === :other
+
+        model.applications[3] = original_spec
+        restored = PSE.Advanced.refresh_bindings!(model; force=true)
+        @test restored.model === model
+        @test only(restored.applications_by_id[:other].target_ids) === ObjectId(:other)
+        # Reconfiguration must not mutate either previous metadata snapshot.
+        @test only(retargeted.applications_by_id[:other].target_ids) === ObjectId(:root)
+        @test only(compiled.applications_by_id[:other].target_ids) === ObjectId(:other)
 
         # Preserve the Set's actual order. The first callback replaces a later
         # dictionary entry; its already-selected immutable plan must still run.
@@ -276,7 +346,7 @@ end
         owner.application_plans_by_id[second_id] = second_plan
         remove_object!(model, :other)
         empty!(events)
-        PSE._update_model_environment_indices_for_objects!(model, subset, owner, [ObjectId(:other)])
+        PSE._update_model_environment_indices_for_objects!(model, retargeted, owner, [ObjectId(:other)])
         @test index_trace(events) == [(:index, objectid(data.backend_b))]
         @test isempty(only(events).entities)
         @test only(events).removed_object_ids == [ObjectId(:other)]

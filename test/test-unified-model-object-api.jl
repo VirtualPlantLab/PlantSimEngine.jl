@@ -1172,7 +1172,7 @@ end
     @test any(row -> row.id == :leaf_1 && row.has_geometry, object_rows)
     @test any(row -> row.id == :plant_1 && row.children == [ObjectId(:leaf_1).value], object_rows)
 
-    selector_scene = CompositeModel(
+    make_selector_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, species=:oil_palm, name=:palm_1, parent=:scene),
         Object(:axis_1; scale=:Axis, kind=:plant, species=:oil_palm, parent=:plant_1),
@@ -1180,8 +1180,10 @@ end
         Object(:leaf_2; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:axis_1, status=Status(leaf_area=2.0)),
         Object(:plant_2; scale=:Plant, kind=:plant, species=:oil_palm, name=:palm_2, parent=:scene),
         Object(:leaf_3; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_2, status=Status(leaf_area=3.0)),
-        Object(:soil; scale=:Soil, kind=:soil, parent=:scene),
+        Object(:soil; scale=:Soil, kind=:soil, parent=:scene);
+        applications=applications,
     )
+    selector_scene = make_selector_scene(())
 
     scope_rows = explain_scopes(selector_scene)
     scene_scope = only(row for row in scope_rows if row.scope_type == :scene)
@@ -1691,7 +1693,7 @@ end
     @test PlantSimEngine.input_origins(override_input_spec).leaf_carbon ==
           :model_spec
 
-    default_input_origin_scene = CompositeModel(
+    make_default_input_origin_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene),
         Object(
@@ -1700,22 +1702,18 @@ end
             kind=:plant,
             parent=:plant_1,
             status=Status(leaf_carbon=2.0, carbon_override=3.0),
-        ),
+        );
+        applications=applications,
     )
-    default_input_origin_compiled = Advanced.compile_composite_model(
-        default_input_origin_scene,
-        (
+    default_input_origin_compiled = Advanced.compile_composite_model(make_default_input_origin_scene((
             ModelSpec(
                 ModelObjectDefaultInputConsumerModel();
                 on=One(scale=:Plant),
             ),
-        ),
-    )
+        )))
     @test only(explain_bindings(default_input_origin_compiled)).origin ==
           :model_default
-    override_input_origin_compiled = Advanced.compile_composite_model(
-        default_input_origin_scene,
-        (
+    override_input_origin_compiled = Advanced.compile_composite_model(make_default_input_origin_scene((
             ModelSpec(
                 ModelObjectDefaultInputConsumerModel();
                 on=One(scale=:Plant),
@@ -1724,8 +1722,7 @@ end
                         Many(scale=:Leaf, var=:carbon_override),
                 ),
             ),
-        ),
-    )
+        )))
     @test only(explain_bindings(override_input_origin_compiled)).origin ==
           :model_spec
 
@@ -1784,7 +1781,8 @@ end
         ModelSpec(ModelObjectStomataModel(); name=:stomata, on=Many(scale=:Leaf)),
         ModelSpec(ModelObjectLeafEnergyModel(); name=:leaf_energy, on=Many(scale=:Leaf), inputs=(:leaf_areas => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_area, policy=Integrate(), window=Day(1)))),
     )
-    compiled = Advanced.compile_composite_model(selector_scene, compiled_specs)
+    compiled_selector_scene = make_selector_scene(compiled_specs)
+    compiled = Advanced.compile_composite_model(compiled_selector_scene)
     application_rows = explain_applications(compiled)
     @test length(application_rows) == 2
     @test only(row for row in application_rows if row.application_id == :stomata).target_ids ==
@@ -1817,7 +1815,7 @@ end
     @test !leaf_2_call.default_publish
     @test leaf_2_call.accepted_publish
 
-    compiled_environment = Advanced.compile_environment_bindings(selector_scene, compiled)
+    compiled_environment = Advanced.compile_environment_bindings(compiled_selector_scene, compiled)
     execution_plan =
         PlantSimEngine.compile_model_execution_plan(compiled, compiled_environment)
     execution_rows = explain_execution_plan(execution_plan)
@@ -1959,14 +1957,14 @@ end
         ModelSpec(ModelObjectStomataModel(); name=:shaded_stomata, on=Many(scale=:Leaf)),
         ModelSpec(ModelObjectLeafEnergyModel(); name=:leaf_energy, on=Many(scale=:Leaf)),
     )
-    @test_throws ErrorException Advanced.compile_composite_model(selector_scene, ambiguous_call_specs)
+    @test_throws ErrorException Advanced.compile_composite_model(make_selector_scene(ambiguous_call_specs))
 
     disambiguated_call_specs = (
         ModelSpec(ModelObjectStomataModel(); name=:sunlit_stomata, on=Many(scale=:Leaf)),
         ModelSpec(ModelObjectStomataModel(); name=:shaded_stomata, on=Many(scale=:Leaf), updates=Updates(:gs; after=:sunlit_stomata)),
         ModelSpec(ModelObjectLeafEnergyModel(); name=:leaf_energy, on=Many(scale=:Leaf), inputs=(:leaf_areas => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_area)), calls=(:stomata => One(application=:sunlit_stomata))),
     )
-    disambiguated = Advanced.compile_composite_model(selector_scene, disambiguated_call_specs)
+    disambiguated = Advanced.compile_composite_model(make_selector_scene(disambiguated_call_specs))
     disambiguated_call = only(row for row in explain_calls(disambiguated) if row.consumer_id == :leaf_2)
     @test disambiguated_call.origin == :model_spec
     @test disambiguated_call.callee_application_ids == [:sunlit_stomata]
@@ -2049,41 +2047,38 @@ end
     run!(renamed_input_scene)
     @test renamed_status.observed_renamed_signal == 12.5
 
-    default_scope_scene = CompositeModel(
+    make_default_scope_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
         Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(leaf_area=1.0)),
         Object(:leaf_2; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(leaf_area=2.0)),
         Object(:plant_2; scale=:Plant, kind=:plant, parent=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
-        Object(:leaf_3; scale=:Leaf, kind=:plant, parent=:plant_2, status=Status(leaf_area=3.0)),
+        Object(:leaf_3; scale=:Leaf, kind=:plant, parent=:plant_2, status=Status(leaf_area=3.0));
+        applications=applications,
     )
-    plant_default_scope = Advanced.compile_composite_model(
-        default_scope_scene,
-        (
+    plant_default_scope = Advanced.compile_composite_model(make_default_scope_scene((
             ModelSpec(ModelObjectTemporalSumModel(); name=:plant_leaf_sum, on=Many(scale=:Plant), inputs=(:signal_sum => Many(scale=:Leaf, within=Subtree(), var=:leaf_area))),
-        ),
-    )
+        )))
     @test only(row for row in explain_bindings(plant_default_scope) if row.consumer_id == :plant_1).source_ids ==
           [:leaf_1, :leaf_2]
     @test only(row for row in explain_bindings(plant_default_scope) if row.consumer_id == :plant_2).source_ids ==
           [:leaf_3]
-    scene_default_scope = Advanced.compile_composite_model(
-        default_scope_scene,
-        (
+    scene_default_scope = Advanced.compile_composite_model(make_default_scope_scene((
             ModelSpec(ModelObjectTemporalSumModel(); name=:scene_leaf_sum, on=One(scale=:Scene), inputs=(:signal_sum => Many(scale=:Leaf, var=:leaf_area))),
-        ),
-    )
+        )))
     @test only(explain_bindings(scene_default_scope)).source_ids == [:leaf_1, :leaf_2, :leaf_3]
 
-    inferred_input_scene = CompositeModel(
+    make_inferred_input_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
-        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0, observed_signal=0.0)),
+        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0, observed_signal=0.0));
+        applications=applications,
     )
     inferred_input_specs = (
         ModelSpec(ModelObjectSignalSourceModel(); name=:signal_source, on=One(scale=:Leaf)),
         ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf)),
     )
-    inferred_compiled = Advanced.compile_composite_model(inferred_input_scene, inferred_input_specs)
+    inferred_input_scene = make_inferred_input_scene(inferred_input_specs)
+    inferred_compiled = Advanced.compile_composite_model(inferred_input_scene)
     inferred_binding = only(explain_bindings(inferred_compiled))
     @test inferred_binding.application_id == :signal_consumer
     @test inferred_binding.input == :signal
@@ -2173,16 +2168,14 @@ end
     @test previous_value_status.observed_signal == 2.0
     @test previous_value_status.signal == 3.0
 
-    @test_throws ErrorException Advanced.compile_composite_model(
-        CompositeModel(
+    @test_throws ErrorException Advanced.compile_composite_model(CompositeModel(
             Object(:scene; scale=:Scene, kind=:scene),
-            Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(cycle_a=0.0, cycle_b=0.0)),
-        ),
-        (
+            Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(cycle_a=0.0, cycle_b=0.0));
+            applications=(
             ModelSpec(ModelObjectCycleAModel(); name=:cycle_a, on=One(scale=:Leaf)),
             ModelSpec(ModelObjectCycleBModel(); name=:cycle_b, on=One(scale=:Leaf)),
         ),
-    )
+        ))
 
     zero_target_cycle_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene);
@@ -2311,68 +2304,56 @@ end
     )
     @test_throws "PreviousTimeStep marker for input `cycle_b`" Advanced.refresh_bindings!(mismatched_lag_scene)
 
-    @test_throws ErrorException Advanced.compile_composite_model(
-        CompositeModel(
+    @test_throws ErrorException Advanced.compile_composite_model(CompositeModel(
             Object(:scene; scale=:Scene, kind=:scene),
-            Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene),
-        ),
-        (
+            Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene);
+            applications=(
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf)),
         ),
-    )
-    @test_throws ErrorException Advanced.compile_composite_model(
-        inferred_input_scene,
-        (
+        ))
+    @test_throws ErrorException Advanced.compile_composite_model(make_inferred_input_scene((
             ModelSpec(ModelObjectSignalSourceModel(); name=:sunlit_signal, on=One(scale=:Leaf)),
             ModelSpec(ModelObjectSignalSourceModel(); name=:shaded_signal, on=One(scale=:Leaf), updates=Updates(:signal; after=:sunlit_signal)),
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf)),
-        ),
-    )
+        )))
 
     filtered_input_specs = (
         ModelSpec(ModelObjectSignalSourceModel(); name=:signal_source, on=One(scale=:Leaf)),
         ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf), inputs=(:signal => One(scale=:Leaf, var=:signal, application=:signal_source))),
     )
-    filtered_binding = only(explain_bindings(Advanced.compile_composite_model(inferred_input_scene, filtered_input_specs)))
+    filtered_binding = only(explain_bindings(Advanced.compile_composite_model(make_inferred_input_scene(filtered_input_specs))))
     @test filtered_binding.origin == :model_spec
     @test filtered_binding.source_application_ids == [:signal_source]
     @test isnothing(filtered_binding.process)
     @test filtered_binding.application == :signal_source
-    @test_throws ErrorException Advanced.compile_composite_model(
-        inferred_input_scene,
-        (
+    @test_throws ErrorException Advanced.compile_composite_model(make_inferred_input_scene((
             filtered_input_specs[1],
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf), inputs=(:signal => One(scale=:Leaf, var=:signal, application=:missing_source))),
-        ),
-    )
-    @test_throws ErrorException Advanced.compile_composite_model(
-        inferred_input_scene,
-        (
+        )))
+    @test_throws ErrorException Advanced.compile_composite_model(make_inferred_input_scene((
             filtered_input_specs[1],
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf), inputs=(:siggnal => One(scale=:Leaf, var=:signal, application=:signal_source))),
-        ),
-    )
-    @test_throws ErrorException Advanced.compile_composite_model(
-        inferred_input_scene,
-        (
+        )))
+    @test_throws ErrorException Advanced.compile_composite_model(make_inferred_input_scene((
             filtered_input_specs[1],
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf), inputs=(:signal => One(scale=:Leaf, var=:missing_signal))),
-        ),
-    )
+        )))
 
-    carrier_scene = CompositeModel(
+    make_carrier_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, species=:oil_palm, parent=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1, status=Status(leaf_area=1.0, leaf_token=ModelObjectTaggedValue(1), aPPFD=100.0)),
         Object(:leaf_2; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1, status=Status(leaf_area=2.0, leaf_token=2, aPPFD=100.0)),
-        Object(:soil; scale=:Soil, kind=:soil, parent=:scene, status=Status(soil_water_content=0.31)),
+        Object(:soil; scale=:Soil, kind=:soil, parent=:scene, status=Status(soil_water_content=0.31));
+        applications=applications,
     )
     carrier_specs = (
         ModelSpec(ModelObjectCarrierConsumerModel(); name=:carrier_consumer, on=Many(scale=:Leaf), inputs=(:leaf_areas => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_area),
             :leaf_tokens => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_token),)),
         ModelSpec(ToyAssimModel(); name=:assim, on=Many(scale=:Leaf), inputs=(:soil_water_content => One(scale=:Soil, within=SceneScope(), var=:soil_water_content))),
     )
-    carrier_compiled = Advanced.compile_composite_model(carrier_scene, carrier_specs)
+    carrier_scene = make_carrier_scene(carrier_specs)
+    carrier_compiled = Advanced.compile_composite_model(carrier_scene)
     carrier_rows = explain_bindings(carrier_compiled)
     leaf_1_carrier_bindings = carrier_compiled.input_bindings_by_target[(:carrier_consumer, ObjectId(:leaf_1))]
     @test length(leaf_1_carrier_bindings) == 2
@@ -2860,12 +2841,12 @@ end
     @test length(contract_backend.binds) == 1
     @test length(contract_backend.index_updates) == 1
 
-    revised_contract_compiled = Advanced.compile_composite_model(
-        contract_scene,
-        (
-            ModelSpec(ModelObjectTemperatureOnlyProbeModel(); name=:probe, on=One(scale=:Leaf), environment=Environment(provider=:grid)),
-        ),
+    contract_scene.applications[1] = ModelSpec(
+        ModelObjectTemperatureOnlyProbeModel(); name=:probe, on=One(scale=:Leaf),
+        environment=Environment(provider=:grid),
     )
+    revised_contract_compiled =
+        Advanced.refresh_bindings!(contract_scene; force=true)
     revised_contract_bindings =
         Advanced.refresh_environment_bindings!(contract_scene, revised_contract_compiled)
     revised_contract_binding =
@@ -3931,19 +3912,18 @@ end
         process=:model_object_signal_source,
     )
 
-    writer_scene = CompositeModel(
+    make_writer_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
-        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(biomass=-1.0)),
+        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(biomass=-1.0));
+        applications=applications,
     )
     biomass_source =
         ModelSpec(ModelObjectBiomassSourceModel(); name=:carbon_allocation, on=One(scale=:Leaf))
     biomass_pruner =
         ModelSpec(ModelObjectBiomassPrunerModel(); name=:leaf_pruning, on=One(scale=:Leaf))
 
-    @test_throws ErrorException Advanced.compile_composite_model(writer_scene, (biomass_source, biomass_pruner))
-    @test_throws ErrorException Advanced.compile_composite_model(
-        writer_scene,
-        (
+    @test_throws ErrorException Advanced.compile_composite_model(make_writer_scene((biomass_source, biomass_pruner)))
+    @test_throws ErrorException Advanced.compile_composite_model(make_writer_scene((
             biomass_source,
             ModelSpec(
                 ModelObjectBiomassPrunerModel();
@@ -3951,11 +3931,8 @@ end
                 on=One(scale=:Leaf),
                 updates=Updates(:biomass; after=:water_status),
             ),
-        ),
-    )
-    @test_throws ErrorException Advanced.compile_composite_model(
-        writer_scene,
-        (
+        )))
+    @test_throws ErrorException Advanced.compile_composite_model(make_writer_scene((
             biomass_source,
             ModelSpec(
                 ModelObjectBiomassPrunerModel();
@@ -3963,11 +3940,8 @@ end
                 on=One(scale=:Leaf),
                 updates=Updates(:biomass; after=:model_object_biomass_source),
             ),
-        ),
-    )
-    @test_throws ErrorException Advanced.compile_composite_model(
-        writer_scene,
-        (
+        )))
+    @test_throws ErrorException Advanced.compile_composite_model(make_writer_scene((
             ModelSpec(
                 ModelObjectBiomassPrunerModel();
                 name=:leaf_pruning,
@@ -3975,8 +3949,7 @@ end
                 updates=Updates(:biomass; after=:carbon_allocation),
             ),
             biomass_source,
-        ),
-    )
+        )))
 
     ordered_pruner = ModelSpec(
         ModelObjectBiomassPrunerModel();
@@ -3984,7 +3957,7 @@ end
         on=One(scale=:Leaf),
         updates=Updates(:biomass; after=:carbon_allocation),
     )
-    writer_compiled = Advanced.compile_composite_model(writer_scene, (biomass_source, ordered_pruner))
+    writer_compiled = Advanced.compile_composite_model(make_writer_scene((biomass_source, ordered_pruner)))
     writer_row = only(row for row in explain_writers(writer_compiled) if row.variable == :biomass)
     @test writer_row.object_id == :leaf_1
     @test writer_row.duplicate

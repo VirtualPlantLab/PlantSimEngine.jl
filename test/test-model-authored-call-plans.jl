@@ -66,8 +66,7 @@ end
     @test authored.potential_callee_application_ids == (:leaf,)
     @test isempty(preparation.authored[2].call_plans)
     @test isnothing(preparation.failure)
-    applications = PSE._compile_model_applications(data.model, Tuple(data.model.applications),
-        PSE._model_timeline(data.model))
+    applications = PSE._compile_model_applications(data.model, PSE._model_timeline(data.model))
     @test applications[1].call_plans === recipe.call_plans
     @test_throws "No instance or object ID" PSE._compile_model_call_plans(data.model, applications)
     @test data.dependencies[] == data.normalized_count
@@ -107,14 +106,24 @@ end
     PSE._compile_model_call_plans(data.model, simulation.compiled.applications)
     @test data.dependencies[] == data.normalized_count
 
-    # A compiler call with another explicit spec set must use that set's
-    # prepared declarations, never the model's default preparation cache.
+    # A different authored configuration belongs to a fresh CompositeModel;
+    # compiling it must not replay declarations or replace this model's cache.
     alternate_driver = ModelSpec(Driver(data.dependencies); name=:alternate_driver,
         on=One(id=:scene), calls=(leaf=One(Scope(ObjectId(:future_root));
             scale=:Leaf, application=:alternate_leaf),))
     alternate_leaf = ModelSpec(Leaf(); name=:alternate_leaf, on=Many(scale=:Leaf))
     before_compile = data.dependencies[]
-    alternate = PSE.compile_composite_model(data.model, (alternate_driver, alternate_leaf))
+    alternate_model = CompositeModel(
+        Object(:scene; scale=:Scene, status=Status(seen=0f0, drivers=0)),
+        Object(:future_root; scale=:Plant, parent=:scene),
+        Object(:leaf; scale=:Leaf, parent=:future_root, status=Status(value=3f0, calls=0));
+        applications=(alternate_driver, alternate_leaf), environment=data.model.environment)
+    @test data.dependencies[] == before_compile
+    alternate = PSE.compile_composite_model(alternate_model)
+    @test alternate.model === alternate_model
+    @test alternate_model !== data.model
+    @test all(model_object(alternate_model, id) !== model_object(data.model, id)
+        for id in (:scene, :future_root, :leaf))
     @test only(alternate.scenario_plan.call_plans).application_id === :alternate_driver
     @test only(alternate.scenario_plan.call_plans).potential_callee_application_ids == (:alternate_leaf,)
     @test data.dependencies[] == before_compile

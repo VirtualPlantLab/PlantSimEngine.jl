@@ -316,7 +316,7 @@ function apply_model_graph_edit(
         _finalize_authored_scenario(candidate, preparation.source_specs,
             preparation.authored, nothing)
     else
-        _prepare_authored_scenario(candidate, candidate.applications; raw_families=nothing)
+        _prepare_authored_scenario(candidate; raw_families=nothing)
     end
     candidate.scenario_plan_cache = final_preparation
     return _install_prepared_canonical_registry(candidate, final_preparation)

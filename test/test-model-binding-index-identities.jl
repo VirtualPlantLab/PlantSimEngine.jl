@@ -586,7 +586,7 @@ end
         prepared = PSE._prepare_scenario_plan(model)
         copied = PSE._scenario_applications(prepared, I)
         @test eltype(copied) === eltype(simulation.compiled.applications)
-        authored = PSE._compile_model_applications(model, model.applications, PSE._model_timeline(model))
+        authored = PSE._compile_model_applications(model, PSE._model_timeline(model))
         @test eltype(authored) === eltype(copied)
         for application in simulation.compiled.applications
             ids = application.target_ids
@@ -636,7 +636,7 @@ end
             applications=())
         closed && (model = close_registry(model))
         I = keytype(model.registry.objects)
-        authored = PSE._compile_model_applications(model, model.applications, PSE._model_timeline(model))
+        authored = PSE._compile_model_applications(model, PSE._model_timeline(model))
         prepared = PSE._prepare_scenario_plan(model)
         copied = PSE._scenario_applications(prepared, I)
         @test isempty(authored) && isempty(copied)

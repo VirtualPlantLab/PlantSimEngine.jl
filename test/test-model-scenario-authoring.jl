@@ -64,7 +64,7 @@ end
 
     # Resolve the existing recipe against real membership and time without
     # invoking its moved port/hint declarations a second time.
-    resolved = PSE._compile_model_applications(model, Tuple(model.applications), PSE._model_timeline(model))
+    resolved = PSE._compile_model_applications(model, PSE._model_timeline(model))
     @test only(resolved).target_ids == [ObjectId(1)]
     @test declarations[] == hints[] == 1
     @test conversions == [:seed]
@@ -185,7 +185,7 @@ end
     # Pure application resolution reuses both moved declaration hooks. Real
     # status/default and contract preparation may still read outputs_ later.
     declaration_count, hint_count = declarations[], hints[]
-    applications = PSE._compile_model_applications(model, Tuple(model.applications),
+    applications = PSE._compile_model_applications(model,
         PSE._model_timeline(model))
     @test only(applications).target_ids == [ObjectId(1), ObjectId(2)]
     @test only(applications).clock.dt == 1.0
