@@ -114,6 +114,30 @@ end
     @test PSE.refvalue(official,:external) === late_cells[3]
     late_storage[1] = 11f0
     @test official.external === 11f0
+
+    # A real no-change conversion receipt must not grant RefValue32 when
+    # the only configured RAW implementation is an external RefArray32.
+    transform_calls = Ref(0)
+    preserve_type = (variable, value) -> (transform_calls[] += 1; value)
+    external_only = Ref(Float32[3], 1)
+    no_change = CompositeModel(Object(:external;
+        status=Status((external=external_only,))); status_transform=preserve_type)
+    same_raw = PSE._prepared_status_manifest(no_change).raw_families
+    @test only(same_raw).reference_types == [typeof(external_only)]
+    @test PSE.refvalue(model_status(no_change, :external), :external) === external_only
+    @test transform_calls[] == 1
+    next_external = Ref(Float32[7], 1)
+    register_object!(no_change, Object(:next_external;
+        status=Status((external=next_external,))))
+    @test PSE.refvalue(model_status(no_change, :next_external), :external) === next_external
+    @test transform_calls[] == 2
+    records_before = copy(no_change.status_conversion_records)
+    wrong_ref_class = Object(:wrong_ref_class; status=Status(external=9f0))
+    @test_throws ArgumentError register_object!(no_change, wrong_ref_class)
+    @test !haskey(no_change.registry.objects, wrong_ref_class.id)
+    @test no_change.status_conversion_records == records_before
+    @test transform_calls[] == 3 # Actual attempts only; preparation did not replay it.
+    @test only(same_raw).reference_types == [typeof(external_only)]
 end
 
 # Environment variable names are configuration data, not status permissions.

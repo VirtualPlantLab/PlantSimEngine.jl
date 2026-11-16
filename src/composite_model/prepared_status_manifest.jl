@@ -186,6 +186,33 @@ function _prepared_status_raw_signature(model, object, recipes, permissions, des
         selected=selected, destinations=routes, sources=sources)
 end
 
+# Materialized source exports preserve the original supplied-data conversion
+# records. Their original TYPES still describe the numerical configuration even
+# when an unreconstructible callback was intentionally omitted from the export.
+function _prepared_status_raw_configured_references(model, object, names, references)
+    configured = copy(references)
+    for (index, name) in enumerate(names)
+        key = _status_conversion_record_key(name;
+            object_id=object.id, origin=:supplied_status)
+        record = get(model.status_conversion_records, key, nothing)
+        record isa StatusConversionRecord || continue
+        isequal(record.object_id, object.id) && record.variable === name || continue
+        isnothing(record.application_id) || continue
+        record.origin === :supplied_status || continue
+        # Diagnostic metadata from a superseded class is not evidence for the
+        # actual constructor-owned RAW family being prepared here.
+        record.effective_type === eltype(references[index]) || continue
+        R = _prepared_status_declared_reference(model.status_conversion,
+            name, record.original_type, nothing)
+        isconcretetype(R) && R <: Ref || continue
+        # An unchanged VALUE type cannot justify changing the observed Ref
+        # implementation (RefArray/custom Ref is not RefValue).
+        eltype(R) === record.effective_type && continue
+        configured[index] = R
+    end
+    return configured
+end
+
 function _prepare_status_manifest(model, authored, program, raw_basis)
     recipes = Tuple(item for item in authored if item isa AuthoredApplicationRecipe)
     permissions = _prepared_status_application_permissions(model, recipes, program)
@@ -213,6 +240,15 @@ function _prepare_status_manifest(model, authored, program, raw_basis)
                 signature.destinations, signature.sources, raw_names, raw_refs)
             any(previous -> _same_prepared_raw_family(previous, entry), observed) ||
                 push!(observed, entry)
+            configured_refs = _prepared_status_raw_configured_references(
+                model, object, raw_names, raw_refs)
+            if configured_refs != raw_refs
+                configured = PreparedRawStatusFamily{I}(signature.labels,
+                    signature.selected, signature.destinations, signature.sources,
+                    raw_names, configured_refs)
+                any(previous -> _same_prepared_raw_family(previous, configured), observed) ||
+                    push!(observed, configured)
+            end
         end
         observed
     else
