@@ -1,11 +1,11 @@
 # One constructor-owned manifest. This stores names, exact reference classes,
 # configured selector owners and raw-family correlations, never default values.
-struct PreparedStatusManifest{S,A,P,D,R}
-    status_type::Type{S}
-    authored::A
-    permissions::P
-    destinations::D
-    raw_families::R
+mutable struct PreparedStatusManifest{S,A,P,D,R}
+    const status_type::Type{S}
+    const authored::A
+    const permissions::P
+    const destinations::D
+    const raw_families::R
 end
 
 # RAW membership, labels and reference classes are constructor evidence DATA.
@@ -133,8 +133,13 @@ end
 function _prepared_status_application_permissions(model, recipes, program)
     return map(recipes) do application
         application_slot = application.slot
-        plans = Tuple(plan for plan in program.input_records
-            if plan isa CompiledModelInputPlan && plan.application_slot == application_slot)
+        selected_plans = CompiledModelInputPlan[]
+        for plan in program.input_records
+            plan isa CompiledModelInputPlan || continue
+            plan.application_slot == application_slot || continue
+            push!(selected_plans, plan)
+        end
+        plans = Tuple(selected_plans)
         variants = Any[]
         _foreach_application_variant(application) do _, ports
             push!(variants, _prepared_status_variant_permission(model, application, ports, plans))

@@ -51,10 +51,10 @@ end
 end
 
 """Canonical object identities and typed status families behind the object dictionary."""
-struct ObjectFamilyStore{I<:ObjectId,C} <: AbstractDict{I,Object}
-    catalog::C
-    locations::Dict{I,ObjectFamilyLocation}
-    status_owners::IdDict{Base.RefValue{Nothing},I}
+mutable struct ObjectFamilyStore{I<:ObjectId,C} <: AbstractDict{I,Object}
+    const catalog::C
+    const locations::Dict{I,ObjectFamilyLocation}
+    const status_owners::IdDict{Base.RefValue{Nothing},I}
 end
 
 ObjectFamilyStore{I}() where {I<:ObjectId} = ObjectFamilyStore(

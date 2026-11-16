@@ -394,12 +394,38 @@ end
 
         # An authored snapshot must not survive an explicit author refresh of the
         # same model/application instances, including a failed compile.
+        registry, compiled = data.model.registry, data.model.binding_cache
+        environment = data.model.environment_binding_cache
+        preparation = data.model.scenario_plan_cache
+        official = model_status(data.model, :cell)
+        reference = PSE.refvalue(official, :signal)
+        source_owners = copy(data.model.status_source_owners)
+        source_ids = copy(data.model.status_source_identities)
+        step = first.current_step
+        history = copy(outputs(first)[(:reader, ObjectId(:cell), :observed)])
         data.source.contracts[] = (signal=VariableContract(unit=:changed_signal),)
         @test_throws "Incompatible variable contracts" Advanced.refresh_bindings!(data.model; force=true)
+        rejected = data.model.scenario_plan_cache
+        @test rejected !== preparation
+        @test rejected.failure isa PSE.ScenarioPreparationFailure
+        @test occursin("Incompatible variable contracts", sprint(showerror, rejected.failure.error))
+        @test data.model.registry === registry
+        @test data.model.binding_cache === compiled
+        @test data.model.environment_binding_cache === environment
+        @test model_status(data.model, :cell) === official
+        @test PSE.refvalue(official, :signal) === reference
+        @test data.model.status_source_owners == source_owners
+        @test data.model.status_source_identities == source_ids
+        @test_throws "Incompatible variable contracts" run!(data.model; steps=0, outputs=:none)
+        @test_throws "Incompatible variable contracts" continue!(first; steps=1)
+        @test first.current_step == step
+        @test outputs(first)[(:reader, ObjectId(:cell), :observed)] == history
         @test data.source.queries[] == data.reader.queries[] == 2
         data.reader.contracts[] = (signal=VariableContract(unit=:changed_signal),)
         Advanced.refresh_bindings!(data.model; force=true)
         @test data.source.queries[] == data.reader.queries[] == 3
+        @test model_status(data.model, :cell) === official
+        @test PSE.refvalue(official, :signal) === reference
         repeated = run!(data.model; steps=1, outputs=:all)
         @test final_state(repeated).observed === T(4)
         @test data.source.queries[] == data.reader.queries[] == 3

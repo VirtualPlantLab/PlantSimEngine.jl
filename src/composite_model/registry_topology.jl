@@ -1150,13 +1150,13 @@ end
 
 @inline function _validate_status_source_identity_available!(
     model::CompositeModel,
-    status,
+    identity::Union{Nothing,Base.RefValue{Nothing}},
     object_id::ObjectId,
 )
-    status isa Status || return nothing
+    isnothing(identity) && return nothing
     raw_existing = get(
         model.status_source_owners,
-        _status_identity(status),
+        identity,
         nothing,
     )
     existing = isnothing(raw_existing) ? nothing :
@@ -1212,15 +1212,15 @@ function _replace_model_object_status!(
     object.status === status && return status
     store = model.registry.objects
     object_id = object.id::keytype(store)
-    _validate_status_source_identity_available!(model, status, object_id)
+    source_identity = isnothing(status) ? nothing : _status_identity(status)
+    _validate_status_source_identity_available!(model, source_identity, object_id)
     raw_parent = object.parent
     parent_id = isnothing(raw_parent) ? nothing : _index_object_id(store, raw_parent)
     _validate_prepared_initial_status(model, object, status, parent_id)
-    return Base.@inline _with_prepared_canonical_status_type(model, object, object_id, status) do S, object, object_id, source
+    return Base.@inline _with_prepared_canonical_status_type(model, object, object_id, status, source_identity) do S, object, object_id, source, identity
         admitted = isnothing(source) ? nothing : _new_prepared_status(S, source)
         _store_object_family_row!(store, object, object_id, admitted)
         setfield!(object, :status, admitted)
-        identity = isnothing(source) ? nothing : _status_identity(source)
         _set_status_source_identity!(model, object_id, identity)
         return admitted
     end
@@ -1476,21 +1476,22 @@ end
     source_status = object.status
     source_status isa Union{Nothing,Status} || throw(ArgumentError(
         "Initial object status must be a Status or nothing."))
-    _validate_status_source_identity_available!(model, source_status, id)
+    source_identity = isnothing(source_status) ? nothing : _status_identity(source_status)
+    _validate_status_source_identity_available!(model, source_identity, id)
     if status_values_materialized || _no_status_conversion(model.status_conversion)
-        return Base.@inline _register_converted_status!(model, object, id, parent_id, source_status, source_status)
+        return Base.@inline _register_converted_status!(model, object, id, parent_id, source_identity, source_status)
     end
     conversion_records = Dict{Any,Any}()
     converted = _convert_registered_status(model, id, source_status; conversion_records)
     converted isa Union{Nothing,Status} || throw(ArgumentError(
         "Converted object status must be a Status or nothing."))
-    registered = Base.@inline _register_converted_status!(model, object, id, parent_id, source_status, converted)
+    registered = Base.@inline _register_converted_status!(model, object, id, parent_id, source_identity, converted)
     merge!(model.status_conversion_records, conversion_records)
     return registered
 end
 
 @inline function _register_converted_status!(model, object, id, parent_id,
-    source_status::Union{Nothing,Status}, converted::Union{Nothing,Status})
+    identity::Union{Nothing,Base.RefValue{Nothing}}, converted::Union{Nothing,Status})
     catalog = model.registry.objects.catalog
     status = if catalog isa ClosedObjectFamilyCatalog
         manifest = catalog.status_manifest
@@ -1508,7 +1509,6 @@ end
     store = registry.objects
     _store_object_family_row!(store, object, id, status)
     _index_object!(registry, object)
-    identity = isnothing(source_status) ? nothing : _status_identity(source_status)
     _set_status_source_identity!(model, id, identity)
     ancestors = isnothing(parent_id) ?
                 ObjectId[id] :

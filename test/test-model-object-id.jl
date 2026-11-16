@@ -411,6 +411,40 @@ end
     @test source_node(canonical_mtg, mtg_leaf_b) === mtg_leaf_b
 end
 
+@testset "newborn source ownership survives official header replacement" begin
+    model = CompositeModel(Object(:seed; scale=:Leaf, status=Status(signal=1.0)))
+    source = Status(signal=2.0)
+    reference = PlantSimEngine.refvalue(source, :signal)
+    born = Object(:born; scale=:Leaf, status=source)
+    @test register_object!(model, born) === born
+    official = model_status(model, :born)
+    @test official !== source
+    @test PlantSimEngine.refvalue(official, :signal) === reference
+    @test object_id(model, official) === ObjectId(:born)
+    @test_throws ArgumentError object_id(model, source)
+
+    source_owners = copy(model.status_source_owners)
+    source_identities = copy(model.status_source_identities)
+    ids = Set(object_ids(model))
+    revision = PlantSimEngine.Advanced.model_revision(model)
+    rejected = Object(:duplicate; scale=:Leaf, status=source)
+    @test_throws ArgumentError register_object!(model, rejected)
+    @test Set(object_ids(model)) == ids
+    @test PlantSimEngine.Advanced.model_revision(model) == revision
+    @test model.status_source_owners == source_owners
+    @test model.status_source_identities == source_identities
+    @test rejected.status === source
+    @test model_status(model, :born) === official
+    @test PlantSimEngine.refvalue(official, :signal) === reference
+
+    remove_object!(model, :born)
+    reborn = Object(:reborn; scale=:Leaf, status=source)
+    @test register_object!(model, reborn) === reborn
+    @test object_id(model, model_status(model, :reborn)) === ObjectId(:reborn)
+    @test PlantSimEngine.refvalue(model_status(model, :reborn), :signal) === reference
+    @test_throws ArgumentError object_id(model, source)
+end
+
 PlantSimEngine.@process "identity_signal" verbose = false
 
 struct IdentitySignalModel{T} <: AbstractIdentity_SignalModel

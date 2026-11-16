@@ -1015,6 +1015,18 @@ function _scenario_preparation(model::CompositeModel; force::Bool=false)
     if force || isnothing(preparation) ||
        !_authored_specs_match(preparation, model)
         candidate = _prepare_authored_scenario(model, model.applications)
+        if isnothing(candidate.failure) &&
+           model.registry.objects.catalog isa ClosedObjectFamilyCatalog
+            # A rejected logical route can remove alias metadata from an
+            # otherwise valid candidate manifest. Preserve its captured cause
+            # before comparing that secondary schema with the active registry.
+            failure = _first_authored_program_failure(candidate.program)
+            if !isnothing(failure)
+                candidate = ScenarioPreparation(model, candidate.source_specs,
+                    candidate.authored, failure, candidate.program,
+                    candidate.status_manifest, nothing)
+            end
+        end
         if !isnothing(candidate.failure) || candidate.status_manifest isa ScenarioPreparationFailure
             # Keep captured authoring failures authoritative, as before. A later
             # run must not silently fall back to an older compiled preparation.
@@ -4024,6 +4036,15 @@ end
         _status_reference_epoch(view.status) == _status_reference_epoch(canonical)
 end
 
+# Keep the existing key across the view's dispatch boundary. Read its inline ID
+# only after the callback owns the concrete view and key argument types.
+Base.@noinline function _status_view_key_epoch_is_current(view, model, key)
+    objects = model.registry.objects
+    object_id = _index_object_id(objects, getfield(key, 2))
+    haskey(objects, object_id) || return true # removed objects were skipped by this scan
+    return _status_view_epoch_is_current(view, model, object_id)
+end
+
 function _extend_model_status_views(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -4060,12 +4081,10 @@ function _extend_model_status_views(
     end
 
     for (key, previous_view) in views
-        application_id, raw_id = key
-        object_id = _index_object_id(model.registry.objects, raw_id)
-        haskey(model.registry.objects, object_id) || continue
-        current = Base.@inline _with_model_status_view(_status_view_epoch_is_current,
-            compiled.status_view_schema, application_id, previous_view, model, object_id)
-        current || push!(affected_keys, (application_id, object_id))
+        application_id = getfield(key, 1)
+        current = Base.@inline _with_model_status_view(_status_view_key_epoch_is_current,
+            compiled.status_view_schema, application_id, previous_view, model, key)
+        current || push!(affected_keys, key)
     end
 
     positions = Dict(
@@ -4936,18 +4955,9 @@ function _extend_compiled_scene(
     )
 
     started_at = _runtime_performance_start(performance)
-    added_input_binding_capacity = 0
-    for application in added_applications
-        input_count = _compiled_application_by_id(compiled, application.id) do current
-            length(_model_input_names(current))
-        end
-        added_input_binding_capacity += input_count * length(application.target_ids)
-    end
+    # Preserve the vector's amortized reserve across lifecycle barriers.
+    # An exact size hint can shrink and copy unchanged existing bindings.
     input_bindings = compiled.input_bindings
-    sizehint!(
-        input_bindings,
-        length(compiled.input_bindings) + added_input_binding_capacity,
-    )
     input_bindings_by_target = compiled.input_bindings_by_target
     many_binding_cache = compiled.many_input_binding_cache
     changed_bindings = similar(input_bindings, 0)

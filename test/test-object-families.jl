@@ -291,7 +291,17 @@ end
     original = Status(value=1f0)
     object = Object(:leaf; status=original)
     model = CompositeModel(object)
+    manifest = model.registry.objects.catalog.status_manifest
+    @test model.scenario_plan_cache.status_manifest === manifest
     copied = deepcopy(model)
+    copied_manifest = copied.registry.objects.catalog.status_manifest
+    @test copied.scenario_plan_cache.status_manifest === copied_manifest
+    @test copied_manifest !== manifest
+    @test copied_manifest.raw_families !== manifest.raw_families
+    shared = deepcopy((manifest, manifest))
+    @test shared[1] === shared[2]
+    @test shared[1] !== manifest
+    @test shared[1].raw_families !== manifest.raw_families
     copied_object = model_object(copied, :leaf)
     copied_status = model_status(copied, :leaf)
     @test copied_object !== object

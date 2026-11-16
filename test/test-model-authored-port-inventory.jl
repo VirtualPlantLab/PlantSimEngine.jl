@@ -255,8 +255,9 @@ const broken_input_calls = Ref(0)
 struct BrokenInput{T} <: AbstractAuthored_Port_Bad_InputModel
     token::T
 end
-function PSE.inputs_(::BrokenInput)
+function PSE.inputs_(model::BrokenInput)
     broken_input_calls[] += 1
+    model.token === :repaired && return NamedTuple()
     error("captured input declaration failure")
 end
 PSE.outputs_(::BrokenInput) = (bad_seen=0f0,)
@@ -267,13 +268,18 @@ PSE.run!(::BrokenInput, status, environment, constants, context) = nothing
     model = CompositeModel(Object(:leaf; scale=:Leaf); applications=(
         ModelSpec(BrokenInput(:application); name=:broken, on=One(id=:leaf)),))
     @test broken_input_calls[] == 1
-    @test isnothing(model.scenario_plan_cache.failure)
+    @test model.scenario_plan_cache.failure isa PSE.ScenarioPreparationFailure
     @test hasproperty(only(model.scenario_plan_cache.authored), :ports)
     failed_ports = only(model.scenario_plan_cache.authored).ports
     @test failed_ports.input_declaration_types === failed_ports.input_types
     @test failed_ports.input_element_types === failed_ports.input_types
     @test failed_ports.input_types isa PSE.ScenarioPreparationFailure
     @test failed_ports.input_types.phase === :input_ports
+    failure = model.scenario_plan_cache.failure
+    @test failure === only(model.scenario_plan_cache.program.input_records)
+    @test failure.error === failed_ports.input_types.error
+    @test failure.phase === :input_plans
+    @test failure.application_id === :broken
     for _ in 1:2
         report = PSE.compile_model_report(model)
         @test [app.id for app in report.applications] == [:broken]
@@ -297,20 +303,49 @@ PSE.run!(::BrokenInput, status, environment, constants, context) = nothing
     @test isnothing(model_status(model, :leaf))
 end
 
-@testset "live application Scope is repaired before a saved input failure is delivered" begin
+@testset "a repaired input schema retains future Scope resolution" begin
     broken_input_calls[] = 0
     model = CompositeModel(Object(:scene; scale=:Scene); applications=(
         ModelSpec(BrokenInput(:application); name=:broken,
             on=One(Scope(ObjectId(:future_root)); scale=:Leaf)),))
     @test broken_input_calls[] == 1
-    @test isnothing(model.scenario_plan_cache.failure)
-    @test_throws "No instance or object ID" run!(model; steps=0)
-    @test broken_input_calls[] == 1
-    register_object!(model, Object(:future_root; scale=:Plant))
-    register_object!(model, Object(:future_leaf; scale=:Leaf, parent=:future_root))
+    failure = model.scenario_plan_cache.failure
+    @test failure === only(model.scenario_plan_cache.program.input_records)
+    @test failure isa PSE.ScenarioPreparationFailure
+    @test failure.error === only(model.scenario_plan_cache.authored).ports.input_types.error
+    @test failure.phase === :input_plans
+    @test failure.application_id === :broken
     @test_throws "captured input declaration failure" run!(model; steps=0)
+    ids = Set(object_ids(model))
+    @test_throws "captured input declaration failure" register_object!(model,
+        Object(:future_root; scale=:Plant))
+    @test Set(object_ids(model)) == ids
     @test broken_input_calls[] == 1
-    @test isnothing(model_status(model, :future_leaf))
+    @test isnothing(model_status(model, :scene))
+
+    # A hook that failed before returning its names/types cannot supply a fixed
+    # namespace. Repairing authoring requires a new prepared model; the same
+    # genuine future Scope remains resolvable once its declarations are known.
+    repaired = CompositeModel(Object(:scene; scale=:Scene); applications=(
+        ModelSpec(BrokenInput(:repaired); name=:broken,
+            on=One(Scope(ObjectId(:future_root)); scale=:Leaf)),))
+    @test broken_input_calls[] == 2
+    @test_throws "No instance or object ID" run!(repaired; steps=0)
+    @test broken_input_calls[] == 2
+    register_object!(repaired, Object(:future_root; scale=:Plant))
+    register_object!(repaired, Object(:future_leaf; scale=:Leaf, parent=:future_root))
+    @test broken_input_calls[] == 2
+    @test isnothing(model_status(repaired, :future_leaf))
+    run!(repaired; steps=0)
+    @test model_status(repaired, :future_leaf).bad_seen === 0f0
+    @test isnothing(model_status(repaired, :future_root))
+    reads = broken_input_calls[]
+    preparation = repaired.scenario_plan_cache
+    for _ in 1:2
+        PSE._validate_authored_scenario(PSE._scenario_preparation(repaired))
+    end
+    @test repaired.scenario_plan_cache === preparation
+    @test broken_input_calls[] == reads
 end
 
 struct Source{UNIT} <: AbstractAuthored_Port_SourceModel end
@@ -441,7 +476,12 @@ PSE.run!(::BadShapeBeforeNames, status, environment, constants, context) = nothi
     model = CompositeModel(Object(:leaf; scale=:Leaf); applications=(
         ModelSpec(BadShapeBeforeNames(); name=:probe, on=One(id=:leaf)),))
     @test shape_input_calls[] == shape_contract_calls[] == 1
-    @test isnothing(model.scenario_plan_cache.failure)
+    failure = model.scenario_plan_cache.failure
+    @test failure === only(model.scenario_plan_cache.program.input_records)
+    @test failure isa PSE.ScenarioPreparationFailure
+    @test failure.error === only(model.scenario_plan_cache.authored).ports.contracts.error
+    @test failure.phase === :input_plans
+    @test failure.application_id === :probe
     @test_throws "must return a NamedTuple" run!(model; steps=0)
     @test shape_input_calls[] == shape_contract_calls[] == 1
     @test isnothing(model_status(model, :leaf))
