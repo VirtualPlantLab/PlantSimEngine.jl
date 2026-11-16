@@ -82,6 +82,16 @@ ids(targets) = getproperty.(targets, :object_id)
 rows(simulation, object=:leaf_a) = sort!(
     collect_outputs(simulation, object, :seen; sink=nothing); by=row -> row.timestep)
 
+function check_status_references(target, official)
+    @test target.canonical_status === official
+    @test target.status === target.execution_target.status_view.status
+    @test keys(target.status) == keys(official)
+    for name in keys(official)
+        @test PSE.refvalue(target.status, name) === PSE.refvalue(official, name)
+    end
+    return nothing
+end
+
 @testset "borrowed target vectors preserve concrete types and shared status" begin
     for S in (Float32, Float64), heterogeneous in (false, true)
         fixture = scene(S; heterogeneous)
@@ -105,7 +115,7 @@ rows(simulation, object=:leaf_a) = sort!(
             end
             escaped[] = first(targets)
             for target in targets
-                @test target.status === model_status(fixture.model, target.object_id)
+                check_status_references(target, model_status(fixture.model, target.object_id))
                 @test target.status.driver === S(2.5)
                 @test PSE.refvalue(target.status, :driver) ===
                     PSE.refvalue(model_status(fixture.model, :owner), :shared_driver)
@@ -332,7 +342,7 @@ end
             @test isconcretetype(eltype(targets))
             newborn = only(targets)
             @test newborn.object_id == ObjectId(:newborn)
-            @test newborn.status === model_status(fixture.model, :newborn)
+            check_status_references(newborn, model_status(fixture.model, :newborn))
             @test eltype(newborn.status.coefficients) === S
             run_call!(newborn; sampled_environment=(T=30.0,))
             @test newborn.status.seen === S(45.5)
@@ -367,7 +377,7 @@ end
         with_call_targets(fixture.capture[], :empty) do targets
             @test isempty(targets)
         end
-        @test middle.status === model_status(fixture.model, :middle)
+        check_status_references(middle, model_status(fixture.model, :middle))
     end
 end
 
@@ -396,7 +406,7 @@ end
             @test targets[1].model isa Leaf
             @test targets[2].model isa AlternateLeaf
             for target in targets
-                @test target.status === model_status(model, target.object_id)
+                check_status_references(target, model_status(model, target.object_id))
                 @test target.status.driver isa S
                 run_call!(target; publish=true)
             end

@@ -940,9 +940,14 @@ function _prepare_authored_scenario(model::CompositeModel, raw_specs;
                 recipe.id, err, catch_backtrace())
         end
     end
-    failure_index = findfirst(record -> record isa ScenarioPreparationFailure, authored)
-    failure = isnothing(failure_index) ? nothing : authored[failure_index]
-    authored_records = Tuple(authored)
+    return _finalize_authored_scenario(model, source_specs, Tuple(authored), raw_families)
+end
+
+# Constructor and transactional edits share the same type/route preparation.
+# Captured ports stay unchanged; new initial data can change from_status RT.
+function _finalize_authored_scenario(model, source_specs, authored_records, raw_families)
+    failure_index = findfirst(record -> record isa ScenarioPreparationFailure, authored_records)
+    failure = isnothing(failure_index) ? nothing : authored_records[failure_index]
     recipes = Tuple(record for record in authored_records
         if record isa AuthoredApplicationRecipe)
     program = _prepare_authored_scenario_program(model, recipes)

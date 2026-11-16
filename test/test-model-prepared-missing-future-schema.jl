@@ -37,25 +37,30 @@ end
     cells = Fixtures.status_cells(data.model)
     science = Fixtures.scientific_state(data.model)
     random_state = Fixtures.rng_probe(data.rng)
-    # An output declaration is not a supplied-reference storage constraint.
-    # This is a real registered organ with a Float32 Ref, not a dummy witness.
-    newborn = register_object!(data.model,Object(:leaf_bad;scale=:Leaf,
-        parent=:middle_a,status=Status(visits=0,value=0f0,payload=zeros(2))))
+    # The configured output and observed raw statuses prepare Ref64. A new
+    # organ carrying an unprepared Ref32 must be rejected before registration.
+    newborn = Object(:leaf_bad;scale=:Leaf,
+        parent=:middle_a,status=Status(visits=0,value=0f0,payload=zeros(2)))
     @test newborn.status.value isa Float32
     selected = call_targets(data.capture[],:middle;objects=(:middle_a,))
     @test selected.batch_schema isa PSE.PreparedExecutionBatchSchema
     middle = only(only(PSE._materialize_call_execution_batches!(selected)).targets)
-    # Selecting Middle does not demand its Leaf Many. Reject the Float32 Ref
-    # only when this test explicitly requests that descendant membership.
+    # Save the real descendant metadata as well as the selected parent view.
     leaves = call_targets(middle.context,:leaf)
     @test leaves.batch_schema isa PSE.PreparedExecutionBatchSchema
-    # Parent selection is now legal. Save the cohort baseline immediately before
-    # the descendant demand that must reject, including its live selected views.
+    # Save the cohort baseline before the rejected registration, including all
+    # live selected views. No registry, cohort, state or RNG may partly change.
     store = simulation.execution_plan.cohorts
     locations = copy(store.locations)
     payloads = Dict(key=>PSE._execution_cohort_target(location) for (key,location) in locations)
     views = recorded_views(simulation, selected)
-    @test_throws "prepared execution schema" PSE._materialize_call_execution_batches!(leaves)
+    revision = PSE.Advanced.model_revision(data.model)
+    step = current_step(simulation)
+    @test_throws "prepared object configuration/raw family" register_object!(data.model, newborn)
+    @test !haskey(data.model.registry.objects, ObjectId(:leaf_bad))
+    @test PSE.Advanced.model_revision(data.model) == revision
+    @test current_step(simulation) == step
+    @test leaves.batch_schema isa PSE.PreparedExecutionBatchSchema
     @test Set(keys(store.locations)) == Set(keys(locations))
     @test all(store.locations[key] === location for (key,location) in locations)
     @test all(PSE._execution_cohort_target(store.locations[key]) === target for (key,target) in payloads)

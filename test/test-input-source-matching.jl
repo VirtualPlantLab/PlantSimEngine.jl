@@ -16,13 +16,16 @@ PSE.outputs_(model::Union{Writer,AlternativeWriter}) = (x=zero(model.value),)
 PSE.run!(model::Union{Writer,AlternativeWriter}, status, environment, constants, context) =
     (status.x = model.value; nothing)
 
-function matching_fixture()
+function matching_fixture(; growing_a=false)
     names = (:a, :b, :c, :d, :e, :f)
     models = (Writer(1f0), Writer(2.0), Writer(Int8(3)), Writer(Int16(4)),
         Writer(Int32(5)), AlternativeWriter(Int64(6)))
-    objects = ntuple(index -> Object(index; status=Status(x=models[index].value)), 6)
+    objects = ntuple(index -> Object(index;
+        kind=growing_a && index == 1 ? :growing_a : nothing,
+        status=Status(x=models[index].value)), 6)
     applications = ntuple(index -> ModelSpec(models[index];
-        name=names[index], on=One(id=index)), 6)
+        name=names[index],
+        on=growing_a && index == 1 ? Many(kind=:growing_a) : One(id=index)), 6)
     simulation = run!(CompositeModel(objects...; applications); steps=0, outputs=:none)
     compiled = simulation.compiled
     owner(name, index) = PSE.CompiledWriterOwner(index, name, ObjectId(index), nothing, :local)
@@ -89,10 +92,17 @@ end
 end
 
 @testset "planned singleton matching retains a real newborn partial overlay" begin
-    simulation, distributed = matching_fixture()
+    simulation, distributed = matching_fixture(; growing_a=true)
     compiled = simulation.compiled
-    newborn = register_object!(simulation.model, Object(7; status=Status(x=7f0)))
-    reference = PSE.refvalue(newborn.status, :x)
+    supplied = Status(x=7f0)
+    reference = PSE.refvalue(supplied, :x)
+    newborn = register_object!(simulation.model, Object(7; kind=:growing_a, status=supplied))
+    @test newborn.status === model_status(simulation.model, 7)
+    @test PSE.refvalue(newborn.status, :x) === reference
+    # The authored producer really selects this newborn, while its cached
+    # pre-barrier target vector intentionally still contains only object 1.
+    @test ObjectId(7) in resolve_object_ids(simulation.model,
+        compiled.applications_by_id[:a].spec.on)
     partial = PSE._partial_model_application(compiled.applications_by_id[:a],
         ObjectId[ObjectId(7)])
     overlay = PSE._ApplicationsByObjectOverlay(compiled.applications_by_object,

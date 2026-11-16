@@ -222,7 +222,14 @@ end
         @test inner_parent_capture[].calls !== data.parent.calls
         @test outer.child.execution_target === inner.child.execution_target
         @test outer.child.context_cache === inner.child.context_cache
-        @test outer.child.status === inner.child.status === model_status(data.model, :leaf)
+        official = model_status(data.model, :leaf)
+        @test outer.child.canonical_status === inner.child.canonical_status === official
+        @test outer.child.status === outer.child.execution_target.status_view.status
+        @test inner.child.status === inner.child.execution_target.status_view.status
+        @test keys(outer.child.status) == keys(inner.child.status) == keys(official)
+        @test all(name -> PSE.refvalue(outer.child.status, name) ===
+                  PSE.refvalue(inner.child.status, name) === PSE.refvalue(official, name),
+                  keys(official))
         @test outer.child.environment === trial
         @test inner.child.environment === inner_trial
         @test outer.child.publication_allowed && !inner.child.publication_allowed

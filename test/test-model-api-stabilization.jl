@@ -4,10 +4,16 @@ using Test
 
 PlantSimEngine.@process "stabilization_source" verbose = false
 
-struct StabilizationSourceModel <: AbstractStabilization_SourceModel end
+struct StabilizationSourceModel{T} <: AbstractStabilization_SourceModel end
 
+StabilizationSourceModel() = StabilizationSourceModel{Float64}()
 PlantSimEngine.inputs_(::StabilizationSourceModel) = NamedTuple()
-PlantSimEngine.outputs_(::StabilizationSourceModel) = (signal=0.0,)
+PlantSimEngine.outputs_(::StabilizationSourceModel{T}) where {T} = (signal=zero(T),)
+# This real state declaration admits either numerical cell before the first
+# step; its owned initial output remains the original Float64 zero.
+PlantSimEngine.inputs_(::StabilizationSourceModel{Union{Float32,Float64}}) =
+    (signal=Required(Union{Float32,Float64}),)
+PlantSimEngine.outputs_(::StabilizationSourceModel{Union{Float32,Float64}}) = (signal=0.0,)
 
 function PlantSimEngine.run!(
     ::StabilizationSourceModel,
@@ -2038,8 +2044,10 @@ end
     original_view =
         simulation.compiled.status_views_by_target[(:source, ObjectId(:leaf_1))]
     original_status = only(model_objects(model; scale=:Leaf)).status
-    @test original_view.status === original_status
     @test original_view.canonical_status === original_status
+    @test keys(original_view.status) == keys(original_status)
+    @test all(name -> PlantSimEngine.refvalue(original_view.status, name) ===
+              PlantSimEngine.refvalue(original_status, name), keys(original_status))
     @test isempty(original_view.temporal_inputs)
     @test isempty(original_view.private_outputs)
     previous_runtime_revision = model.runtime_revision
@@ -2185,6 +2193,8 @@ end
 end
 
 @testset "incremental Many source applications use the complete source set" begin
+    outside_status = Status(signal=10.0)
+    outside_reference = PlantSimEngine.refvalue(outside_status, :signal)
     model = CompositeModel(
         Object(:scene; scale=:Scene),
         Object(:plant; scale=:Plant, parent=:scene),
@@ -2193,6 +2203,15 @@ end
             scale=:Leaf,
             kind=:produced,
             parent=:plant,
+        ),
+        # Genuine supplied data outside this consumer's Subtree remains in the
+        # scene and prepares the same supplied-data role as the newborn below.
+        Object(
+            :supplied_elsewhere;
+            scale=:Leaf,
+            kind=:supplied,
+            parent=:scene,
+            status=outside_status,
         );
         applications=(
             ModelSpec(
@@ -2227,7 +2246,14 @@ end
     carrier = binding.carrier
     @test plant.lagged_total == 1.0
     @test binding.source_application_ids == [:source]
+    @test binding.source_ids == ObjectId.([:leaf_1])
+    @test !(ObjectId(:supplied_elsewhere) in binding.source_ids)
+    @test PlantSimEngine.refvalue(model_status(model, :supplied_elsewhere), :signal) ===
+          outside_reference
+    @test model_status(model, :supplied_elsewhere).signal === 10.0
 
+    supplied_status = Status(signal=10.0)
+    supplied_reference = PlantSimEngine.refvalue(supplied_status, :signal)
     register_object!(
         model,
         Object(
@@ -2235,7 +2261,7 @@ end
             scale=:Leaf,
             kind=:supplied,
             parent=:plant,
-            status=Status(signal=10.0),
+            status=supplied_status,
         ),
     )
     continue!(simulation)
@@ -2249,6 +2275,8 @@ end
     @test refreshed_binding.carrier === carrier
     @test refreshed_binding.source_ids == ObjectId.([:leaf_1, :leaf_2])
     @test refreshed_binding.source_application_ids == [:source]
+    @test PlantSimEngine.refvalue(model_status(model, :leaf_2), :signal) === supplied_reference
+    @test parent(refreshed_binding.carrier)[2] === supplied_reference
     @test plant.lagged_total == 12.0
 
     reparent_object!(model, :leaf_2, :scene)
@@ -2260,6 +2288,10 @@ end
     continue!(simulation)
     @test only(Diagnostics.explain_bindings(model)).source_ids == [:leaf_1, :leaf_2]
     @test plant.lagged_total == 14.0
+    @test !(ObjectId(:supplied_elsewhere) in refreshed_binding.source_ids)
+    @test PlantSimEngine.refvalue(model_status(model, :supplied_elsewhere), :signal) ===
+          outside_reference
+    @test model_status(model, :supplied_elsewhere).signal === 10.0
 end
 
 @testset "new consumers reuse an updated plant-wide Many carrier" begin
@@ -2941,15 +2973,20 @@ end
 end
 
 @testset "a newborn payload family preserves unrelated groups and row owners" begin
+    source_model = StabilizationSourceModel{Union{Float32,Float64}}()
     model = CompositeModel(
         Object(:scene; scale=:Scene),
         Object(:leaf_1; scale=:Leaf, parent=:scene);
         applications=(
-            ModelSpec(StabilizationSourceModel(); name=:leaf_source, on=Many(scale=:Leaf)),
+            ModelSpec(source_model; name=:leaf_source, on=Many(scale=:Leaf)),
             ModelSpec(StabilizationSourceModel(); name=:scene_source, on=One(scale=:Scene)),
         ),
     )
     simulation = run!(model; outputs=:none, performance=true)
+    # No Float32 execution target has been constructed or run in this scene.
+    @test all(target.status_view.status.signal isa Float64
+        for group in simulation.execution_plan.groups for batch in group.batches
+        for target in batch.targets)
     old_leaf_group = only(group for group in simulation.execution_plan.groups
                           if group.application.id == :leaf_source)
     old_scene_group = only(group for group in simulation.execution_plan.groups
@@ -2961,8 +2998,10 @@ end
     old_leaf_location = PlantSimEngine.cohort_location(
         simulation.execution_plan.cohorts, :leaf_source, ObjectId(:leaf_1),
     )
+    leaf_2_status = Status(signal=0.0f0)
+    leaf_2_reference = PlantSimEngine.refvalue(leaf_2_status, :signal)
     register_object!(model, Object(
-        :leaf_2; scale=:Leaf, parent=:scene, status=Status(signal=0.0f0),
+        :leaf_2; scale=:Leaf, parent=:scene, status=leaf_2_status,
     ))
     continue!(simulation)
     leaf_group = only(group for group in simulation.execution_plan.groups
@@ -2981,6 +3020,7 @@ end
     ) === old_leaf_location
     @test model_object(model, :leaf_1).status.signal == 2.0
     @test model_object(model, :leaf_2).status.signal === 1.0f0
+    @test PlantSimEngine.refvalue(model_status(model, :leaf_2), :signal) === leaf_2_reference
     @test model_object(model, :scene).status.signal == 2.0
     performance = Advanced.runtime_performance(simulation)
     @test performance.counts[:execution_targets_constructed] == 1
@@ -2991,8 +3031,10 @@ end
     # Its later view must remain reserved for its existing batch.
     later_float32_batch = last(leaf_group.batches)
     later_float32_target = only(later_float32_batch.targets)
+    leaf_0_status = Status(signal=0.0f0)
+    leaf_0_reference = PlantSimEngine.refvalue(leaf_0_status, :signal)
     register_object!(model, Object(
-        :leaf_0; scale=:Leaf, parent=:scene, status=Status(signal=0.0f0),
+        :leaf_0; scale=:Leaf, parent=:scene, status=leaf_0_status,
     ))
     continue!(simulation)
     recurring_group = only(group for group in simulation.execution_plan.groups
@@ -3008,6 +3050,8 @@ end
     @test model_object(model, :leaf_0).status.signal === 1.0f0
     @test model_object(model, :leaf_1).status.signal == 3.0
     @test model_object(model, :leaf_2).status.signal === 2.0f0
+    @test PlantSimEngine.refvalue(model_status(model, :leaf_0), :signal) === leaf_0_reference
+    @test PlantSimEngine.refvalue(model_status(model, :leaf_2), :signal) === leaf_2_reference
     @test model_object(model, :scene).status.signal == 3.0
     performance = Advanced.runtime_performance(simulation)
     @test performance.counts[:execution_targets_constructed] == 2

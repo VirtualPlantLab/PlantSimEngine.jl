@@ -288,9 +288,10 @@ RemoveModelObjectOverride(
 Apply one declarative graph edit transactionally. The input model is not
 modified; a deep-copied, cache-invalidated CompositeModel is returned. Configuration
 that is temporarily incomplete or cyclic is retained so the editor can display
-and repair it. Structural edit errors leave the original model unchanged. Values
-listed in `preserve` retain their identity inside the copy; editor sessions use
-this for server-side template and environment catalogs.
+and repair it. Structural edit errors leave the original model unchanged. Mutable values
+listed in `preserve` retain their identity inside the copy. For an immutable
+container, list its mutable fields explicitly. Editor sessions use this for
+server-side template and environment catalogs.
 """
 function _model_graph_deepcopy(model::CompositeModel, preserve=())
     stack = IdDict{Any,Any}()
@@ -309,20 +310,15 @@ function apply_model_graph_edit(
     preparation = candidate.scenario_plan_cache
     candidate = _apply_model_graph_edit!(candidate, edit)
     _mark_bindings_dirty!(candidate)
-    if !isnothing(preparation) &&
-       _authored_specs_match(preparation, candidate)
-        candidate.scenario_plan_cache = preparation
-        _model_owned_scenario_preparation(candidate, preparation).resolved = nothing
-    end
     final_preparation = if !isnothing(preparation) && _authored_specs_match(preparation, candidate)
-        _scenario_preparation(candidate)
+        # The copied state is initial data for this new model. Reuse captured
+        # declarations, then recompute routes and the namespace without hooks.
+        _finalize_authored_scenario(candidate, preparation.source_specs,
+            preparation.authored, nothing)
     else
-        # This API already returns a NEW model. Its copied live state is the
-        # genuine input data for a newly prepared namespace, unlike force in place.
-        fresh = _prepare_authored_scenario(candidate, candidate.applications; raw_families=nothing)
-        candidate.scenario_plan_cache = fresh
-        fresh
+        _prepare_authored_scenario(candidate, candidate.applications; raw_families=nothing)
     end
+    candidate.scenario_plan_cache = final_preparation
     return _install_prepared_canonical_registry(candidate, final_preparation)
 end
 
@@ -860,14 +856,16 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::BreakModelCycle)
     isempty(applications) && error(
         "Application `$(edit.application.application_id)` could not be resolved after breaking its cycle.",
     )
+    missing = ObjectId[]
     for application in applications
         for object_id in application.target_ids
             object = _model_object(model, object_id)
             supplied = object.status isa Status && hasproperty(object.status, edit.input)
-            supplied || _set_model_object_status!(model, object_id, edit.input, edit.initial_value)
+            supplied || object_id in missing || push!(missing, object_id)
         end
     end
-    return model
+    return isempty(missing) ? model :
+        _set_model_object_statuses!(model, missing, edit.input, edit.initial_value)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::AddModelObject)
@@ -904,44 +902,53 @@ function _model_edit_status_values(status)
     ]
 end
 
-function _set_model_object_status!(model, object_id, variable, value)
-    object = _model_object(model, object_id)
-    effective, _, _ = _materialize_status_value(
-        model,
-        Symbol(variable),
-        value;
-        object_id=object.id,
-        origin=:graph_edit_status,
-    )
-    values = _model_edit_status_values(object.status)
-    index = findfirst(pair -> first(pair) == variable, values)
-    if isnothing(index)
-        push!(values, variable => effective)
-    else
-        values[index] = variable => effective
+function _set_model_object_statuses!(model, object_ids, variable, value)
+    isempty(object_ids) && error("SetModelObjectStatuses requires at least one object id.")
+    # Resolve every identity before converting any value. These are facades in
+    # the transaction's private copy, not objects in the caller's live registry.
+    selected = [_model_object(model, object_id) for object_id in object_ids]
+    updates = Dict{ObjectId,Status}()
+    for object in selected
+        effective, _, _ = _materialize_status_value(model, variable, value;
+            object_id=object.id, origin=:graph_edit_status)
+        references = object.status isa Status ? Pair{Symbol,Any}[
+            name => refvalue(object.status, name) for name in propertynames(object.status)
+        ] : Pair{Symbol,Any}[]
+        index = findfirst(pair -> first(pair) === variable, references)
+        reference = variable => Ref(effective)
+        isnothing(index) ? push!(references, reference) : (references[index] = reference)
+        updates[object.id] = Status((; references...))
     end
-    _replace_model_object_status!(model, object, Status((; values...)))
-    delete!(
-        get!(
-            model.input_default_status_variables,
-            object_id,
-            Set{Symbol}(),
-        ),
-        variable,
-    )
-    return model
+    defaults = Dict{ObjectId,Set{Symbol}}(
+        id => copy(names) for (id, names) in model.input_default_status_variables)
+    for (id, status) in updates
+        setfield!(_model_object(model, id), :status, status)
+        delete!(get!(defaults, id, Set{Symbol}()), variable)
+    end
+    # Assemble the real edited initial data before preparing its canonical S.
+    # Specs are already mounted; retain the same instance facades and adapter
+    # maps below instead of mounting templates or converting status values twice.
+    assembled = _assemble_composite_model(model_objects(model)...;
+        applications=model.applications, environment=model.environment,
+        source_adapter=model.source_adapter, _status_conversion=model.status_conversion,
+        _status_values_materialized=true,
+        _status_conversion_records=model.status_conversion_records)
+    fields = map(fieldnames(typeof(model))) do name
+        name in (:registry, :status_source_owners, :status_source_identities,
+            :status_conversion_records) && return getfield(assembled, name)
+        name in (:scenario_plan_cache, :binding_cache, :environment_binding_cache) && return nothing
+        name === :input_default_status_variables && return defaults
+        return getfield(model, name)
+    end
+    return CompositeModel(fields...)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectStatus)
-    return _set_model_object_status!(model, edit.object_id, edit.variable, edit.value)
+    return _set_model_object_statuses!(model, (edit.object_id,), edit.variable, edit.value)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectStatuses)
-    isempty(edit.object_ids) && error("SetModelObjectStatuses requires at least one object id.")
-    for object_id in edit.object_ids
-        _set_model_object_status!(model, object_id, edit.variable, edit.value)
-    end
-    return model
+    return _set_model_object_statuses!(model, edit.object_ids, edit.variable, edit.value)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelObjectStatus)

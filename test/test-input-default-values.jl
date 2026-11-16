@@ -128,29 +128,33 @@ PSE.outputs_(::MutableInputDefaults) = NamedTuple()
 PSE.run!(::MutableInputDefaults, status, environment, constants, context) = nothing
 
 @testset "canonical callers still copy fresh defaults for every real object" begin
-    payload = Ref{Any}(Float32[1, 2])
-    model = CompositeModel(Object(:first; scale=:Leaf), Object(:second; scale=:Leaf);
-        applications=(ModelSpec(MutableInputDefaults(payload); name=:defaults,
-            on=Many(scale=:Leaf)),))
-    simulation = run!(model; steps=0, outputs=:none)
-    first = model_status(model, :first).buffer
-    second = model_status(model, :second).buffer
-    @test first == second == Float32[1, 2]
-    @test first !== second
-    @test first !== payload[]
-    payload[] = Float64[7, 8]
-    register_object!(model, Object(:third; scale=:Leaf))
-    step!(simulation)
-    third = model_status(model, :third).buffer
-    @test third == [7.0, 8.0]
-    @test third isa Vector{Float64}
-    @test third !== payload[]
-    @test first isa Vector{Float32}
-    @test second isa Vector{Float32}
-    first[1] = 9f0
-    @test second == Float32[1, 2]
-    @test third == [7.0, 8.0]
-    @test model_status(model, :third).optional === 1f0
+    # Each CompositeModel prepares one numerical configuration. Exercise both
+    # Float32 and Float64 without changing that configuration between births.
+    for T in (Float32, Float64)
+        payload = Ref{Any}(T[1, 2])
+        model = CompositeModel(Object(:first; scale=:Leaf), Object(:second; scale=:Leaf);
+            applications=(ModelSpec(MutableInputDefaults(payload); name=:defaults,
+                on=Many(scale=:Leaf)),))
+        simulation = run!(model; steps=0, outputs=:none)
+        first = model_status(model, :first).buffer
+        second = model_status(model, :second).buffer
+        @test first == second == T[1, 2]
+        @test first !== second
+        @test first !== payload[]
+        payload[] = T[7, 8]
+        register_object!(model, Object(:third; scale=:Leaf))
+        step!(simulation)
+        third = model_status(model, :third).buffer
+        @test third == T[7, 8]
+        @test third isa Vector{T}
+        @test third !== payload[]
+        @test first isa Vector{T}
+        @test second isa Vector{T}
+        first[1] = T(9)
+        @test second == T[1, 2]
+        @test third == T[7, 8]
+        @test model_status(model, :third).optional === 1f0
+    end
 end
 
 end # module InputDefaultValuesChecks

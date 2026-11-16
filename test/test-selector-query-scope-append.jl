@@ -84,12 +84,32 @@ end
     data = append_scene(SelfPlant())
     reparent_object!(data.model, :consumer, :scene) # no current Plant anchor
     register_object!(data.model, Object(30; scale=:Branch, parent=:scene))
+    # A missing consumer anchor grants no data rights. The real Leaf outside
+    # its original Plant supplies the matching no-route RAW family for Ref32,
+    # while a new Ref64 remains rejected before any registration is published.
+    rejected = Object(31; scale=:Leaf, parent=:scene, status=Status(x=31.0))
+    supplied = rejected.status
+    children = copy(model_object(data.model, :scene).children)
+    source_owners = copy(data.model.status_source_owners)
+    source_ids = copy(data.model.status_source_identities)
+    object_count = length(data.model.registry.objects)
+    carrier = input_carrier(data.binding)
+    references = Tuple(parent(carrier))
+    @test_throws ArgumentError register_object!(data.model, rejected)
+    @test length(data.model.registry.objects) == object_count
+    @test !haskey(data.model.registry.objects, ObjectId(31))
+    @test rejected.status === supplied
+    @test model_object(data.model, :scene).children == children
+    @test data.model.status_source_owners == source_owners
+    @test data.model.status_source_identities == source_ids
     @test append_selected!(data, Int[])
     @test append_selected!(data, [30]) # a rejected label must not resolve scope
     @test data.binding.source_ids == ObjectId.([1, 2])
     add_leaf!(data.model, 31, :scene)
     @test_throws "No `scale=:Plant` ancestor" append_selected!(data, [31])
     @test data.binding.source_ids == ObjectId.([1, 2])
+    @test input_carrier(data.binding) === carrier
+    @test all(current === previous for (current, previous) in zip(parent(carrier), references))
 
     related = append_scene(SelfPlant(); relation=:descendants)
     reparent_object!(related.model, :consumer, :scene)

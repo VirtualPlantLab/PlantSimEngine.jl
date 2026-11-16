@@ -1692,17 +1692,22 @@ end
         species=matcher.species, id=matcher.id)
 end
 
-function _prepared_status_scope_is_current(model, topology, scope)
+function _prepared_status_scope_is_current(model, topology, scope, origin)
     scope isa Scope && return _point_scope_root_exists(topology,
         first(_named_scope_root_candidate(model, scope)))
     scope isa CompiledNamedScope && return _point_scope_root_exists(topology, scope.root_id)
+    if !isnothing(origin) && scope isa Union{SelfPlant,Ancestor}
+        # No current anchor means no applicable data permission/context. The
+        # actual input query still owns its missing-anchor diagnostic.
+        return !isnothing(_scope_anchor(topology, scope, origin))
+    end
     return true
 end
 
 function _prepared_status_application_matches(model, object, parent_id, application)
     id = _index_object_id(model.registry.objects, object.id)
     topology = _prepared_status_topology(model, object, id, parent_id)
-    _prepared_status_scope_is_current(model, topology, application.target_matcher.scope) || return false
+    _prepared_status_scope_is_current(model, topology, application.target_matcher.scope, nothing) || return false
     return _selector_matches_object_id(topology, application.target_matcher,
         id, nothing, false, nothing, false)
 end
@@ -1713,7 +1718,7 @@ function _prepared_status_route_matches(model, object, parent_id, application,
     # Output destinations and from-status input sources use the same predicate.
     id = _index_object_id(model.registry.objects, object.id)
     topology = _prepared_status_topology(model, object, id, parent_id)
-    _prepared_status_scope_is_current(model, topology, destination_plan.matcher.scope) || return false
+    _prepared_status_scope_is_current(model, topology, destination_plan.matcher.scope, execution_id) || return false
     return _selector_matches_object_id(topology, destination_plan.matcher,
         id, execution_id, true, _default_dependency_scope(topology, execution_id), false)
 end

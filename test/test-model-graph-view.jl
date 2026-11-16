@@ -1392,3 +1392,151 @@ end
     @test length(unique(edge["id"] for edge in target_edges)) == 2
     @test Set(edge["target"] for edge in target_edges) == Set(object["id"] for object in view.objects)
 end
+
+
+struct ModelGraphStatusEditObservedModel <: AbstractModelGraphSourceModel
+    input_reads::Base.RefValue{Int}
+    output_reads::Base.RefValue{Int}
+end
+function PlantSimEngine.inputs_(model::ModelGraphStatusEditObservedModel)
+    model.input_reads[] += 1
+    return (driver=Required(Float64),)
+end
+function PlantSimEngine.outputs_(model::ModelGraphStatusEditObservedModel)
+    model.output_reads[] += 1
+    return (signal=0.0,)
+end
+
+struct ModelGraphStatusEditTransform{R}
+    calls::Base.RefValue{Int}
+    untouched_reference::R
+end
+function (transform::ModelGraphStatusEditTransform)(variable, value)
+    transform.calls[] += 1
+    return value
+end
+
+@testset "graph initial-data edits prepare one new namespace without replaying hooks" begin
+    process_model = ModelGraphStatusEditObservedModel(Ref(0), Ref(0))
+    # Base.deepcopy consults its preservation map for these mutable observables,
+    # rather than for their immutable model container.
+    preserved_reads = (process_model.input_reads, process_model.output_reads)
+    first_status = Status(driver=1f0)
+    transform = ModelGraphStatusEditTransform(Ref(0), PlantSimEngine.refvalue(first_status, :driver))
+    model = CompositeModel(
+        Object(:first; scale=:Leaf, status=first_status),
+        Object(:second; scale=:Leaf, status=Status(driver=2f0));
+        applications=(ModelSpec(process_model; name=:source, on=Many(scale=:Leaf)),),
+        type_promotion=Dict(Float64 => Float32), status_transform=transform,
+    )
+    preparation = model.scenario_plan_cache
+    reads = (process_model.input_reads[], process_model.output_reads[])
+    conversions = transform.calls[]
+    original_statuses = Dict(id => model_status(model, id) for id in (:first, :second))
+    original_references = Dict(id => PlantSimEngine.refvalue(status, :driver)
+        for (id, status) in original_statuses)
+    edited = apply_model_graph_edit(model,
+        SetModelObjectStatuses([:first, :second], :shared_value, 5.0);
+        preserve=preserved_reads)
+    @test edited !== model
+    @test model.scenario_plan_cache === preparation
+    @test (process_model.input_reads[], process_model.output_reads[]) == reads
+    @test transform.calls[] == conversions
+    @test edited.status_conversion.transform.calls[] == conversions + 2
+    @test edited.scenario_plan_cache.owner === edited
+    @test PlantSimEngine.model_(only(edited.scenario_plan_cache.authored).spec) === process_model
+    @test PlantSimEngine.model_(only(edited.scenario_plan_cache.authored).spec).input_reads ===
+          process_model.input_reads
+    @test PlantSimEngine.model_(only(edited.scenario_plan_cache.authored).spec).output_reads ===
+          process_model.output_reads
+    @test PlantSimEngine.refvalue(model_status(edited, :first), :driver) ===
+          edited.status_conversion.transform.untouched_reference
+    @test edited.registry.objects.catalog.status_manifest === edited.scenario_plan_cache.status_manifest
+    @test :shared_value in PlantSimEngine._status_schema_names(
+        edited.scenario_plan_cache.status_manifest.status_type)
+    @test !(:shared_value in PlantSimEngine._status_schema_names(preparation.status_manifest.status_type))
+    for id in (:first, :second)
+        official = model_status(edited, id)
+        @test official.shared_value === 5f0
+        @test official.driver === original_statuses[id].driver
+        @test PlantSimEngine.refvalue(official, :driver) !== original_references[id]
+        @test model_status(model, id) === original_statuses[id]
+        @test PlantSimEngine.refvalue(model_status(model, id), :driver) === original_references[id]
+        @test !hasproperty(model_status(model, id), :shared_value)
+    end
+    # Resolve the whole edit before conversion: a missing second target neither
+    # publishes a first replacement nor invokes an explicitly shared callback.
+    @test_throws ErrorException apply_model_graph_edit(model,
+        SetModelObjectStatuses([:first, :missing], :shared_value, 5.0);
+        preserve=(preserved_reads..., transform.calls))
+    @test transform.calls[] == conversions
+    @test (process_model.input_reads[], process_model.output_reads[]) == reads
+    @test model.scenario_plan_cache === preparation
+    @test all(model_status(model, id) === original_statuses[id] &&
+        PlantSimEngine.refvalue(model_status(model, id), :driver) === original_references[id] &&
+        !hasproperty(model_status(model, id), :shared_value) for id in (:first, :second))
+
+    single = apply_model_graph_edit(model, SetModelObjectStatus(:first, :shared_value, 7.0);
+        preserve=preserved_reads)
+    @test model_status(single, :first).shared_value === 7f0
+    @test !hasproperty(model_status(single, :second), :shared_value)
+    @test single.status_conversion.transform.calls[] == conversions + 1
+    @test (process_model.input_reads[], process_model.output_reads[]) == reads
+end
+
+@testset "graph initial-data reconstruction retains already mounted instance owners" begin
+    model = model_graph_override_fixture()
+    edited = apply_model_graph_edit(model,
+        SetModelObjectStatuses([:leaf_a, :leaf_b], :shared_value, 5))
+    @test length(edited.instances) == length(model.instances) == 2
+    @test length(edited.applications) == length(model.applications) == 2
+    @test getproperty.(edited.instances, :name) == [:plant_a, :plant_b]
+    @test map(PlantSimEngine._model_edit_application_id, edited.applications) ==
+          map(PlantSimEngine._model_edit_application_id, model.applications)
+    @test edited.instances[1].template === edited.instances[2].template
+    for instance in edited.instances
+        if instance.root isa Object
+            @test instance.root === PlantSimEngine._model_object(edited, instance.root.id)
+        end
+    end
+    @test all(model_status(edited, id).shared_value == 5 for id in (:leaf_a, :leaf_b))
+    @test all(!hasproperty(model_status(model, id), :shared_value) for id in (:leaf_a, :leaf_b))
+end
+
+
+import MultiScaleTreeGraph as ModelGraphMTG
+
+@testset "graph initial-data edits retain source-node round trips without reimport" begin
+    root = ModelGraphMTG.Node(1, ModelGraphMTG.NodeMTG(:/, :Scene, 1, 0), (note="scene",))
+    leaf = ModelGraphMTG.Node(2, root, ModelGraphMTG.NodeMTG(:+, :Leaf, 1, 1), (note="leaf",))
+    imports = Ref(0)
+    import_status = node -> begin
+        imports[] += 1
+        ModelGraphMTG.symbol(node) === :Leaf ? Status(driver=1.0) : nothing
+    end
+    model = CompositeModel(root; status=import_status,
+        applications=(ModelSpec(ModelGraphSourceModel(); name=:source, on=Many(scale=:Leaf)),))
+    before = imports[]
+    official = model_status(model, leaf)
+    reference = PlantSimEngine.refvalue(official, :driver)
+    edited = apply_model_graph_edit(model, SetModelObjectStatus(2, :shared_value, 5);
+        preserve=(import_status,))
+    @test imports[] == before
+    @test edited.source_adapter !== model.source_adapter
+    @test length(edited.source_adapter.nodes_by_object_id) == 2
+    @test length(edited.source_adapter.object_ids_by_node) == 2
+    edited_leaf = source_node(edited, 2)
+    @test edited_leaf !== leaf
+    @test source_node(edited, model_status(edited, 2)) === edited_leaf
+    @test object_id(edited, edited_leaf) == ObjectId(2)
+    @test model_status(edited, edited_leaf) === model_status(edited, 2)
+    @test edited.source_adapter.root === source_node(edited, 1)
+    @test ModelGraphMTG.parent(edited_leaf) === source_node(edited, 1)
+    @test model_status(edited, edited_leaf).shared_value == 5
+    @test edited_leaf[:note] == "leaf"
+    @test_throws ArgumentError object_id(edited, leaf)
+    @test source_node(model, 2) === leaf
+    @test model_status(model, leaf) === official
+    @test PlantSimEngine.refvalue(official, :driver) === reference
+    @test !hasproperty(official, :shared_value)
+end

@@ -277,8 +277,14 @@ PSE.run!(::BrokenDeclarations, status, environment, constants, context) = (statu
     # The failed output hook supplied no schema at construction. Fixing it
     # requires an actual prepared model, not in-place discovery of a new S.
     original_preparation = model.scenario_plan_cache
+    original_status = model_status(model, :root)
     @test_throws ArgumentError PSE.Advanced.refresh_bindings!(model; force=true)
-    @test model.scenario_plan_cache === original_preparation
+    rejected = model.scenario_plan_cache
+    @test rejected !== original_preparation
+    @test rejected.status_manifest isa PSE.ScenarioPreparationFailure
+    @test rejected.status_manifest.phase === :status_manifest
+    @test model.bindings_dirty
+    @test model_status(model, :root) === original_status
     model = CompositeModel(Object(:root; scale=:Scene);
         applications=Tuple(model.applications), environment=model.environment)
     @test isnothing(model.scenario_plan_cache.failure)

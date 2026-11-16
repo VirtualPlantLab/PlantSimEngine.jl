@@ -257,11 +257,21 @@ end
         location = PSE.cohort_location(store,:controller,ObjectId(:root))
         target = location.cohort.rows[location.row]
         reference = PSE.refvalue(model_status(data.model, 1), :value)
-        # A changed authored CS needs a fresh Simulation at the outer boundary.
-        # This host diagnostic exercises the canonical plan-refresh worker only.
-        deleteat!(data.model.applications, 1)
-        current = PSE.Advanced.refresh_bindings!(data.model;force=true)
-        environment = PSE.refresh_environment_bindings!(data.model,current)
+        # Removing an application prepares a new configuration through the
+        # existing authoring API. Preserve the genuine scientific cells while
+        # leaving the original model/header owners intact. This host diagnostic
+        # still exercises retirement of an UNVISITED owner in the same store.
+        ticks = PSE.refvalue(model_status(data.model, :root), :ticks)
+        changed_model = PSE.Authoring.apply_model_graph_edit(data.model,
+            PSE.Authoring.RemoveModelApplication(PSE.Authoring.GlobalApplicationRef(:controller));
+            preserve=(reference, ticks))
+        @test changed_model !== data.model
+        @test length(data.model.applications) == 2
+        @test keytype(changed_model.registry.objects) === keytype(data.model.registry.objects)
+        @test PSE.refvalue(model_status(changed_model, 1), :value) === reference
+        @test PSE.refvalue(model_status(changed_model, :root), :ticks) === ticks
+        current = PSE.Advanced.refresh_bindings!(changed_model)
+        environment = PSE.refresh_environment_bindings!(changed_model,current)
         refreshed = PSE._refresh_model_execution_plan(previous,current,environment,
             simulation.temporal_streams,simulation.output_retention,simulation.constants)
         @test refreshed.plan.cohorts === store

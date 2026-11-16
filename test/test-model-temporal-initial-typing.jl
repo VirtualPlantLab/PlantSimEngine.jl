@@ -266,10 +266,20 @@ end
     end
     history = copy(outputs(simulation)[(:paired_consumer, ObjectId(:scene), :total)])
     # The first input's Ref32 is admitted. The second has neither the configured
-    # Ref32 nor Ref64 type, so no existing private snapshot may be extended.
-    register_object!(model, Object(:b; scale=:Leaf, parent=:scene,
-        status=Status(a=10f0, b=big"20.0")))
-    @test_throws "outside its prepared Many family" step!(simulation)
+    # Ref32 nor Ref64 type, so admission must reject the whole object before
+    # registration or extension of any existing private snapshot.
+    revision = PSE.Advanced.model_revision(model)
+    bindings = simulation.compiled
+    step = current_step(simulation)
+    newborn = Object(:b; scale=:Leaf, parent=:scene,
+        status=Status(a=10f0, b=big"20.0"))
+    @test_throws "prepared object configuration/raw family" register_object!(model, newborn)
+    @test !haskey(model.registry.objects, ObjectId(:b))
+    @test PSE.Advanced.model_revision(model) == revision
+    @test simulation.compiled === bindings
+    @test current_step(simulation) == step
+    @test newborn.status.a === 10f0
+    @test newborn.status.b == big"20.0"
     for (temporal, saved) in zip(temporal_inputs, before)
         @test temporal.initial == saved.initial
         @test collect(temporal.reference[]) == saved.values
@@ -284,7 +294,7 @@ end
 module PreparedPublicationChecks
 using Dates, Random, Test, PlantSimEngine
 const PSE = PlantSimEngine
-import ..TemporalInitialTypingChecks: AbstractTyped_Initial_SourceModel, Consumer
+import ..TemporalInitialTypingChecks: AbstractTyped_Initial_SourceModel, AbstractTyped_Initial_ConsumerModel, Consumer
 struct PublicationSource{T,R} <: AbstractTyped_Initial_SourceModel
     initial::T
     rng::R
@@ -296,16 +306,24 @@ function PSE.run!(model::PublicationSource, status, environment, constants, cont
     return nothing
 end
 
+# This fixture declares the future Leaf's temporal seed even before any Leaf
+# exists. Raw values observed on Scene alone do not declare a Leaf family.
+struct PublicationConsumer <: AbstractTyped_Initial_ConsumerModel end
+PSE.inputs_(::PublicationConsumer) = (signals=Default(Float64[]),)
+PSE.outputs_(::PublicationConsumer) = PSE.outputs_(Consumer{Float64}())
+PSE.run!(::PublicationConsumer, status, environment, constants, context) =
+    PSE.run!(Consumer{Float64}(), status, environment, constants, context)
+
 # A model-owned RNG and an unconsumed output distinguish the :none and :all
 # publication shapes while keeping both future applications initially empty.
 function scene(; leaf=false, outputs=:none)
     rng = Xoshiro(917)
     objects = Object[Object(:scene; scale=:Scene, status=Status(signals=Float64[]))]
     leaf && push!(objects, Object(:leaf; scale=:Leaf, parent=:scene,
-        status=Status(signal=2.0, visits=0, signals=Float64[])))
+        status=Status(signal=2.0, visits=0)))
     model = CompositeModel(objects...; applications=(
         ModelSpec(PublicationSource(0.0, rng); name=:source, on=Many(scale=:Leaf)),
-        ModelSpec(Consumer{Float64}(); name=:consumer, on=Many(scale=:Leaf),
+        ModelSpec(PublicationConsumer(); name=:consumer, on=Many(scale=:Leaf),
             inputs=(PreviousTimeStep(:signals) => Many(scale=:Leaf, within=SceneScope(),
                 application=:source, var=:signal),)),
     ), environment=(duration=Hour(1),))
@@ -372,7 +390,7 @@ function check_initially_empty_publication()
     assert_parity(ordinary, candidate)
     for data in (ordinary, candidate)
         register_object!(data.model, Object(:newborn; scale=:Leaf, parent=:scene,
-            status=Status(signal=7.0, visits=0, signals=Float64[])))
+            status=Status(signal=7.0, visits=0)))
     end
     for _ in 1:3
         step!(ordinary.simulation)
@@ -409,7 +427,7 @@ function check_initially_empty_publication()
     for (data, old_history) in zip((ordinary, candidate), retained_histories)
         @test all(history(data)[key] == values for (key, values) in old_history)
         register_object!(data.model, Object(:regrown; scale=:Leaf, parent=:scene,
-            status=Status(signal=11.0, visits=0, signals=Float64[])))
+            status=Status(signal=11.0, visits=0)))
         step!(data.simulation)
     end
     assert_parity(ordinary, candidate)

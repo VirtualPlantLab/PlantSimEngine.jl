@@ -52,7 +52,7 @@ end
 
 # All statuses below belong to real scenario objects. No kernel or callback is
 # executed to manufacture a status, a future organ, or an execution batch type.
-function fixture(; leaves=true)
+function fixture(; leaves=true, unselected_numeric=false)
     capture = Ref{Any}(nothing)
     contexts = Dict{Symbol,Any}()
     kernels = Dict(:root => 0, :middle => 0, :leaf => 0)
@@ -64,6 +64,12 @@ function fixture(; leaves=true)
         Object(:middle_b; scale=:Branch, parent=:root,
             status=Status(visits=0, total=0.0)),
     ]
+    if unselected_numeric
+        # Real supplied numeric state, outside the root's call Subtree. It
+        # prepares the same Branch RAW role without teaching a call batch.
+        push!(objects, Object(:middle_outside; scale=:Branch,
+            status=Status(visits=0, total=0f0)))
+    end
     if leaves
         append!(objects, (
             Object(:leaf_a; scale=:Leaf, parent=:middle_a,
@@ -334,14 +340,22 @@ end
     @test history(ordinary.simulation) == history(prepared)
 end
 
-@testset "pending prepared Many does not admit an unselected Status variant" begin
-    witness = fixture()
+@testset "pending prepared Many rejects an unlearned prepared numeric view" begin
+    witness = fixture(; unselected_numeric=true)
     learned = observed_schemas(witness.simulation)
-    data = fixture()
-    # A real registered object, never a fabricated Type witness. The existing
-    # Middle kernel is unchanged; its extra canonical field is outside learned.
+    data = fixture(; unselected_numeric=true)
+    outside = model_status(data.model, :middle_outside)
+    @test outside.total === 0f0
+    pending_before_birth = call_targets(root_target(data.simulation).context, :middle)
+    @test !(ObjectId(:middle_outside) in pending_before_birth.binding.callee_object_ids)
+    @test !PSE._call_execution_batches_materialized(pending_before_birth)
+    # Same namespace, same supplied Branch role, and a real Ref32 already
+    # prepared outside the root. Its kernel view was not in learned Middle64.
+    supplied = Status(visits=0, total=0f0)
+    supplied_reference = PSE.refvalue(supplied, :total)
     register_object!(data.model, Object(:middle_z_extra; scale=:Branch, parent=:root,
-        status=Status(visits=0, total=0.0, unselected_marker=0)))
+        status=supplied))
+    @test PSE.refvalue(model_status(data.model, :middle_z_extra), :total) === supplied_reference
     fresh = run!(data.model; steps=0, outputs=:all)
     # Check owner compatibility before activation: only the real Status variant
     # is outside the learned target schema, not another owner/ABI fixture.
@@ -362,6 +376,8 @@ end
     run_call!(selected; publish=false)
     @test data.kernels == Dict(:root => 1, :middle => 1, :leaf => 1)
     @test model_status(data.model, :middle_z_extra).visits == 0
+    @test model_status(data.model, :middle_z_extra).total === 0f0
+    @test outside.visits == 0 && outside.total === 0f0
     @test !PSE._call_execution_batches_materialized(full)
     @test PSE._cached_call_execution_batches(full) === nothing
     state, random_state, cells = scientific_state(data.model), rng_probe(data.rng), status_cells(data.model)
@@ -370,6 +386,7 @@ end
     @test PSE._cached_call_execution_batches(full) === nothing
     @test isempty(full.execution_batches) # No partial vector is published on rejection.
     @test scientific_state(data.model) == state
+    @test PSE.refvalue(model_status(data.model, :middle_z_extra), :total) === supplied_reference
     @test rng_probe(data.rng) == random_state
     assert_same_cells(data.model, cells)
 end
