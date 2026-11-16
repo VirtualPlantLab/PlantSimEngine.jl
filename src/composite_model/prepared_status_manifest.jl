@@ -132,8 +132,9 @@ end
 
 function _prepared_status_application_permissions(model, recipes, program)
     return map(recipes) do application
+        application_slot = application.slot
         plans = Tuple(plan for plan in program.input_records
-            if plan isa CompiledModelInputPlan && plan.application_slot == application.slot)
+            if plan isa CompiledModelInputPlan && plan.application_slot == application_slot)
         variants = Any[]
         _foreach_application_variant(application) do _, ports
             push!(variants, _prepared_status_variant_permission(model, application, ports, plans))
