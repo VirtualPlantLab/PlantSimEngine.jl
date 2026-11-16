@@ -70,8 +70,13 @@ end
     @test data.first.execution_target isa PSE.CompiledExecutionTarget
     @test data.second.execution_target isa PSE.CompiledExecutionTarget
     @test data.first.execution_target !== data.second.execution_target
-    @test data.first.status === data.second.status === model_status(model, :born)
-    @test data.first.execution_target.status_view.status === data.first.status
+    official = model_status(model,:born)
+    @test data.first.canonical_status === data.second.canonical_status === official
+    for target in (data.first,data.second)
+        @test target.status === target.execution_target.status_view.status
+        @test all(PSE.refvalue(target.status,name) === PSE.refvalue(official,name)
+            for name in (:driver,:value,:calls))
+    end
     @test data.first.context_cache === data.second.context_cache
     @test data.first.execution_target.context isa PSE.RunContext
     @test data.first.context_cache.default === data.first.execution_target.context

@@ -605,27 +605,21 @@ end
     end
 end
 
-function _prepared_status_raw_source_allowed(raws::AbstractVector{<:PreparedRawStatusFamily},
-    manifest, model, object, source, parent_id)
-    for raw in raws
-        _prepared_status_raw_matches(raw, manifest, model, object, parent_id) || continue
-        Base.@inline _prepared_status_source_allowed(manifest, model, object, parent_id, source, raw) && return true
-    end
-    return false
-end
-
 # Initial bootstrap supplies the SAME manifest explicitly before the catalog
 # exists. Runtime delegates through its typed catalog; there is one gather/body.
-function _validate_prepared_initial_status(manifest::PreparedStatusManifest,
+@inline function _validate_prepared_initial_status(manifest::PreparedStatusManifest,
     model, object, source_status, parent_id)
     isnothing(source_status) && return nothing
     source_status isa Status || throw(ArgumentError("Prepared initial data must be Status or nothing."))
     allowed = Base.@inline _prepared_status_source_allowed(manifest, model, object, parent_id, source_status, nothing)
-    (allowed || _prepared_status_raw_source_allowed(manifest.raw_families, manifest,
-            model, object, source_status, parent_id)) && return nothing
+    allowed && return nothing
+    for raw in manifest.raw_families
+        _prepared_status_raw_matches(raw, manifest, model, object, parent_id) || continue
+        Base.@inline _prepared_status_source_allowed(manifest, model, object, parent_id, source_status, raw) && return nothing
+    end
     throw(ArgumentError("Status reference classes are incompatible with this prepared object configuration/raw family."))
 end
-function _validate_prepared_initial_status(model, object, source_status, parent_id)
+@inline function _validate_prepared_initial_status(model, object, source_status, parent_id)
     return _validate_prepared_initial_status(_prepared_status_manifest(model),
         model, object, source_status, parent_id)
 end

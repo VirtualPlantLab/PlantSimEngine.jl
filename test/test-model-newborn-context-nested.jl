@@ -69,7 +69,13 @@ end
     @test PSE._compiled_call_name(only(data.first.execution_target.call_bindings)) === :child
     # Independent explicit selections may refresh nested execution owners.
     # Both views must still expose the same live registry-owned scientific state.
-    @test data.first.status === data.second.status === model_status(model, :middle)
+    official = model_status(model,:middle)
+    @test data.first.canonical_status === data.second.canonical_status === official
+    for target in (data.first,data.second)
+        @test target.status === target.execution_target.status_view.status
+        @test all(PSE.refvalue(target.status,name) === PSE.refvalue(official,name)
+            for name in (:value,:calls,:seen_time))
+    end
     @test only(middle_contexts) === data.first.context_cache.default
     @test only(middle_contexts) !== only(leaf_contexts)
     @test only(middle_contexts) !== data.creator_context

@@ -120,8 +120,17 @@ end
     @test override_target.model isa ScaledAccumulator{Float64}
     @test PSE.cohort_location(store, :plant__accumulate, ObjectId(:leaf_default)).cohort !==
           PSE.cohort_location(store, :plant__accumulate, ObjectId(:leaf_override)).cohort
-    @test default_target.status_view.canonical_status === default_status
-    @test override_target.status_view.canonical_status === override_status
+    default_official = model_status(model,:leaf_default)
+    override_official = model_status(model,:leaf_override)
+    @test default_official !== default_status && override_official !== override_status
+    @test_throws ArgumentError object_id(model,default_status)
+    @test_throws ArgumentError object_id(model,override_status)
+    @test default_target.status_view.canonical_status === default_official
+    @test override_target.status_view.canonical_status === override_official
+    for (official,supplied) in ((default_official,default_status),(override_official,override_status))
+        @test all(PSE.refvalue(official,name) === PSE.refvalue(supplied,name)
+            for name in (:value,:alias,:visits))
+    end
 
     continue!(simulation; steps=2)
     @test assert_canonical_storage(simulation) === store
@@ -141,7 +150,7 @@ end
     @test restarted_store !== store
     @test restarted_target !== default_target
     @test restarted_target.context !== default_target.context
-    @test restarted_target.status_view.canonical_status === default_status
+    @test restarted_target.status_view.canonical_status === default_official
     @test current_step(restarted) == 0
     step!(restarted)
     @test default_status.value === 16.0f0
@@ -168,9 +177,13 @@ end
     @test trace == ObjectId.([1, 2, 3])
     @test [model_status(model, id).draw for id in 1:3] == expected
     @test all(model_status(model, id).visits == 1 for id in 1:3)
-    @test length(simulation.execution_plan.batches) == 3
-    @test first(simulation.execution_plan.batches).targets.cohort ===
-          last(simulation.execution_plan.batches).targets.cohort
+    # The marker is a canonical extra, not a hot port. Its two payload classes
+    # share one fixed canonical schema and one unchanged RandomProbe view type.
+    @test length(simulation.execution_plan.batches) == 1
+    @test [target.object_id for target in only(simulation.execution_plan.batches).targets] == ObjectId.([1,2,3])
+    @test typeof(model_status(model,1).marker) === Int
+    @test typeof(model_status(model,2).marker) === Float64
+    @test typeof(model_status(model,3).marker) === Int
     @test rand(copy(rng), UInt64) == rand(copy(reference_rng), UInt64)
     original_targets = Dict(id => execution_target(simulation, :draw, id) for id in 1:3)
     original_locations = Dict(id => PSE.cohort_location(store, :draw, ObjectId(id)) for id in 1:3)
@@ -292,7 +305,10 @@ end
     current = collect(call_targets(captured[], :work))
     @test object_id.(current) == ObjectId.([:a, :b])
     @test model_status(model, :plant_a).total == 3
-    @test retained.status === retained_status === model_status(model, :b)
+    @test retained.status === retained_status
+    @test retained.canonical_status === model_status(model,:b)
+    @test all(PSE.refvalue(retained_status,name) ===
+        PSE.refvalue(retained.canonical_status,name) for name in (:value,:alias,:visits))
     @test retained.execution_target === retained_execution_target
     @test retained_status.value == retained_status.visits == 2
     @test retained.time == 1.0
@@ -310,7 +326,10 @@ end
     @test assert_canonical_storage(simulation) === store
     @test isempty(call_targets(captured[], :work))
     @test model_status(model, :plant_a).total == 0
-    @test retained.status === model_status(model, :b)
+    @test retained.status === retained_status
+    @test retained.canonical_status === model_status(model,:b)
+    @test all(PSE.refvalue(retained_status,name) ===
+        PSE.refvalue(retained.canonical_status,name) for name in (:value,:alias,:visits))
     @test retained_status.value == retained_status.visits == 3
     @test retained.time == 1.0
 end
@@ -366,7 +385,8 @@ end
     simulation = run!(model; steps=0, outputs=:none)
     group = only(simulation.execution_plan.groups)
     original_batches = group.batches
-    @test length(original_batches) == 3 # Preserve A/B/A execution order.
+    # value is a hot port: exact Ref32/Ref64 view types still require A/B/A runs.
+    @test length(original_batches) == 3
     assembled = PSE._model_execution_batches(simulation.environment_bindings,
         group.application, group.membership, simulation.output_retention, group)
     @test assembled.batches === original_batches
