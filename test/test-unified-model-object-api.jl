@@ -932,6 +932,23 @@ function PlantSimEngine.EnvironmentAPI.commit_environment!(
     return nothing
 end
 
+function _model_object_input_materialization_allocations(
+    compiled,
+    application,
+    object_id,
+    streams,
+    time,
+)
+    # Measure the typed operation outside the enclosing testset's local scope.
+    return @allocated PlantSimEngine._materialize_model_inputs!(
+        compiled,
+        application,
+        object_id,
+        streams,
+        time,
+    )
+end
+
 @testset "Unified model/object API" begin
     mtg_root = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
     mtg_plant = Node(mtg_root, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
@@ -3049,14 +3066,12 @@ end
     )
     runtime_leaf_2.status.leaf_area = 7.0
     @test runtime_status.leaf_areas[2] == 7.0
-    @test @allocated(
-        PlantSimEngine._materialize_model_inputs!(
-            runtime_compiled,
-            runtime_application,
-            runtime_object_id,
-            nothing,
-            1,
-        )
+    @test _model_object_input_materialization_allocations(
+        runtime_compiled,
+        runtime_application,
+        runtime_object_id,
+        nothing,
+        1,
     ) == 0
 
     unrelated_call_counter = Ref(0)
