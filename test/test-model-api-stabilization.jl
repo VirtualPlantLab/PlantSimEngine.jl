@@ -211,10 +211,16 @@ end
     @test !isempty(explain_execution_plan(simulation))
 
     unresolved_scene = CompositeModel(StabilizationConsumerModel())
+    unresolved_initial = model_status(unresolved_scene, :scene)
     unresolved = filter(
         row -> row.role == :input && row.disposition == :required,
         explain_initialization(unresolved_scene),
     )
+    @test model_status(unresolved_scene, :scene) === unresolved_initial
+    @test !hasproperty(unresolved_initial, :signal)
+    @test !hasproperty(unresolved_initial, :supplied)
+    @test all(row -> row.application_id === :stabilization_consumer, unresolved)
+    @test all(row -> row.object_id === :scene, unresolved)
     @test Set(row.variable for row in unresolved) == Set((:signal, :supplied))
     @test all(row -> row.origin == :missing, unresolved)
     @test all(row -> occursin("add `inputs=", row.detail), unresolved)
@@ -229,6 +235,13 @@ end
         if row.role == :environment_input && row.variable == :T
     )
     @test temperature_row.disposition == :environment_bound
+    missing_environment = CompositeModel(StabilizationEnvironmentModel();
+        environment=(duration=3600.0,))
+    missing_temperature = only(row for row in explain_initialization(missing_environment)
+        if row.role === :environment_input)
+    @test missing_temperature.variable === :T
+    @test missing_temperature.object_id === :scene
+    @test missing_temperature.disposition === :unresolved
 end
 
 @testset "public namespace boundary" begin

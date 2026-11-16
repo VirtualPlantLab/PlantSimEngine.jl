@@ -5289,13 +5289,13 @@ end
 
 function _initialization_effective_value(
     model::CompositeModel,
-    compiled::CompiledCompositeModel,
+    status_views,
     application_id::Symbol,
     object_id::ObjectId,
     variable::Symbol,
 )
     view = get(
-        compiled.status_views_by_target,
+        status_views,
         (application_id, object_id),
         nothing,
     )
@@ -5343,7 +5343,7 @@ end
 
 function _initialization_conversion_fields(
     model::CompositeModel,
-    compiled::CompiledCompositeModel,
+    status_views,
     application_id::Symbol,
     object_id::ObjectId,
     variable::Symbol;
@@ -5359,7 +5359,7 @@ function _initialization_conversion_fields(
     )
     has_effective, effective = _initialization_effective_value(
         model,
-        compiled,
+        status_views,
         application_id,
         object_id,
         variable,
@@ -5408,54 +5408,59 @@ required status or environment value is unresolved. Selector, writer, call,
 and other invalid configuration errors remain errors.
 """
 function explain_initialization(model::CompositeModel)
-    model = deepcopy(model)
-    supplied = Dict(
-        object.id => setdiff(
-            Set{Symbol}(
-                object.status isa Status ? Symbol.(propertynames(object.status)) : Symbol[]
-            ),
-            get(model.input_default_status_variables, object.id, Set{Symbol}()),
-        )
-        for object in values(model.registry.objects)
-    )
-    compiled = _compile_scene(
-        model,
-        _prepare_scenario_plan(model);
-        validate_required_inputs=false,
-    )
+    # Read captured failures without refreshing/mutating the caller's caches.
+    preparation = getfield(model, :scenario_plan_cache)
+    if preparation isa ScenarioPreparation && _authored_specs_match(preparation, model)
+        _validate_authored_scenario(preparation)
+    end
+    report = compile_model_report(model)
+    _validate_authored_scenario(_scenario_preparation(report.model))
+    for diagnostic in report.diagnostics
+        diagnostic.code in (:unresolved_required_input, :unresolved_environment_input) && continue
+        diagnostic.severity === :error && error(diagnostic.message)
+    end
+    return _explain_initialization(report)
+end
+
+function _initialization_required_input_schema(application)
+    ports = _application_ports(application)
+    required = Dict{Symbol,Required}()
+    for name in ports.input_names
+        declaration = getproperty(ports.input_declaration_types, name)
+        declaration <: Required || continue
+        required[name] = Required(getproperty(ports.input_types, name))
+    end
+    return required
+end
+
+# One row algorithm serves full public explanations and the captured Required
+# preflight. The latter reads names/types/bindings only, never declaration values.
+function _explain_initialization(model, applications, input_bindings,
+    status_views, supplied, environment_binding_records; required_only::Bool=false)
     bindings = Dict(
         (binding.application_id, binding.consumer_id, binding.input) => binding
-        for binding in compiled.input_bindings
+        for binding in input_bindings
     )
 
-    _, environment_plans_by_id = _compile_environment_application_plans(
-        model,
-        compiled.applications,
-        compiled.applications_by_id;
-        prepare_runtime=false,
-    )
     environment_bindings = Dict(
         (binding.application_id, binding.object_id) => binding
-        for binding in _compile_environment_bindings(
-            model,
-            compiled,
-            environment_plans_by_id,
-        )
+        for binding in environment_binding_records
     )
 
     rows = NamedTuple[]
-    for application in compiled.applications
-        model_outputs = _local_output_schema(application.spec)
-        environment_model_outputs = _model_environment_output_schema(application)
-        model_inputs = _model_input_schema(application)
-        environment_inputs = _model_environment_input_schema(application)
+    for application in applications
+        model_outputs = required_only ? NamedTuple() : _local_output_schema(application.spec)
+        environment_model_outputs = required_only ? NamedTuple() : _model_environment_output_schema(application)
+        model_inputs = required_only ? _initialization_required_input_schema(application) :
+                       _model_input_schema(application)
+        environment_inputs = required_only ? NamedTuple() : _model_environment_input_schema(application)
         generated = Set(Symbol.(keys(model_outputs)))
         for object_id in application.target_ids
             for variable in sort!(collect(generated); by=string)
                 default_value = getproperty(model_outputs, variable)
                 conversion = _initialization_conversion_fields(
                     model,
-                    compiled,
+                    status_views,
                     application.id,
                     object_id,
                     variable;
@@ -5507,7 +5512,7 @@ function explain_initialization(model::CompositeModel)
             for variable in sort!(Symbol.(collect(keys(model_inputs))); by=string)
                 key = (application.id, object_id, variable)
                 binding = get(bindings, key, nothing)
-                declaration = getproperty(model_inputs, variable)
+                declaration = model_inputs[variable]
                 binding_resolved =
                     !isnothing(binding) &&
                     !(binding.carrier_hint == :optional_default &&
@@ -5538,7 +5543,7 @@ function explain_initialization(model::CompositeModel)
                 end
                 conversion = _initialization_conversion_fields(
                     model,
-                    compiled,
+                    status_views,
                     application.id,
                     object_id,
                     variable;
@@ -5589,9 +5594,9 @@ function explain_initialization(model::CompositeModel)
                             Set{Symbol}() :
                             environment_variables(environment_binding.backend)
                 bound = isnothing(available) || Symbol(source) in available
-                default_value = getproperty(environment_inputs, variable)
+                default_value = required_only ? nothing : getproperty(environment_inputs, variable)
                 conversion = _no_initialization_conversion_fields(
-                    ; declared_type=typeof(default_value),
+                    ; declared_type=required_only ? nothing : typeof(default_value),
                 )
                 push!(rows, (
                     application_id=application.id,
@@ -5603,7 +5608,7 @@ function explain_initialization(model::CompositeModel)
                     source_object_ids=Any[],
                     source_variable=Symbol(source),
                     origin=:environment,
-                    expected_type=typeof(default_value),
+                    expected_type=required_only ? nothing : typeof(default_value),
                     default_value=default_value,
                     provided_type=nothing,
                     conversion...,

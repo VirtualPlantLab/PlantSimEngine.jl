@@ -35,6 +35,7 @@ struct CompositeModelCompilationReport
     cycles::Vector{Vector{Symbol}}
     diagnostics::Vector{ModelGraphDiagnostic}
     compiled::Any
+    environment_bindings::Union{Nothing,Vector{CompiledEnvironmentBinding}}
 end
 
 """
@@ -298,6 +299,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
             Vector{Vector{Symbol}}(),
             ModelGraphDiagnostic[],
             compiled,
+            nothing,
         )
     end
 
@@ -316,6 +318,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         Vector{Vector{Symbol}}(),
         diagnostics,
         nothing,
+        CompiledEnvironmentBinding[],
     )
 
     preparation = _scenario_preparation(model)
@@ -331,9 +334,12 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         Vector{Vector{Symbol}}(),
         diagnostics,
         nothing,
+        CompiledEnvironmentBinding[],
     )
 
-    _model_graph_phase!(diagnostics, :environment_bindings, nothing) do
+    environment_binding_records = _model_graph_phase!(
+        diagnostics, :environment_bindings, CompiledEnvironmentBinding[],
+    ) do
         _, environment_plans_by_id = _compile_environment_application_plans(
             model,
             applications,
@@ -345,11 +351,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
             applications,
             environment_plans_by_id,
         )
-        _validate_model_environment_inputs!(
-            environment_bindings,
-            Dict(application.id => application for application in applications),
-            keytype(model.registry.objects),
-        )
+        environment_bindings
     end
 
     distributed_output_plans = _model_graph_phase!(
@@ -402,38 +404,74 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
     _model_graph_phase!(diagnostics, :call_cadence, nothing) do
         _validate_model_call_plan_cadences!(applications, call_plans, timeline)
     end
-    distributed_outputs = _model_graph_phase!(
-        diagnostics,
-        :writers,
-        NoCompiledDistributedOutputs(),
-    ) do
-        _validate_manual_model_output_destination_plans!(
-            distributed_output_plans,
-            manual_application_ids,
-        )
-        _compile_model_distributed_outputs(
-            model,
-            applications,
-            _applications_by_id(applications),
-            manual_application_ids,
-            distributed_output_plans,
-        )
+    manifest_ready = !(preparation.status_manifest isa ScenarioPreparationFailure)
+    distributed_outputs = NoCompiledDistributedOutputs()
+    input_bindings = CompiledModelInputBinding[]
+    if manifest_ready
+        distributed_outputs = _model_graph_phase!(
+            diagnostics,
+            :writers,
+            NoCompiledDistributedOutputs(),
+        ) do
+            _validate_manual_model_output_destination_plans!(
+                distributed_output_plans,
+                manual_application_ids,
+            )
+            _compile_model_distributed_outputs(
+                model,
+                applications,
+                _applications_by_id(applications),
+                manual_application_ids,
+                distributed_output_plans,
+            )
+        end
+
+        input_bindings = _model_graph_phase!(diagnostics, :inputs, CompiledModelInputBinding[]) do
+            _compile_model_input_bindings(
+                model,
+                applications,
+                manual_application_ids,
+                _compiled_application_input_recipes(
+                    _plans_by_application(applications, input_plans),
+                ),
+                distributed_outputs,
+            )
+        end
+        _model_graph_phase!(diagnostics, :input_status, nothing) do
+            _prepare_model_input_statuses_batched!(
+                model, applications, _applications_by_id(applications), input_bindings)
+        end
+    else
+        # These phases require the captured physical schema. Keep their logical
+        # plan evidence above, and report the original captured cause instead of
+        # invoking Closed-only status workers on an unprepared registry.
+        failure = isnothing(preparation.failure) ?
+            preparation.status_manifest : preparation.failure
+        diagnostic = _model_graph_diagnostic(failure.error, failure.phase)
+        any(item -> item.message == diagnostic.message, diagnostics) ||
+            push!(diagnostics, diagnostic)
     end
 
-    input_bindings = _model_graph_phase!(diagnostics, :inputs, CompiledModelInputBinding[]) do
-        _compile_model_input_bindings(
-            model,
-            applications,
-            manual_application_ids,
-            _compiled_application_input_recipes(
-                _plans_by_application(applications, input_plans),
-            ),
-            distributed_outputs,
-        )
-    end
-    _model_graph_phase!(diagnostics, :input_status, nothing) do
-        _prepare_model_input_statuses_batched!(
-            model, applications, _applications_by_id(applications), input_bindings)
+    if manifest_ready && isempty(diagnostics)
+        # Preserve earlier selector/route/authoring errors as authoritative;
+        # absent values downstream of those failures add no secondary cause.
+        # A missing VALUE leaves its real cell absent. Read the captured
+        # Required declarations before asking for executable port projections.
+        required_rows = _explain_initialization(model, applications,
+            input_bindings, Dict{Tuple{Symbol,ObjectId},Any}(),
+            initial_status_variables, environment_binding_records; required_only=true)
+        for row in required_rows
+            row.disposition in (:required, :unresolved) || continue
+            push!(diagnostics, _model_graph_diagnostic(
+                ErrorException(something(row.detail,
+                    "`$(row.variable)` is unresolved for application `$(row.application_id)`.")),
+                :initialization; code=row.role === :environment_input ?
+                    :unresolved_environment_input : :unresolved_required_input,
+                application_ids=[row.application_id], object_ids=Any[row.object_id],
+                variable=row.variable,
+                suggestions=isnothing(row.detail) ? String[] : [String(row.detail)],
+            ))
+        end
     end
 
     children = Dict{Symbol,Set{Symbol}}(
@@ -471,7 +509,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         end
     end
 
-    compiled = try
+    compiled = !manifest_ready ? nothing : try
         _model_graph_compiled(
             model,
             preparation,
@@ -500,7 +538,25 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         cycles,
         diagnostics,
         compiled,
+        environment_binding_records,
     )
+end
+
+function _explain_initialization(report::CompositeModelCompilationReport)
+    views = isnothing(report.compiled) ?
+        Dict{Tuple{Symbol,ObjectId},Any}() : report.compiled.status_views_by_target
+    bindings = report.environment_bindings
+    if isnothing(bindings)
+        # Strict reports have not bound an inspection environment yet. Reuse
+        # the same application/binding implementation once, without compiling.
+        _, plans = _compile_environment_application_plans(report.model,
+            report.applications, _applications_by_id(report.applications);
+            prepare_runtime=false)
+        bindings = _compile_environment_bindings_for_applications(
+            report.model, report.applications, plans)
+    end
+    return _explain_initialization(report.model, report.applications,
+        report.input_bindings, views, report.initial_status_variables, bindings)
 end
 
 _model_graph_object_id(value) = value isa ObjectId ? value.value : value
@@ -1702,7 +1758,7 @@ end
 
 function _model_graph_add_status_conversion!(rows, report)
     explanations = try
-        explain_initialization(report.model)
+        _explain_initialization(report)
     catch
         NamedTuple[]
     end
@@ -1936,6 +1992,7 @@ function compile_model_graph(
         _model_graph_cycle_components(compiled.applications, children),
         ModelGraphDiagnostic[],
         compiled,
+        nothing,
     )
     return _model_graph_view(
         report,

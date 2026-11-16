@@ -1112,7 +1112,7 @@ function validate_scenario(model::CompositeModel; strict::Bool=false)
 
     if !isnothing(compilation.compiled)
         initialization = _capture_validation!(
-            () -> explain_initialization(model),
+            () -> _explain_initialization(compilation),
             diagnostics,
             :initialization_inspection_failed;
             field=:initialization,
