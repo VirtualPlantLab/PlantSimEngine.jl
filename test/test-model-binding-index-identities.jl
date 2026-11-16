@@ -63,6 +63,19 @@ end
     revision = model.revision
     children = copy(root.children)
 
+    # A duplicate identity wins before either parent-domain or parent-existence
+    # rejection, and before any source conversion or ownership publication.
+    for parent in (1, :missing)
+        source = Status(x=2.0)
+        duplicate = Object(:root; status=source)
+        @test_throws "already contains object id" register_object!(model, duplicate; parent)
+        @test duplicate.status === source
+        @test isnothing(duplicate.parent)
+        @test model.status_conversion_records == records
+        @test model.revision == revision
+        @test root.children == children
+    end
+
     for (id, parent) in ((2, :root), (:wrong_parent, 1))
         source = Status(x=2.0)
         object = Object(id; status=source)
@@ -93,6 +106,36 @@ end
     end
 end
 
+
+@testset "registration converts a source once after identity and parent admission" begin
+    for closed in (false, true)
+        calls = Ref(0)
+        transform = (variable, value) -> begin
+            calls[] += 1
+            value
+        end
+        model = CompositeModel(Object(:seed; status=Status(x=1.0));
+            type_promotion=Dict(Float64 => Float32), status_transform=transform)
+        closed && (model = close_registry(model))
+        before = calls[]
+        source = Status(x=2.0)
+        @test_throws "already contains object id" register_object!(model,
+            Object(:seed; status=source); parent=1)
+        @test_throws "No model object" register_object!(model,
+            Object(:rejected; status=source); parent=:missing)
+        @test calls[] == before
+        @test source.x === 2.0
+        @test !haskey(model.registry.objects, ObjectId(:rejected))
+        born = Object(:born; parent=:seed, status=source)
+        @test register_object!(model, born) === born
+        @test calls[] == before + 1
+        @test source.x === 2.0
+        @test model_status(model, :born).x === 2f0
+        @test born.parent === ObjectId(:seed)
+        @test ObjectId(:born) in model_object(model, :seed).children
+        @test_throws ArgumentError object_id(model, source)
+    end
+end
 
 @testset "instance roots retain identity through nested registration and missing lookups" begin
     for root_value in (:instance_root, 17, (:plant, 2)), form in (:object, :id, :value), closed in (false, true)

@@ -1473,6 +1473,11 @@ end
     if !isnothing(parent_id) && !haskey(registry.objects, parent_id)
         error("No model object with id `$(parent_id.value)`.")
     end
+    return _register_object_status!(model, object, id, parent_id, status_values_materialized)
+end
+
+function _register_object_status!(model::CompositeModel, object::Object,
+    id, parent_id, status_values_materialized::Bool)
     source_status = object.status
     source_status isa Union{Nothing,Status} || throw(ArgumentError(
         "Initial object status must be a Status or nothing."))

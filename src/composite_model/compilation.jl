@@ -4083,7 +4083,7 @@ function _extend_model_status_views(
     for (key, previous_view) in views
         application_id = getfield(key, 1)
         current = Base.@inline _with_model_status_view(_status_view_key_epoch_is_current,
-            compiled.status_view_schema, application_id, previous_view, model, key)
+            compiled.status_view_schema, application_id, previous_view, model, key::Key)
         current || push!(affected_keys, key)
     end
 
