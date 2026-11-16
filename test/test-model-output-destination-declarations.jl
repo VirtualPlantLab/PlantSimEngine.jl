@@ -165,41 +165,50 @@ end
     )
     @test isnothing(leaf.status)
 
-    invalid_status = CompositeModel(
+    initial_status = Status(existing=1.0)
+    initial_ref = PlantSimEngine.refvalue(initial_status, :existing)
+    @test_throws "Initial object status must be a Status or nothing" CompositeModel(
         Object(:scene; scale=:Scene),
-        Object(
-            :leaf_a;
-            scale=:Leaf,
-            parent=:scene,
-            status=Status(existing=1.0),
-        ),
-        Object(
-            :leaf_z;
-            scale=:Leaf,
-            parent=:scene,
-            status=(invalid=1.0,),
-        );
+        Object(:leaf_a; scale=:Leaf, parent=:scene, status=initial_status),
+        Object(:leaf_z; scale=:Leaf, parent=:scene, status=(invalid=1.0,)),
+    )
+    @test propertynames(initial_status) == (:existing,)
+    @test PlantSimEngine.refvalue(initial_status, :existing) === initial_ref
+    @test initial_status.existing == 1.0
+
+    missing_status = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf_a; scale=:Leaf, parent=:scene,
+            status=Status(existing=1.0, absorbed_par=2.0)),
+        Object(:leaf_z; scale=:Leaf, parent=:scene, status=Status(existing=3.0));
         applications=(
             ModelSpec(
-                OutputDestinationProbeModel();
+                OutputDestinationProbeModel((
+                    incident_par=Distributed(Default(0.0)),
+                    absorbed_par=Distributed(Required(Float64)),
+                ));
                 name=:scene_probe,
                 on=One(scale=:Scene),
                 outputs_to=(
-                    OutputTo(
-                        Many(scale=:Leaf, within=SceneScope());
-                        vars=(:incident_par,),
-                    ),
+                    OutputTo(Many(scale=:Leaf, within=SceneScope());
+                        vars=(:incident_par, :absorbed_par)),
                 ),
             ),
         ),
     )
-    leaf_a = only(
-        object for object in model_objects(invalid_status; scale=:Leaf)
-        if object.id == ObjectId(:leaf_a)
+    leaves = model_objects(missing_status; scale=:Leaf)
+    statuses = [object.status for object in leaves]
+    references = [PlantSimEngine.refvalue(status, :existing) for status in statuses]
+    @test all(status -> !(:incident_par in propertynames(status)), statuses)
+    @test_throws "Missing required distributed-output destination" Advanced.refresh_bindings!(
+        missing_status,
     )
-    @test !(:incident_par in propertynames(leaf_a.status))
-    @test_throws "with status type" Advanced.refresh_bindings!(invalid_status)
-    @test !(:incident_par in propertynames(leaf_a.status))
+    @test all(object.status === status for (object, status) in zip(leaves, statuses))
+    @test all(PlantSimEngine.refvalue(status, :existing) === reference
+        for (status, reference) in zip(statuses, references))
+    @test all(status -> !(:incident_par in propertynames(status)), statuses)
+    @test sort([status.existing for status in statuses]) == [1.0, 3.0]
+
 end
 
 @testset "empty and lifecycle-refreshed output destinations" begin

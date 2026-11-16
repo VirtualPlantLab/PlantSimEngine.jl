@@ -102,7 +102,7 @@ end
     # The authored producer really selects this newborn, while its cached
     # pre-barrier target vector intentionally still contains only object 1.
     @test ObjectId(7) in resolve_object_ids(simulation.model,
-        compiled.applications_by_id[:a].spec.on)
+        compiled.applications_by_id[:a].spec.applies_to)
     partial = PSE._partial_model_application(compiled.applications_by_id[:a],
         ObjectId[ObjectId(7)])
     overlay = PSE._ApplicationsByObjectOverlay(compiled.applications_by_object,
