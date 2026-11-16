@@ -497,7 +497,7 @@ function _prepared_status_sources_admission(applications::Tuple, permissions::Tu
     return (declared | next_declared, allowed & next_allowed, compatible)
 end
 
-@generated function _prepared_status_configured_reference_admission(
+Base.@constprop :none @generated function _prepared_status_configured_reference_admission(
     manifest::PreparedStatusManifest{S}, model, object, parent_id, name, reference,
 ) where {S}
     # The sparse CSR keeps Ref instances erased; admit them through the SAME
@@ -519,7 +519,7 @@ end
         end
     end for R in references]
     return quote
-        $(Expr(:meta, :inline))
+        Base.@noinline
         $(branches...)
         return (false, false)
     end
