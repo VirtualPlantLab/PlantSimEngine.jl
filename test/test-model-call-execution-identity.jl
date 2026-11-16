@@ -43,7 +43,10 @@ function PSE.run!(model::Creator, status, environment, constants, context)
         status=Status(calls=0, value=0.0)))
     first = only(call_targets(context, :middle; objects=middle))
     second = only(call_targets(context, :middle; objects=middle))
-    shared_status = first.status === second.status === model_status(runtime, :middle)
+    official = model_status(runtime, :middle)
+    shared_references = first.canonical_status === second.canonical_status === official &&
+        all(name -> PSE.refvalue(first.status, name) === PSE.refvalue(second.status, name) ===
+            PSE.refvalue(official, name), keys(official))
     shared_parent_cache = first.context_cache === second.context_cache
     evaluation = evaluate_call!(first)
     stamp_count = length(evaluation.frame.executions)
@@ -63,7 +66,7 @@ function PSE.run!(model::Creator, status, environment, constants, context)
         rejection = error isa ArgumentError ? sprint(showerror, error) : string(typeof(error))
         stale_rejected = error isa ArgumentError && occursin("stale", rejection)
     end
-    model.capture[] = (; shared_status, shared_parent_cache, stamp_count,
+    model.capture[] = (; shared_references, shared_parent_cache, stamp_count,
         first_stamp_changed, model_guard_valid, stale_rejected, rejection)
     status.created = true
     return nothing
@@ -91,7 +94,7 @@ end
     for call_child in (true, false)
         result = run_alias_case(call_child)
         @info "selection evaluation alias diagnostic" call_child diagnostic=result.data
-        @test result.data.shared_status
+        @test result.data.shared_references
         @test result.data.model_guard_valid # no timeline/topology/model mutation between the two runs
         @test result.middle_calls == 2
         @test result.middle_value == 2.0
@@ -118,7 +121,10 @@ PSE.outputs_(::Leaf) = (calls=0,)
 PSE.run!(::Leaf, status, environment, constants, context) = (status.calls += 1; nothing)
 
 function evaluate_then_rerun(first, second)
-    shared_status = first.status === second.status
+    official = first.canonical_status
+    shared_references = second.canonical_status === official &&
+        all(name -> PSE.refvalue(first.status, name) === PSE.refvalue(second.status, name) ===
+            PSE.refvalue(official, name), keys(official))
     shared_view = first.execution_target.status_view === second.execution_target.status_view
     shared_cache = first.context_cache === second.context_cache
     evaluation = evaluate_call!(first)
@@ -136,7 +142,7 @@ function evaluate_then_rerun(first, second)
         message = error isa ArgumentError ? sprint(showerror, error) : string(typeof(error))
         rejected = error isa ArgumentError && occursin("stale", message)
     end
-    return (; shared_status, shared_view, shared_cache, model_guard_valid, rejected, message)
+    return (; shared_references, shared_view, shared_cache, model_guard_valid, rejected, message)
 end
 
 struct Controller{C} <: AbstractStable_Execution_ControllerModel
@@ -166,7 +172,7 @@ end
         simulation = run!(model; outputs=:all)
         data = capture[]
         @info "two-binding evaluation identity diagnostic" use_other_binding diagnostic=data
-        @test data.shared_status
+        @test data.shared_references
         @test data.shared_view
         @test data.model_guard_valid
         @test data.rejected
@@ -207,7 +213,7 @@ end
         simulation = run!(model; outputs=:all)
         data = capture[]
         @info "targeted prebarrier evaluation identity diagnostic" reparent_before_barrier diagnostic=data.before_barrier
-        @test data.before_barrier.shared_status
+        @test data.before_barrier.shared_references
         @test data.before_barrier.model_guard_valid
         @test data.before_barrier.rejected
         @test model_status(model, :leaf).calls == 2
@@ -218,7 +224,7 @@ end
         current = only(call_targets(data.context, :leaf))
         after_barrier = evaluate_then_rerun(data.retained, current)
         @info "retained postbarrier evaluation identity diagnostic" reparent_before_barrier diagnostic=after_barrier
-        @test after_barrier.shared_status
+        @test after_barrier.shared_references
         @test after_barrier.model_guard_valid
         @test after_barrier.rejected
         @test model_status(model, :leaf).calls == 4
@@ -230,7 +236,7 @@ end
         refreshed = only(call_targets(data.context, :leaf))
         after_force = evaluate_then_rerun(data.retained, refreshed)
         @info "retained full-refresh evaluation identity diagnostic" reparent_before_barrier diagnostic=after_force
-        @test after_force.shared_status
+        @test after_force.shared_references
         @test after_force.model_guard_valid
         @test after_force.rejected
         @test model_status(model, :leaf).calls == 6

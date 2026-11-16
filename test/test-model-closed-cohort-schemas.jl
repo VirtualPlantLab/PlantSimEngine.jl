@@ -152,7 +152,7 @@ end
 end
 
 @testset "an empty future schema creates no target or scientific default" begin
-    S = Status{(:value,),Tuple{Base.RefValue{Float64}}}
+    S = Status{(:value,),NamedTuple{(:value,),Tuple{Base.RefValue{Float64}}}}
     T = Target{ObjectId{Int},S,Base.RefValue{Int}}
     schema = PSE._closed_execution_cohort_schema(Tuple{T})
     store = PSE.ExecutionCohortStore()
@@ -253,9 +253,13 @@ PSE.run!(::Leaf, status, environment, constants, context) = (status.leaf_visits 
     batches = capture[].calls[1].execution_batches
     schema = PSE._execution_cohort_schema(batches)
     @test schema isa PSE.ClosedExecutionCohortSchema
-    @test fieldtype(typeof(only(batches).targets), :store) === PSE.ExecutionCohortStore{ObjectId,Any,Tuple{Any,Symbol,DataType},Tuple{Any,Symbol,ObjectId}}
-    @test fieldtype(typeof(simulation.temporal_streams), :cohorts) === PSE.ExecutionCohortStore{ObjectId,Any,Tuple{Any,Symbol,DataType},Tuple{Any,Symbol,ObjectId}}
-    @test typeof(simulation.temporal_streams.cohorts) === PSE.ExecutionCohortStore{ObjectId,Any,Tuple{Any,Symbol,DataType},Tuple{Any,Symbol,ObjectId}}
+    I = keytype(model.registry.objects)
+    OwnerT = Union{Nothing,Tuple{Symbol,I,Symbol,Symbol}}
+    Store = PSE.ExecutionCohortStore{I,OwnerT,
+        PSE.ExecutionCohortKey{OwnerT,DataType},PSE.ExecutionCohortKey{OwnerT,I}}
+    @test fieldtype(typeof(only(batches).targets), :store) === Store
+    @test fieldtype(typeof(simulation.temporal_streams), :cohorts) === Store
+    @test typeof(simulation.temporal_streams.cohorts) === Store
     owner = PSE._execution_call_owner(capture[].calls[1].binding)
     location = PSE.cohort_location(simulation.temporal_streams.cohorts,:middle,
         ObjectId(:plant);owner)

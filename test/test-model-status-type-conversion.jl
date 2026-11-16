@@ -126,8 +126,13 @@ end
         ),
     )
 
-    @test object.status === original
-    @test PlantSimEngine.refvalue(object.status, :supplied) === supplied_reference
+    official = model_status(model, :scene)
+    @test object.status === official
+    @test official !== original
+    @test_throws ArgumentError object_id(model, original)
+    @test PlantSimEngine.refvalue(official, :supplied) === supplied_reference
+    @test PlantSimEngine.refvalue(official, :untouched) ===
+          PlantSimEngine.refvalue(original, :untouched)
     Advanced.refresh_bindings!(model)
     @test object.status.supplied isa Float64
     @test object.status.offset isa Float64
@@ -169,8 +174,13 @@ end
     @test status.label_text == "leaf"
     @test status.date === Date(2026, 8, 26)
     @test status.cadence === Hour(1)
+    view = only(values(compiled.status_views_by_target))
+    @test view.canonical_status === status
+    @test keys(view.status) == keys(status)
+    @test all(name -> PlantSimEngine.refvalue(view.status, name) ===
+              PlantSimEngine.refvalue(status, name), keys(status))
     @test only(Diagnostics.explain_execution_plan(model)).status_type ==
-          typeof(status)
+          typeof(view.status)
 
     simulation = run!(model; outputs=:all)
     @test status.result === Float32(1.75)

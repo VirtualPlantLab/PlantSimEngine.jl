@@ -309,7 +309,11 @@ end
         @test !PSE._compiled_call_membership_is_observed(full.binding)
         newborn = only(call_targets(data.capture[], :middle; objects=(:middle_new,)))
         @test newborn.object_id == ObjectId(:middle_new)
-        @test newborn.status === model_status(data.model, :middle_new)
+        official = model_status(data.model, :middle_new)
+        @test newborn.canonical_status === official
+        @test newborn.status === newborn.execution_target.status_view.status
+        @test all(name -> PSE.refvalue(newborn.status, name) === PSE.refvalue(official, name),
+                  keys(official))
         run_call!(newborn; publish=true)
         @test data.kernels == Dict(:root => 2, :middle => 1, :leaf => 1)
         @test model_status(data.model, :middle_a).visits == 0

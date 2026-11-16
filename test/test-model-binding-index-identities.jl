@@ -83,8 +83,11 @@ end
         registered = keyword_parent ? register_object!(model, object; parent="root") :
             register_object!(model, object)
         @test registered === object
-        @test model_status(model, id) === status
-        @test PSE.refvalue(model_status(model, id), :x) === reference
+        official = model_status(model, id)
+        @test object.status === official
+        @test official !== status
+        @test_throws ArgumentError object_id(model, status)
+        @test PSE.refvalue(official, :x) === reference
         @test object.parent === (id === :detached ? nothing : root.id)
         @test (object.id in root.children) === (id !== :detached)
     end

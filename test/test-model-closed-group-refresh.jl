@@ -147,14 +147,18 @@ end
     status = Status(count=0f0)
     model = CompositeModel(Object(:leaf; status);
         applications=(ModelSpec(Counter(1f0, trace, declarations);
-            name=:counter, on=One(id=:leaf)),))
+            name=:counter, on=One(id=:leaf)),),
+        type_promotion=Dict(Float64 => Float32))
     simulation = run!(model; steps=0, outputs=:none)
     previous = only(simulation.execution_plan.groups)
+    official = model_status(model, :leaf)
+    @test PSE.model_(previous.application.spec).increment isa Float32
     model.applications[1] = ModelSpec(Counter(2.0, trace, declarations);
         name=:counter, on=One(id=:leaf))
     PSE.Advanced.refresh_bindings!(model; force=true)
     current = PSE.Advanced.compiled_bindings(model).applications_by_id[:counter]
     @test typeof(current) !== typeof(previous.application)
+    @test PSE.model_(current.spec).increment isa Float64
     invoked = Ref(false)
     @test_throws "prepared execution-group schema" PSE._with_previous_execution_group(
         group -> (invoked[] = true; (0, 0, 0)), (previous,), current, falses(1))
@@ -172,7 +176,10 @@ end
     @test PSE._execution_groups_in_schema([previous], current_groups) === current_groups
     step!(current_simulation)
     @test status.count === 2f0
-    @test model_status(model, :leaf) === status
+    @test model_status(model, :leaf) === official
+    @test official !== status
+    @test official.count === 2f0
+    @test PSE.refvalue(official, :count) === PSE.refvalue(status, :count)
     @test trace == [:counter]
 end
 
@@ -195,8 +202,10 @@ end
     PSE.Advanced.refresh_bindings!(model; force=true)
     step!(simulation)
     @test plain.count === 2f0 && alternate.count === 4.0
-    @test model_status(model, :plain) === plain
-    @test model_status(model, :alternate) === alternate
+    @test model_status(model, :plain) !== plain
+    @test model_status(model, :alternate) !== alternate
+    @test PSE.refvalue(model_status(model, :plain), :count) === PSE.refvalue(plain, :count)
+    @test PSE.refvalue(model_status(model, :alternate), :count) === PSE.refvalue(alternate, :count)
     group = only(simulation.execution_plan.groups)
     @test length(group.batches) == 2
     @test trace == fill(:plant__counter, 4)
@@ -233,7 +242,9 @@ end
     @test only(simulation.execution_plan.groups) === future
     @test only(simulation.execution_plan.groups_by_application_slot) === future
     @test typeof(simulation.execution_plan) === typeof(plan)
-    @test only(only(future.batches).targets).status_view.status === newborn.status
+    view = only(only(future.batches).targets).status_view
+    @test view.canonical_status === newborn.status
+    @test PSE.refvalue(view.status, :count) === PSE.refvalue(newborn.status, :count)
     @test trace == [:counter]
 end
 
