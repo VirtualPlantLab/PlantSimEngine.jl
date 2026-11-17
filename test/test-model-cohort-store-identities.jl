@@ -262,8 +262,8 @@ end
         # leaving the original model/header owners intact. This host diagnostic
         # still exercises retirement of an UNVISITED owner in the same store.
         ticks = PSE.refvalue(model_status(data.model, :root), :ticks)
-        changed_model = PSE.Authoring.apply_model_graph_edit(data.model,
-            PSE.Authoring.RemoveModelApplication(PSE.Authoring.GlobalApplicationRef(:controller));
+        changed_model = PSE.GraphEditor.apply_model_graph_edit(data.model,
+            PSE.GraphEditor.RemoveModelApplication(PSE.GraphEditor.GlobalApplicationRef(:controller));
             preserve=(reference, ticks))
         @test changed_model !== data.model
         @test length(data.model.applications) == 2
