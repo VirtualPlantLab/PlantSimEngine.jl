@@ -6470,8 +6470,17 @@ function _stream_only_initial_carrier(
     return _input_reference_carrier(selector, source_ids, reference_for, reference_types)
 end
 
-function _ref_vector_carrier(refs)
-    T = typeof(refs[1][])
+_ref_vector_carrier(refs) = _ref_vector_carrier(first(refs), refs)
+
+function _ref_vector_carrier(first_ref::Ref, refs)
+    first_ref[]
+    return ObjectRefVector(refs)
+end
+
+function _ref_vector_carrier(first_ref::Base.RefValue{T}, refs) where {T}
+    # Retain the original first-value read, including uninitialized-Ref errors.
+    first_ref[]
+    isconcretetype(T) || return ObjectRefVector(refs)
     typed_refs = Base.RefValue{T}[]
     sizehint!(typed_refs, length(refs) + 1)
     for source_ref in refs
@@ -6957,23 +6966,24 @@ function _prepare_model_output_destination_statuses!(
     end
 end
 
-function _model_output_destination_columns(
+function _model_output_destination_column(
+    model::CompositeModel, destination_ids, ::Val{VARIABLE},
+) where {VARIABLE}
+    refs = [refvalue(model_status(model, destination_id), VARIABLE)
+        for destination_id in destination_ids]
+    return isempty(refs) ? RefVector{Any}() : _ref_vector_carrier(refs)
+end
+
+@generated function _model_output_destination_columns(
     model::CompositeModel,
-    resolved::ResolvedModelOutputDestination,
-)
-    declarations = resolved.declarations
-    names = Tuple(Symbol.(keys(declarations)))
-    columns = map(names) do variable
-        refs = Base.RefValue[
-            refvalue(
-                _model_object(model, destination_id).status,
-                variable,
-            )
-            for destination_id in resolved.destination_ids
-        ]
-        isempty(refs) ? RefVector{Any}() : _ref_vector_carrier(refs)
-    end
-    return NamedTuple{names}(Tuple(columns))
+    ::CompiledModelOutputDestinationPlan{GROUP,NAMES},
+    destination_ids,
+) where {GROUP,NAMES}
+    columns = Expr(:tuple, [:(
+        _model_output_destination_column(model, destination_ids,
+            Val{$(QuoteNode(name))}())
+    ) for name in NAMES]...)
+    return :(NamedTuple{$(QuoteNode(NAMES))}($columns))
 end
 
 function _model_output_destination_index(destination_ids::AbstractVector{I}) where {I<:ObjectId}
@@ -6989,73 +6999,125 @@ function _model_output_destination_index(destination_ids::AbstractVector{I}) whe
     return index
 end
 
+function _append_model_output_destination_binding!(plan, model, resolved, bindings)
+    I = keytype(model.registry.objects)
+    execution_object_id = _index_object_id(
+        model.registry.objects, getfield(resolved, :execution_object_id),
+    )
+    destination_ids = getfield(resolved, :destination_ids)::Vector{I}
+    binding = CompiledModelOutputDestinationBinding(
+        plan,
+        execution_object_id,
+        destination_ids,
+        _model_output_destination_columns(model, plan, destination_ids),
+        _model_output_destination_index(destination_ids),
+        UInt64(model.revision),
+    )
+    push!(bindings, binding)
+    return binding
+end
+
+function _model_output_plan_binding_rows(plan, model, resolved_by_plan, bindings)
+    resolved = get!(Vector{ResolvedModelOutputDestination}, resolved_by_plan, plan.slot)
+    return [_append_model_output_destination_binding!(plan, model, row, bindings)
+        for row in resolved]
+end
+
+# The tuple follows authored groups; only the vectors' lengths depend on organs.
+# Every row reuses the exact binding already appended in plan/origin order.
+@generated function _publish_model_output_binding_groups!(
+    plans::P, rows, objects::AbstractDict{I}, by_execution_target,
+) where {P<:Tuple,I<:ObjectId}
+    isempty(fieldtypes(P)) && return :(nothing)
+    names = Tuple(Plan.parameters[1] for Plan in fieldtypes(P))
+    values = Expr(:tuple, [:(getfield(rows, $slot)[row])
+        for slot in 1:fieldcount(P)]...)
+    return quote
+        first_rows = getfield(rows, 1)
+        for row in eachindex(first_rows)
+            execution_object_id = _index_object_id(
+                objects, getfield(first_rows[row], :execution_object_id),
+            )
+            groups = NamedTuple{$(QuoteNode(names))}($values)
+            by_execution_target[(getfield(getfield(plans, 1), :application_id),
+                execution_object_id)] = groups
+        end
+        return nothing
+    end
+end
+
+function _compile_model_output_application_bindings!(
+    plans, model, resolved_by_plan, bindings, by_execution_target,
+)
+    rows = map(plans) do plan
+        _model_output_plan_binding_rows(plan, model, resolved_by_plan, bindings)
+    end
+    return _publish_model_output_binding_groups!(
+        plans, rows, model.registry.objects, by_execution_target,
+    )
+end
+
 function _compile_model_output_destination_bindings(
     model::CompositeModel,
     resolved_destinations,
+    plans::CompiledDistributedOutputPlans,
 )
     bindings = Any[]
     sizehint!(bindings, length(resolved_destinations))
-    by_execution_pairs = Dict{
-        Tuple{Symbol,ObjectId},
-        Vector{Pair{Symbol,Any}},
-    }()
+    resolved_by_plan = Dict{Int,Vector{ResolvedModelOutputDestination}}()
     for resolved in resolved_destinations
-        binding = CompiledModelOutputDestinationBinding(
-            resolved.plan,
-            resolved.execution_object_id,
-            resolved.destination_ids,
-            _model_output_destination_columns(model, resolved),
-            _model_output_destination_index(resolved.destination_ids),
-            UInt64(model.revision),
-        )
-        push!(bindings, binding)
-        push!(
-            get!(
-                by_execution_pairs,
-                (
-                    resolved.plan.application_id,
-                    resolved.execution_object_id,
-                ),
-                Pair{Symbol,Any}[],
-            ),
-            resolved.plan.group => binding,
-        )
+        plan = getfield(resolved, :plan)::CompiledModelOutputDestinationPlan
+        push!(get!(Vector{ResolvedModelOutputDestination}, resolved_by_plan,
+            getfield(plan, :slot)), resolved)
     end
     by_execution_target = Dict{Tuple{Symbol,ObjectId},Any}()
-    for (key, group_bindings) in by_execution_pairs
-        names = Tuple(first(pair) for pair in group_bindings)
-        values = Tuple(last(pair) for pair in group_bindings)
-        by_execution_target[key] = NamedTuple{names}(values)
+    for application_id in keys(plans.by_application)
+        _with_metadata_entry(
+            _compile_model_output_application_bindings!, plans.by_application,
+            application_id, model, resolved_by_plan, bindings, by_execution_target,
+        )
     end
-    # Keep the cache shell type stable across lifecycle refreshes. Membership
-    # can change both the number of bindings and an initially empty column's
-    # concrete carrier type. Concrete bindings are installed on execution
-    # targets later; the scene-wide lifecycle cache deliberately stays widened.
+    # Keep the same lifecycle cache shell; its values are built from the finite
+    # authored groups instead of recovering their schema from erased bindings.
     return bindings, by_execution_target
 end
 
-function _index_model_output_destination_ids(model::CompositeModel, bindings)
-    I = keytype(model.registry.objects)
+function _index_model_output_destination_membership!(
+    plan, binding_ids, index, merged_keys,
+)
+    for variable_ in plan.variable_names
+        variable = Symbol(variable_)
+        key = (plan.application_id, variable)
+        destination_ids = get(index, key, nothing)
+        if isnothing(destination_ids)
+            # Destination IDs are already sorted by the compiled selector.
+            # Share that immutable membership in the common one-binding case.
+            index[key] = binding_ids
+            continue
+        end
+        if !(key in merged_keys)
+            destination_ids = copy(destination_ids)
+            index[key] = destination_ids
+            push!(merged_keys, key)
+        end
+        append!(destination_ids, binding_ids)
+    end
+    return nothing
+end
+
+function _index_model_output_destination_ids(
+    objects::AbstractDict{I}, bindings, plans::CompiledDistributedOutputPlans,
+) where {I<:ObjectId}
     index = Dict{Tuple{Symbol,Symbol},Vector{I}}()
     merged_keys = Set{Tuple{Symbol,Symbol}}()
-    for binding in bindings
-        for variable_ in binding.plan.variable_names
-            variable = Symbol(variable_)
-            key = (binding.application_id, variable)
-            destination_ids = get(index, key, nothing)
-            if isnothing(destination_ids)
-                # Destination IDs are already sorted by the compiled selector.
-                # Share that immutable membership in the common one-binding case.
-                index[key] = binding.destination_ids
-                continue
-            end
-            if !(key in merged_keys)
-                destination_ids = copy(destination_ids)
-                index[key] = destination_ids
-                push!(merged_keys, key)
-            end
-            append!(destination_ids, binding.destination_ids)
-        end
+    for raw_binding in bindings
+        binding = raw_binding::CompiledModelOutputDestinationBinding
+        plan = getfield(binding, :plan)::CompiledModelOutputDestinationPlan
+        destination_ids = getfield(binding, :destination_ids)::Vector{I}
+        _with_metadata_entry(
+            _index_model_output_destination_membership!, plans.plans,
+            getfield(plan, :slot), destination_ids, index, merged_keys,
+        )
     end
     for key in merged_keys
         destination_ids = index[key]
@@ -7107,12 +7169,12 @@ function _compile_model_distributed_outputs(
     _prepare_model_output_statuses!(model, applications, applications_by_id)
     _prepare_model_output_destination_statuses!(model, resolved)
     bindings, by_execution_target =
-        _compile_model_output_destination_bindings(model, resolved)
+        _compile_model_output_destination_bindings(model, resolved, plans)
     return CompiledDistributedOutputs(
         bindings,
         by_execution_target,
         ownership,
-        _index_model_output_destination_ids(model, bindings),
+        _index_model_output_destination_ids(model.registry.objects, bindings, plans),
     )
 end
 
@@ -7291,7 +7353,9 @@ function _incremental_distributed_output_addition!(
         key = (resolved.plan.application_id, resolved.execution_object_id)
         groups = previous.by_execution_target[key]
         binding = getproperty(groups, resolved.plan.group)
-        columns = _model_output_destination_columns(model, resolved)
+        columns = _model_output_destination_columns(
+            model, resolved.plan, resolved.destination_ids,
+        )
         for variable in binding.plan.variable_names
             existing_references = parent(getproperty(binding.columns, variable))
             added_references = parent(getproperty(columns, variable))
