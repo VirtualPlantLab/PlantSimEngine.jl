@@ -5972,7 +5972,7 @@ function _resolve_model_output_destinations(
             )
         end
     end
-    return Tuple(resolved)
+    return resolved
 end
 
 function _push_compiled_writer_owner!(
@@ -7116,22 +7116,27 @@ function _compile_model_distributed_outputs(
     )
 end
 
-_distributed_output_binding_key(binding) = (
-    binding.application_id,
-    binding.execution_object_id,
-    binding.group,
-)
+function _distributed_output_target_membership(
+    objects::AbstractDict{I}, outputs::CompiledDistributedOutputs,
+) where {I<:ObjectId}
+    membership = Dict{Tuple{Symbol,I,Symbol},Vector{I}}()
+    for raw_binding in outputs.bindings
+        binding = raw_binding::CompiledModelOutputDestinationBinding
+        plan = getfield(binding, :plan)::CompiledModelOutputDestinationPlan
+        object_id = _index_object_id(objects, getfield(binding, :execution_object_id))
+        destination_ids = getfield(binding, :destination_ids)::Vector{I}
+        key = (getfield(plan, :application_id), object_id, getfield(plan, :group))
+        membership[key] = destination_ids
+    end
+    return membership
+end
 
-function _changed_distributed_output_target_ids(previous, current)
-    previous_membership = Dict(
-        _distributed_output_binding_key(binding) => binding.destination_ids
-        for binding in previous.bindings
-    )
-    current_membership = Dict(
-        _distributed_output_binding_key(binding) => binding.destination_ids
-        for binding in current.bindings
-    )
-    changed = Set{Tuple{Symbol,ObjectId}}()
+function _changed_distributed_output_target_ids(
+    objects::AbstractDict{I}, previous, current,
+) where {I<:ObjectId}
+    previous_membership = _distributed_output_target_membership(objects, previous)
+    current_membership = _distributed_output_target_membership(objects, current)
+    changed = Set{Tuple{Symbol,I}}()
     for key in union(keys(previous_membership), keys(current_membership))
         get(previous_membership, key, nothing) ==
         get(current_membership, key, nothing) && continue
@@ -7362,58 +7367,165 @@ function _refresh_model_distributed_outputs(
         manual_application_ids,
         plans,
     )
-    changed_targets = _changed_distributed_output_target_ids(previous, current)
+    changed_targets = _changed_distributed_output_target_ids(
+        model.registry.objects, previous, current,
+    )
     changed_writers_by_variable = if pure_addition
         # A new origin may write to a destination already in the registry.
-        _new_writers_on_existing_destinations(current, new_targets, added_ids)
+        _new_writers_on_existing_destinations(
+            model, current, new_targets, added_ids, applications_by_id, plans,
+        )
     else
-        _changed_writers_on_surviving_destinations(model, previous, current, changed_targets)
+        _changed_writers_on_surviving_destinations(
+            model, previous, current, changed_targets, applications_by_id, plans,
+        )
     end
     return current, changed_targets, changed_writers_by_variable
 end
 
-function _new_writers_on_existing_destinations(outputs, new_targets, added_ids)
+function _append_output_destination_writer!(plan, destination, by_variable)
+    if isnothing(by_variable)
+        by_variable = Dict{Symbol,Vector{Tuple{ObjectId,Symbol}}}()
+    end
+    for variable in plan.variable_names
+        push!(get!(Vector{Tuple{ObjectId,Symbol}}, by_variable, variable),
+            (destination, plan.application_id))
+    end
+    return by_variable
+end
+
+function _append_existing_destination_writers!(
+    plan, destination_ids, added, by_variable,
+)
+    for destination in destination_ids
+        destination in added && continue
+        by_variable = _append_output_destination_writer!(plan, destination, by_variable)
+    end
+    return by_variable
+end
+
+function _new_output_plan_writers(
+    plan, object_id, outputs, added, application, by_variable,
+)
+    key = (application.id, object_id)
+    groups = get(outputs.by_execution_target, key, NamedTuple())::NamedTuple
+    isdefined(groups, plan.group) || return by_variable
+    return _with_model_output_destination_membership(
+        _append_existing_destination_writers!, plan, groups, application,
+        added, by_variable,
+    )
+end
+
+function _new_output_application_writers(
+    application_plans, object_id, outputs, added, application, by_variable,
+)
+    for slot in 1:length(application_plans)
+        by_variable = _with_metadata_entry(
+            _new_output_plan_writers, application_plans, slot,
+            object_id, outputs, added, application, by_variable,
+        )
+    end
+    return by_variable
+end
+
+function _new_output_application_writers(
+    application::CompiledModelApplication, object_id, outputs, added,
+    plans::CompiledDistributedOutputPlans, by_variable,
+)
+    return _with_metadata_entry(
+        _new_output_application_writers, plans.by_application, application.id,
+        object_id, outputs, added, application, by_variable,
+    )
+end
+
+function _new_writers_on_existing_destinations(
+    model, outputs, new_targets, added_ids, applications_by_id,
+    plans::CompiledDistributedOutputPlans,
+)
     added = Set(added_ids)
     by_variable = nothing
     for (application_id, origins) in new_targets, origin in origins
-        groups = get(outputs.by_execution_target, (application_id, origin), ())
-        for group in groups, destination in group.destination_ids
-            destination in added && continue
-            if isnothing(by_variable)
-                by_variable = Dict{Symbol,Vector{Tuple{ObjectId,Symbol}}}()
-            end
-            for variable in group.plan.variable_names
-                push!(
-                    get!(Vector{Tuple{ObjectId,Symbol}}, by_variable, variable),
-                    (destination, application_id),
-                )
-            end
+        object_id = _index_object_id(model.registry.objects, origin)
+        by_variable = _with_metadata_entry(
+            _new_output_application_writers, applications_by_id,
+            application_id, object_id, outputs, added, plans, by_variable,
+        )
+    end
+    return by_variable
+end
+
+function _append_changed_destination_writers!(
+    plan, other_ids, model, destination_ids, by_variable,
+)
+    for destination in destination_ids
+        haskey(model.registry.objects, destination) || continue
+        first(_sorted_object_id_position(other_ids, destination)) && continue
+        by_variable = _append_output_destination_writer!(plan, destination, by_variable)
+    end
+    return by_variable
+end
+
+function _compare_changed_destination_writers!(
+    plan, destination_ids, model, other, application, by_variable,
+)
+    isdefined(other, plan.group) || return _append_changed_destination_writers!(
+        plan, (), model, destination_ids, by_variable,
+    )
+    return _with_model_output_destination_membership(
+        _append_changed_destination_writers!, plan, other, application,
+        model, destination_ids, by_variable,
+    )
+end
+
+function _changed_output_plan_writers(
+    plan, object_id, model, outputs, other_outputs, application, by_variable,
+)
+    key = (application.id, object_id)
+    groups = get(outputs.by_execution_target, key, NamedTuple())::NamedTuple
+    isdefined(groups, plan.group) || return by_variable
+    other = get(other_outputs.by_execution_target, key, NamedTuple())::NamedTuple
+    return _with_model_output_destination_membership(
+        _compare_changed_destination_writers!, plan, groups, application,
+        model, other, application, by_variable,
+    )
+end
+
+function _changed_output_application_writers(
+    application_plans, object_id, model, previous, current, application,
+    by_variable,
+)
+    for (outputs, other_outputs) in ((previous, current), (current, previous))
+        for slot in 1:length(application_plans)
+            by_variable = _with_metadata_entry(
+                _changed_output_plan_writers, application_plans, slot,
+                object_id, model, outputs, other_outputs, application, by_variable,
+            )
         end
     end
     return by_variable
 end
 
-function _changed_writers_on_surviving_destinations(model, previous, current, changed_targets)
+function _changed_output_application_writers(
+    application::CompiledModelApplication, object_id, model, previous, current,
+    plans::CompiledDistributedOutputPlans, by_variable,
+)
+    return _with_metadata_entry(
+        _changed_output_application_writers, plans.by_application, application.id,
+        object_id, model, previous, current, application, by_variable,
+    )
+end
+
+function _changed_writers_on_surviving_destinations(
+    model, previous, current, changed_targets, applications_by_id,
+    plans::CompiledDistributedOutputPlans,
+)
     by_variable = nothing
-    for key in changed_targets
-        before = get(previous.by_execution_target, key, NamedTuple())
-        after = get(current.by_execution_target, key, NamedTuple())
-        for (groups, other) in ((before, after), (after, before))
-            for (name, group) in pairs(groups)
-                other_ids = haskey(other, name) ? other[name].destination_ids : ()
-                for destination in group.destination_ids
-                    haskey(model.registry.objects, destination) || continue
-                    first(_sorted_object_id_position(other_ids, destination)) && continue
-                    if isnothing(by_variable)
-                        by_variable = Dict{Symbol,Vector{Tuple{ObjectId,Symbol}}}()
-                    end
-                    for variable in group.plan.variable_names
-                        push!(get!(Vector{Tuple{ObjectId,Symbol}}, by_variable, variable),
-                            (destination, group.application_id))
-                    end
-                end
-            end
-        end
+    for (application_id, raw_object_id) in changed_targets
+        object_id = _index_object_id(model.registry.objects, raw_object_id)
+        by_variable = _with_metadata_entry(
+            _changed_output_application_writers, applications_by_id,
+            application_id, object_id, model, previous, current, plans, by_variable,
+        )
     end
     return by_variable
 end
