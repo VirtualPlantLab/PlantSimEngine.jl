@@ -31,7 +31,11 @@ end
     preparation = data.model.scenario_plan_cache
     @test plan.authoring.preparation === preparation
     @test preparation.owner === data.model
-    @test preparation.source_specs === Tuple(data.model.applications)
+    @test preparation.source_specs isa Vector{Any}
+    @test preparation.source_specs !== data.model.applications
+    @test length(preparation.source_specs) == length(data.model.applications)
+    @test all(preparation.source_specs[index] === data.model.applications[index]
+        for index in eachindex(data.model.applications))
     @test data.hint_calls[] == 1
     original_ref = PSE.refvalue(model_status(data.model, :leaf), :visits)
 
@@ -114,7 +118,12 @@ end
     @test data.model.scenario_plan_cache === preparation
     @test alternate.scenario_plan.authoring.preparation !== preparation
     @test alternate.scenario_plan.authoring.preparation.owner === alternate_model
-    @test alternate.scenario_plan.authoring.preparation.source_specs === alternate_specs
+    alternate_sources = alternate.scenario_plan.authoring.preparation.source_specs
+    @test alternate_sources isa Vector{Any}
+    @test alternate_sources !== alternate_model.applications
+    @test length(alternate_sources) == length(alternate_specs)
+    @test all(alternate_sources[index] === alternate_specs[index]
+        for index in eachindex(alternate_sources))
     @test PSE._refresh_runtime_bindings!(data.model, canonical) === canonical
     step!(simulation)
     @test simulation.compiled === canonical

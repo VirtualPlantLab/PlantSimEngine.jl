@@ -313,8 +313,8 @@ function apply_model_graph_edit(
     final_preparation = if !isnothing(preparation) && _authored_specs_match(preparation, candidate)
         # The copied state is initial data for this new model. Reuse captured
         # declarations, then recompute routes and the namespace without hooks.
-        _finalize_authored_scenario(candidate, preparation.source_specs,
-            preparation.authored, nothing)
+        _finalize_authored_scenario(candidate, collect(Any, preparation.source_specs),
+            collect(Any, preparation.authored), nothing)
     else
         _prepare_authored_scenario(candidate; raw_families=nothing)
     end

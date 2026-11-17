@@ -796,9 +796,9 @@ mutable struct ScenarioPreparation{M,S,A,F,P,SM}
     resolved::Any
 end
 
-# Preserve the genuine owner, without copying its source tuple or encoding the
-# result types of declaration hooks in every runtime plan. Lifecycle refresh
-# needs only the owner identity and the immutable source-declaration schema.
+# Preserve the genuine owner, without copying its source snapshot or encoding
+# declaration-hook result types in every runtime plan. Lifecycle refresh needs
+# only the owner identity and its captured source declarations.
 struct CompiledScenarioAuthoring{M,S}
     preparation::ScenarioPreparation{M,S}
 
@@ -832,9 +832,15 @@ struct CompiledScenarioPlan{SA,AP,AI,ATI,IP,IPI,IR,CP,CPI,DOP,CO,MA,AC,AO,OAP,AS
 end
 
 
-function _authored_specs_match(source_specs, specs)
-    length(source_specs) == length(specs) || return false
-    return all(pair -> pair[1] === pair[2], zip(source_specs, specs))
+# Compare the copied source cells without reading model parameters.
+function _authored_specs_match(preparation::ScenarioPreparation, model::CompositeModel)
+    source_specs = getfield(preparation, :source_specs)
+    live_specs = getfield(model, :applications)
+    length(source_specs) == length(live_specs) || return false
+    for index in eachindex(source_specs)
+        source_specs[index] === live_specs[index] || return false
+    end
+    return true
 end
 
 # Select an existing captured cause in the same order as scene resolution.
@@ -858,7 +864,9 @@ end
 
 function _prepare_authored_scenario(model::CompositeModel;
     raw_families=_prepared_raw_status_families(model))
-    source_specs = Tuple(model.applications)
+    # Capture declarations before any hook can change applications. This local
+    # snapshot is read-only after publication and shares the same source values.
+    source_specs = collect(Any, model.applications)
     # Capture one declaration result per application. Invalid authoring does
     # not hide later valid applications from a read-only diagnostic report.
     counts = Dict{Symbol,Int}()
@@ -940,7 +948,7 @@ function _prepare_authored_scenario(model::CompositeModel;
                 recipe.id, err, catch_backtrace())
         end
     end
-    return _finalize_authored_scenario(model, source_specs, Tuple(authored), raw_families)
+    return _finalize_authored_scenario(model, source_specs, authored, raw_families)
 end
 
 # Constructor and transactional edits share the same type/route preparation.
@@ -948,8 +956,8 @@ end
 function _finalize_authored_scenario(model, source_specs, authored_records, raw_families)
     failure_index = findfirst(record -> record isa ScenarioPreparationFailure, authored_records)
     failure = isnothing(failure_index) ? nothing : authored_records[failure_index]
-    recipes = Tuple(record for record in authored_records
-        if record isa AuthoredApplicationRecipe)
+    recipes = _graph_record_vector(AuthoredApplicationRecipe,
+        (record for record in authored_records if record isa AuthoredApplicationRecipe))
     program = _prepare_authored_scenario_program(model, recipes)
     status_manifest = _capture_authored_metadata(:status_manifest, nothing) do
         _prepare_status_manifest(model, authored_records, program, raw_families)
@@ -961,7 +969,7 @@ function _finalize_authored_scenario(model, source_specs, authored_records, raw_
         # available to the partial diagnostic compiler.
         failure = _first_authored_program_failure(program)
     end
-    return ScenarioPreparation(model, source_specs, authored_records, failure,
+    return ScenarioPreparation(model, source_specs, Tuple(authored_records), failure,
         program, status_manifest, nothing)
 end
 
@@ -974,35 +982,6 @@ function _model_owned_scenario_preparation(model::CompositeModel, preparation::S
         preparation.status_manifest, nothing)
     model.scenario_plan_cache = owned
     return owned
-end
-
-# Read each immutable source declaration inside its exact owner schema. Live
-# applications are iterated in order; no source tuple or model value escapes.
-@generated function _authored_specs_match(
-    preparation::ScenarioPreparation{M,S},
-    model::CompositeModel,
-) where {M,S<:Tuple}
-    count = fieldcount(S)
-    comparisons = Expr[]
-    for index in 1:count
-        next = index == 1 ? :(iterate(live_specs)) :
-               :(iterate(live_specs, getfield(current, 2)))
-        push!(comparisons, :(current = $next))
-        push!(comparisons, :(isnothing(current) && return false))
-        expected_type = fieldtype(S, index)
-        push!(comparisons, :(candidate = getfield(current, 1)))
-        push!(comparisons, :(candidate isa $expected_type || return false))
-        push!(comparisons, :(
-            getfield(getfield(preparation, :source_specs), $index) ===
-            (candidate::$expected_type) || return false
-        ))
-    end
-    return quote
-        live_specs = getfield(model, :applications)
-        length(live_specs) == $count || return false
-        $(comparisons...)
-        return true
-    end
 end
 
 function _publish_failed_scenario_preparation!(model::CompositeModel, preparation)

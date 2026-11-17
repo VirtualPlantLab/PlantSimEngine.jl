@@ -219,7 +219,10 @@ function _prepared_status_raw_configured_references(model, object, names, refere
 end
 
 function _prepare_status_manifest(model, authored, program, raw_basis)
-    recipes = Tuple(item for item in authored if item isa AuthoredApplicationRecipe)
+    # Host traversal uses scalar records; freeze exact owner tuples only once
+    # the namespace and all RAW permissions have been prepared.
+    recipes = _graph_record_vector(AuthoredApplicationRecipe,
+        (item for item in authored if item isa AuthoredApplicationRecipe))
     permissions = _prepared_status_application_permissions(model, recipes, program)
     outputs = _authored_distributed_output_plans(
         _graph_record_vector(AuthoredApplicationRecipe, recipes), program.output_records)
@@ -322,7 +325,7 @@ function _prepare_status_manifest(model, authored, program, raw_basis)
         PreparedStatusApplication(application.slot, application.id,
             application.target_matcher, _prepared_status_object_slots(application))
     end
-    return PreparedStatusManifest(S, applications, permissions, destinations, raw)
+    return PreparedStatusManifest(S, Tuple(applications), Tuple(permissions), destinations, raw)
 end
 
 # The catalog references the SAME prepared manifest; runtime never finds a
@@ -380,48 +383,70 @@ function _prepared_status_application_reference_allowed(applications::Tuple,
         Base.tail(permissions), model, object, parent_id, name, reference)
 end
 
-_prepared_status_destination_reference_allowed(::Tuple{}, ::Tuple{}, plan,
-    model, object, parent_id, name, reference) = false
-function _prepared_status_destination_reference_allowed(applications::Tuple,
-    permissions::Tuple, plan, model, object, parent_id, name, reference)
-    application, permission = first(applications), first(permissions)
-    if application.slot == plan.application_slot && name in plan.variable_names
-        # Visit registered producer identities in place. No candidate vector or
-        # synthetic producer is allocated by this admission path.
-        has_producer = false
-        for (execution_id, producer) in model.registry.objects
-            _prepared_status_application_matches(model, producer, producer.parent, application) || continue
-            has_producer = true
-            _prepared_status_route_matches(model, object, parent_id,
-                application, plan, execution_id) || continue
-            variant = _prepared_status_variant_slot(application, execution_id)
-            _with_metadata_entry(_prepared_status_output_reference_allowed,
-                permission.variants, variant, name, reference) && return true
+# One exact application/permission pair enters the producer/route worker.
+Base.@constprop :none Base.@noinline function _prepared_status_destination_entry_allowed(
+    application, permission, plan, model, object, parent_id, name, reference,
+)
+    # Visit registered producer identities in place. No candidate vector or
+    # synthetic producer is allocated by this admission path.
+    has_producer = false
+    for (execution_id, producer) in model.registry.objects
+        _prepared_status_application_matches(model, producer, producer.parent, application) || continue
+        has_producer = true
+        _prepared_status_route_matches(model, object, parent_id,
+            application, plan, execution_id) || continue
+        variant = _prepared_status_variant_slot(application, execution_id)
+        _with_metadata_entry(_prepared_status_output_reference_allowed,
+            permission.variants, variant, name, reference) && return true
+    end
+    # Explicit SceneScope without a relation is independent of a producer
+    # context. With zero real producers, its base declaration already gives
+    # a prospective permission; no RAW family or override is substituted.
+    matcher = plan.matcher
+    if !has_producer && matcher.scope isa SceneScope && isnothing(matcher.relation)
+        id = _index_object_id(model.registry.objects, object.id)
+        topology = _prepared_status_topology(model, object, id, parent_id)
+        if _selector_matches_object_id(topology, matcher, id,
+            nothing, false, nothing, false)
+            return _prepared_status_output_reference_allowed(
+                first(permission.variants), name, reference)
         end
-        # Explicit SceneScope without a relation is independent of a producer
-        # context. With zero real producers, its base declaration already gives
-        # a prospective permission; no RAW family or override is substituted.
-        matcher = plan.matcher
-        if !has_producer && matcher.scope isa SceneScope && isnothing(matcher.relation)
-            id = _index_object_id(model.registry.objects, object.id)
-            topology = _prepared_status_topology(model, object, id, parent_id)
-            if _selector_matches_object_id(topology, matcher, id,
-                nothing, false, nothing, false)
-                return _prepared_status_output_reference_allowed(
-                    first(permission.variants), name, reference)
-            end
-        end
+    end
+    return false
+end
+
+# Slots are authored identities, not tuple positions: partial preparation can
+# retain gaps. Select the correlated entries inside the same finite branch.
+@generated function _prepared_status_destination_application_allowed(applications::A,
+    permissions::P, application_slot::Int, plan, model, object, parent_id, name, reference,
+) where {A<:Tuple,P<:Tuple}
+    fieldcount(A) == fieldcount(P) || return :(throw(DimensionMismatch(
+        "Prepared application and permission tuple lengths must match.")))
+    branches = [:(getfield(applications, $index).slot == application_slot &&
+        return _prepared_status_destination_entry_allowed(
+            getfield(applications, $index), getfield(permissions, $index),
+            plan, model, object, parent_id, name, reference))
+        for index in 1:fieldcount(A)]
+    return quote
+        $(branches...)
         return false
     end
-    return _prepared_status_destination_reference_allowed(Base.tail(applications),
-        Base.tail(permissions), plan, model, object, parent_id, name, reference)
 end
-_prepared_status_destinations_allow(::Tuple{}, manifest, model, object, parent_id, name, reference) = false
+
+Base.@constprop :none Base.@noinline function _prepared_status_destination_plan_allowed(
+    plan, manifest, model, object, parent_id, name, reference,
+)
+    name in plan.variable_names || return false
+    return _prepared_status_destination_application_allowed(manifest.authored,
+        manifest.permissions, plan.application_slot, plan, model, object, parent_id, name, reference)
+end
+
 function _prepared_status_destinations_allow(plans::Tuple, manifest, model, object, parent_id, name, reference)
-    _prepared_status_destination_reference_allowed(manifest.authored, manifest.permissions,
-        first(plans), model, object, parent_id, name, reference) && return true
-    return _prepared_status_destinations_allow(Base.tail(plans), manifest,
-        model, object, parent_id, name, reference)
+    for slot in eachindex(plans)
+        _with_metadata_entry(_prepared_status_destination_plan_allowed, plans,
+            slot, manifest, model, object, parent_id, name, reference) && return true
+    end
+    return false
 end
 _prepared_status_source_input_admission(variant, input, reference) =
     hasproperty(variant.source_inputs, input) ?
@@ -634,30 +659,22 @@ function _prepared_status_raw_reference_allowed(raw::PreparedRawStatusFamily,
     return typeof(reference) === raw.reference_types[index]
 end
 
-# Each slot visit is emitted from the MANIFEST owner's target schema. Fixed storage has
-# nullable exact Ref slots; no variable-length propertynames/ref tuple is built.
-@generated function _prepared_status_source_allowed(manifest::PreparedStatusManifest{S},
+# Visit the prepared namespace in order without building a per-field method body.
+# The existing finite classifier admits each exact Ref before the shared worker.
+function _prepared_status_source_allowed(manifest::PreparedStatusManifest{S},
     model, object, parent_id, source::Status, raw) where {S}
-    names = _status_schema_names(S)
-    checks = Expr[]
-    for name in names
-        push!(checks, quote
-            reference = _initial_status_reference(source, $(QuoteNode(name)))
-            if reference !== nothing
-                present += 1
-                allowed, compatible = _prepared_status_configured_reference_admission(manifest, model,
-                    object, parent_id, $(QuoteNode(name)), reference)
-                compatible && (allowed ||
-                    _prepared_status_raw_reference_allowed(raw, $(QuoteNode(name)), reference)) || return false
-            end
-        end)
+    present = 0
+    for name in _status_schema_names(S)
+        reference = _initial_status_reference(source, name)
+        if reference !== nothing
+            present += 1
+            allowed, compatible = _prepared_status_configured_reference_admission(manifest, model,
+                object, parent_id, name, reference)
+            compatible && (allowed ||
+                _prepared_status_raw_reference_allowed(raw, name, reference)) || return false
+        end
     end
-    return quote
-        $(Expr(:meta, :inline))
-        present = 0
-        $(checks...)
-        return present == _initial_status_reference_count(source)
-    end
+    return present == _initial_status_reference_count(source)
 end
 
 # Initial bootstrap supplies the SAME manifest explicitly before the catalog
