@@ -249,6 +249,68 @@ end
     @test stream(simulation, :writer, 2, :private) isa PSE.TemporalDependencyBuffer{Float32}
 end
 
+# Reading a user Ref is observable. Preparing separate output groups must keep
+# the same group/origin order and borrow the original cells.
+mutable struct ObservedRef{T} <: Ref{T}
+    value::T
+    label::Symbol
+    reads::Vector{Symbol}
+end
+Base.getindex(cell::ObservedRef) = (push!(cell.reads, cell.label); cell.value)
+Base.setindex!(cell::ObservedRef{T}, value) where {T} = (cell.value = convert(T, value))
+
+struct RefOrderDistributor <: AbstractRetention_Owner_DistributorModel end
+PSE.inputs_(::RefOrderDistributor) = NamedTuple()
+PSE.outputs_(::RefOrderDistributor) = (
+    incident_par=Distributed(Default(0.0)), absorbed_par=Distributed(Default(0.0)),
+)
+PSE.run!(::RefOrderDistributor, status, environment, constants, context) = nothing
+
+@testset "distributed preparation preserves custom Ref read order and identity" begin
+    reads = Symbol[]
+    cells = Dict((leaf, variable) => ObservedRef(0.0,
+        Symbol(leaf, "__", variable), reads)
+        for leaf in (:leaf_a, :leaf_b) for variable in (:incident_par, :absorbed_par))
+    model = CompositeModel(
+        Object(:scene_a; scale=:Scene),
+        Object(:scene_b; scale=:Scene),
+        Object(:leaf_a; scale=:Leaf, parent=:scene_a,
+            status=Status((incident_par=cells[(:leaf_a, :incident_par)],
+                absorbed_par=cells[(:leaf_a, :absorbed_par)]))),
+        Object(:leaf_b; scale=:Leaf, parent=:scene_b,
+            status=Status((incident_par=cells[(:leaf_b, :incident_par)],
+                absorbed_par=cells[(:leaf_b, :absorbed_par)])));
+        applications=(ModelSpec(RefOrderDistributor(); name=:ref_order_probe,
+            on=Many(scale=:Scene), outputs_to=(
+                OutputTo(Many(scale=:Leaf, within=Subtree()); vars=(:incident_par,)),
+                OutputTo(Many(scale=:Leaf, within=Subtree()); vars=(:absorbed_par,)))),))
+    @test isempty(reads)
+    compiled = Advanced.refresh_bindings!(model)
+    expected_reads = [:leaf_a__incident_par, :leaf_b__incident_par,
+        :leaf_a__absorbed_par, :leaf_b__absorbed_par]
+    @test reads == expected_reads
+    bindings = compiled.distributed_outputs.bindings
+    @test length(bindings) == 4
+    @test [(binding.execution_object_id.value, only(binding.destination_ids).value,
+        only(binding.plan.variable_names)) for binding in bindings] == [
+        (:scene_a, :leaf_a, :incident_par), (:scene_b, :leaf_b, :incident_par),
+        (:scene_a, :leaf_a, :absorbed_par), (:scene_b, :leaf_b, :absorbed_par),
+    ]
+    for binding in bindings
+        variable = only(binding.plan.variable_names)
+        destination = only(binding.destination_ids)
+        cell = cells[(destination.value, variable)]
+        carrier = getproperty(binding.columns, variable)
+        @test carrier isa PSE.ObjectRefVector
+        @test eltype(carrier) === Any
+        @test only(parent(carrier)) === cell
+        @test PSE.refvalue(model_status(model, destination), variable) === cell
+        @test getfield(cell, :value) === 0.0
+    end
+    # The identity/type inspection above must itself cause no value reads.
+    @test reads == expected_reads
+end
+
 struct Distributor <: AbstractRetention_Owner_DistributorModel end
 PSE.inputs_(::Distributor) = NamedTuple()
 PSE.outputs_(::Distributor) = (delivered=Distributed(Default(0f0)),)

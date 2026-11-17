@@ -30,9 +30,12 @@ struct OutputTargets{B,C}
 end
 
 function OutputTargets(binding::CompiledModelOutputDestinationBinding, alignment_id::Int)
+    return _output_targets(binding, _output_target_columns(binding), alignment_id)
+end
+function _output_targets(binding, columns, alignment_id::Int)
     count = length(binding.destination_ids)
     return OutputTargets(
-        binding,
+        OutputTargetColumns(binding, columns),
         OutputAssignmentCache(
             nothing,
             Vector{Int}(undef, count),
@@ -50,6 +53,26 @@ end
 struct OutputTargetColumns{B,C}
     source::B
     columns::C
+end
+
+# Snapshot only the carrier header; source, carriers, IDs and cells are borrowed.
+_output_target_binding(targets::OutputTargets) = getfield(getfield(targets, :binding), :source)
+_output_target_binding_type(::Type{T}) where {T<:OutputTargets} =
+    fieldtype(fieldtype(T, :binding), :source)
+_output_target_columns_type(::Type{T}) where {T<:OutputTargets} =
+    fieldtype(fieldtype(T, :binding), :columns)
+
+@generated function _output_target_columns(binding::B) where {B<:CompiledModelOutputDestinationBinding}
+    names = fieldtype(B, :plan).parameters[2]
+    values = Expr(:tuple, [:(getfield(getfield(binding, :columns), $(QuoteNode(name)))) for name in names]...)
+    return :(NamedTuple{$(QuoteNode(names))}($values))
+end
+@generated function _output_target_columns(binding::B, ::Type{C}) where {B<:CompiledModelOutputDestinationBinding,C<:NamedTuple}
+    names = fieldtype(B, :plan).parameters[2]
+    names === fieldnames(C) || return :(throw(ArgumentError("Prepared output column names changed.")))
+    values = Expr(:tuple, [:(getfield(getfield(binding, :columns), $(QuoteNode(name)))::$(fieldtype(C,index)))
+        for (index,name) in enumerate(names)]...)
+    return :($C($values))
 end
 
 @inline function Base.getproperty(view::OutputTargetColumns, name::Symbol)

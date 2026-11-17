@@ -499,7 +499,7 @@ end
         first_target = getproperty(context.output_targets, $first_name)
         $(alignment_checks...)
         columns = NamedTuple{$(QuoteNode(variables))}($columns)
-        binding = OutputTargetColumns(first_target.binding, columns)
+        binding = OutputTargetColumns(_output_target_binding(first_target), columns)
         OutputTargets(binding, first_target.assignment_cache, first_target.alignment_id)
     end
 end
@@ -3472,7 +3472,9 @@ end
 _runtime_model_output_groups(compiled, application, object_id) =
     _runtime_model_output_groups(application, object_id, compiled.distributed_outputs)
 
-@generated function _runtime_model_output_targets(groups::G) where {G<:NamedTuple}
+@generated function _runtime_model_output_targets(groups::G,
+    ::Type{Views}=Nothing,
+) where {G<:NamedTuple,Views}
     names, targets, statements = Symbol[], Symbol[], Expr[]
     binding_vars, target_vars = Symbol[], Symbol[]
     for (index, Binding) in enumerate(fieldtypes(G))
@@ -3486,7 +3488,13 @@ _runtime_model_output_groups(compiled, application, object_id) =
                 $(target_vars[previous]).alignment_id : $alignment )
         end
         push!(statements, :($binding = getfield(groups, $index)))
-        push!(statements, :($target = OutputTargets($binding, $alignment)))
+        factory = if Views === Nothing
+            :(OutputTargets($binding, $alignment))
+        else
+            C = _output_target_columns_type(fieldtype(Views, first(variables)))
+            :(_output_targets($binding, _output_target_columns($binding, $C), $alignment))
+        end
+        push!(statements, :($target = $factory))
         push!(statements, :(alignment_count = max(alignment_count, $target.alignment_id)))
         append!(names, variables)
         append!(targets, fill(target, length(variables)))
@@ -3496,7 +3504,7 @@ _runtime_model_output_groups(compiled, application, object_id) =
     return quote
         alignment_count = 0
         $(statements...)
-        return NamedTuple{$(QuoteNode(Tuple(names)))}($(Expr(:tuple, targets...)))
+        return $(Views === Nothing ? :(NamedTuple{$(QuoteNode(Tuple(names)))}) : Views)($(Expr(:tuple, targets...)))
     end
 end
 
@@ -3932,14 +3940,15 @@ function _model_execution_outputs_match(
     for variable in keys(output_targets)
         variable in variables || continue
         isnothing(temporal_streams) && return false
-        binding = getproperty(output_targets, variable).binding
+        target = getproperty(output_targets, variable)
+        binding = _output_target_binding(target)
         output_index += 1
         output_index <= length(runtime_outputs) || return false
         output = runtime_outputs[output_index]
         output isa RuntimeDistributedOutputStream || return false
         _runtime_output_variable(output) == variable || return false
         output.binding === binding || return false
-        output.references === getproperty(binding.columns, variable) || return false
+        output.references === getproperty(target.columns, variable) || return false
         expected_horizon = isnothing(dependency_horizons) ?
                            0.0 :
                            get(dependency_horizons, (application.id, variable), 0.0)
@@ -3999,7 +4008,9 @@ end
         binding = :(getfield(bindings, $index))
         current = :(getproperty(targets, $(QuoteNode(first(variables)))))
         for name in variables
-            push!(checks, :(getproperty(targets, $(QuoteNode(name))).binding === $binding || return false))
+            push!(checks, :(_output_target_binding(getproperty(targets, $(QuoteNode(name)))) === $binding || return false))
+            push!(checks, :(getproperty(getproperty(targets, $(QuoteNode(name))).columns, $(QuoteNode(name))) ===
+                getproperty($binding.columns, $(QuoteNode(name))) || return false))
         end
         # In-place growth preserves the view only while group alignments agree.
         for previous in 1:(index - 1)

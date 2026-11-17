@@ -137,7 +137,7 @@ function _output_target_binding_groups_type(::Type{T}) where {T<:NamedTuple}
     for View in fieldtypes(T)
         View <: OutputTargets && isconcretetype(View) ||
             throw(ArgumentError("Prepared output destinations require concrete OutputTargets views."))
-        Binding = fieldtype(View, :binding)
+        Binding = _output_target_binding_type(View)
         Plan = fieldtype(Binding, :plan)
         group, variables = Plan.parameters[1], Plan.parameters[2]
         if group in groups
@@ -153,6 +153,20 @@ function _output_target_binding_groups_type(::Type{T}) where {T<:NamedTuple}
     Tuple(names) === fieldnames(T) && Tuple(views) === fieldtypes(T) ||
         throw(ArgumentError("Prepared output views must retain their group and variable order."))
     return NamedTuple{Tuple(groups),Tuple{bindings...}}
+end
+
+# A fixed preparation binding can contain empty or populated carriers. Admit
+# their actual classes before choosing the concrete batch view, once per target.
+@generated function _output_group_columns_match(groups::G, ::Type{Views}) where {G<:NamedTuple,Views<:NamedTuple}
+    checks = Expr[]
+    for (index, Binding) in enumerate(fieldtypes(G))
+        names = fieldtype(Binding, :plan).parameters[2]
+        C = _output_target_columns_type(fieldtype(Views, first(names)))
+        for (slot,name) in enumerate(names)
+            push!(checks, :(getfield(getfield(getfield(groups, $index), :columns), $(QuoteNode(name))) isa $(fieldtype(C,slot))))
+        end
+    end
+    return isempty(checks) ? :(true) : foldl((a,b) -> :($a && $b), checks)
 end
 
 # Admit the real status view before reading its parameterized fields. The
@@ -190,13 +204,14 @@ end
         Views = fieldtype(Target, :output_targets)
         Groups = _output_target_binding_groups_type(Views)
         checks = Expr[:(application isa $(fieldtype(Context, :application))),
-            :(output_groups isa $Groups)]
+            :(output_groups isa $Groups),
+            :(_output_group_columns_match(output_groups::$Groups, $Views))]
         values = Expr[]
         for name in names
             value = if name === :status_view
                 :status_view
             elseif name === :output_targets
-                :(_runtime_model_output_targets(output_groups::$Groups)::$Views)
+                :(_runtime_model_output_targets(output_groups::$Groups, $Views)::$Views)
             elseif name === :bound_inputs
                 # The earlier status_view check short-circuits before this read.
                 :((status_view::$V).bound_inputs)
@@ -465,9 +480,9 @@ function _prepared_distributed_runtime_output(::Type{O}, output_targets, applica
     streams, retention,
 ) where {V,B,S,R,O<:RuntimeDistributedOutputStream{V,B,S,R}}
     target = getproperty(output_targets,V)
-    binding = target.binding
+    binding = _output_target_binding(target)
     binding isa B || throw(ArgumentError("A distributed output owner is outside its prepared schema."))
-    references = getproperty(binding.columns,V)
+    references = getproperty(target.columns,V)
     references isa R || throw(ArgumentError("A distributed output column is outside its prepared schema."))
     sources = _prepared_distributed_output_sources(S, streams, binding, application.id, V)
     return O(binding::B, sources::S, references::R,

@@ -6320,10 +6320,10 @@ function _status_ref_or_nothing(status::S, variable) where {S}
     return refvalue(status, name)
 end
 
-@inline function _checked_input_reference(reference)
+@inline function _checked_reference(reference)
     isnothing(reference) && return nothing
     reference isa Ref || throw(ArgumentError(
-        "Input reference carriers require Ref storage; got `$(typeof(reference))`.",
+        "Reference carriers require Ref storage; got `$(typeof(reference))`.",
     ))
     return reference
 end
@@ -6353,10 +6353,30 @@ end
     R = Union{types...}
     return quote
         isempty(source_ids) && return nothing
-        reference = _checked_input_reference(reference_for(only(source_ids)))
+        reference = _checked_reference(reference_for(only(source_ids)))
         isnothing(reference) && return nothing
         reference isa $R || throw(ArgumentError("An input source reference is outside its prepared family."))
         return reference::$R
+    end
+end
+
+# Input and output preparation collect the same exact Ref family. Carrier
+# selection remains the policy of the caller; no cell is converted or copied.
+@generated function _collect_reference_family(source_ids, reference_for::F,
+    ::Type{RT},
+) where {F,RT<:Tuple}
+    R = Union{fieldtypes(RT)...}
+    return quote
+        references = $R[]
+        sizehint!(references, length(source_ids) + 1)
+        for source_id in source_ids
+            reference = _checked_reference(reference_for(source_id))
+            isnothing(reference) && return nothing
+            reference isa $R || throw(ArgumentError(
+                "A reference is outside its prepared collection family."))
+            push!(references, reference::$R)
+        end
+        return references
     end
 end
 
@@ -6367,20 +6387,11 @@ end
     isempty(types) && return :(throw(ArgumentError("A Many input requires a prepared reference family.")))
     all(R -> R <: Ref && isconcretetype(R), types) ||
         return :(throw(ArgumentError("A Many input requires exact prepared reference types.")))
-    R = Union{types...}
     C = _many_input_carrier_type(RT)
-    result = :($C(references))
     return quote
-        references = $R[]
-        sizehint!(references, length(source_ids) + 1)
-        for source_id in source_ids
-            reference = _checked_input_reference(reference_for(source_id))
-            isnothing(reference) && return nothing
-            reference isa $R || throw(ArgumentError(
-                "An input source reference is outside its prepared Many family."))
-            push!(references, reference::$R)
-        end
-        return $result
+        references = _collect_reference_family(source_ids, reference_for, $RT)
+        isnothing(references) && return nothing
+        return $C(references)
     end
 end
 
@@ -6917,46 +6928,86 @@ function _validate_model_output_destination_statuses!(
     return nothing
 end
 
+function _stage_model_output_destination_statuses!(plan, model, records, index,
+    applications_by_id, recipes, recipe_order,
+)
+    return _with_metadata_entry(_stage_model_output_destination_statuses!,
+        applications_by_id, plan.application_id, plan, model, records, index,
+        recipes, recipe_order)
+end
+function _stage_model_output_destination_statuses!(application::CompiledModelApplication,
+    plan, model, records, index, recipes, recipe_order,
+)
+    execution_id = _index_object_id(model.registry.objects,
+        getfield(records[index], :execution_object_id))
+    return _with_application_variant(_stage_model_output_destination_statuses!,
+        application, execution_id, plan, model, records, index, recipes, recipe_order)
+end
+
+# The existing port inventory admits the declarations captured by this event.
+# In particular, no output/default hook is called to recover their lost type.
+@generated function _stage_model_output_destination_statuses!(producer, ports::P,
+    plan::CompiledModelOutputDestinationPlan{GROUP,NAMES}, model, records, index,
+    recipes::AbstractDict{I}, recipe_order,
+) where {P,GROUP,NAMES,I<:ObjectId}
+    Types = fieldtype(P, :output_declaration_types)
+    declarations = Tuple(fieldtype(Types, name).parameters[1].parameters[1] for name in NAMES)
+    D = NamedTuple{NAMES,Tuple{declarations...}}
+    return quote
+        record = records[index]
+        destination_ids = getfield(record, :destination_ids)::Vector{$I}
+        captured = getfield(record, :declarations)
+        captured isa $D || throw(ArgumentError(
+            "A distributed output declaration schema changed after preparation."))
+        declarations = captured::$D
+        for destination_id in destination_ids
+            preparation = _status_preparation_for_object!(
+                recipes,
+                recipe_order,
+                model,
+                destination_id,
+            )
+            for (variable_, declaration) in pairs(declarations)
+                declaration isa Default || continue
+                variable = Symbol(variable_)
+                if preparation isa Status
+                    hasproperty(preparation, variable) && continue
+                    preparation = _status_recipe_for_object!(
+                        recipes,
+                        recipe_order,
+                        model,
+                        destination_id,
+                    )
+                end
+                _status_recipe_add_default!(
+                    model,
+                    preparation,
+                    destination_id,
+                    variable,
+                    _input_default(declaration);
+                    application_id=plan.application_id,
+                    origin=:distributed_output_default,
+                )
+            end
+        end
+        return nothing
+    end
+end
+
 function _prepare_model_output_destination_statuses!(
-    model::CompositeModel,
-    resolved_destinations,
+    model::CompositeModel, resolved_destinations, applications_by_id,
+    plans::CompiledDistributedOutputPlans,
 )
     I = keytype(model.registry.objects)
     recipes = _canonical_status_recipe_storage(model, I)
     recipe_order = I[]
     records_before = copy(model.status_conversion_records)
     try
-        for resolved in resolved_destinations
-            for destination_id in resolved.destination_ids
-                preparation = _status_preparation_for_object!(
-                    recipes,
-                    recipe_order,
-                    model,
-                    destination_id,
-                )
-                for (variable_, declaration) in pairs(resolved.declarations)
-                    declaration isa Default || continue
-                    variable = Symbol(variable_)
-                    if preparation isa Status
-                        hasproperty(preparation, variable) && continue
-                        preparation = _status_recipe_for_object!(
-                            recipes,
-                            recipe_order,
-                            model,
-                            destination_id,
-                        )
-                    end
-                    _status_recipe_add_default!(
-                        model,
-                        preparation,
-                        destination_id,
-                        variable,
-                        _input_default(declaration);
-                        application_id=resolved.plan.application_id,
-                        origin=:distributed_output_default,
-                    )
-                end
-            end
+        for index in eachindex(resolved_destinations)
+            plan = getfield(resolved_destinations[index], :plan)::CompiledModelOutputDestinationPlan
+            _with_metadata_entry(_stage_model_output_destination_statuses!,
+                plans.plans, getfield(plan, :slot), model, resolved_destinations,
+                index, applications_by_id, recipes, recipe_order)
         end
         return _apply_status_recipes!(model, recipes, recipe_order)
     catch
@@ -6966,24 +7017,53 @@ function _prepare_model_output_destination_statuses!(
     end
 end
 
-function _model_output_destination_column(
-    model::CompositeModel, destination_ids, ::Val{VARIABLE},
-) where {VARIABLE}
-    refs = [refvalue(model_status(model, destination_id), VARIABLE)
-        for destination_id in destination_ids]
-    return isempty(refs) ? RefVector{Any}() : _ref_vector_carrier(refs)
+function _model_output_destination_column(model, destination_ids, ::Val{VARIABLE},
+    ::Type{RT},
+) where {VARIABLE,RT<:Tuple}
+    reference_for = id -> refvalue(model_status(model, id), VARIABLE)
+    refs = _collect_reference_family(destination_ids, reference_for, RT)
+    isnothing(refs) && throw(ArgumentError("A distributed output lost its prepared reference."))
+    return _ref_vector_carrier(refs)
 end
 
-@generated function _model_output_destination_columns(
-    model::CompositeModel,
-    ::CompiledModelOutputDestinationPlan{GROUP,NAMES},
-    destination_ids,
-) where {GROUP,NAMES}
+# Physical bounds come from the sole canonical Status manifest. Public carrier
+# kinds stay exact; this union fixes only the preparation header representation.
+function _output_column_carrier_type(::Type{RT}) where {RT<:Tuple}
+    references = fieldtypes(RT)
+    R = Union{references...}
+    carriers = Type[RefVector{Any}]
+    for T in references
+        T <: Base.RefValue && isconcretetype(eltype(T)) || continue
+        push!(carriers, RefVector{eltype(T)})
+    end
+    if length(references) != 1 || !(only(references) <: Base.RefValue) ||
+       !isconcretetype(eltype(only(references)))
+        push!(carriers, ObjectRefVector{Vector{R}})
+    end
+    return Union{carriers...}
+end
+
+_model_output_destination_columns(model::CompositeModel, plan, destination_ids) =
+    _with_prepared_canonical_status_type(_model_output_destination_columns,
+        model, model, plan, destination_ids)
+@generated function _model_output_destination_columns(::Type{S}, model,
+    ::CompiledModelOutputDestinationPlan{GROUP,NAMES}, destination_ids,
+) where {S<:Status,GROUP,NAMES}
+    names, references = _status_schema_names(S), _status_schema_references(S)
+    families = Tuple(Tuple{Base.uniontypes(fieldtype(references,
+        findfirst(isequal(name), names)))...} for name in NAMES)
+    all(R -> all(T -> T <: Ref && isconcretetype(T), fieldtypes(R)), families) ||
+        return :(throw(ArgumentError("An output column requires exact prepared reference classes.")))
+    C = NamedTuple{NAMES,Tuple{map(_output_column_carrier_type, families)...}}
     columns = Expr(:tuple, [:(
         _model_output_destination_column(model, destination_ids,
-            Val{$(QuoteNode(name))}())
-    ) for name in NAMES]...)
-    return :(NamedTuple{$(QuoteNode(NAMES))}($columns))
+            Val{$(QuoteNode(name))}(), $(families[index]))
+    ) for (index,name) in enumerate(NAMES)]...)
+    empty_columns = Expr(:tuple, [:(RefVector{Any}()) for _ in NAMES]...)
+    return quote
+        isempty(destination_ids) && return $C($empty_columns)
+        return $C($columns)
+    end
 end
 
 function _model_output_destination_index(destination_ids::AbstractVector{I}) where {I<:ObjectId}
@@ -6999,12 +7079,9 @@ function _model_output_destination_index(destination_ids::AbstractVector{I}) whe
     return index
 end
 
-function _append_model_output_destination_binding!(plan, model, resolved, bindings)
-    I = keytype(model.registry.objects)
-    execution_object_id = _index_object_id(
-        model.registry.objects, getfield(resolved, :execution_object_id),
-    )
-    destination_ids = getfield(resolved, :destination_ids)::Vector{I}
+function _append_model_output_destination_binding!(
+    plan, model, execution_object_id::I, destination_ids::Vector{I}, bindings,
+) where {I<:ObjectId}
     binding = CompiledModelOutputDestinationBinding(
         plan,
         execution_object_id,
@@ -7018,9 +7095,10 @@ function _append_model_output_destination_binding!(plan, model, resolved, bindin
 end
 
 function _model_output_plan_binding_rows(plan, model, resolved_by_plan, bindings)
-    resolved = get!(Vector{ResolvedModelOutputDestination}, resolved_by_plan, plan.slot)
-    return [_append_model_output_destination_binding!(plan, model, row, bindings)
-        for row in resolved]
+    membership = get!(valtype(resolved_by_plan), resolved_by_plan, plan.slot)
+    return [_append_model_output_destination_binding!(
+        plan, model, execution_object_id, destination_ids, bindings,
+    ) for (execution_object_id, destination_ids) in membership]
 end
 
 # The tuple follows authored groups; only the vectors' lengths depend on organs.
@@ -7064,11 +7142,16 @@ function _compile_model_output_destination_bindings(
 )
     bindings = Any[]
     sizehint!(bindings, length(resolved_destinations))
-    resolved_by_plan = Dict{Int,Vector{ResolvedModelOutputDestination}}()
+    I = keytype(model.registry.objects)
+    resolved_by_plan = Dict{Int,Vector{Tuple{I,Vector{I}}}}()
     for resolved in resolved_destinations
         plan = getfield(resolved, :plan)::CompiledModelOutputDestinationPlan
-        push!(get!(Vector{ResolvedModelOutputDestination}, resolved_by_plan,
-            getfield(plan, :slot)), resolved)
+        execution_object_id = _index_object_id(
+            model.registry.objects, getfield(resolved, :execution_object_id),
+        )
+        destination_ids = getfield(resolved, :destination_ids)::Vector{I}
+        push!(get!(valtype(resolved_by_plan), resolved_by_plan,
+            getfield(plan, :slot)), (execution_object_id, destination_ids))
     end
     by_execution_target = Dict{Tuple{Symbol,ObjectId},Any}()
     for application_id in keys(plans.by_application)
@@ -7167,7 +7250,7 @@ function _compile_model_distributed_outputs(
     _validate_model_output_destination_statuses!(model, resolved)
     _validate_required_model_output_destinations!(model, resolved)
     _prepare_model_output_statuses!(model, applications, applications_by_id)
-    _prepare_model_output_destination_statuses!(model, resolved)
+    _prepare_model_output_destination_statuses!(model, resolved, applications_by_id, plans)
     bindings, by_execution_target =
         _compile_model_output_destination_bindings(model, resolved, plans)
     return CompiledDistributedOutputs(
@@ -7346,7 +7429,7 @@ function _incremental_distributed_output_addition!(
         end
     end
     _validate_compiled_writer_ownership!(staged_ownership, applications_by_id)
-    _prepare_model_output_destination_statuses!(model, resolved_additions)
+    _prepare_model_output_destination_statuses!(model, resolved_additions, applications_by_id, plans)
 
     column_additions = Any[]
     for resolved in resolved_additions
@@ -7360,6 +7443,7 @@ function _incremental_distributed_output_addition!(
             existing_references = parent(getproperty(binding.columns, variable))
             added_references = parent(getproperty(columns, variable))
             eltype(added_references) <: eltype(existing_references) ||
+                all(reference -> reference isa eltype(existing_references), added_references) ||
                 return nothing
         end
         push!(column_additions, (binding=binding, resolved=resolved, columns=columns))
