@@ -391,7 +391,10 @@ Base.@constprop :none Base.@noinline function _prepared_status_destination_entry
     # synthetic producer is allocated by this admission path.
     has_producer = false
     for (execution_id, producer) in model.registry.objects
-        _prepared_status_application_matches(model, producer, producer.parent, application) || continue
+        producer_parent = producer.parent
+        producer_parent_id = isnothing(producer_parent) ? nothing :
+            _index_object_id(model.registry.objects, producer_parent)
+        _prepared_status_application_matches(model, producer, producer_parent_id, application) || continue
         has_producer = true
         _prepared_status_route_matches(model, object, parent_id,
             application, plan, execution_id) || continue
@@ -466,7 +469,10 @@ function _prepared_status_source_routes_admission(sources::Tuple, application, p
     if source.plan.source_var === name
         has_consumer = false
         for (consumer_id, consumer) in model.registry.objects
-            _prepared_status_application_matches(model, consumer, consumer.parent, application) || continue
+            consumer_parent = consumer.parent
+            consumer_parent_id = isnothing(consumer_parent) ? nothing :
+                _index_object_id(model.registry.objects, consumer_parent)
+            _prepared_status_application_matches(model, consumer, consumer_parent_id, application) || continue
             has_consumer = true
             _prepared_status_route_matches(model, object, parent_id,
                 application, source.plan, consumer_id) || continue
@@ -591,7 +597,10 @@ function _prepared_status_raw_destination_count(applications::Tuple, plan, raw, 
         Base.tail(applications), plan, raw, model, object, parent_id)
     count = 0
     for (execution_id, producer) in model.registry.objects
-        _prepared_status_application_matches(model, producer, producer.parent, application) || continue
+        producer_parent = producer.parent
+        producer_parent_id = isnothing(producer_parent) ? nothing :
+            _index_object_id(model.registry.objects, producer_parent)
+        _prepared_status_application_matches(model, producer, producer_parent_id, application) || continue
         _prepared_status_route_matches(model, object, parent_id,
             application, plan, execution_id) || continue
         variant = _prepared_status_variant_slot(application, execution_id)
@@ -613,7 +622,10 @@ function _prepared_status_raw_source_count(sources::Tuple, application, raw, mod
     source = first(sources)
     count = 0
     for (consumer_id, consumer) in model.registry.objects
-        _prepared_status_application_matches(model, consumer, consumer.parent, application) || continue
+        consumer_parent = consumer.parent
+        consumer_parent_id = isnothing(consumer_parent) ? nothing :
+            _index_object_id(model.registry.objects, consumer_parent)
+        _prepared_status_application_matches(model, consumer, consumer_parent_id, application) || continue
         _prepared_status_route_matches(model, object, parent_id,
             application, source.plan, consumer_id) || continue
         variant = _prepared_status_variant_slot(application, consumer_id)

@@ -3969,6 +3969,43 @@ Base.@noinline function _status_view_key_epoch_is_current(view, model, key)
     return _status_view_epoch_is_current(view, model, object_id)
 end
 
+# Keep the real application inside its finite metadata branch. Transient
+# views are read only after admission, never captured by a metadata callback.
+function _refresh_model_status_view_for_target!(
+    application, model, compiled, views, previous_views, key,
+    input_bindings_by_target, applications_by_id, positions,
+    distributed_outputs, previous_temporal_sources,
+)
+    application_id, object_id = key
+    previous_view = get(previous_views, key, nothing)
+    if !isnothing(previous_view)
+        Base.@inline _with_model_status_view(_record_previous_temporal_sources!,
+            compiled.status_view_schema, application_id, previous_view,
+            previous_temporal_sources, key)
+    end
+    current_view = _compile_model_status_view(
+        model,
+        application,
+        object_id,
+        get(input_bindings_by_target, key, ()),
+        applications_by_id,
+        positions,
+        distributed_outputs,
+        _status_view_execution_stamp(model, key, previous_view, compiled.status_view_schema),
+        compiled.status_view_schema,
+        compiled.input_bindings,
+    )
+    views[key] = isnothing(previous_view) ?
+                 current_view :
+                 Base.@inline _preserve_model_status_view_temporal_state!(
+        compiled.status_view_schema, application_id, current_view,
+        previous_view,
+        previous_temporal_sources,
+        key,
+    )
+    return nothing
+end
+
 function _extend_model_status_views(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -4031,33 +4068,12 @@ function _extend_model_status_views(
         end
     end
     for key in affected_keys
-        application_id, object_id = key
-        application = applications_by_id[application_id]
-        previous_view = get(previous_views, key, nothing)
-        if !isnothing(previous_view)
-            Base.@inline _with_model_status_view(_record_previous_temporal_sources!,
-                compiled.status_view_schema, application_id, previous_view,
-                previous_temporal_sources, key)
-        end
-        current_view = _compile_model_status_view(
-            model,
-            application,
-            object_id,
-            get(input_bindings_by_target, key, ()),
-            applications_by_id,
-            positions,
-            distributed_outputs,
-            _status_view_execution_stamp(model, key, previous_view, compiled.status_view_schema),
-            compiled.status_view_schema,
-            compiled.input_bindings,
-        )
-        views[key] = isnothing(previous_view) ?
-                     current_view :
-                     Base.@inline _preserve_model_status_view_temporal_state!(
-            compiled.status_view_schema, application_id, current_view,
-            previous_view,
-            previous_temporal_sources,
-            key,
+        application_id = getfield(key, 1)
+        _with_metadata_entry(
+            _refresh_model_status_view_for_target!, applications_by_id,
+            application_id, model, compiled, views, previous_views, key,
+            input_bindings_by_target, applications_by_id, positions,
+            distributed_outputs, previous_temporal_sources,
         )
     end
     return views
@@ -4601,7 +4617,7 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
         model, input_bindings, input_bindings_by_target, many_binding_cache,
         changed_bindings, rewired_consumer_ids, affected_temporal_keys, previous_temporal_sources,
         processed_many_sources, previous_shared_many_sources, forced_input_binding_keys, pure_addition,
-        writer_rebind_keys, structural_dirty_ids, applications_by_object, applications_by_id,
+        writer_rebind_keys, has_writer_rebinds, structural_dirty_ids, applications_by_object, applications_by_id,
         distributed_outputs, added_ids, performance, queued_binding_indices,
         pending_binding_indices,
     ) = state
@@ -4631,7 +4647,7 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
         (previous_shared_many_sources[binding.source_ids] = copy(source_ids))
     default_scope = _default_dependency_scope(model, consumer_id)
     if !pure_addition &&
-       (isnothing(writer_rebind_keys) || !(binding_key in writer_rebind_keys))
+       (!has_writer_rebinds || !(binding_key in writer_rebind_keys))
         structural_update = _update_structural_many_sources!(
             model,
             binding,
@@ -4892,9 +4908,11 @@ function _extend_compiled_scene(
     previous_shared_many_sources = IdDict{Any,Vector{I}}()
     rebuild_dynamic_input_index = !pure_addition
     candidate_binding_indices = Set{Int}()
-    writer_rebind_keys = nothing
+    # Keep one key schema; the inactive alias is never queried as writer evidence.
+    writer_rebind_keys = forced_input_binding_keys
+    has_writer_rebinds = false
     if !isnothing(changed_writers_by_variable)
-        rebinds = pure_addition ? forced_input_binding_keys : Set{Tuple{Symbol,ObjectId,Symbol}}()
+        rebinds = pure_addition ? forced_input_binding_keys : empty(forced_input_binding_keys)
         _force_distributed_producer_rebinds!(
             rebinds,
             model,
@@ -4904,6 +4922,7 @@ function _extend_compiled_scene(
         if !pure_addition
             union!(forced_input_binding_keys, rebinds)
             writer_rebind_keys = rebinds
+            has_writer_rebinds = true
         end
     end
     if !isempty(forced_input_binding_keys)
@@ -4935,7 +4954,7 @@ function _extend_compiled_scene(
         model, input_bindings, input_bindings_by_target, many_binding_cache,
         changed_bindings, rewired_consumer_ids, affected_temporal_keys, previous_temporal_sources,
         processed_many_sources, previous_shared_many_sources, forced_input_binding_keys, pure_addition,
-        writer_rebind_keys, structural_dirty_ids, applications_by_object, applications_by_id,
+        writer_rebind_keys, has_writer_rebinds, structural_dirty_ids, applications_by_object, applications_by_id,
         distributed_outputs, added_ids, performance, queued_binding_indices,
         pending_binding_indices,
     )
@@ -6369,15 +6388,42 @@ function _input_carrier(
     return _input_reference_carrier(selector, source_ids, reference_for, reference_types)
 end
 
+_has_stream_only_output(application, source_var::Symbol) =
+    _publish_mode_for_output(application.spec, source_var) == :stream_only
+
+_source_application_targets_object(application, source_id::ObjectId) =
+    source_id in application.target_ids
+
 function _has_stream_only_input_source(
     source_application_ids,
     source_var::Symbol,
     applications_by_id,
 )
     return any(source_application_ids) do application_id
-        application = applications_by_id[application_id]
-        _publish_mode_for_output(application.spec, source_var) ==
-            :stream_only
+        Base.@inline _with_metadata_entry(_has_stream_only_output,
+            applications_by_id, application_id, source_var)
+    end
+end
+
+function _stream_only_initial_reference(
+    application::CompiledModelApplication,
+    model::CompositeModel,
+    source_id::ObjectId,
+    source_var::Symbol,
+)
+    _has_stream_only_output(application, source_var) || return nothing
+    return Base.@inline _with_application_variant(application, source_id) do effective_model, ports
+        initial, _, _ = _materialize_status_value(
+            model,
+            source_var,
+            getproperty(_local_output_schema(effective_model), source_var);
+            object_id=source_id,
+            application_id=application.id,
+            origin=:stream_only_source_default,
+            private_copy=true,
+            reuse=true,
+        )
+        return Ref(initial)
     end
 end
 
@@ -6388,29 +6434,15 @@ function _stream_only_initial_reference(
     source_var::Symbol,
     applications_by_id,
 )
-    matching_applications = CompiledModelApplication[
-        applications_by_id[application_id]
-        for application_id in source_application_ids
-        if source_id in applications_by_id[application_id].target_ids
+    matching_application_ids = Symbol[
+        application_id for application_id in source_application_ids
+        if Base.@inline _with_metadata_entry(_source_application_targets_object,
+            applications_by_id, application_id, source_id)
     ]
-    if length(matching_applications) == 1
-        application = only(matching_applications)
-        if _publish_mode_for_output(application.spec, source_var) ==
-           :stream_only
-            return Base.@inline _with_application_variant(application, source_id) do effective_model, ports
-                initial, _, _ = _materialize_status_value(
-                    model,
-                    source_var,
-                    getproperty(_local_output_schema(effective_model), source_var);
-                    object_id=source_id,
-                    application_id=application.id,
-                    origin=:stream_only_source_default,
-                    private_copy=true,
-                    reuse=true,
-                )
-                return Ref(initial)
-            end
-        end
+    if length(matching_application_ids) == 1
+        reference = Base.@inline _with_metadata_entry(_stream_only_initial_reference,
+            applications_by_id, only(matching_application_ids), model, source_id, source_var)
+        isnothing(reference) || return reference
     end
     return _status_ref_or_nothing(
         _model_object(model, source_id).status,
@@ -7649,6 +7681,10 @@ function _private_temporal_value(value)
     return _private_initial_value(value)
 end
 
+# Test source ownership inside the existing finite application metadata branch.
+_temporal_source_application_matches(application, distributed_outputs, source_id, source_var) =
+    _application_writes_object_variable(distributed_outputs, application, source_id, source_var)
+
 function _temporal_source_application(
     binding::CompiledModelInputBinding,
     source_id::ObjectId,
@@ -7661,11 +7697,9 @@ function _temporal_source_application(
         return only(binding.source_application_ids)
     matches = Symbol[
         application_id for application_id in binding.source_application_ids
-        if _application_writes_object_variable(
-            distributed_outputs,
-            applications_by_id[application_id],
-            source_id,
-            binding.source_var,
+        if Base.@inline _with_metadata_entry(
+            _temporal_source_application_matches, applications_by_id, application_id,
+            distributed_outputs, source_id, binding.source_var,
         )
     ]
     canonical_application = _distributed_temporal_source_application(
@@ -9178,6 +9212,20 @@ end
     return quote
         $(branches...)
         $missing
+    end
+end
+
+# Some prepared indexes already own immutable named tuples. Select their
+# scalar entry directly, without allocating a second metadata-table wrapper.
+@generated function _with_metadata_entry(f::F, entries::T, key::Symbol,
+    args::Vararg{Any,N},
+) where {F,T<:NamedTuple,N}
+    branches = [:(key === $(QuoteNode(name)) &&
+                  return f(getfield(entries, $index), args...))
+        for (index, name) in enumerate(fieldnames(T))]
+    return quote
+        $(branches...)
+        throw(KeyError(key))
     end
 end
 

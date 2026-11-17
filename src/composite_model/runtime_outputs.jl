@@ -1925,6 +1925,77 @@ function _initialize_model_output_stream!(
         sizehint_steps, application.clock.dt)
 end
 
+# Lifecycle groups keep their open cache shell; this operation needs only the
+# existing plan and membership, never the columns' changing carrier types.
+@inline function _with_model_output_destination_membership(f::F,
+    plan::CompiledModelOutputDestinationPlan{GROUP}, groups::NamedTuple,
+    application::CompiledModelApplication{P,I}, args::Vararg{Any,N},
+) where {F,GROUP,P,I,N}
+    plan.application_id === application.id || return nothing
+    isdefined(groups, GROUP) || return nothing
+    binding = getfield(groups, GROUP)::CompiledModelOutputDestinationBinding
+    destination_ids = getfield(binding, :destination_ids)::Vector{I}
+    return f(plan, destination_ids, args...)
+end
+
+function _initialize_changed_model_output_destination_streams!(
+    plan, destination_ids, streams, compiled, retention, application, variables,
+    sizehint_steps,
+)
+    for variable_ in plan.variable_names
+        variable = Symbol(variable_)
+        variable in variables || continue
+        for destination_id in destination_ids
+            id = _index_object_id(compiled.model.registry.objects, destination_id)
+            _initialize_model_output_stream!(
+                streams,
+                compiled,
+                retention,
+                application,
+                id,
+                variable,
+                sizehint_steps,
+            )
+        end
+    end
+    return nothing
+end
+
+function _initialize_changed_model_output_plan_streams!(
+    plan, object_id, streams, compiled, retention, application, variables,
+    sizehint_steps,
+)
+    # Admit the finite plan before reading the lifecycle cache's open shell.
+    groups = get(
+        compiled.distributed_outputs.by_execution_target,
+        (application.id, object_id),
+        nothing,
+    )
+    isnothing(groups) && return nothing
+    groups isa NamedTuple || throw(ArgumentError(
+        "Compiled output destination groups must be a named tuple.",
+    ))
+    return _with_model_output_destination_membership(
+        _initialize_changed_model_output_destination_streams!, plan, groups,
+        application, streams, compiled, retention, application, variables,
+        sizehint_steps,
+    )
+end
+
+function _initialize_changed_model_output_application_streams!(
+    application_plans, object_id, streams, compiled, retention, application,
+    variables, sizehint_steps,
+)
+    for slot in 1:length(application_plans)
+        _with_metadata_entry(
+            _initialize_changed_model_output_plan_streams!, application_plans,
+            slot, object_id, streams, compiled, retention, application, variables,
+            sizehint_steps,
+        )
+    end
+    return nothing
+end
+
 function _initialize_changed_model_output_streams!(
     streams,
     compiled::CompiledCompositeModel,
@@ -1957,30 +2028,12 @@ function _initialize_changed_model_output_streams!(
                 end
             end
             compiled.distributed_outputs isa CompiledDistributedOutputs || return nothing
-            groups = get(
-                compiled.distributed_outputs.by_execution_target,
-                (application_id, object_id),
-                nothing,
+            plans = compiled.scenario_plan.distributed_output_plans::CompiledDistributedOutputPlans
+            _with_metadata_entry(
+                _initialize_changed_model_output_application_streams!,
+                plans.by_application, application_id, object_id, streams, compiled,
+                retention, application, variables, sizehint_steps,
             )
-            isnothing(groups) && return nothing
-            for binding in values(groups)
-                for variable_ in binding.plan.variable_names
-                    variable = Symbol(variable_)
-                    variable in variables || continue
-                    for destination_id in binding.destination_ids
-                        id = _index_object_id(compiled.model.registry.objects, destination_id)
-                        _initialize_model_output_stream!(
-                            streams,
-                            compiled,
-                            retention,
-                            application,
-                            id,
-                            variable,
-                            sizehint_steps,
-                        )
-                    end
-                end
-            end
         end
     end
     return streams
