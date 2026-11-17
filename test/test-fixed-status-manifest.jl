@@ -67,6 +67,25 @@ end
     @test PSE.refvalue(model_status(model, :scene), :x) === x
     @test source.calls[] == 2 # ordinary fresh staging read, no manifest replay
 end
+@testset "repeated applications share the prepared admission schema" begin
+    function scene(kinds)
+        applications = [ModelSpec(Source(1.0, 2.0, Ref(0)); name=kind,
+            on=Many(scale=:Leaf, kind=kind)) for kind in kinds]
+        return CompositeModel(Object(:scene; scale=:Scene); applications)
+    end
+
+    small = scene((:sun,))
+    large = scene((:sun, :shade))
+    @test typeof(PSE._prepared_status_manifest(small)) === typeof(PSE._prepared_status_manifest(large))
+
+    leaf = Object(:leaf; scale=:Leaf, kind=:shade, status=Status(x=3.0))
+    reference = PSE.refvalue(leaf.status, :x)
+    @test_throws ArgumentError register_object!(small, leaf)
+    @test !haskey(small.registry.objects, leaf.id)
+    register_object!(large, leaf)
+    @test PSE.refvalue(model_status(large, :leaf), :x) === reference
+end
+
 @testset "RAW evidence cardinality does not alter an otherwise equal prepared owner" begin
     make = function (leaves)
         source = Source(1.0,2.0,Ref(0))
