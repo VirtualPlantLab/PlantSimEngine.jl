@@ -54,7 +54,13 @@ else
             try
                 @testset "$name" begin
                     for file in files
-                        include(file)
+                        @info "Test file start" group_index file
+                        file_started_at = time_ns()
+                        try
+                            include(file)
+                        finally
+                            @info "Test file end" group_index file elapsed_seconds=(time_ns() - file_started_at) / 1.0e9
+                        end
                     end
                 end
             finally
