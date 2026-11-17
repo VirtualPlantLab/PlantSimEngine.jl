@@ -4246,6 +4246,10 @@ function _sorted_object_ids_intersect_set(sorted_ids, ids::AbstractSet)
     return false
 end
 
+# Rebind keys use the same prepared identity family as the registry index.
+_input_binding_key_set(::AbstractDict{I}) where {I<:ObjectId} =
+    Set{Tuple{Symbol,I,Symbol}}()
+
 function _prepare_structural_compiled_delta(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -4288,12 +4292,13 @@ function _prepare_structural_compiled_delta(
         end
         push!(input_bindings, binding)
     end
-    forced_input_binding_keys = Set{Tuple{Symbol,ObjectId,Symbol}}()
+    forced_input_binding_keys = _input_binding_key_set(model.registry.objects)
     previous_temporal_sources = _previous_temporal_source_storage(model)
     for binding in input_bindings
         _sorted_object_ids_intersect_set(binding.source_ids, dirty) ||
             continue
-        key = (binding.application_id, binding.consumer_id, binding.input)
+        consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
+        key = (binding.application_id, consumer_id, binding.input)
         push!(forced_input_binding_keys, key)
         if binding.carrier_hint == :temporal_stream
             previous_temporal_sources[key] = copy(binding.source_ids)
@@ -4761,7 +4766,7 @@ function _extend_compiled_scene(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
     added_objects;
-    forced_input_binding_keys=Set{Tuple{Symbol,ObjectId,Symbol}}(),
+    forced_input_binding_keys=_input_binding_key_set(model.registry.objects),
     forced_call_target_keys=Set{Tuple{Symbol,ObjectId}}(),
     previous_views=compiled.status_views_by_target,
     previous_temporal_sources_seed=_previous_temporal_source_storage(model),
@@ -7421,19 +7426,21 @@ function _force_distributed_producer_rebinds!(forced, model, bindings, by_variab
             continue
         candidates = get(by_variable, binding.source_var, ())
         isempty(candidates) && continue
-        default_scope = _default_dependency_scope(model, binding.consumer_id)
-        for (destination, producer) in candidates
+        consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
+        default_scope = _default_dependency_scope(model, consumer_id)
+        for (raw_destination, producer) in candidates
             producer in binding.plan.potential_source_application_ids || continue
+            destination = _index_object_id(model.registry.objects, raw_destination)
             _selector_matches_object_id(
                 model,
                 binding.matcher,
                 destination,
-                binding.consumer_id,
+                consumer_id,
                 true,
                 default_scope,
                 false,
             ) || continue
-            push!(forced, (binding.application_id, binding.consumer_id, binding.input))
+            push!(forced, (binding.application_id, consumer_id, binding.input))
             break
         end
     end
@@ -7682,7 +7689,7 @@ function _private_temporal_value(value)
 end
 
 # Test source ownership inside the existing finite application metadata branch.
-_temporal_source_application_matches(application, distributed_outputs, source_id, source_var) =
+_application_writes_source_variable(application, distributed_outputs, source_id, source_var) =
     _application_writes_object_variable(distributed_outputs, application, source_id, source_var)
 
 function _temporal_source_application(
@@ -7698,7 +7705,7 @@ function _temporal_source_application(
     matches = Symbol[
         application_id for application_id in binding.source_application_ids
         if Base.@inline _with_metadata_entry(
-            _temporal_source_application_matches, applications_by_id, application_id,
+            _application_writes_source_variable, applications_by_id, application_id,
             distributed_outputs, source_id, binding.source_var,
         )
     ]
@@ -8610,32 +8617,37 @@ end
 _application_plans(plans_by_application, application_id::Symbol) =
     plans_by_application[application_id]
 
+function _append_potential_input_source_application!(
+    application, matches, source_var::Symbol, process_filter, application_filter,
+)
+    if _application_declares_output_name(application, source_var) &&
+       (isnothing(process_filter) || application.process == process_filter) &&
+       (isnothing(application_filter) || application.id == application_filter)
+        push!(matches, application.id)
+    end
+    return nothing
+end
+
 function _potential_input_source_applications(
     applications_by_id,
     source_var::Symbol,
     process_filter,
     application_filter,
 )
-    matches = Symbol[
-        application.id
-        for application in values(applications_by_id)
-        if _application_declares_output_name(application, source_var) &&
-           (isnothing(process_filter) || application.process == process_filter) &&
-           (isnothing(application_filter) || application.id == application_filter)
-    ]
+    matches = Symbol[]
+    for application_id in keys(applications_by_id)
+        Base.@inline _with_metadata_entry(
+            _append_potential_input_source_application!, applications_by_id,
+            application_id, matches, source_var, process_filter, application_filter,
+        )
+    end
     sort!(matches)
     return matches
 end
 
 function _application_declares_output_name(application, variable::Symbol)
-    variable in _model_output_names(application) && return true
-    destinations = _output_destination_layout(
-        application.spec, _model_distributed_output_names(application),
-    )
-    return any(
-        destination -> variable in destination.variable_names,
-        values(destinations),
-    )
+    # Destination layouts are validated before input bindings resolve.
+    return variable in _application_ports(application).outputs.all_names
 end
 
 function _final_canonical_source_application(
@@ -8944,14 +8956,10 @@ function _final_many_source_applications(
         final_owner = isnothing(writer) ? nothing : writer.application_id
         if isnothing(final_owner)
             for application_id in source_application_ids
-                application = applications_by_id[application_id]
-                first(
-                    _sorted_object_id_position(
-                        application.target_ids,
-                        source_id,
-                    ),
+                Base.@inline _with_metadata_entry(
+                    _application_writes_source_variable, applications_by_id,
+                    application_id, NoCompiledDistributedOutputs(), source_id, source_var,
                 ) || continue
-                source_var in _model_output_names(application) || continue
                 application_id in canonical_ids ||
                     push!(canonical_ids, application_id)
             end
