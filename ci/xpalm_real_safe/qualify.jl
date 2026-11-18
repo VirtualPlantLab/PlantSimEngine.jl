@@ -122,6 +122,30 @@ function prepare()
     Pkg.resolve()
     Pkg.instantiate(; allow_autoprecomp=false)
     actual = graph(joinpath(APP, "Manifest.toml"))
+    # A named Project may acquire its own entry during resolve. This is the
+    # checked application itself, not a changed scientific dependency.
+    app_project = TOML.parsefile(joinpath(APP, "Project.toml"))
+    self = pop!(actual, app_project["name"], nothing)
+    if !isnothing(self)
+        self["uuid"] == app_project["uuid"] && self["version"] == app_project["version"] &&
+            realpath(self["path"]) == realpath(APP) && self["deps"] == app_project["deps"] ||
+            error("Unexpected application self entry in the resolved Manifest.")
+        save(joinpath(OUT, "resolved-application-self-entry.toml"), self)
+    end
+    bundled = Dict{String,Any}()
+    for directory in readdir(Sys.STDLIB; join=true)
+        file = joinpath(directory, "Project.toml")
+        isfile(file) || continue
+        project = TOML.parsefile(file)
+        name = get(project, "name", "")
+        endswith(name, "_jll") && haskey(actual, name) || continue
+        row = actual[name]
+        row["uuid"] == project["uuid"] && row["version"] == project["version"] ||
+            error("Resolved bundled JLL disagrees with the actual Julia distribution.")
+        bundled[name] = Dict("uuid"=>project["uuid"], "version"=>project["version"],
+            "Project_sha256"=>bytes2hex(sha256(read(file))), "resolved_entry"=>row)
+    end
+    save(joinpath(OUT, "actual-Julia-bundled-JLLs.toml"), bundled)
     cp(joinpath(APP, "Manifest.toml"), joinpath(OUT, "resolved-app-Manifest.toml"))
     differences = Dict(name => Dict("seed" => get(seed, name, Dict("absent"=>true)),
         "resolved" => get(actual, name, Dict("absent"=>true)))
