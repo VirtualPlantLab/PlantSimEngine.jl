@@ -54,6 +54,21 @@ const PSE = PlantSimEngine
     @test family.rows[location.row].status === canonical
 end
 
+@testset "object lists retain textual order across identity types" begin
+    raw_ids = Any[10, 2, :root, Symbol("2"), (:tree, :leaf, 2), (:tree, :leaf, 10),
+        (:tree, Symbol("a b"), 1), (:tree, (:leaf, 1)), (:tree,), ()]
+    model = CompositeModel((Object(id; scale=:Leaf) for id in raw_ids)...)
+    ids = collect(keys(model.registry.objects))
+    for id in ids
+        @test PSE._object_list_sort_key(id) == string(id.value)
+    end
+    expected = sort(collect(model.registry.by_scale[:Leaf]); by=id -> string(id.value))
+    @test object_ids(model; scale=:Leaf) == expected
+    @test all(object === model_object(model, id)
+        for (object, id) in zip(model_objects(model; scale=:Leaf), expected))
+    @test object_ids(model; id=[2, 10, 2]) == ObjectId.([10, 2])
+end
+
 @testset "missing object diagnostics preserve scalar values and complete tuple identities" begin
     present = Object((:plant, :leaf, 1); status=Status(value=2f0))
     model = CompositeModel(present)

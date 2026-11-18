@@ -868,7 +868,7 @@ function _indexed_object_ids(model::CompositeModel; scale=nothing, kind=nothing,
         isnothing(object) && continue
         _matches_object_criteria(object; scale, kind, species, id) && push!(ids, candidate)
     end
-    return unique!(ids)
+    return candidate_ids isa AbstractSet ? ids : unique!(identity, ids; seen=Set{I}())
 end
 
 # Resolve topology once, before choosing between a bounded local walk and a
@@ -1145,15 +1145,18 @@ function _print_selector_diagnostic_value(io, ::Type{T}, ancestors) where {T}
     return nothing
 end
 
-function _print_selector_diagnostic_items(io, items::Tuple, ancestors)
+function _print_tuple_items(emit::F, io, items::Tuple, args::Vararg{Any,N}) where {F,N}
     isempty(items) && return nothing
-    _print_selector_diagnostic(io, first(items), ancestors)
+    emit(io, first(items), args...)
     if length(items) > 1
         print(io, ", ")
-        _print_selector_diagnostic_items(io, Base.tail(items), ancestors)
+        _print_tuple_items(emit, io, Base.tail(items), args...)
     end
     return nothing
 end
+
+_print_selector_diagnostic_items(io, items::Tuple, ancestors) =
+    _print_tuple_items(_print_selector_diagnostic, io, items, ancestors)
 
 function _print_selector_diagnostic_items(io, items::AbstractVector, ancestors)
     for (index, item) in enumerate(items)

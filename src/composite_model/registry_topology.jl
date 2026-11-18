@@ -1838,6 +1838,25 @@ function _geometry_inheriting_descendants(model::CompositeModel, root_id::Object
 end
 
 
+_object_list_sort_key(id::ObjectId) = string(id.value)
+_object_list_sort_key(id::ObjectId{<:Tuple}) = sprint(_show_object_id_element, id.value)
+
+_show_object_id_element(io, value) = show(io, value)
+# Inline Julia's Symbol branch to keep its spelling without compiling expression display.
+_show_object_id_element(io, value::Symbol) =
+    Base.@inline Base.show_unquoted_quote_expr(io, value, 0, 0, 0)
+
+function _show_object_id_element(io, value::Tuple)
+    print(io, '(')
+    if !Base.show_circular(io, value)
+        context = IOContext(io, :SHOWN_SET => value, :typeinfo => Any)
+        _print_tuple_items(_show_object_id_element, context, value)
+        length(value) == 1 && print(io, ',')
+    end
+    print(io, ')')
+    return nothing
+end
+
 function object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, id=nothing)
     ids = _indexed_object_ids(
         model;
@@ -1847,7 +1866,8 @@ function object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=
         id=_normalize_object_id_criterion(id),
     )
     isnothing(ids) && (ids = collect(keys(model.registry.objects)))
-    return sort!(ids; by=id -> string(id.value))
+    length(ids) < 2 && return ids
+    return ids[sortperm(map(_object_list_sort_key, ids))]
 end
 
 model_objects(model::CompositeModel; kwargs...) = [_model_object(model, id) for id in object_ids(model; kwargs...)]

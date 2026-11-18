@@ -6,7 +6,8 @@ function state_for(simulation)
     leaves = S[PSE.model_status(simulation, id)::S for id in ids]
     ordinals = Base.RefValue{Int}[PSE.refvalue(status, :ordinal) for status in leaves]
     objects = PSE.Object[PSE.model_object(simulation, id) for id in ids]
-    return (; simulation, ids, leaves, ordinals, objects,
+    listed_objects = objects[sortperm(ids; by=id -> string(id.value))]
+    return (; simulation, ids, leaves, ordinals, objects, listed_objects,
         signals=Base.RefValue{Float32}[], streams=Vector{Tuple{Float64,Float32}}[])
 end
 
@@ -15,7 +16,9 @@ function checkpoint(state, day)
     sim, model = state.simulation, state.simulation.model
     PSE.current_step(sim) == day || return false
     length(state.ids) == 30 || return false
-    length(PSE.model_objects(model; scale=:Leaf)) == 30 || return false
+    listed = PSE.model_objects(model; scale=:Leaf)
+    length(listed) == 30 || return false
+    all(i -> listed[i] === state.listed_objects[i], eachindex(listed)) || return false
     length(model.registry.objects) == 31 + Int(day >= 2) || return false
     haskey(model.registry.objects, PSE.ObjectId(:emitter)) == (day >= 2) || return false
     for index in eachindex(state.ids)
