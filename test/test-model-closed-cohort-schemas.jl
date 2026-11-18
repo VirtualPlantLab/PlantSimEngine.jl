@@ -41,7 +41,7 @@ end
     replaced = refresh(store, targets, (1, 3), (1,); previous=membership, schema)
     @test replaced.membership === membership
     @test flatten(membership) == [changed, last]
-    @test isnothing(first_location.cohort.rows[first_location.row])
+    @test isnothing(first_location.cohort[first_location.row])
     @test Base.last(membership.runs) === old_rows
     @test old_rows.indices == [last_location.row]
     @test only(old_rows) === last
@@ -175,7 +175,7 @@ end
     @test only(flatten(added.membership)) === witness
     PSE.refresh_cohort_membership!(builder, store, :growth, ids(()), ids((7,)); previous=membership)
     @test isempty(membership.runs)
-    @test isnothing(location.cohort.rows[location.row])
+    @test isnothing(location.cohort[location.row])
     PSE.refresh_cohort_membership!(builder, store, :growth, ids((7,)), ids((7,)); previous=membership)
     @test calls[] == 2
     @test PSE.cohort_location(store, :growth, witness.object_id) === location
@@ -210,7 +210,7 @@ end
     @test_throws ArgumentError PSE._append_execution_cohort_target!(rows, first)
     @test length(rows) == 2
     @test changed_rows[1] === changed
-    @test isnothing(original_locations[1].cohort.rows[original_locations[1].row])
+    @test isnothing(original_locations[1].cohort[original_locations[1].row])
 end
 
 PSE.@process "closed_cohort_owner" verbose=false

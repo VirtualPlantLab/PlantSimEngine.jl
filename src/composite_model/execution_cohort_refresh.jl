@@ -11,7 +11,7 @@ struct ExecutionCohortMembership{S<:ExecutionCohortSchema,I<:ObjectId,L<:Executi
 end
 
 function _execution_cohort_target(cohort::ExecutionCohort{T}, row::Int) where {T}
-    target = cohort.rows[row]
+    target = cohort[row]
     isnothing(target) && throw(ArgumentError(
         "An execution membership refers to a removed or replaced payload schema.",
     ))

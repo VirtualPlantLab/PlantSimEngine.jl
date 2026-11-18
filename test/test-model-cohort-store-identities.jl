@@ -94,8 +94,8 @@ end
         alias_owner = PSE._execution_call_owner(alias_calls.binding)
         first_location = PSE.cohort_location(store, :leaf, ObjectId(1); owner=first_owner)
         alias_location = PSE.cohort_location(store, :leaf, ObjectId(1); owner=alias_owner)
-        first_target = first_location.cohort.rows[first_location.row]
-        alias_target = alias_location.cohort.rows[alias_location.row]
+        first_target = first_location.cohort[first_location.row]
+        alias_target = alias_location.cohort[alias_location.row]
         first_context = first_target.context
         reference = PSE.refvalue(model_status(data.model, 1), :value)
         @test first_location.cohort !== alias_location.cohort
@@ -113,7 +113,7 @@ end
         retained = PSE.cohort_location(store, :leaf, ObjectId(1); owner=first_owner)
         @test retained.cohort === first_location.cohort
         @test retained.row == first_location.row
-        @test retained.cohort.rows[retained.row] === first_target
+        @test retained.cohort[retained.row] === first_target
         @test first_target.context === first_context
         @test PSE.refvalue(model_status(data.model, 1), :value) === reference
         @test model_status(data.model, 1).value === 4.0f0
@@ -168,7 +168,7 @@ end
         second
     end
     @test refreshed.membership === initial.membership
-    @test isnothing(location.cohort.rows[location.row])
+    @test isnothing(location.cohort[location.row])
     @test only(only(refreshed.membership.runs)) === second
     @test second.status === status
     @test length(store.cohorts) == 2
@@ -255,7 +255,7 @@ end
         previous = simulation.execution_plan
         store = check_store(simulation, closed)
         location = PSE.cohort_location(store,:controller,ObjectId(:root))
-        target = location.cohort.rows[location.row]
+        target = location.cohort[location.row]
         reference = PSE.refvalue(model_status(data.model, 1), :value)
         # Removing an application prepares a new configuration through the
         # existing authoring API. Preserve the genuine scientific cells while
@@ -279,7 +279,7 @@ end
         @test (@inferred plan_cohorts(refreshed.plan)) === store
         @test only(refreshed.plan.groups).application.id === :leaf
         @test isnothing(PSE.cohort_location(store,:controller,ObjectId(:root)))
-        @test isnothing(location.cohort.rows[location.row])
+        @test isnothing(location.cohort[location.row])
         @test target.status_view.status.ticks == 0
         @test model_status(data.model, 1).value === 0.0f0
         @test PSE.refvalue(model_status(data.model, 1), :value) === reference
@@ -308,7 +308,7 @@ Base.hash(owner::OwnerAlias, seed::UInt) = hash(owner.value, seed)
         rows = PSE.cohort_rows!(store, :leaf, [payload]; owner=stored)
         location = PSE.cohort_location(store, :leaf, ObjectId(1); owner=query)
         @test location.cohort === rows.cohort
-        @test location.cohort.rows[location.row] === payload
+        @test location.cohort[location.row] === payload
         @test PSE._execution_cohort(store, query, :leaf, typeof(payload)) === rows.cohort
         @test length(store.cohorts) == 1
         stored_key = PSE._execution_location_key(store, stored, :leaf, ObjectId(1))
@@ -316,7 +316,7 @@ Base.hash(owner::OwnerAlias, seed::UInt) = hash(owner.value, seed)
         @test isequal(query_key, stored_key)
         @test hash(query_key) == hash(stored_key)
         @test PSE.remove_cohort_target!(store, :leaf, ObjectId(1); owner=query)
-        @test isnothing(rows.cohort.rows[location.row])
+        @test isnothing(rows.cohort[location.row])
         @test isempty(store.locations)
         @test PSE.refvalue(payload.status, :value) === PSE.refvalue(status, :value)
     end

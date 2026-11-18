@@ -1,12 +1,18 @@
 abstract type AbstractExecutionCohort end
 
+# The row array has a nominal element type, including when T is a nested call
+# target. Removing a target releases it without invalidating existing row indices.
+struct _ExecutionCohortSlot{T}
+    value::Union{Nothing,T}
+end
+
 mutable struct ExecutionCohort{T,I<:ObjectId,O} <: AbstractExecutionCohort
     owner::O
     application_id::Symbol
-    rows::Vector{Union{Nothing,T}}
+    rows::Vector{_ExecutionCohortSlot{T}}
     indices::Dict{I,Int}
 
-    ExecutionCohort{T,I,O}(owner::O, application_id::Symbol, rows::Vector{Union{Nothing,T}},
+    ExecutionCohort{T,I,O}(owner::O, application_id::Symbol, rows::Vector{_ExecutionCohortSlot{T}},
         indices::Dict{I,Int}) where {T,I<:ObjectId,O} =
         new{T,I,O}(owner, application_id, rows, indices)
 end
@@ -234,7 +240,7 @@ Base.dataids(rows::ExecutionCohortRows) =
 Base.@propagate_inbounds function Base.getindex(rows::ExecutionCohortRows{T}, index::Int) where {T}
     @boundscheck checkbounds(rows.indices, index)
     slot = @inbounds rows.indices[index]
-    target = @inbounds rows.cohort.rows[slot]
+    target = @inbounds rows.cohort[slot]
     isnothing(target) && throw(ArgumentError(
         "This execution target was removed or changed its payload schema.",
     ))
@@ -252,13 +258,14 @@ function _execution_cohort(store::ExecutionCohortStore{StoreI,O}, owner, applica
     I <: StoreI || throw(ArgumentError("The execution target identity is outside the store schema."))
     owner = _execution_store_owner(store, owner)
     cohort = get!(store.cohorts, _execution_cohort_key(store, owner, application_id, T)) do
-        ExecutionCohort{T,I,O}(owner, application_id, Union{Nothing,T}[], Dict{I,Int}())
+        ExecutionCohort{T,I,O}(owner, application_id, _ExecutionCohortSlot{T}[], Dict{I,Int}())
     end
     return cohort::ExecutionCohort{T,I,O}
 end
 
-function _clear_execution_cohort_row!(cohort::ExecutionCohort, row::Int)
-    cohort.rows[row] = nothing
+Base.@propagate_inbounds Base.getindex(cohort::ExecutionCohort, row::Int) = cohort.rows[row].value
+function _clear_execution_cohort_row!(cohort::ExecutionCohort{T}, row::Int) where {T}
+    cohort.rows[row] = _ExecutionCohortSlot{T}(nothing)
     return nothing
 end
 
@@ -283,11 +290,11 @@ function _store_execution_cohort_target!(
     end
     slot = get(cohort.indices, object_id, 0)
     if iszero(slot)
-        push!(cohort.rows, target)
+        push!(cohort.rows, _ExecutionCohortSlot{T}(target))
         slot = length(cohort.rows)
         cohort.indices[object_id] = slot
     else
-        cohort.rows[slot] = target
+        cohort.rows[slot] = _ExecutionCohortSlot{T}(target)
     end
     store.locations[_execution_location_key(store, owner, cohort.application_id, object_id)] = ExecutionCohortLocation(cohort, slot)
     return slot

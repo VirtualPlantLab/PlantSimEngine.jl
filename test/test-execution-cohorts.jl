@@ -97,7 +97,7 @@ end
     @test getproperty.(rows, :object_id) == ObjectId.([0, 30])
     @test PlantSimEngine.remove_cohort_target!(store, :growth, ObjectId(10))
     @test isnothing(PlantSimEngine.cohort_location(store, :growth, ObjectId(10)))
-    @test isnothing(rows.cohort.rows[first_location.row])
+    @test isnothing(rows.cohort[first_location.row])
     @test !PlantSimEngine.remove_cohort_target!(store, :growth, ObjectId(10))
     insert!(rows, 2, first)
     @test PlantSimEngine.cohort_location(store, :growth, first.object_id) === first_location
@@ -124,7 +124,7 @@ end
     @test changed_rows.cohort !== rows.cohort
     @test changed_rows[1] === changed
     @test PlantSimEngine.cohort_location(store, :growth, changed.object_id).cohort === changed_rows.cohort
-    @test isnothing(rows.cohort.rows[first_location.row])
+    @test isnothing(rows.cohort[first_location.row])
     @test_throws ArgumentError rows[1]
     @test rows[2] === last
     @test PlantSimEngine.cohort_location(store, :growth, last.object_id) === last_location
@@ -135,5 +135,5 @@ end
     @test restored[1] === first
     @test PlantSimEngine.cohort_location(store, :growth, first.object_id) === first_location
     @test rows[2] === last
-    @test isnothing(changed_rows.cohort.rows[1])
+    @test isnothing(changed_rows.cohort[1])
 end

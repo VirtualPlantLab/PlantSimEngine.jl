@@ -3810,13 +3810,10 @@ function compile_model_execution_plan(
         application.id in manual_application_ids && continue
         previous_group = isnothing(batch_schemas) ? nothing :
             _prepared_execution_group(application,getproperty(batch_schemas,application.id),cohorts)
-        refreshed = _refresh_model_execution_group!(
-            previous_group, cohorts, compiled, env_bindings, application,
+        _refresh_model_execution_group!(
+            groups, batches, previous_group, cohorts, compiled, env_bindings, application,
             temporal_streams, output_retention, constants, nothing, nothing,
         )
-        isnothing(refreshed.group) && continue
-        push!(groups, refreshed.group)
-        append!(batches, refreshed.group.batches)
     end
     application_count = length(compiled.scenario_plan.applications)
     return CompiledExecutionPlan(
@@ -4444,7 +4441,7 @@ function _same_execution_members(left, right)
 end
 
 function _refresh_model_execution_group!(
-    previous_group,
+    groups, batches, previous_group,
     cohorts::ExecutionCohortStore,
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
@@ -4514,12 +4511,12 @@ function _refresh_model_execution_group!(
     if !isnothing(group) && group === previous_group && group_changed
         _runtime_performance_count!(performance, :execution_groups_updated_in_place)
     end
-    return (
-        group=group,
-        targets_constructed=refreshed.targets_constructed,
-        batches_constructed=assembled.batches_constructed,
-        group_reused=reused_group && !group_changed,
-    )
+    if !isnothing(group)
+        push!(groups, group)
+        append!(batches, group.batches)
+    end
+    return (refreshed.targets_constructed, assembled.batches_constructed,
+        Int(reused_group && !group_changed))
 end
 
 function _changed_execution_target_ids_by_application(changed_execution_target_ids,
@@ -4683,16 +4680,11 @@ function _refresh_model_execution_plan(
                 end
                 changed_ids = isnothing(changed_by_application) ? nothing :
                               get(changed_by_application, application.id, ())
-                refreshed = _refresh_model_execution_group!(
-                    previous_group, previous.cohorts, compiled, env_bindings, application,
-                    temporal_streams, output_retention, constants, performance, changed_ids,
+                return _refresh_model_execution_group!(
+                    groups, batches, previous_group, previous.cohorts, compiled, env_bindings,
+                    application, temporal_streams, output_retention, constants, performance,
+                    changed_ids,
                 )
-                if !isnothing(refreshed.group)
-                    push!(groups, refreshed.group)
-                    append!(batches, refreshed.group.batches)
-                end
-                return (refreshed.targets_constructed, refreshed.batches_constructed,
-                    Int(refreshed.group_reused))
             end
         end
         targets_constructed += counts[1]

@@ -82,7 +82,7 @@ function assert_canonical_storage(simulation)
         @test isconcretetype(eltype(view))
         @test length(view.indices) == length(view)
         for (index, target) in enumerate(view)
-            @test view.cohort.rows[view.indices[index]] === target
+            @test view.cohort[view.indices[index]] === target
             location = PSE.cohort_location(store, batch.application.id, target.object_id)
             @test location.cohort === view.cohort
             @test location.row == view.indices[index]
@@ -274,7 +274,7 @@ end
 
 function assert_manual_location(store, application, target, owner)
     location = PSE.cohort_location(store, application, object_id(target); owner)
-    @test location.cohort.rows[location.row] === target.execution_target
+    @test location.cohort[location.row] === target.execution_target
     return nothing
 end
 

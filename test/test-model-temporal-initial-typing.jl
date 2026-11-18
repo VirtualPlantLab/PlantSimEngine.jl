@@ -452,7 +452,7 @@ function check_initially_empty_publication()
     @test isempty(source_group.batches)
     @test isnothing(PSE.cohort_location(previous_rows.store, :source, ObjectId(:newborn);
         owner=previous_rows.cohort.owner))
-    @test isnothing(retired.cohort.rows[retired.row])
+    @test isnothing(retired.cohort[retired.row])
     for (data, old_history) in zip((ordinary, candidate), retained_histories)
         @test all(history(data)[key] == values for (key, values) in old_history)
         register_object!(data.model, Object(:regrown; scale=:Leaf, parent=:scene,
@@ -468,7 +468,7 @@ function check_initially_empty_publication()
         owner=previous_rows.cohort.owner)
     @test regrown.cohort === retired.cohort
     @test regrown.row != retired.row
-    @test isnothing(retired.cohort.rows[retired.row])
+    @test isnothing(retired.cohort[retired.row])
     regrown_status = model_status(candidate.model, :regrown)
     @test only(regrown_batch.targets).status_view.canonical_status === regrown_status
     @test PSE.refvalue(only(regrown_batch.targets).status_view.status, :signal) ===

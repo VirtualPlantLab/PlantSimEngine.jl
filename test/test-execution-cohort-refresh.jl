@@ -141,7 +141,7 @@ end
     @test length(store.cohorts) == 2
     @test execution_refresh_test_targets(extended.membership)[1] === changed
     @test execution_refresh_test_targets(extended.membership)[2] === last
-    @test isnothing(first_location.cohort.rows[first_location.row])
+    @test isnothing(first_location.cohort[first_location.row])
     @test PlantSimEngine.cohort_location(store, :growth, last.object_id) === last_location
 
     empty!(checked)
