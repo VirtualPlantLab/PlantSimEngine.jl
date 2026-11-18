@@ -1,0 +1,13 @@
+name = "PSELocalPalmLeafBirth"
+uuid = "b6daedc5-c1c3-4c8e-a43e-b4ee2ff54a35"
+version = "0.1.0"
+
+[deps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"
+
+[sources]
+PlantSimEngine = {path = "../../.."}
+
+[compat]
+julia = "1.13"

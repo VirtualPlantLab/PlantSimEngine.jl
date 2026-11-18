@@ -8,6 +8,7 @@ const TEST_GROUPS = (
         "test-object-families.jl",
         "test-prepared-status-registration.jl",
         "test-fixed-status-scope-growth.jl",
+        "test-model-local-leaf-birth.jl",
     ),
     "Concrete runtime object identities" => (
         "test-model-concrete-object-identities.jl",
