@@ -1,39 +1,41 @@
 name: Prepared call schema diagnosis
 on:
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Exact published PlantSimEngine commit to test
+        required: true
+        type: string
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   prepared-call-schemas:
-    name: Prepared call schemas - ${{ matrix.source }}
+    name: Prepared call schemas - published head
     runs-on: ubuntu-latest
-    # Same correctness budget as the normal PSE test matrix.
     timeout-minutes: 180
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        source: [control, candidate]
     env:
       JULIA_NUM_THREADS: "4"
+      SOURCE_REF: ${{ inputs.source_ref }}
     steps:
+      - name: Require an exact commit
+        run: |
+          [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.source_ref }}
           fetch-depth: 0
-      - name: Select the compared source
-        env:
-          SOURCE: ${{ matrix.source }}
+      - name: Verify the unchanged published source
         run: |
-          if [[ "$SOURCE" == control ]]; then
-            git show 1db4619a69d4009b04bb4496a98a8ae4b29ec31f:src/composite_model/execution_batch_schemas.jl > src/composite_model/execution_batch_schemas.jl
-          fi
+          test "$(git rev-parse HEAD)" = "$SOURCE_REF"
           git rev-parse HEAD
-          sha256sum src/composite_model/execution_batch_schemas.jl test/test-model-prepared-call-schemas.jl
+          git diff --exit-code -- src test
+          sha256sum src/composite_model/execution_batch_schemas.jl src/composite_model/execution_cohorts.jl src/composite_model/runtime_outputs.jl test/test-model-prepared-call-schemas.jl test/runtests.jl
       - uses: julia-actions/setup-julia@v3
         with:
-          version: "1.13"
+          version: "1.13.4"
       - uses: julia-actions/cache@v3
         with:
           delete-old-caches: false
