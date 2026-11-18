@@ -115,6 +115,36 @@ end
     @test PSE.refvalue(state,:x) === replacement
 end
 
+@testset "sparse edits preserve aliases and commit atomically across a wide status" begin
+    names = ntuple(i -> Symbol(:port_, i), 160)
+    schema = PSE._fixed_status_type(names, NTuple{length(names), RF32})
+    state = PSE._new_prepared_status(schema, nothing)
+    recipe = PSE._CanonicalStatusRecipe(state, true)
+    epoch = PSE._status_reference_epoch(state)
+    shared = Ref(4f0)
+    for name in (last(names), first(names), names[80])
+        PSE._status_recipe_set_reference!(recipe, name, shared)
+    end
+    @test PSE._finish_canonical_status_recipe!(recipe) === state
+    @test keys(state) == (first(names), names[80], last(names))
+    @test all(name -> PSE.refvalue(state, name) === shared, keys(state))
+    @test PSE._status_reference_epoch(state) == epoch + 1
+    PSE._finish_canonical_status_recipe!(recipe)
+    @test PSE._status_reference_epoch(state) == epoch + 1
+
+    # A bad edit after a valid one must leave both the reference and its epoch alone.
+    for (name, reference, error_type) in ((:unprepared, shared, KeyError),
+                                         (last(names), Ref(4.0), ArgumentError))
+        pending = PSE._CanonicalStatusRecipe(state, false)
+        PSE._status_recipe_set_reference!(pending, first(names), Ref(5f0))
+        push!(pending.edit_names, name)
+        push!(pending.edit_references, reference)
+        @test_throws error_type PSE._finish_canonical_status_recipe!(pending)
+        @test PSE.refvalue(state, first(names)) === shared
+        @test PSE._status_reference_epoch(state) == epoch + 1
+    end
+end
+
 @testset "deepcopy preserves internal ref aliases, RefAny and RefReal stay exact" begin
     S = PSE._fixed_status_type((:a,:b,:abstract,:opaque),Tuple{RF32,RF32,Base.RefValue{Real},Base.RefValue{Any}})
     reference = Ref(1f0)
