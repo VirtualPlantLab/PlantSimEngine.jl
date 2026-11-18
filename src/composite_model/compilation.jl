@@ -271,7 +271,7 @@ Base.propertynames(plan::CompiledModelOutputDestinationPlan) =
 struct ResolvedModelOutputDestination{P,D,I<:ObjectId}
     plan::P
     declarations::D
-    execution_object_id::ObjectId
+    execution_object_id::I
     destination_ids::Vector{I}
 end
 
@@ -5931,12 +5931,65 @@ _resolve_model_output_destinations(
 # Port names are authored metadata; defaults belong to the actual initial or
 # newborn destination event, never a previous binding's cached declaration.
 function _model_output_destination_declarations(
-    application, execution_object_id,
+    application, execution_object_id, plan::CompiledModelOutputDestinationPlan,
+)
+    return _with_application_variant(_read_model_output_destination_declarations,
+        application, execution_object_id, plan)
+end
+
+function _read_model_output_destination_declarations(producer, ports,
     ::CompiledModelOutputDestinationPlan{GROUP,NAMES},
 ) where {GROUP,NAMES}
-    effective_model = _application_model(application, execution_object_id)
-    selected = NamedTuple{NAMES}(_output_schema(effective_model))
-    return map(output -> output.declaration, selected)
+    outputs = NamedTuple{NAMES}(_output_schema(producer))
+    types = NamedTuple{NAMES}(ports.output_declaration_types)
+    return map(outputs, types) do output, declared_type
+        typeof(output) === declared_type || throw(ArgumentError(
+            "A distributed output declaration schema changed after preparation."))
+        output.declaration
+    end
+end
+
+# Allocate one row family for the routes and object overrides in this scenario.
+# The type inventory is fixed by CompositeModel; default values are still read
+# from the effective producer when each destination event is resolved.
+@generated function _model_output_destination_rows(
+    ::Type{I}, ::CompiledMetadataTable{A}, ::CompiledDistributedOutputPlans{P,G},
+) where {I<:ObjectId,A,P,G}
+    rows = Union{}
+    for id in fieldnames(G)
+        routes = fieldtypes(fieldtype(G, id))
+        isempty(routes) && continue
+        application = fieldtype(fieldtype(A, id), :plan)
+        model = fieldtype(fieldtype(application, :spec), :model)
+        ports = if model <: ObjectModelOverrides
+            entries = fieldtype(fieldtype(model, :variants), :entries)
+            map(entry -> fieldtype(entry, :ports), fieldtypes(entries))
+        else
+            (fieldtype(application, :ports),)
+        end
+        for route in routes, port in ports
+            names = route.parameters[2]
+            types = fieldtype(port, :output_declaration_types)
+            types <: NamedTuple || continue
+            all(name -> name in fieldnames(types) &&
+                fieldtype(types, name) <: Type{<:Distributed}, names) || continue
+            declarations = map(name -> fieldtype(types, name).parameters[1].parameters[1], names)
+            record = ResolvedModelOutputDestination{route,NamedTuple{names,Tuple{declarations...}},I}
+            rows = Union{rows,record}
+        end
+    end
+    return :(Vector{$rows}())
+end
+
+function _record_model_output_destination!(rows::Vector{R}, plan, declarations,
+    execution_id, destination_ids::Vector{I},
+) where {R,I}
+    record = ResolvedModelOutputDestination{typeof(plan),typeof(declarations),I}(
+        plan, declarations, execution_id, destination_ids)
+    record isa R || throw(ArgumentError(
+        "A distributed output declaration schema changed after preparation."))
+    push!(rows, record)
+    return nothing
 end
 
 function _resolve_model_output_destinations(
@@ -5944,7 +5997,7 @@ function _resolve_model_output_destinations(
     applications_by_id,
     compiled_plans::CompiledDistributedOutputPlans,
 )
-    resolved = ResolvedModelOutputDestination[]
+    resolved = _model_output_destination_rows(keytype(model.registry.objects), applications_by_id, compiled_plans)
     for plan in compiled_plans.plans
         application = applications_by_id[plan.application_id]
         for execution_object_id in application.target_ids
@@ -5961,14 +6014,8 @@ function _resolve_model_output_destinations(
                 ),
             )
             sizehint!(destination_ids, length(destination_ids) + 1)
-            push!(
-                resolved,
-                ResolvedModelOutputDestination(
-                    plan,
-                    declarations,
-                    execution_object_id,
-                    destination_ids,
-                ),
+            _record_model_output_destination!(
+                resolved, plan, declarations, execution_object_id, destination_ids,
             )
         end
     end
@@ -6864,7 +6911,7 @@ function _validate_required_model_output_destinations!(
     model::CompositeModel,
     resolved_destinations,
 )
-    missing = NamedTuple[]
+    missing = String[]
     for resolved in resolved_destinations
         for destination_id in resolved.destination_ids
             for (variable_, declaration) in pairs(resolved.declarations)
@@ -6880,28 +6927,14 @@ function _validate_required_model_output_destinations!(
                     ))
                     continue
                 end
-                push!(
-                    missing,
-                    (
-                        application_id=resolved.plan.application_id,
-                        execution_object_id=resolved.execution_object_id.value,
-                        group=resolved.plan.group,
-                        destination_id=destination_id.value,
-                        variable=variable,
-                    ),
-                )
+                push!(missing,
+                    "`$(resolved.plan.application_id).$(resolved.plan.group)` requires " *
+                    "`$(variable)` on destination object `$(destination_id.value)`")
             end
         end
     end
     isempty(missing) && return nothing
-    details = join(
-        [
-            "`$(row.application_id).$(row.group)` requires `$(row.variable)` on " *
-            "destination object `$(row.destination_id)`"
-            for row in missing
-        ],
-        "; ",
-    )
+    details = join(missing, "; ")
     error(
         "Missing required distributed-output destination variable(s): ",
         details,
@@ -6928,91 +6961,58 @@ function _validate_model_output_destination_statuses!(
     return nothing
 end
 
-function _stage_model_output_destination_statuses!(plan, model, records, index,
-    applications_by_id, recipes, recipe_order,
-)
-    return _with_metadata_entry(_stage_model_output_destination_statuses!,
-        applications_by_id, plan.application_id, plan, model, records, index,
-        recipes, recipe_order)
-end
-function _stage_model_output_destination_statuses!(application::CompiledModelApplication,
-    plan, model, records, index, recipes, recipe_order,
-)
-    execution_id = _index_object_id(model.registry.objects,
-        getfield(records[index], :execution_object_id))
-    return _with_application_variant(_stage_model_output_destination_statuses!,
-        application, execution_id, plan, model, records, index, recipes, recipe_order)
-end
-
-# The existing port inventory admits the declarations captured by this event.
-# In particular, no output/default hook is called to recover their lost type.
-@generated function _stage_model_output_destination_statuses!(producer, ports::P,
-    plan::CompiledModelOutputDestinationPlan{GROUP,NAMES}, model, records, index,
-    recipes::AbstractDict{I}, recipe_order,
-) where {P,GROUP,NAMES,I<:ObjectId}
-    Types = fieldtype(P, :output_declaration_types)
-    declarations = Tuple(fieldtype(Types, name).parameters[1].parameters[1] for name in NAMES)
-    D = NamedTuple{NAMES,Tuple{declarations...}}
-    return quote
-        record = records[index]
-        destination_ids = getfield(record, :destination_ids)::Vector{$I}
-        captured = getfield(record, :declarations)
-        captured isa $D || throw(ArgumentError(
-            "A distributed output declaration schema changed after preparation."))
-        declarations = captured::$D
-        for destination_id in destination_ids
-            preparation = _status_preparation_for_object!(
-                recipes,
-                recipe_order,
-                model,
-                destination_id,
-            )
-            for (variable_, declaration) in pairs(declarations)
-                declaration isa Default || continue
-                variable = Symbol(variable_)
-                if preparation isa Status
-                    hasproperty(preparation, variable) && continue
-                    preparation = _status_recipe_for_object!(
-                        recipes,
-                        recipe_order,
-                        model,
-                        destination_id,
-                    )
-                end
-                _status_recipe_add_default!(
+function _stage_model_output_destination_statuses!(model, record, recipes, recipe_order)
+    for destination_id in record.destination_ids
+        preparation = _status_preparation_for_object!(
+            recipes,
+            recipe_order,
+            model,
+            destination_id,
+        )
+        for (variable_, declaration) in pairs(record.declarations)
+            declaration isa Default || continue
+            variable = Symbol(variable_)
+            if preparation isa Status
+                hasproperty(preparation, variable) && continue
+                preparation = _status_recipe_for_object!(
+                    recipes,
+                    recipe_order,
                     model,
-                    preparation,
                     destination_id,
-                    variable,
-                    _input_default(declaration);
-                    application_id=plan.application_id,
-                    origin=:distributed_output_default,
                 )
             end
+            _status_recipe_add_default!(
+                model,
+                preparation,
+                destination_id,
+                variable,
+                _input_default(declaration);
+                application_id=record.plan.application_id,
+                origin=:distributed_output_default,
+            )
         end
-        return nothing
     end
+    return nothing
 end
 
 function _prepare_model_output_destination_statuses!(
-    model::CompositeModel, resolved_destinations, applications_by_id,
-    plans::CompiledDistributedOutputPlans,
+    model::CompositeModel, resolved_destinations,
 )
     I = keytype(model.registry.objects)
     recipes = _canonical_status_recipe_storage(model, I)
     recipe_order = I[]
-    records_before = copy(model.status_conversion_records)
+    record_conversions = !_no_status_conversion(model.status_conversion)
+    records_before = record_conversions ? copy(model.status_conversion_records) : nothing
     try
-        for index in eachindex(resolved_destinations)
-            plan = getfield(resolved_destinations[index], :plan)::CompiledModelOutputDestinationPlan
-            _with_metadata_entry(_stage_model_output_destination_statuses!,
-                plans.plans, getfield(plan, :slot), model, resolved_destinations,
-                index, applications_by_id, recipes, recipe_order)
+        for record in resolved_destinations
+            _stage_model_output_destination_statuses!(model, record, recipes, recipe_order)
         end
         return _apply_status_recipes!(model, recipes, recipe_order)
     catch
-        empty!(model.status_conversion_records)
-        merge!(model.status_conversion_records, records_before)
+        if record_conversions
+            empty!(model.status_conversion_records)
+            merge!(model.status_conversion_records, records_before)
+        end
         rethrow()
     end
 end
@@ -7250,7 +7250,7 @@ function _compile_model_distributed_outputs(
     _validate_model_output_destination_statuses!(model, resolved)
     _validate_required_model_output_destinations!(model, resolved)
     _prepare_model_output_statuses!(model, applications, applications_by_id)
-    _prepare_model_output_destination_statuses!(model, resolved, applications_by_id, plans)
+    _prepare_model_output_destination_statuses!(model, resolved)
     bindings, by_execution_target =
         _compile_model_output_destination_bindings(model, resolved, plans)
     return CompiledDistributedOutputs(
@@ -7336,7 +7336,7 @@ function _incremental_distributed_output_addition!(
             return nothing
     end
 
-    resolved_additions = ResolvedModelOutputDestination[]
+    resolved_additions = _model_output_destination_rows(keytype(model.registry.objects), applications_by_id, plans)
     for binding in previous.bindings
         default_scope = _default_dependency_scope(
             model,
@@ -7365,18 +7365,11 @@ function _incremental_distributed_output_addition!(
            !_object_id_isless(last(binding.destination_ids), first(destination_ids))
             return nothing
         end
-        push!(
-            resolved_additions,
-            ResolvedModelOutputDestination(
-                binding.plan,
-                _model_output_destination_declarations(
-                    applications_by_id[binding.application_id],
-                    binding.execution_object_id,
-                    binding.plan,
-                ),
-                binding.execution_object_id,
-                destination_ids,
-            ),
+        declarations = _model_output_destination_declarations(
+            applications_by_id[binding.application_id], binding.execution_object_id, binding.plan,
+        )
+        _record_model_output_destination!(
+            resolved_additions, binding.plan, declarations, binding.execution_object_id, destination_ids,
         )
     end
 
@@ -7429,7 +7422,7 @@ function _incremental_distributed_output_addition!(
         end
     end
     _validate_compiled_writer_ownership!(staged_ownership, applications_by_id)
-    _prepare_model_output_destination_statuses!(model, resolved_additions, applications_by_id, plans)
+    _prepare_model_output_destination_statuses!(model, resolved_additions)
 
     column_additions = Any[]
     for resolved in resolved_additions

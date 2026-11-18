@@ -668,3 +668,61 @@ end
         @test model_object(scenario, :leaf).status.existing == 2.0
     end
 end
+
+struct OutputDestinationChangingProbe{R,C} <: AbstractOutput_Destination_ProbeModel
+    seed::R
+    reads::C
+end
+PlantSimEngine.inputs_(::OutputDestinationChangingProbe) = NamedTuple()
+function PlantSimEngine.outputs_(model::OutputDestinationChangingProbe)
+    model.reads[] += 1
+    return (incident_par=Distributed(Default(model.seed[])),)
+end
+PlantSimEngine.run!(::OutputDestinationChangingProbe, status, environment, constants, context) = nothing
+
+@testset "distributed declaration types belong to their effective producer" begin
+    narrow = OutputDestinationChangingProbe(Ref{Any}(1f0), Ref(0))
+    wide = OutputDestinationChangingProbe(Ref{Any}(2.0), Ref(0))
+    first_cell, second_cell = Ref(3f0), Ref(4.0)
+    model = CompositeModel(
+        Object(:plant_a; scale=:Plant), Object(:plant_b; scale=:Plant),
+        Object(:leaf_a; scale=:Leaf, parent=:plant_a,
+            status=Status((incident_par=first_cell,))),
+        Object(:leaf_b; scale=:Leaf, parent=:plant_b,
+            status=Status((incident_par=second_cell,)));
+        applications=(
+            ModelSpec(narrow; name=:narrow, on=One(id=:plant_a),
+                outputs_to=(OutputTo(Many(scale=:Leaf, within=Subtree()); vars=(:incident_par,)),)),
+            ModelSpec(wide; name=:wide, on=One(id=:plant_b),
+                outputs_to=(OutputTo(Many(scale=:Leaf, within=Subtree()); vars=(:incident_par,)),)),
+        ))
+    compiled = Advanced.refresh_bindings!(model)
+    bindings = compiled.distributed_outputs.bindings
+    @test length(bindings) == 2
+    # The global row union contains both declarations for the SAME route type.
+    @test typeof(first(bindings).plan) === typeof(last(bindings).plan)
+    @test model_status(model, :leaf_a).incident_par === 3f0
+    @test model_status(model, :leaf_b).incident_par === 4.0
+
+    # The other producer's Float64 witness must not authorize this change.
+    # A supplied newborn field also makes the default value unnecessary, so
+    # validation must happen before deciding whether initialization is needed.
+    narrow.seed[] = 9.0
+    newborn_cell = Ref(5f0)
+    register_object!(model, Object(:leaf_z; scale=:Leaf, parent=:plant_a,
+        status=Status((incident_par=newborn_cell,))))
+    before = model.binding_cache
+    original_ids = map(binding -> copy(binding.destination_ids), bindings)
+    reads = (narrow.reads[], wide.reads[])
+    @test_throws "schema changed after preparation" Advanced.refresh_bindings!(model)
+    @test narrow.reads[] == reads[1] + 1
+    @test wide.reads[] == reads[2]
+    @test model.binding_cache === before
+    @test map(binding -> binding.destination_ids, bindings) == original_ids
+    @test PlantSimEngine.refvalue(model_status(model, :leaf_a), :incident_par) === first_cell
+    @test PlantSimEngine.refvalue(model_status(model, :leaf_b), :incident_par) === second_cell
+    @test PlantSimEngine.refvalue(model_status(model, :leaf_z), :incident_par) === newborn_cell
+    @test first_cell[] === 3f0
+    @test second_cell[] === 4.0
+    @test newborn_cell[] === 5f0
+end
