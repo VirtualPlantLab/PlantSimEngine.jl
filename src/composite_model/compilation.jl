@@ -6647,9 +6647,9 @@ end
 # One prepared physical schema handles every presence pattern. Slot construction
 # validates ALL edits before its single metadata assignment; no runtime type/name
 # discovery, terminal-layout enumeration or alternate Open algorithm remains.
-@generated function _finish_canonical_status_recipe(f::F,
+@generated function _finish_canonical_status_recipe!(
     recipe::_CanonicalStatusRecipe{S},
-) where {F,N,R,T,S<:Status{N,_FixedStatusStorage{N,R,T}}}
+) where {N,R,T,S<:Status{N,_FixedStatusStorage{N,R,T}}}
     cells = [gensym(:cell) for _ in N]
     reads = [quote
         position = findfirst(isequal($(QuoteNode(name))), recipe.edit_names)
@@ -6659,7 +6659,8 @@ end
     end for (i,name) in enumerate(N)]
     values = Expr(:tuple, [:( $(cells[i])::$(fieldtype(T,i)) ) for i in eachindex(N)]...)
     return quote
-        recipe.changed || return f(recipe.original)
+        $(Expr(:meta, :noinline))
+        recipe.changed || return recipe.original
         for name in recipe.edit_names
             name in $(QuoteNode(N)) || throw(KeyError(name))
         end
@@ -6670,7 +6671,7 @@ end
             storage.refs = references
             storage.reference_epoch += UInt(1)
         end
-        return f(recipe.original)
+        return recipe.original
     end
 end
 
@@ -6743,9 +6744,8 @@ function _apply_status_recipes!(
     for object_id in recipe_order
         recipe = recipes[object_id]
         recipe.changed || continue
-        _finish_canonical_status_recipe(recipe) do status
-            _replace_model_object_status!(model, object_id, status)
-        end
+        status = _finish_canonical_status_recipe!(recipe)
+        _replace_model_object_status!(model, object_id, status)
         _runtime_performance_count!(
             performance,
             :lifecycle_binding_refresh_status_recipe_materializations,

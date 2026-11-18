@@ -98,10 +98,10 @@ end
     replacement = Ref(2.0)
     @test PSE._status_recipe_set_reference!(recipe,:x,replacement)
     @test PSE.refvalue(state,:x) !== replacement
-    @test PSE._finish_canonical_status_recipe(identity,recipe) === original
+    @test PSE._finish_canonical_status_recipe!(recipe) === original
     @test PSE.refvalue(state,:x) === replacement
     @test PSE._status_reference_epoch(state) == epoch+1
-    @test PSE._finish_canonical_status_recipe(identity,recipe) === original
+    @test PSE._finish_canonical_status_recipe!(recipe) === original
     @test PSE._status_reference_epoch(state) == epoch+1
     @test_throws ArgumentError PSE._status_recipe_set_reference!(recipe,:x,Ref("bad"))
     @test PSE.refvalue(state,:x) === replacement
