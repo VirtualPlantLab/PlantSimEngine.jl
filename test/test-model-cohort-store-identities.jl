@@ -196,6 +196,9 @@ end
         @test fixed.topology isa PSE.FixedExecution
         @test fixed.cohorts === original.cohorts === store
         @test fieldtype(typeof(fixed), :cohorts) === typeof(store)
+        @test map(isnothing, fixed.groups_by_application_slot) ==
+              Tuple(map(isnothing, original.groups_by_application_slot))
+        @test fixed.groups_by_application_slot[only(fixed.groups).application.slot] === only(fixed.groups)
         @test only(only(fixed.groups).batches) === batch
         @test only(only(only(fixed.groups).batches).targets) === target
         fixed_simulation = PSE._simulation_with_execution_plan(simulation, fixed)

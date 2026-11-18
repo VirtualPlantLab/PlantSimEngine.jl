@@ -29,9 +29,8 @@ end
 """Close schedule container schemas without copying the live execution payloads."""
 function _fixed_execution_plan(plan::CompiledExecutionPlan)
     groups = Tuple(_close_execution_group_cohorts(group; batches=Tuple(group.batches)) for group in plan.groups)
-    groups_by_id = Dict(group.application.id => group for group in groups)
-    groups_by_slot = Tuple(isnothing(group) ? nothing : groups_by_id[group.application.id]
-        for group in plan.groups_by_application_slot)
+    groups_by_slot = Tuple(_execution_groups_by_application_slot(groups,
+        length(plan.groups_by_application_slot)))
     batches = Tuple(batch for group in groups for batch in group.batches)
     return CompiledExecutionPlan(
         plan.cohorts,
