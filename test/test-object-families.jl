@@ -31,7 +31,8 @@ const PSE = PlantSimEngine
             exception
         end
         @test failure isa ErrorException
-        @test sprint(showerror, failure) == "No model object with id `$(id)`."
+        expected = id isa Tuple ? "(Symbol(\"plant\"), 4)" : string(id)
+        @test sprint(showerror, failure) == "No model object with id `$(expected)`."
     end
     @test canonical !== supplied
     @test PSE.refvalue(canonical, :value) === reference
@@ -51,6 +52,31 @@ const PSE = PlantSimEngine
     family = store.catalog.families[location.family]
     @test family isa PSE.ObjectFamily{keytype(store),typeof(canonical)}
     @test family.rows[location.row].status === canonical
+end
+
+@testset "missing object diagnostics preserve scalar values and complete tuple identities" begin
+    present = Object((:plant, :leaf, 1); status=Status(value=2f0))
+    model = CompositeModel(present)
+    @test model_object(model, present.id) === present
+    @test model_status(model, present.id) === present.status
+    cases = (
+        :missing => "missing",
+        "missing" => "missing",
+        17 => "17",
+        2.5 => "2.5",
+        true => "true",
+        (:missing, :leaf, 2) => "(Symbol(\"missing\"), Symbol(\"leaf\"), 2)",
+        (:missing, (:leaf, 2)) => "(Symbol(\"missing\"), (Symbol(\"leaf\"), 2))",
+    )
+    for (id, expected) in cases, lookup in (model_object, model_status, object_id)
+        failure = try
+            lookup(model, ObjectId(id))
+        catch exception
+            exception
+        end
+        @test failure isa ErrorException
+        @test sprint(showerror, failure) == "No model object with id `$(expected)`."
+    end
 end
 
 # Genuine model configuration declares the replacement's numerical types at

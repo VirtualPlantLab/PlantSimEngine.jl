@@ -1211,10 +1211,15 @@ function _replace_model_object_status!(model::CompositeModel, object_id, status)
     return _replace_model_object_status!(model, _model_object(model, object_id), status)
 end
 
+# Scalar diagnostics retain their ordinary display. Composite identities use
+# the existing typed printer rather than Julia's generic syntax display.
+_object_id_diagnostic_text(value) = string(value)
+_object_id_diagnostic_text(value::Tuple) = _selector_diagnostic_text(value)
+
 function _model_object(model::CompositeModel, id)
     oid = ObjectId(id)
     object = get(model.registry.objects, oid, nothing)
-    isnothing(object) && error("No model object with id `$(oid.value)`.")
+    isnothing(object) && error("No model object with id `", _object_id_diagnostic_text(oid.value), "`.")
     return object
 end
 
