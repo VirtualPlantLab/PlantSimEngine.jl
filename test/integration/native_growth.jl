@@ -49,32 +49,38 @@ function _native_palm_growth_report(executable, neighbours, directory)
 end
 
 @testset "Native growth preserves local palms and thirty distributed destinations" begin
-    mktempdir() do directory
-        expected_zero = _ordinary_palm_growth_report(0)
-        expected_hundred = _ordinary_palm_growth_report(100)
-        # Header counts differ; A's timestep, values and sixteen histories do not.
-        @test expected_zero.a[5:end] == expected_hundred.a[5:end]
-        palm = Compilation.compile(_palm_growth_app; destination=joinpath(directory, "palm"))
-        @test isfile(palm.executable)
-        digest = sha256(read(palm.executable))
-        zero = _native_palm_growth_report(palm.executable, 0, directory)
-        hundred = _native_palm_growth_report(palm.executable, 100, directory)
-        @test sha256(read(palm.executable)) == digest
-        @test zero.a == expected_zero.a
-        @test hundred.a == expected_hundred.a
-        @test zero.a[5:end] == hundred.a[5:end]
-        @test zero.neighbours == expected_zero.neighbours
-        @test hundred.neighbours == expected_hundred.neighbours
-        # Durations are observations, with no threshold or cross-process equality.
-        @info "Native palm phases (nanoseconds)" neighbours=0 phases=zero.timings_ns
-        @info "Native palm phases (nanoseconds)" neighbours=100 phases=hundred.timings_ns
+    @testset "Palm with zero and one hundred neighbours" begin
+        mktempdir() do directory
+            expected_zero = _ordinary_palm_growth_report(0)
+            expected_hundred = _ordinary_palm_growth_report(100)
+            # Header counts differ; A's timestep, values and sixteen histories do not.
+            @test expected_zero.a[5:end] == expected_hundred.a[5:end]
+            palm = Compilation.compile(_palm_growth_app; destination=joinpath(directory, "palm"))
+            @test isfile(palm.executable)
+            digest = sha256(read(palm.executable))
+            zero = _native_palm_growth_report(palm.executable, 0, directory)
+            hundred = _native_palm_growth_report(palm.executable, 100, directory)
+            @test sha256(read(palm.executable)) == digest
+            @test zero.a == expected_zero.a
+            @test hundred.a == expected_hundred.a
+            @test zero.a[5:end] == hundred.a[5:end]
+            @test zero.neighbours == expected_zero.neighbours
+            @test hundred.neighbours == expected_hundred.neighbours
+            # Durations are observations, with no threshold or cross-process equality.
+            @info "Native palm phases (nanoseconds)" neighbours=0 phases=zero.timings_ns
+            @info "Native palm phases (nanoseconds)" neighbours=100 phases=hundred.timings_ns
+        end
+    end
 
-        @test PSEThirtyProducerControl.checkpoint(PSEThirtyProducerControl.STATE, 0)
-        @test PSEThirtyProducerControl.main(String[]) == 0
-        producer = Compilation.compile(_producer_growth_app;
-            destination=joinpath(directory, "producer"))
-        @test isfile(producer.executable)
-        # main checks every destination, every sample, and the same cells/streams.
-        @test success(`$(producer.executable)`)
+    @testset "New producer publishes to thirty existing leaves" begin
+        mktempdir() do directory
+            @test PSEThirtyProducerControl.checkpoint(PSEThirtyProducerControl.STATE, 0)
+            @test PSEThirtyProducerControl.main(String[]) == 0
+            producer = Compilation.compile(_producer_growth_app;
+                destination=joinpath(directory, "producer"))
+            @test isfile(producer.executable)
+            # main checks every destination, every sample, and the same cells/streams.
+            @test success(`$(producer.executable)`)
+        end
     end
 end
