@@ -5973,7 +5973,10 @@ end
             types <: NamedTuple || continue
             all(name -> name in fieldnames(types) &&
                 fieldtype(types, name) <: Type{<:Distributed}, names) || continue
-            declarations = map(name -> fieldtype(types, name).parameters[1].parameters[1], names)
+            declarations = map(names) do name
+                wrapper = only(fieldtype(types, name).parameters)
+                fieldtype(wrapper, :declaration)
+            end
             record = ResolvedModelOutputDestination{route,NamedTuple{names,Tuple{declarations...}},I}
             rows = Union{rows,record}
         end
@@ -5997,7 +6000,8 @@ function _resolve_model_output_destinations(
     applications_by_id,
     compiled_plans::CompiledDistributedOutputPlans,
 )
-    resolved = _model_output_destination_rows(keytype(model.registry.objects), applications_by_id, compiled_plans)
+    resolved = _model_output_destination_rows(
+        keytype(model.registry.objects), applications_by_id, compiled_plans)
     for plan in compiled_plans.plans
         application = applications_by_id[plan.application_id]
         for execution_object_id in application.target_ids
@@ -6022,103 +6026,75 @@ function _resolve_model_output_destinations(
     return resolved
 end
 
-function _push_compiled_writer_owner!(
-    ownership,
-    object_id::ObjectId,
-    variable::Symbol,
-    owner::CompiledWriterOwner,
-)
-    push!(
-        get!(
-            ownership,
-            (object_id, variable),
-            CompiledWriterOwner[],
-        ),
-        owner,
-    )
-    return ownership
+# During growth only touched keys are copied. Validation can therefore reject
+# the whole edit without changing any existing writer list.
+function _record_writer_owner!(ownership, previous, object_id, variable, owner)
+    key = (object_id, variable)
+    owners = get!(ownership, key) do
+        isnothing(previous) && return CompiledWriterOwner[]
+        existing = get(previous.writer_ownership, key, nothing)
+        return isnothing(existing) ? CompiledWriterOwner[] : copy(existing)
+    end
+    push!(owners, owner)
+    return nothing
+end
+
+function _record_application_writers!(application, ownership, previous, object_ids)
+    for object_id in object_ids, variable in _model_canonical_output_names(application)
+        owner = CompiledWriterOwner(application.slot, application.id, object_id, nothing,
+            :application_target)
+        _record_writer_owner!(ownership, previous, object_id, variable, owner)
+    end
+    return nothing
+end
+
+function _record_destination_writers!(ownership, previous, resolved_destinations)
+    for record in resolved_destinations
+        plan = record.plan
+        owner = CompiledWriterOwner(plan.application_slot, plan.application_id,
+            record.execution_object_id, plan.group, :output_destination)
+        for destination_id in record.destination_ids, variable in plan.variable_names
+            _record_writer_owner!(ownership, previous, destination_id, variable, owner)
+        end
+    end
+    return nothing
 end
 
 function _validate_compiled_writer_ownership!(ownership, applications_by_id)
-    groups = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Int,Symbol}}}()
+    groups = Dict{keytype(ownership),Vector{Tuple{Int,Symbol}}}()
     for ((object_id, variable), owners) in ownership
+        length(owners) > 1 || continue
         sort!(owners; by=owner -> owner.application_slot)
-        seen_application_slots = Set{Int}()
-        for owner in owners
-            if owner.application_slot in seen_application_slots
+        for index in 2:length(owners)
+            owner = owners[index]
+            if owner.application_slot == owners[index - 1].application_slot
                 error(
                     "Application `$(owner.application_id)` declares more than one canonical " *
                     "writer for `$(variable)` on object `$(object_id.value)`. Ensure its " *
                     "`on=...` targets and `outputs_to` destinations do not overlap.",
                 )
             end
-            push!(seen_application_slots, owner.application_slot)
-            push!(
-                get!(
-                    groups,
-                    (object_id, variable),
-                    Tuple{Int,Symbol}[],
-                ),
-                (
-                    owner.application_slot,
-                    owner.application_id,
-                ),
-            )
         end
+        groups[(object_id, variable)] = [(owner.application_slot, owner.application_id) for owner in owners]
     end
     _validate_model_writer_groups!(groups, applications_by_id)
     return ownership
 end
 
 function _compile_model_writer_ownership(
+    ::Type{I},
     applications,
     applications_by_id,
     manual_application_ids,
     resolved_destinations,
-)
-    ownership = Dict{
-        Tuple{ObjectId,Symbol},
-        Vector{CompiledWriterOwner},
-    }()
-    for application in applications
-        application.id in manual_application_ids && continue
-        for object_id in application.target_ids
-            for variable in _model_canonical_output_names(application)
-                _push_compiled_writer_owner!(
-                    ownership,
-                    object_id,
-                    variable,
-                    CompiledWriterOwner(
-                        application.plan.slot,
-                        application.id,
-                        object_id,
-                        nothing,
-                        :application_target,
-                    ),
-                )
-            end
-        end
+) where {I<:ObjectId}
+    ownership = Dict{Tuple{I,Symbol},Vector{CompiledWriterOwner}}()
+    for partial in applications
+        getfield(getfield(partial, :plan), :id) in manual_application_ids && continue
+        _with_model_application(_record_application_writers!, applications_by_id, partial,
+            ownership, nothing, partial.target_ids)
     end
-    for resolved in resolved_destinations
-        plan = resolved.plan
-        for destination_id in resolved.destination_ids
-            for variable_ in plan.variable_names
-                variable = Symbol(variable_)
-                _push_compiled_writer_owner!(
-                    ownership,
-                    destination_id,
-                    variable,
-                    CompiledWriterOwner(
-                        plan.application_slot,
-                        plan.application_id,
-                        resolved.execution_object_id,
-                        plan.group,
-                        :output_destination,
-                    ),
-                )
-            end
-        end
-    end
+    _record_destination_writers!(ownership, nothing, resolved_destinations)
     return _validate_compiled_writer_ownership!(ownership, applications_by_id)
 end
 
@@ -7239,6 +7215,7 @@ function _compile_model_distributed_outputs(
         plans,
     )
     ownership = _compile_model_writer_ownership(
+        keytype(model.registry.objects),
         applications,
         applications_by_id,
         manual_application_ids,
@@ -7304,21 +7281,6 @@ function _refresh_model_distributed_outputs(
     return previous, Set{Tuple{Symbol,ObjectId}}(), nothing
 end
 
-function _stage_distributed_writer_owner!(
-    staged,
-    previous,
-    object_id::ObjectId,
-    variable::Symbol,
-    owner::CompiledWriterOwner,
-)
-    key = (object_id, variable)
-    owners = get!(staged, key) do
-        copy(get(previous.writer_ownership, key, CompiledWriterOwner[]))
-    end
-    push!(owners, owner)
-    return staged
-end
-
 function _incremental_distributed_output_addition!(
     model::CompositeModel,
     previous::CompiledDistributedOutputs,
@@ -7336,7 +7298,8 @@ function _incremental_distributed_output_addition!(
             return nothing
     end
 
-    resolved_additions = _model_output_destination_rows(keytype(model.registry.objects), applications_by_id, plans)
+    resolved_additions = _model_output_destination_rows(
+        keytype(model.registry.objects), applications_by_id, plans)
     for binding in previous.bindings
         default_scope = _default_dependency_scope(
             model,
@@ -7375,52 +7338,13 @@ function _incremental_distributed_output_addition!(
 
     _validate_model_output_destination_statuses!(model, resolved_additions)
     _validate_required_model_output_destinations!(model, resolved_additions)
-    staged_ownership = Dict{
-        Tuple{ObjectId,Symbol},
-        Vector{CompiledWriterOwner},
-    }()
+    staged_ownership = empty(previous.writer_ownership)
     for (application_id, object_ids) in new_targets
-        application = applications_by_id[application_id]
-        application.id in manual_application_ids && continue
-        for object_id in object_ids
-            for variable in _model_canonical_output_names(application)
-                _stage_distributed_writer_owner!(
-                    staged_ownership,
-                    previous,
-                    object_id,
-                    variable,
-                    CompiledWriterOwner(
-                        application.plan.slot,
-                        application.id,
-                        object_id,
-                        nothing,
-                        :application_target,
-                    ),
-                )
-            end
-        end
+        application_id in manual_application_ids && continue
+        _with_metadata_entry(_record_application_writers!, applications_by_id, application_id,
+            staged_ownership, previous, object_ids)
     end
-    for resolved in resolved_additions
-        plan = resolved.plan
-        for destination_id in resolved.destination_ids
-            for variable_ in plan.variable_names
-                variable = Symbol(variable_)
-                _stage_distributed_writer_owner!(
-                    staged_ownership,
-                    previous,
-                    destination_id,
-                    variable,
-                    CompiledWriterOwner(
-                        plan.application_slot,
-                        plan.application_id,
-                        resolved.execution_object_id,
-                        plan.group,
-                        :output_destination,
-                    ),
-                )
-            end
-        end
-    end
+    _record_destination_writers!(staged_ownership, previous, resolved_additions)
     _validate_compiled_writer_ownership!(staged_ownership, applications_by_id)
     _prepare_model_output_destination_statuses!(model, resolved_additions)
 
