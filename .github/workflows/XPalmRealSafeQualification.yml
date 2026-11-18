@@ -40,11 +40,11 @@ jobs:
           persist-credentials: false
       - uses: julia-actions/setup-julia@v2
         with:
-          version: '1.13.4'
+          version: '1.13.3'
           arch: x64
       - uses: julia-actions/cache@v2
         with:
-          cache-name: xpalm-real-safe-1a09-boundaries-julia-1.13.4
+          cache-name: xpalm-real-safe-1a09-boundaries-julia-1.13.3
           save-always: true
       - name: Linux toolchain and public revisions
         run: |

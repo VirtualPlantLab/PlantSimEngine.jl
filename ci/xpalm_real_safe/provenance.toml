@@ -1,7 +1,7 @@
 "base_pse" = "1a09d5b8d9471312e841df7f0bc1ac84b3d475da"
 "xpalm" = "1496bb95c9f609c4d38c099aaa4123dc71fa1e0d"
 "plantgeom" = "1e00511430def53c2a24790f4a8b9a57aa39fac2"
-"julia" = "1.13.4"
+"julia" = "1.13.3"
 "juliac" = "0.3.12"
 "orderedcollections_registry_tree" = "b079a6affebde167dad8ffe0d670b53917fbcb68"
 "orderedcollections_registry_version" = "2.0.3"
