@@ -67,6 +67,8 @@ end
     owner = PSE._new_prepared_status(SCHEMA,Status(x=3f0,q=1//2,seed=Float32[2]))
     private = Ref(100.0)
     Projected = @inferred PSE._projected_status_type(SCHEMA,Val((:x,:q)),Tuple{RF64,RR})
+    # Execution targets carry a handle to the snapshot, even for a wide namespace.
+    @test sizeof(Projected) == sizeof(SCHEMA)
     @test Projected === PSE._projected_status_type(SCHEMA,(:x,:q),Tuple{RF64,RR})
     @test PSE._projected_status_type(SCHEMA,Val(()),Tuple{}) ===
         PSE._projected_status_type(SCHEMA,(),Tuple{})

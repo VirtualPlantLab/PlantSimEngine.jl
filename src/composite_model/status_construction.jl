@@ -32,11 +32,6 @@ _status_schema_references(::Type{Status{Names,T}}) where {Names,T} =
     return QuoteNode(_projected_status_type(C, NAMES, R))
 end
 
-_status_schema_values(::Nothing) = ()
-_status_schema_values(status::Status{N,<:NamedTuple}) where {N} = refvalues(status)
-_status_schema_values(status::Status{N,<:Union{_FixedStatusStorage,_ProjectedStatusStorage}}) where {N} =
-    values(_status_snapshot_references(status))
-
 _selected_status_reference_type(::ExistingStatusReference{I}, existing, edited) where {I} =
     fieldtype(existing, I)
 _selected_status_reference_type(::EditedStatusReference{I}, existing, edited) where {I} =
@@ -75,20 +70,29 @@ end
     projected = Storage <: _ProjectedStatusStorage
     Names = projected ? fieldnames(fieldtype(Storage, :hot)) : _status_schema_names(Result)
     Refs = projected ? fieldtype(Storage, :hot).parameters[2] : _status_schema_references(Result)
-    # Actions are metadata carried by the sole existing factory, not runtime types.
+    # Read the reference layout once. Each action indexes this named tuple
+    # directly, including when a field is present only in the full snapshot.
+    load_refs = Existing === Nothing ? :(NamedTuple()) : :(_initial_status_reference_storage(original))
     hot = [:( _status_construction_reference(getfield(factory.construction.actions,$i),
-        _status_schema_values(original), edited)::$(fieldtype(Refs,i)) ) for i in eachindex(Names)]
+        original_refs, edited)::$(fieldtype(Refs,i)) ) for i in eachindex(Names)]
     Hot = NamedTuple{Names,Refs}
-    projected || return :(Status($Hot($(Expr(:tuple,hot...))))::Result)
+    dense = :($Hot($(Expr(:tuple,hot...))))
+    projected || return quote
+        original_refs = $load_refs
+        return Status($dense)::Result
+    end
     FullNames = _status_schema_names(Result)
     Full = fieldtype(Storage, :refs)
-    full = [begin
-        index = findfirst(isequal(name), Names)
-        isnothing(index) ? :(_initial_status_reference(original,$(QuoteNode(name)))::$(fieldtype(Full,i))) :
-            :(getfield(hot,$index)::$(fieldtype(Full,i)))
-    end for (i,name) in enumerate(FullNames)]
+    full = map(eachindex(FullNames)) do i
+        name = FullNames[i]
+        hot_index = findfirst(isequal(name), Names)
+        reference = isnothing(hot_index) ? :(get(original_refs,$(QuoteNode(name)),nothing)) :
+                    :(getfield(hot,$hot_index))
+        :($reference::$(fieldtype(Full,i)))
+    end
     return quote
-        hot = $Hot($(Expr(:tuple,hot...)))
+        original_refs = $load_refs
+        hot = $dense
         snapshot = $Full($(Expr(:tuple,full...)))
         return Status($Storage(hot, snapshot, _status_reference_epoch(original)))::Result
     end

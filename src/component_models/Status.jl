@@ -35,10 +35,10 @@ end
 
 # Kernel ports remain a dense NT. The immutable full snapshot captures the SAME
 # refs and presence, including private/temporal overlays, never a latest owner.
-struct _ProjectedStatusStorage{N,R<:Tuple,H<:NamedTuple,T<:NamedTuple}
-    hot::H
-    refs::T
-    reference_epoch::UInt
+mutable struct _ProjectedStatusStorage{N,R<:Tuple,H<:NamedTuple,T<:NamedTuple}
+    const hot::H
+    const refs::T
+    const reference_epoch::UInt
 end
 
 """
@@ -370,7 +370,6 @@ end
     return nothing
 end
 
-_status_snapshot_references(status::Status) = _initial_status_reference_storage(status)
 _dense_status_type(names::Tuple, references::Type{<:Tuple}) = Status{names,NamedTuple{names,references}}
 function _projected_status_type(::Type{C}, hot_names::Tuple, hot_references::Type{<:Tuple}) where {C<:Status}
     names = _status_schema_names(C)
