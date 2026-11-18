@@ -1,11 +1,23 @@
 # One constructor-owned manifest. This stores names, exact reference classes,
 # configured selector owners and raw-family correlations, never default values.
-mutable struct PreparedStatusManifest{S,A,P,D,R}
+# These lists refer to the authored owners and their existing permissions.
+# Cardinalities are data: adding organs never specializes the execution model.
+struct PreparedBirthRecipe{S,A,F,D,R}
+    status_type::Type{S}
+    applications::A
+    sources::F
+    destinations::D
+    raw_families::R
+end
+
+mutable struct PreparedStatusManifest{S,A,P,D,R,B}
     const status_type::Type{S}
     const authored::A
     const permissions::P
     const destinations::D
     const raw_families::R
+    const birth_recipes::Dict{Union{Nothing,Symbol},B}
+    const all_routes::B
 end
 
 # RAW membership, labels and reference classes are constructor evidence DATA.
@@ -208,6 +220,34 @@ function _prepared_status_destinations(plans)
         for plan in plans]
 end
 
+function _prepared_birth_recipes(S, applications, permissions, destinations, raw, model)
+    owners = collect(zip(applications, permissions))
+    by_slot = Dict(first(owner).slot => owner for owner in owners)
+    Source = eltype(fieldtype(eltype(permissions), :sources))
+    sources = Tuple{eltype(applications),eltype(permissions),Source}[
+        (app, permission, source) for (app, permission) in owners for source in permission.sources]
+    routes = Tuple{eltype(applications),eltype(permissions),eltype(destinations)}[
+        (by_slot[plan.application_slot]..., plan) for plan in destinations]
+    all_routes = PreparedBirthRecipe(S, owners, sources, routes, raw)
+    scales = Set{Union{Symbol,Nothing}}(keys(model.registry.by_scale))
+    push!(scales, nothing)
+    for matcher in Iterators.flatten(((app.target_matcher for app in applications),
+        (source.matcher for (_, _, source) in sources), (plan.matcher for plan in destinations)))
+        requested = matcher.scale
+        requested isa Tuple ? union!(scales, requested) : push!(scales, requested)
+    end
+    recipes = Dict{Union{Nothing,Symbol},typeof(all_routes)}()
+    for scale in scales
+        matches(matcher) = _object_matches_selector_value(scale, matcher.scale)
+        recipes[scale] = PreparedBirthRecipe(S,
+            filter(owner -> matches(first(owner).target_matcher), owners),
+            filter(row -> matches(last(row).matcher), sources),
+            filter(row -> matches(last(row).matcher), routes),
+            filter(family -> first(family.labels) === scale, raw))
+    end
+    return recipes, all_routes
+end
+
 function _prepared_status_raw_signature(model, object, applications, permissions, destinations)
     I = keytype(model.registry.objects)
     selected = Tuple{Int,Int}[(application.slot, _prepared_status_variant_slot(application, object.id))
@@ -369,7 +409,8 @@ function _prepare_status_manifest(model, authored, program, raw_basis)
     # no biological Ref is created for that slot.
     physical_refs = map(R -> R === Union{} ? Nothing : R, refs)
     S = _fixed_status_type(Tuple(names), Tuple{physical_refs...})
-    return PreparedStatusManifest(S, applications, permissions, destinations, raw)
+    recipes_by_scale, all_routes = _prepared_birth_recipes(S, applications, permissions, destinations, raw, model)
+    return PreparedStatusManifest(S, applications, permissions, destinations, raw, recipes_by_scale, all_routes)
 end
 
 # The catalog references the SAME prepared manifest; runtime never finds a
@@ -406,8 +447,8 @@ _prepared_status_variant_reference_allowed(variant, name, reference) =
 _prepared_status_output_reference_allowed(variant, name, reference) =
     _prepared_status_reference_allowed(variant.outputs, name, reference)
 
-function _prepared_status_application_reference_allowed(manifest, model, object, parent_id, name, reference)
-    for (application, permission) in zip(manifest.authored, manifest.permissions)
+function _prepared_status_application_reference_allowed(recipe, model, object, parent_id, name, reference)
+    for (application, permission) in recipe.applications
         _prepared_status_application_matches(model, object, parent_id, application) || continue
         variant = _prepared_status_variant_slot(application, object.id)
         _prepared_status_variant_reference_allowed(permission.variants[variant], name, reference) && return true
@@ -419,7 +460,25 @@ end
 # Registered producers and consumers already belong to the registry's scale
 # index. A pending object's inherited labels and route still use the full matcher.
 _prepared_status_context_ids(objects::AbstractDict) = keys(objects)
-function _prepared_status_context_ids(model, application)
+function _prepared_status_context_ids(model, application, route, object, parent_id)
+    registry = model.registry
+    scope = route.matcher.scope
+    # A subtree source can only be read or written by an ancestor. For an
+    # object awaiting registration the parent's path is already indexed.
+    if scope isa Subtree || scope isa Self
+        id = _index_object_id(registry.objects, object.id)
+        existing = get(registry.objects, id, nothing)
+        registered = !isnothing(existing)
+        if scope isa Self
+            return registered ? (id,) : ()
+        end
+        anchor = registered ? id : parent_id
+        isnothing(anchor) && return ()
+        if !registered || (existing === object && isequal(object.parent, parent_id))
+            path = get(registry.ancestor_ids_by_object, anchor, nothing)
+            isnothing(path) || return path
+        end
+    end
     scale = application.target_matcher.scale
     scale isa Symbol && return get(model.registry.by_scale, scale, ())
     return _prepared_status_context_ids(model.registry.objects)
@@ -432,7 +491,7 @@ Base.@constprop :none Base.@noinline function _prepared_status_destination_entry
     # Visit registered producer identities in place. No candidate vector or
     # synthetic producer is allocated by this admission path.
     has_producer = false
-    for candidate_id in _prepared_status_context_ids(model, application)
+    for candidate_id in _prepared_status_context_ids(model, application, plan, object, parent_id)
         execution_id = _index_object_id(model.registry.objects, candidate_id)
         _prepared_status_application_matches_id(model, model,
             application.target_matcher, execution_id) || continue
@@ -459,15 +518,11 @@ Base.@constprop :none Base.@noinline function _prepared_status_destination_entry
     return false
 end
 
-function _prepared_status_destinations_allow(plans, manifest, model, object, parent_id, name, reference)
-    for plan in plans
+function _prepared_status_destinations_allow(recipe, model, object, parent_id, name, reference)
+    for (application, permission, plan) in recipe.destinations
         name in plan.variable_names || continue
-        for (application, permission) in zip(manifest.authored, manifest.permissions)
-            application.slot == plan.application_slot || continue
-            _prepared_status_destination_entry_allowed(application, permission, plan, model, object,
-                parent_id, name, reference) && return true
-            break
-        end
+        _prepared_status_destination_entry_allowed(application, permission, plan, model, object,
+            parent_id, name, reference) && return true
     end
     return false
 end
@@ -491,7 +546,7 @@ function _prepared_status_source_route_admission(source, application, permission
     declared, allowed = false, true
     if source.source_var === name
         has_consumer = false
-        for candidate_id in _prepared_status_context_ids(model, application)
+        for candidate_id in _prepared_status_context_ids(model, application, source, object, parent_id)
             consumer_id = _index_object_id(model.registry.objects, candidate_id)
             _prepared_status_application_matches_id(model, model,
                 application.target_matcher, consumer_id) || continue
@@ -536,9 +591,9 @@ function _prepared_status_source_route_admission(source, application, permission
     return (declared, allowed, true)
 end
 
-function _prepared_status_sources_admission(manifest, model, object, parent_id, name, reference)
+function _prepared_status_sources_admission(recipe, model, object, parent_id, name, reference)
     declared, allowed = false, true
-    for (application, permission) in zip(manifest.authored, manifest.permissions), source in permission.sources
+    for (application, permission, source) in recipe.sources
         has_type, matches, compatible = _prepared_status_source_route_admission(source,
             application, permission, model, object, parent_id, name, reference)
         compatible || return (false, false, false)
@@ -552,14 +607,14 @@ end
 # permission worker's function boundary. The worker shares its typed body across
 # field names; no caller needs to inline an application scan for every slot.
 @generated function _prepared_status_configured_reference_admission(
-    manifest::PreparedStatusManifest{S}, model, object, parent_id, name, reference,
+    recipe::PreparedBirthRecipe{S}, model, object, parent_id, name, reference,
 ) where {S}
     references = unique(R for slot in fieldtypes(_status_schema_references(S))
         for R in Base.uniontypes(slot) if R <: Ref)
     branches = [quote
         if reference isa $R
             return _prepared_status_reference_admission(
-                manifest, model, object, parent_id, name, reference::$R)
+                recipe, model, object, parent_id, name, reference::$R)
         end
     end for R in references]
     return quote
@@ -570,16 +625,16 @@ end
 end
 
 Base.@constprop :none Base.@noinline function _prepared_status_reference_admission(
-    manifest, model, object, parent_id, name, reference::R,
+    recipe, model, object, parent_id, name, reference::R,
 ) where {R<:Ref}
     declared, source_allowed, compatible = _prepared_status_sources_admission(
-        manifest, model, object, parent_id,
+        recipe, model, object, parent_id,
         name, reference::R)
     compatible || return (false, false)
     allowed = (declared && source_allowed) ||
-        _prepared_status_application_reference_allowed(manifest,
+        _prepared_status_application_reference_allowed(recipe,
             model, object, parent_id, name, reference::R) ||
-        _prepared_status_destinations_allow(manifest.destinations, manifest,
+        _prepared_status_destinations_allow(recipe,
             model, object, parent_id, name, reference::R)
     return (allowed, true)
 end
@@ -590,8 +645,8 @@ function _prepared_status_raw_variant(raw, slot)
     end
     return 0
 end
-function _prepared_status_raw_membership_matches(applications, raw, model, object, parent_id)
-    for application in applications
+function _prepared_status_raw_membership_matches(recipe, raw, model, object, parent_id)
+    for (application, _) in recipe.applications
         expected = _prepared_status_raw_variant(raw, application.slot)
         matches = _prepared_status_application_matches(model, object, parent_id, application)
         if matches
@@ -613,7 +668,7 @@ function _prepared_status_raw_has_context(contexts, plan, origin_id, variant)
 end
 function _prepared_status_raw_destination_count(application, plan, raw, model, object, parent_id)
     count = 0
-    for candidate_id in _prepared_status_context_ids(model, application)
+    for candidate_id in _prepared_status_context_ids(model, application, plan, object, parent_id)
         execution_id = _index_object_id(model.registry.objects, candidate_id)
         _prepared_status_application_matches_id(model, model,
             application.target_matcher, execution_id) || continue
@@ -625,23 +680,19 @@ function _prepared_status_raw_destination_count(application, plan, raw, model, o
     end
     return count
 end
-function _prepared_status_raw_destination_total(plans, manifest, raw, model, object, parent_id)
+function _prepared_status_raw_destination_total(recipe, raw, model, object, parent_id)
     total = 0
-    for plan in plans
-        for application in manifest.authored
-            application.slot == plan.application_slot || continue
-            count = _prepared_status_raw_destination_count(application, plan, raw, model, object, parent_id)
-            count < 0 && return -1
-            total += count
-            break
-        end
+    for (application, _, plan) in recipe.destinations
+        count = _prepared_status_raw_destination_count(application, plan, raw, model, object, parent_id)
+        count < 0 && return -1
+        total += count
     end
     return total
 end
 
 function _prepared_status_raw_source_count(source, application, raw, model, object, parent_id)
     count = 0
-    for candidate_id in _prepared_status_context_ids(model, application)
+    for candidate_id in _prepared_status_context_ids(model, application, source, object, parent_id)
         consumer_id = _index_object_id(model.registry.objects, candidate_id)
         _prepared_status_application_matches_id(model, model,
             application.target_matcher, consumer_id) || continue
@@ -662,9 +713,9 @@ function _prepared_status_raw_source_count(source, application, raw, model, obje
     return count
 end
 
-function _prepared_status_raw_source_total(manifest, raw, model, object, parent_id)
+function _prepared_status_raw_source_total(recipe, raw, model, object, parent_id)
     total = 0
-    for (application, permission) in zip(manifest.authored, manifest.permissions), source in permission.sources
+    for (application, permission, source) in recipe.sources
         count = _prepared_status_raw_source_count(source, application, raw, model, object, parent_id)
         count < 0 && return -1
         total += count
@@ -672,13 +723,13 @@ function _prepared_status_raw_source_total(manifest, raw, model, object, parent_
     return total
 end
 
-function _prepared_status_raw_matches(raw, manifest, model, object, parent_id)
+function _prepared_status_raw_matches(raw, recipe, model, object, parent_id)
     labels = _prepared_status_object_labels(model, object, parent_id)
     raw.labels === (labels.scale, labels.kind, labels.species) || return false
-    _prepared_status_raw_membership_matches(manifest.authored, raw, model, object, parent_id) || return false
-    _prepared_status_raw_destination_total(manifest.destinations, manifest,
+    _prepared_status_raw_membership_matches(recipe, raw, model, object, parent_id) || return false
+    _prepared_status_raw_destination_total(recipe,
         raw, model, object, parent_id) == length(raw.destinations) || return false
-    return _prepared_status_raw_source_total(manifest,
+    return _prepared_status_raw_source_total(recipe,
         raw, model, object, parent_id) == length(raw.sources)
 end
 _prepared_status_raw_reference_allowed(::Nothing, name, reference) = false
@@ -691,14 +742,14 @@ end
 
 # Visit the prepared namespace in order without building a per-field method body.
 # The existing finite classifier admits each exact Ref before the shared worker.
-function _prepared_status_source_allowed(manifest::PreparedStatusManifest{S},
+function _prepared_status_source_allowed(recipe::PreparedBirthRecipe{S},
     model, object, parent_id, source::Status, raw) where {S}
     present = 0
     for name in _status_schema_names(S)
         reference = _initial_status_reference(source, name)
         if reference !== nothing
             present += 1
-            allowed, compatible = _prepared_status_configured_reference_admission(manifest, model,
+            allowed, compatible = _prepared_status_configured_reference_admission(recipe, model,
                 object, parent_id, name, reference)
             compatible && (allowed ||
                 _prepared_status_raw_reference_allowed(raw, name, reference)) || return false
@@ -707,17 +758,20 @@ function _prepared_status_source_allowed(manifest::PreparedStatusManifest{S},
     return present == _initial_status_reference_count(source)
 end
 
-# Initial bootstrap supplies the SAME manifest explicitly before the catalog
+_object_birth_recipe(manifest, object) = get(manifest.birth_recipes, object.scale, manifest.all_routes)
+
+# Initial bootstrap supplies the same manifest explicitly before the catalog
 # exists. Runtime delegates through its typed catalog; there is one gather/body.
 @inline function _validate_prepared_initial_status(manifest::PreparedStatusManifest,
     model, object, source_status, parent_id)
     isnothing(source_status) && return nothing
     source_status isa Status || throw(ArgumentError("Prepared initial data must be Status or nothing."))
-    allowed = Base.@inline _prepared_status_source_allowed(manifest, model, object, parent_id, source_status, nothing)
+    recipe = _object_birth_recipe(manifest, object)
+    allowed = Base.@inline _prepared_status_source_allowed(recipe, model, object, parent_id, source_status, nothing)
     allowed && return nothing
-    for raw in manifest.raw_families
-        _prepared_status_raw_matches(raw, manifest, model, object, parent_id) || continue
-        Base.@inline _prepared_status_source_allowed(manifest, model, object, parent_id, source_status, raw) && return nothing
+    for raw in recipe.raw_families
+        _prepared_status_raw_matches(raw, recipe, model, object, parent_id) || continue
+        Base.@inline _prepared_status_source_allowed(recipe, model, object, parent_id, source_status, raw) && return nothing
     end
     throw(ArgumentError("Status reference classes are incompatible with this prepared object configuration/raw family."))
 end
@@ -743,14 +797,14 @@ function _validate_prepared_status_recipe(model, object_id, recipe)
             get(model.status_source_owners, source_identity, nothing) == object_id) ||
             throw(ArgumentError("Prepared status source ownership changed."))
     end
-    manifest = _prepared_status_manifest(model)
+    birth_recipe = _object_birth_recipe(_prepared_status_manifest(model), object)
     raw_parent = object.parent
     parent_id = isnothing(raw_parent) ? nothing : _index_object_id(store, raw_parent)
     # A reparent/Scope change never revokes cells already owned by this object.
     # Only NEW edits need active permissions; old aliases grant no new rights.
     for (name, reference) in zip(recipe.edit_names, recipe.edit_references)
         _initial_status_reference(original, name) === reference && continue
-        allowed, compatible = _prepared_status_configured_reference_admission(manifest,
+        allowed, compatible = _prepared_status_configured_reference_admission(birth_recipe,
             model, object, parent_id, name, reference)
         allowed && compatible || throw(ArgumentError(
             "A staged status reference is incompatible with the prepared object configuration."))

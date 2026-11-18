@@ -59,4 +59,27 @@ end
     @test reference[] === 7.0
 end
 
+@testset "a leaf birth reuses its family recipe and visits only ancestors for a subtree route" begin
+    model = CompositeModel(Object(:scene; scale=:Scene),
+        Object(:north; scale=:Plant, parent=:scene), Object(:south; scale=:Plant, parent=:scene);
+        applications=(ModelSpec(Source(7.0); name=:delivery, on=Many(scale=:Plant),
+            outputs_to=(OutputTo(Many(within=Subtree(), scale=:Leaf)),)),))
+    manifest = PSE._prepared_status_manifest(model)
+    leaf = Object(:new_leaf; scale=:Leaf, parent=:north, status=Status(x=2.0))
+    sibling = Object(:second_leaf; scale=:Leaf, parent=:south, status=Status(x=3.0))
+    recipe = PSE._object_birth_recipe(manifest, leaf)
+    @test recipe === PSE._object_birth_recipe(manifest, sibling)
+    @test isempty(recipe.applications)
+    owner, _, route = only(recipe.destinations)
+    @test owner.id === :delivery
+    @test route === only(manifest.destinations)
+    @test Set(PSE._prepared_status_context_ids(model, owner, route, leaf, leaf.parent)) ==
+        Set(ObjectId.((:scene, :north)))
+    register_object!(model, leaf)
+    register_object!(model, sibling)
+    sim = run!(model; steps=1, outputs=:all)
+    @test outputs(sim)[(:delivery, leaf.id, :x)] == [(1.0, 7.0)]
+    @test outputs(sim)[(:delivery, sibling.id, :x)] == [(1.0, 7.0)]
+end
+
 end
