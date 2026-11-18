@@ -820,27 +820,10 @@ function _scope_object_ids(model::CompositeModel, scope, context)
         return _descendant_ids(model, current_id)
     elseif scope isa SelfPlant
         isnothing(current_id) && error("`SelfPlant()` selectors require a current object context.")
-        plant_id = _ancestor_id(
-            model,
-            current_id,
-            :Plant,
-            nothing,
-            true,
-        )
-        isnothing(plant_id) && error("No `scale=:Plant` ancestor found for object `$(current_id.value)`.")
-        return _descendant_ids(model, plant_id)
+        return _descendant_ids(model, _required_scope_anchor(model, scope, current_id))
     elseif scope isa Ancestor
         isnothing(current_id) && error("`Ancestor(...)` selectors require a current object context.")
-        ancestor_id = _ancestor_id(
-            model,
-            current_id;
-            scale=scope.scale,
-            include_self=false,
-        )
-        if isnothing(ancestor_id)
-            error("No matching ancestor found for object `$(current_id.value)` and selector `$(scope)`.")
-        end
-        return _descendant_ids(model, ancestor_id)
+        return _descendant_ids(model, _required_scope_anchor(model, scope, current_id))
     elseif scope isa Scope
         return _descendant_ids(model, _named_scope_root_id(model, scope))
     elseif scope isa CompiledNamedScope
@@ -913,12 +896,7 @@ function _selector_subtree_root(model::CompositeModel, scope, context)
         isnothing(current_id) && error("`$(scope)` selectors require a current object context.")
         _model_object(model, current_id)
         scope isa Subtree && return current_id
-        root = _scope_anchor(model, scope, current_id)
-        if isnothing(root)
-            scope isa SelfPlant && error("No `scale=:Plant` ancestor found for object `$(current_id.value)`.")
-            error("No matching ancestor found for object `$(current_id.value)` and selector `$(scope)`.")
-        end
-        return root
+        return _required_scope_anchor(model, scope, current_id)
     elseif scope isa Scope
         return _named_scope_root_id(model, scope)
     elseif scope isa CompiledNamedScope
@@ -1532,37 +1510,34 @@ function _resolve_object_ids(
     else
         nothing
     end
-    # Only the relation resolver guarantees membership. Borrowed index buckets
-    # still need relation checks, and a completed descendant walk includes self.
-    relation_resolved = false
-    candidate_ids = if nearest_ancestor
+    matching_matcher = _query_scope_matcher(matcher, scope, subtree_root)
+    # Consume each candidate source while its element and container types are
+    # still known. Only the relation resolver guarantees relation membership.
+    matches(candidates, relation_resolved=false) = _matching_selector_ids(
+        model, matching_matcher, candidates, context, default_to_context, default_scope, relation_resolved,
+    )
+    ids = if nearest_ancestor
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error(
             "`Ancestor(...)` selectors require a current object context.",
         )
         ancestor_id = _ancestor_id(model, current_id; scale=scope.scale, include_self=false)
-        isnothing(ancestor_id) ? ObjectId[] : ObjectId[ancestor_id]
+        matches(isnothing(ancestor_id) ? () : (ancestor_id,))
     elseif !isnothing(local_ids)
-        local_ids
+        matches(local_ids)
     elseif !isnothing(relation) && relation != :descendants
-        relation_resolved = true
-        _relation_object_ids(model, relation, context)
+        matches(_relation_object_ids(model, relation, context), true)
     elseif scope isa Self && isnothing(relation)
         self_ids = _scope_object_ids(model, scope, context)
         _model_object(model, only(self_ids))
-        self_ids
+        matches(self_ids)
     elseif !isnothing(indexed)
-        indexed.ids
+        matches(indexed.ids)
     elseif isnothing(relation)
-        _scope_object_ids(model, scope, context)
+        matches(_scope_object_ids(model, scope, context))
     else
-        relation_resolved = true
-        _relation_object_ids(model, relation, context)
+        matches(_relation_object_ids(model, relation, context), true)
     end
-    matching_matcher = _query_scope_matcher(matcher, scope, subtree_root)
-    ids = _matching_selector_ids(
-        model, matching_matcher, candidate_ids, context, default_to_context, default_scope, relation_resolved,
-    )
 
     # Cardinality diagnostics may need all available labels in the topology
     # scope. Materialize them only on an error, never for empty Many queries.

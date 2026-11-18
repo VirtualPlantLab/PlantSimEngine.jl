@@ -107,8 +107,11 @@ end
     @test_throws "current object context" resolve_object_ids(model, Many(Subtree(); scale=:Leaf))
     @test_throws "current object context" resolve_object_ids(model,
         Many(Ancestor(scale=:Plant); scale=:Leaf))
-    @test_throws "No matching ancestor" resolve_object_ids(model,
-        Many(Ancestor(scale=:Axis); scale=:Leaf); context=:plant_a)
+    missing = query_error(model, Many(Ancestor(scale=:Axis); scale=:Leaf); context=:plant_a)
+    @test occursin("No matching ancestor", missing)
+    @test occursin("object `plant_a` and scale `Axis`", missing)
+    @test occursin("object `scene` and scale `nothing`", query_error(model,
+        Many(Ancestor(); scale=:Leaf); context=:scene))
     @test_throws "No `scale=:Plant` ancestor" resolve_object_ids(model,
         Many(SelfPlant(); scale=:Leaf); context=:scene)
     @test_throws "No instance or object ID" resolve_object_ids(model,
