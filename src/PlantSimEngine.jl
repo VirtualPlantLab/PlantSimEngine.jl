@@ -38,6 +38,7 @@ include("authoring_interface.jl")
 include("time/multirate.jl")
 
 # Object status and reference carriers:
+include("component_models/ObjectId.jl")
 include("component_models/Status.jl")
 include("component_models/RefVector.jl")
 

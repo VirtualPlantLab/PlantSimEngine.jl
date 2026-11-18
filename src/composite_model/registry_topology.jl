@@ -13,25 +13,6 @@ Base.parent(v::ObjectRefVector) = v.refs
 Base.dataids(v::ObjectRefVector) = Base.dataids(parent(v))
 
 """
-    ObjectId(value)
-
-Stable identity of one [`Object`](@ref) in a [`CompositeModel`](@ref).
-Strings are normalized to symbols; an existing `ObjectId` is returned
-unchanged.
-"""
-struct ObjectId{T}
-    value::T
-end
-ObjectId(id::ObjectId) = id
-ObjectId(id::AbstractString) = ObjectId(Symbol(id))
-
-function Base.show(io::IO, id::ObjectId)
-    print(io, "ObjectId(")
-    show(io, id.value)
-    print(io, ')')
-end
-
-"""
     Object(id; scale=nothing, kind=nothing, species=nothing, name=nothing,
            parent=nothing, children=ObjectId[], geometry=nothing,
            status=nothing, applications=())
@@ -667,7 +648,7 @@ function _registry_with_prepared_status_manifest(model, manifest)
         throw(ArgumentError("This authoring refresh changes the prepared Status or typed configuration schema. " *
             "Construct a new CompositeModel for this configuration."))
     replacement = ObjectFamilyStore(ClosedObjectFamilyCatalog(catalog.families, manifest),
-        store.locations, store.status_owners)
+        store.locations, store.status_owners, store.changed_status_ids, store.change_sink)
     registry = ObjectRegistry(replacement, previous.by_scale, previous.by_kind,
         previous.by_species, previous.ancestor_ids_by_object)
     typeof(registry) === typeof(previous) || throw(ArgumentError(

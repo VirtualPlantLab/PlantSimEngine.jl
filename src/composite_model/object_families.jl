@@ -55,6 +55,13 @@ mutable struct ObjectFamilyStore{I<:ObjectId,C} <: AbstractDict{I,Object}
     const catalog::C
     const locations::Dict{I,ObjectFamilyLocation}
     const status_owners::IdDict{Base.RefValue{Nothing},I}
+    const changed_status_ids::Vector{ObjectId}
+    const change_sink::_WeakStatusChangeSink
+end
+
+function ObjectFamilyStore(catalog, locations::Dict{I,ObjectFamilyLocation}, owners::IdDict{Base.RefValue{Nothing},I}) where {I<:ObjectId}
+    ids = ObjectId[]
+    return ObjectFamilyStore(catalog, locations, owners, ids, _WeakStatusChangeSink(WeakRef(ids)))
 end
 
 ObjectFamilyStore{I}() where {I<:ObjectId} = ObjectFamilyStore(
@@ -169,7 +176,12 @@ function _store_object_family_row!(store::ObjectFamilyStore{K}, object::Object, 
     _validate_object_family_status_owner!(store, status, id)
     slot, family = _object_family_for_write!(store.catalog, K, S)
     if !isnothing(previous)
-        _forget_object_family_status!(store, _object_family_status_at(store.catalog, previous), id)
+        old = _object_family_status_at(store.catalog, previous)
+        if old !== status
+            _unwatch_status_references!(old, store.change_sink)
+            _forget_object_family_status!(store, old, id)
+            push!(store.changed_status_ids, id)
+        end
     end
     entry = ObjectFamilyRow{K,S}(id, status)
     row = if !isnothing(previous) && previous.family == slot
@@ -181,6 +193,9 @@ function _store_object_family_row!(store::ObjectFamilyStore{K}, object::Object, 
         length(family.rows)
     end
     store.locations[id] = ObjectFamilyLocation(slot, row, object)
+    if store.catalog isa ClosedObjectFamilyCatalog
+        _watch_status_references!(status, store.change_sink, id)
+    end
     status isa Status && (store.status_owners[_status_identity(status)] = id)
     return status
 end
@@ -197,13 +212,19 @@ end
 function Base.delete!(store::ObjectFamilyStore, id)
     location = get(store.locations, id, nothing)
     isnothing(location) && return store
-    _forget_object_family_status!(store, _object_family_status_at(store.catalog, location), id)
+    status = _object_family_status_at(store.catalog, location)
+    _unwatch_status_references!(status, store.change_sink)
+    _forget_object_family_status!(store, status, id)
     _clear_object_family_row!(store.catalog, location)
     delete!(store.locations, id)
     return store
 end
 
 function Base.empty!(store::ObjectFamilyStore)
+    for location in values(store.locations)
+        _unwatch_status_references!(_object_family_status_at(store.catalog, location), store.change_sink)
+    end
+    empty!(store.changed_status_ids)
     empty!(store.locations)
     empty!(store.status_owners)
     for family in store.catalog.families

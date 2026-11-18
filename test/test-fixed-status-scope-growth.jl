@@ -76,4 +76,51 @@ end
     @test object_id(model, tuple_status) == ObjectId(tuple_id)
     @test tuple_status.x === 2.0
 end
+
+@testset "registries sharing a canonical header observe changed references independently" begin
+    make(id, status) = CompositeModel(Object(id; scale=:Leaf, status);
+        applications=(ModelSpec(Increment(0f0); on=Many(scale=:Leaf)),))
+    first_model = make(:one, Status(x=1f0))
+    first_run = run!(first_model; steps=0, outputs=:none)
+    canonical = model_status(first_model, :one)
+    second_model = make(:two, canonical)
+    second_run = run!(second_model; steps=0, outputs=:none)
+    @test model_status(second_model, :two) === canonical
+
+    detached = copy(canonical)
+    PSE._set_status_reference!(detached, :x, Ref(99f0))
+    @test isempty(first_model.registry.objects.changed_status_ids)
+    @test isempty(second_model.registry.objects.changed_status_ids)
+    old = PSE.refvalue(canonical, :x)
+    replacement = Ref(4f0)
+    PSE._set_status_reference!(canonical, :x, replacement)
+    for (model, sim) in ((first_model, first_run), (second_model, second_run))
+        register_object!(model, Object(:axis; scale=:Axis))
+        step!(sim)
+        @test isempty(model.registry.objects.changed_status_ids)
+    end
+    @test old[] === 1f0
+    @test replacement[] === 6f0
+    copied = deepcopy(first_model)
+    copied_status = model_status(copied, :one)
+    GC.gc()
+    copied_ref = Ref(20f0)
+    PSE._set_status_reference!(copied_status, :x, copied_ref)
+    @test copied.registry.objects.changed_status_ids == [ObjectId(:one)]
+    @test isempty(first_model.registry.objects.changed_status_ids)
+    @test isempty(second_model.registry.objects.changed_status_ids)
+    @test PSE.refvalue(canonical, :x) === replacement
+
+    function temporary_subscriber(s)
+        short_lived = make(:temporary, s)
+        return WeakRef(short_lived.registry.objects.changed_status_ids)
+    end
+    released = temporary_subscriber(canonical)
+    GC.gc()
+    @test isnothing(released.value)
+    remove_object!(first_model, :one)
+    PSE._set_status_reference!(canonical, :x, Ref(10f0))
+    @test isempty(first_model.registry.objects.changed_status_ids)
+    @test second_model.registry.objects.changed_status_ids == [ObjectId(:two)]
+end
 end

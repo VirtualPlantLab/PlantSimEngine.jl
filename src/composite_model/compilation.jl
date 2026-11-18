@@ -2215,6 +2215,7 @@ function _refresh_prepared_bindings!(
     _record_runtime_owner_replacement!(model, previous, refreshed)
     model.bindings_dirty = false
     _consume_structural_lifecycle_delta!(model)
+    empty!(model.registry.objects.changed_status_ids)
     return refreshed
 end
 
@@ -4073,11 +4074,22 @@ function _extend_model_status_views!(
         end
     end
 
-    for (key, previous_view) in views
-        application_id = getfield(key, 1)
-        current = _status_view_key_epoch_is_current(compiled.status_view_schema,
-            application_id, previous_view, model, key::Key)
-        current || push!(affected_keys, key)
+    # Values written through existing cells leave projections valid. Only a
+    # registered object's reference edits or a replacement header affect them.
+    objects = model.registry.objects
+    for raw_id in objects.changed_status_ids
+        let object_id = _index_object_id(objects, raw_id)
+            haskey(objects, object_id) || continue
+            _foreach_object_application(compiled, object_id) do application
+                key = (application.id, object_id)
+                previous_view = get(views, key, nothing)
+                isnothing(previous_view) && return nothing
+                current = _status_view_key_epoch_is_current(compiled.status_view_schema,
+                    application.id, previous_view, model, key::Key)
+                current || push!(affected_keys, key)
+                return nothing
+            end
+        end
     end
 
     positions = Dict(
@@ -6704,7 +6716,7 @@ end
         references = $T($values)
         if references !== storage.refs
             storage.refs = references
-            storage.reference_epoch += UInt(1)
+            _advance_status_reference_epoch!(storage)
         end
         return recipe.original
     end

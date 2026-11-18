@@ -1,9 +1,37 @@
+# A registered canonical header can be shared by multiple models. Each
+# registry records edits under its own ID, even when the other model ran first.
+struct _WeakStatusChangeSink
+    ids::WeakRef
+end
+
+# Construct a registered GC weak reference when copying an entire model. The
+# registry owns the copied vector, and the shared deepcopy memo preserves that
+# relationship regardless of whether the header or registry is copied first.
+function Base.deepcopy_internal(sink::_WeakStatusChangeSink, memo::IdDict)
+    haskey(memo, sink.ids) && return _WeakStatusChangeSink(memo[sink.ids]::WeakRef)
+    ids = sink.ids.value::Union{Nothing,Vector{ObjectId}}
+    weak = WeakRef(ids)
+    memo[sink.ids] = weak
+    weak.value = Base.deepcopy_internal(ids, memo)
+    return _WeakStatusChangeSink(weak)
+end
+
+struct _StatusReferenceWatch
+    sink::_WeakStatusChangeSink
+    id::ObjectId
+end
+
+_watch_ids(watch::_StatusReferenceWatch) = watch.sink.ids.value::Union{Nothing,Vector{ObjectId}}
+
 # N is the prepared namespace; the backing determines currently visible fields.
 mutable struct _FixedStatusStorage{N,R<:Tuple,T<:NamedTuple}
     refs::T
     reference_epoch::UInt
+    watchers::Union{Nothing,_StatusReferenceWatch,Vector{_StatusReferenceWatch}}
+    function _FixedStatusStorage{N,R,T}(refs, epoch) where {N,R,T}
+        return new{N,R,T}(refs, epoch, nothing)
+    end
 end
-
 
 # Kernel ports remain a dense NT. The immutable full snapshot captures the SAME
 # refs and presence, including private/temporal overlays, never a latest owner.
@@ -135,6 +163,55 @@ _status_storage_references(storage::Union{_FixedStatusStorage,_ProjectedStatusSt
 _status_reference_epoch(storage::NamedTuple) = UInt(0)
 _status_reference_epoch(storage::Union{_FixedStatusStorage,_ProjectedStatusStorage}) = storage.reference_epoch
 _status_reference_epoch(status::Status) = _status_reference_epoch(_status_vars(status))
+function _watch_status_references!(status::Status{N,<:_FixedStatusStorage}, sink, id) where {N}
+    storage = _status_vars(status)
+    watched = storage.watchers
+    current = _StatusReferenceWatch(sink, id)
+    if isnothing(watched) || (watched isa _StatusReferenceWatch && isnothing(_watch_ids(watched)))
+        storage.watchers = current
+    elseif watched isa _StatusReferenceWatch
+        watched.sink.ids === sink.ids || (storage.watchers = [watched, current])
+    else
+        filter!(watch -> !isnothing(_watch_ids(watch)), watched)
+        any(watch -> watch.sink.ids === sink.ids, watched) || push!(watched, current)
+        length(watched) == 1 && (storage.watchers = only(watched))
+    end
+    return nothing
+end
+_watch_status_references!(status, sink, id) = nothing
+
+function _unwatch_status_references!(status::Status{N,<:_FixedStatusStorage}, sink) where {N}
+    storage = _status_vars(status)
+    watched = storage.watchers
+    if watched isa _StatusReferenceWatch
+        watched.sink.ids === sink.ids && (storage.watchers = nothing)
+    elseif watched isa Vector
+        filter!(watch -> watch.sink.ids !== sink.ids && !isnothing(_watch_ids(watch)), watched)
+        length(watched) <= 1 && (storage.watchers = isempty(watched) ? nothing : only(watched))
+    end
+    return nothing
+end
+_unwatch_status_references!(status, sink) = nothing
+
+function _record_status_reference_change!(watch::_StatusReferenceWatch)
+    ids = _watch_ids(watch)
+    isnothing(ids) && return false
+    push!(ids, watch.id)
+    return true
+end
+
+function _advance_status_reference_epoch!(storage::_FixedStatusStorage)
+    storage.reference_epoch += UInt(1)
+    watched = storage.watchers
+    if watched isa _StatusReferenceWatch
+        _record_status_reference_change!(watched) || (storage.watchers = nothing)
+    elseif watched isa Vector
+        filter!(_record_status_reference_change!, watched)
+        length(watched) <= 1 && (storage.watchers = isempty(watched) ? nothing : only(watched))
+    end
+    return nothing
+end
+
 function _set_status_reference!(status::Status{N,<:_FixedStatusStorage}, name::Symbol, reference::Ref) where {N}
     storage = _status_vars(status)
     index = findfirst(isequal(name), N)
@@ -144,7 +221,7 @@ function _set_status_reference!(status::Status{N,<:_FixedStatusStorage}, name::S
     old = getfield(storage.refs, index)
     old === reference && return reference
     storage.refs = typeof(storage.refs)(Base.setindex(values(storage.refs), reference, index))
-    storage.reference_epoch += UInt(1)
+    _advance_status_reference_epoch!(storage)
     return reference
 end
 function _drop_status_reference!(status::Status{N,<:_FixedStatusStorage}, name::Symbol) where {N}
@@ -153,7 +230,7 @@ function _drop_status_reference!(status::Status{N,<:_FixedStatusStorage}, name::
     old === nothing && return nothing
     index = findfirst(isequal(name), N)
     storage.refs = typeof(storage.refs)(Base.setindex(values(storage.refs), nothing, index))
-    storage.reference_epoch += UInt(1)
+    _advance_status_reference_epoch!(storage)
     return old
 end
 Status(; kwargs...) = Status(NamedTuple{keys(kwargs)}(Ref.(values(values(kwargs)))))
