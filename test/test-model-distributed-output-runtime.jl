@@ -1459,3 +1459,43 @@ end
     @test outputs(simulation)[(:distributed, ObjectId(:leaf_c), :delivered)] == [(3.0, 30f0)]
     @test outputs(simulation)[(:prospective_distributor, ObjectId(:leaf_c), :prospective)] == [(3.0, 60f0)]
 end
+
+
+@testset "a newborn producer publishes to all thirty existing leaves on its birth step" begin
+    model = DistributedGrowthFixture.make_producer_birth_model()
+    ids = DistributedGrowthFixture.producer_birth_leaf_ids()
+    leaves = [model_object(model, id) for id in ids]
+    ordinal_refs = [PlantSimEngine.refvalue(model_status(model, id), :ordinal) for id in ids]
+    simulation = run!(model; steps=0, outputs=:all)
+    @test length(model_objects(model; scale=:Leaf)) == 30
+    @test !haskey(model.registry.objects, ObjectId(:emitter))
+    for day in 0:1
+        day == 1 && step!(simulation)
+        @test current_step(simulation) == day
+        for (index, id) in enumerate(ids)
+            @test model_object(model, id) === leaves[index]
+            @test !hasproperty(model_status(model, id), :signal)
+            @test isempty(get(outputs(simulation), (:producer, id, :signal), Tuple{Float64,Float32}[]))
+        end
+    end
+    step!(simulation)
+    @test current_step(simulation) == 2
+    @test haskey(model.registry.objects, ObjectId(:emitter))
+    @test length(model_objects(model; scale=:Leaf)) == 30
+    signal_refs = [PlantSimEngine.refvalue(model_status(model, id), :signal) for id in ids]
+    streams = [outputs(simulation)[(:producer, id, :signal)] for id in ids]
+    for day in 2:3
+        day == 3 && step!(simulation)
+        @test current_step(simulation) == day
+        for (index, id) in enumerate(ids)
+            status = model_status(model, id)
+            @test model_object(model, id) === leaves[index]
+            @test PlantSimEngine.refvalue(status, :ordinal) === ordinal_refs[index]
+            @test status.ordinal == index
+            @test PlantSimEngine.refvalue(status, :signal) === signal_refs[index]
+            @test status.signal === Float32(20day)
+            @test outputs(simulation)[(:producer, id, :signal)] === streams[index]
+            @test streams[index] == [(Float64(tick), Float32(20tick)) for tick in 2:day]
+        end
+    end
+end

@@ -53,12 +53,17 @@ function PSE.run!(model::Distributor{VARIABLE}, status, environment, constants, 
     return nothing
 end
 
-function make_model(; reader_every=PSE.Dates.Hour(1), distributor_every=PSE.Dates.Hour(1))
+function hourly_weather()
     weather = PSE.PlantMeteo.Weather([
         PSE.PlantMeteo.Atmosphere(date=PSE.Dates.DateTime(2025, 1, 1) + PSE.Dates.Hour(index - 1),
             T=temperature, Wind=1.0, Rh=0.5, duration=PSE.Dates.Hour(1))
         for (index, temperature) in enumerate((10.0, 20.0, 30.0, 40.0))
     ])
+    return weather
+end
+
+function make_model(; reader_every=PSE.Dates.Hour(1), distributor_every=PSE.Dates.Hour(1))
+    weather = hourly_weather()
     root = PSE.Object(:root; scale=:Scene,
         status=PSE.Status(visits=0, seen=0.0, dose=0.0, tick=0, lag=Float32[], lagtotal=0f0))
     leaf = PSE.Object(:leaf_a; scale=:Leaf, parent=:root, status=leaf_status(1f0))
@@ -81,6 +86,35 @@ function make_model(; reader_every=PSE.Dates.Hour(1), distributor_every=PSE.Date
             outputs_to=(PSE.OutputTo(PSE.Many(PSE.SceneScope(); scale=:Leaf); vars=(:prospective,)),)),
     ))
     return model
+end
+
+# A producer is born while every one of its thirty destinations already exists.
+PSE.@process "distributed_producer_birth" verbose=false
+struct ProducerBirth <: AbstractDistributed_Producer_BirthModel end
+PSE.inputs_(::ProducerBirth) = NamedTuple()
+PSE.outputs_(::ProducerBirth) = (visits=0,)
+function PSE.run!(::ProducerBirth, status, environment, constants, context)
+    status.visits += 1
+    if status.visits == 2
+        PSE.register_object!(PSE.runtime_model(context), PSE.Object(:emitter;
+            scale=:Emitter, parent=:root, status=PSE.Status(tick=0)))
+    end
+    return nothing
+end
+
+producer_birth_leaf_ids() = [PSE.ObjectId(Symbol(:leaf_, index)) for index in 1:30]
+function make_producer_birth_model()
+    objects = PSE.Object[PSE.Object(:root; scale=:Scene, status=PSE.Status(visits=0))]
+    for (index, id) in enumerate(producer_birth_leaf_ids())
+        push!(objects, PSE.Object(id; scale=:Leaf, parent=:root, status=PSE.Status(ordinal=index)))
+    end
+    return PSE.CompositeModel(objects...; environment=hourly_weather(), applications=(
+        PSE.ModelSpec(ProducerBirth(); name=:birth, on=PSE.One(id=:root), every=PSE.Dates.Hour(1)),
+        PSE.ModelSpec(Distributor{:signal}(2f0); name=:producer,
+            on=PSE.Many(scale=:Emitter), every=PSE.Dates.Hour(1),
+            inputs=(:tick => PSE.One(id=:root, within=PSE.SceneScope(), application=:birth, var=:visits),),
+            outputs_to=(PSE.OutputTo(PSE.Many(PSE.SceneScope(); scale=:Leaf); vars=(:signal,)),)),
+    ))
 end
 
 end
