@@ -6722,35 +6722,38 @@ function _status_recipe_add_default!(
     return _status_recipe_set_reference!(recipe, variable, Ref(initial))
 end
 
-# One prepared physical schema handles every presence pattern. Slot construction
-# validates ALL edits before its single metadata assignment; no runtime type/name
-# discovery, terminal-layout enumeration or alternate Open algorithm remains.
-@generated function _finish_canonical_status_recipe!(
-    recipe::_CanonicalStatusRecipe{S},
-) where {N,R,T,S<:Status{N,_FixedStatusStorage{N,R,T}}}
-    cells = [gensym(:cell) for _ in N]
-    reads = [quote
-        position = findfirst(isequal($(QuoteNode(name))), recipe.edit_names)
-        $(cells[i]) = isnothing(position) ?
-            getfield(_status_vars(recipe.original).refs, $i) : recipe.edit_references[position]
-        $(cells[i]) isa $(fieldtype(T,i)) || throw(ArgumentError("Staged reference is outside its prepared slot family."))
-    end for (i,name) in enumerate(N)]
-    values = Expr(:tuple, [:( $(cells[i])::$(fieldtype(T,i)) ) for i in eachindex(N)]...)
-    return quote
-        $(Expr(:meta, :noinline))
-        recipe.changed || return recipe.original
-        for name in recipe.edit_names
-            name in $(QuoteNode(N)) || throw(KeyError(name))
-        end
-        $(reads...)
-        storage = _status_vars(recipe.original)
-        references = $T($values)
-        if references !== storage.refs
-            storage.refs = references
-            _advance_status_reference_epoch!(storage)
-        end
-        return recipe.original
+# Stage one reference directory. Committing it once keeps every existing status
+# projection on its original cells if any edit fails admission.
+function _finish_canonical_status_recipe!(recipe::_CanonicalStatusRecipe)
+    original = recipe.original
+    isempty(recipe.edit_names) && return original
+    storage = _status_vars(original)
+    current = storage.refs
+    slots = typeof(current)
+    cells = Vector{Union{Nothing,Ref}}(undef, nfields(current))
+    for slot in eachindex(cells)
+        cells[slot] = getfield(current, slot)
     end
+    changed = false
+    for (name, reference) in zip(recipe.edit_names, recipe.edit_references)
+        slot = Base.fieldindex(slots, name, false)
+        iszero(slot) && throw(KeyError(name))
+        reference isa fieldtype(slots, slot) ||
+            throw(ArgumentError("Staged reference is outside its prepared slot family."))
+        changed |= cells[slot] !== reference
+        cells[slot] = reference
+    end
+    if changed
+        storage.refs = _status_reference_directory(slots, cells)
+        _advance_status_reference_epoch!(storage)
+    end
+    return original
+end
+
+# Every cell already belongs to its prepared field. Use Julia's constructor for
+# exact NamedTuple fields to retain those references without per-field conversion.
+Base.@noinline function _status_reference_directory(::Type{T}, cells::Vector{Union{Nothing,Ref}}) where {T<:NamedTuple}
+    return Base._new_NamedTuple(T, Tuple(cells))
 end
 
 function _model_object_status_for_preparation(
