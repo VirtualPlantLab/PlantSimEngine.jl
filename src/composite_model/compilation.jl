@@ -6928,8 +6928,9 @@ function _validate_required_model_output_destinations!(
             for (variable_, declaration) in pairs(resolved.declarations)
                 declaration isa Required || continue
                 variable = Symbol(variable_)
-                if _status_has_variable(model, destination_id, variable)
-                    value = _model_object(model, destination_id).status[variable]
+                status = model_status(model, destination_id)
+                if status isa Status && hasproperty(status, variable)
+                    value = status[variable]
                     expected_type = _input_expected_type(declaration)
                     value isa expected_type || throw(ArgumentError(
                         "Distributed output `$(variable)` on application " *
@@ -9386,12 +9387,6 @@ function _bound_model_inputs(input_bindings)
     return bound
 end
 
-function _status_has_variable(model::CompositeModel, object_id::ObjectId, variable::Symbol)
-    object = _model_object(model, object_id)
-    object.status isa Status || return false
-    return hasproperty(object.status, variable)
-end
-
 function _validate_model_required_inputs!(model::CompositeModel, applications, applications_by_id, input_bindings)
     bound = _bound_model_inputs(input_bindings)
     I = keytype(model.registry.objects)
@@ -9404,7 +9399,8 @@ function _validate_model_required_inputs!(model::CompositeModel, applications, a
                     declaration isa Required || continue
                     input = Symbol(input_)
                     (application.id, object_id, input) in bound && continue
-                    _status_has_variable(model, object_id, input) && continue
+                    status = model_status(model, object_id)
+                    status isa Status && hasproperty(status, input) && continue
                     push!(
                         missing,
                         (
