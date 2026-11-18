@@ -68,8 +68,10 @@ function _policy_for_output(model, variable::Symbol)
     )
 end
 
-function _publish_mode_for_output(spec::ModelSpec, variable::Symbol)
-    modes = output_routing(spec)
+_publish_mode_for_output(spec::ModelSpec, variable::Symbol) =
+    _publish_mode_for_output(output_routing(spec), variable)
+
+function _publish_mode_for_output(modes::NamedTuple, variable::Symbol)
     mode = variable in keys(modes) ? modes[variable] : :canonical
     mode in (:canonical, :stream_only) || error(
         "Unsupported output routing mode `$(mode)` for `$(variable)`."

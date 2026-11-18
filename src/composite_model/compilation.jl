@@ -6883,46 +6883,31 @@ end
     return status::S
 end
 
-_stage_model_output_defaults!(preparation, ::Tuple{}, ::Tuple{}, context) = nothing
-
-function _stage_model_output_defaults!(
-    preparation,
-    variables::Tuple{Symbol,Vararg{Symbol}},
-    defaults::Tuple{V,Vararg},
-    context,
-) where {V}
-    variable = first(variables)
-    value = first(defaults)
-    if _publish_mode_for_output(context.application.spec, variable) == :canonical
+# Stage only missing defaults. Dispatch on each value in its complete declaration
+# so wide model schemas share workers instead of compiling every tuple suffix.
+function _stage_model_status_defaults!(preparation, defaults::NamedTuple, variables,
+    stage_default!::F, context,
+) where {F}
+    rewrites_avoided = 0
+    for variable in variables
         if preparation isa Status
-            if !(hasproperty(preparation, variable))
-                recipe = _status_recipe_for_object!(
-                    context.recipes,
-                    context.recipe_order,
-                    context.model,
-                    context.object_id,
-                )
-                return Base.@inline _with_canonical_status_recipe(
-                    _stage_model_output_defaults!, context.recipes, recipe,
-                    variables, defaults, context,
-                )
-            end
-        else
-            Base.@inline _status_recipe_add_default!(
-                context.model,
-                preparation,
-                context.object_id,
-                variable,
-                value;
-                application_id=context.application.id,
-                origin=:model_output_default,
-                conversion_records=context.conversion_records,
-            )
+            hasproperty(preparation, variable) && continue
+            preparation = _status_recipe_for_object!(context.recipes, context.recipe_order,
+                context.model, context.object_id)
+        elseif _status_recipe_has_variable(preparation, variable)
+            continue
         end
+        rewrites_avoided += _with_metadata_entry(stage_default!, defaults, variable,
+            preparation, variable, context)
     end
-    return _stage_model_output_defaults!(
-        preparation, Base.tail(variables), Base.tail(defaults), context,
-    )
+    return rewrites_avoided
+end
+
+Base.@noinline function _stage_model_output_default!(value, recipe, variable, context)
+    _status_recipe_add_default!(context.model, recipe, context.object_id, variable, value;
+        application_id=context.application_id, origin=:model_output_default,
+        conversion_records=context.conversion_records)
+    return 0
 end
 
 function _prepare_model_output_statuses!(
@@ -6940,6 +6925,7 @@ function _prepare_model_output_statuses!(
     for partial in applications
         Base.@inline _with_model_application(applications_by_id, partial) do application
             schemas = _application_default_schemas(application, Val(:outputs))
+            routing = output_routing(application.spec)
             for object_id in application.target_ids
                 Base.@inline _with_application_defaults(application, object_id, schemas, Val(:outputs)) do defaults
                     preparation = _status_preparation_for_object!(
@@ -6948,12 +6934,15 @@ function _prepare_model_output_statuses!(
                         model,
                         object_id,
                     )
-                    context = (; model, application, object_id, recipes,
-                        recipe_order, conversion_records)
+                    variables = Iterators.filter(keys(defaults)) do variable
+                        _publish_mode_for_output(routing, variable) === :canonical
+                    end
+                    context = (; model, application_id=application.id, object_id,
+                        recipes, recipe_order, conversion_records)
                     Base.@inline _with_canonical_status_preparation(
-                        _stage_model_output_defaults!, recipes,
-                        model.registry.objects.catalog, preparation,
-                        keys(defaults), values(defaults), context,
+                        _stage_model_status_defaults!, recipes, model.registry.objects.catalog,
+                        preparation, defaults, variables,
+                        _stage_model_output_default!, context,
                     )
                 end
             end
@@ -7844,40 +7833,19 @@ end
     end
 end
 
-_stage_model_input_defaults!(preparation, ::Tuple{}, ::Tuple{}, context) = 0
-function _stage_model_input_defaults!(preparation, variables::Tuple,
-    defaults::Tuple{V,Vararg}, context,
-) where {V}
-    variable, value = first(variables), first(defaults)
-    if preparation isa Status
-        if !(hasproperty(preparation, variable))
-            recipe = _status_recipe_for_object!(context.recipes,
-                context.recipe_order, context.model, context.object_id)
-            return _with_canonical_status_recipe(_stage_model_input_defaults!,
-                context.recipes, recipe, variables, defaults, context)
-        end
-        return _stage_model_input_defaults!(preparation,
-            Base.tail(variables), Base.tail(defaults), context)
+Base.@noinline function _stage_model_input_default!(value, recipe, variable, context)
+    reference = isnothing(context.final_references) ? nothing :
+        get(context.final_references, (context.application_id, context.object_id, variable), nothing)
+    if isnothing(reference)
+        _status_recipe_add_default!(context.model, recipe, context.object_id, variable, value;
+            application_id=context.application_id, origin=:model_input_default,
+            conversion_records=context.conversion_records)
+        context.default_status_updates[(context.object_id, variable)] = true
+        return 0
     end
-    avoided = 0
-    if !_status_recipe_has_variable(preparation, variable)
-        reference = isnothing(context.final_references) ? nothing :
-            get(context.final_references,
-                (context.application.id, context.object_id, variable), nothing)
-        if isnothing(reference)
-            Base.@inline _status_recipe_add_default!(context.model, preparation,
-                context.object_id, variable, value;
-                application_id=context.application.id, origin=:model_input_default,
-                conversion_records=context.conversion_records)
-            context.default_status_updates[(context.object_id, variable)] = true
-        else
-            avoided = Base.@inline _with_model_input_status_reference(
-                _stage_model_input_default_reference!, context.bindings, reference,
-                preparation, variable, value, context)
-        end
-    end
-    return avoided + _stage_model_input_defaults!(preparation,
-        Base.tail(variables), Base.tail(defaults), context)
+    return Base.@inline _with_model_input_status_reference(
+        _stage_model_input_default_reference!, context.bindings, reference,
+        recipe, variable, value, context)
 end
 
 function _stage_model_input_default_reference!(reference, preparation, variable,
@@ -7886,7 +7854,7 @@ function _stage_model_input_default_reference!(reference, preparation, variable,
     # Keep the existing conversion/validation even when the carrier owns storage.
     _no_status_conversion(context.model.status_conversion) ||
         _materialize_status_value(context.model, variable, value;
-            object_id=context.object_id, application_id=context.application.id,
+            object_id=context.object_id, application_id=context.application_id,
             origin=:model_input_default, private_copy=true,
             conversion_records=context.conversion_records)
     _status_recipe_set_reference!(preparation, variable, reference)
@@ -7916,33 +7884,26 @@ end
 )
     return Base.@inline _with_model_input_status_reference(
         _stage_admitted_model_input_reference!, binding,
-        reference, preparation, binding, context)
+        reference, preparation, binding.consumer_id, binding.input, context)
 end
 
-function _stage_admitted_model_input_reference!(reference, preparation, binding,
-    context,
+# Once the binding has admitted its carrier, staging needs only its destination
+# and cell. Bindings with different selectors or clocks can share this worker.
+Base.@noinline function _stage_admitted_model_input_reference!(reference, preparation,
+    object_id, variable, context,
 )
     if preparation isa Status
-        if hasproperty(preparation, binding.input) &&
-           refvalue(preparation, binding.input) === reference
-            context.default_status_updates[(binding.consumer_id, binding.input)] = false
-            return nothing
+        if !hasproperty(preparation, variable) || refvalue(preparation, variable) !== reference
+            recipe = _status_recipe_for_object!(context.recipes, context.recipe_order,
+                context.model, object_id)
+            _with_canonical_status_recipe(_status_recipe_set_reference!, context.recipes,
+                recipe, variable, reference)
         end
-        recipe = _status_recipe_for_object!(context.recipes, context.recipe_order,
-            context.model, binding.consumer_id)
-        return _with_canonical_status_recipe(_set_model_input_status_reference!,
-            context.recipes, recipe, reference, binding, context)
-    elseif _status_recipe_has_variable(preparation, binding.input) &&
-           _status_recipe_reference(preparation, binding.input) === reference
-        context.default_status_updates[(binding.consumer_id, binding.input)] = false
-        return nothing
+    elseif !_status_recipe_has_variable(preparation, variable) ||
+           _status_recipe_reference(preparation, variable) !== reference
+        _status_recipe_set_reference!(preparation, variable, reference)
     end
-    return _set_model_input_status_reference!(preparation, reference, binding, context)
-end
-
-function _set_model_input_status_reference!(preparation, reference, binding, context)
-    _status_recipe_set_reference!(preparation, binding.input, reference)
-    context.default_status_updates[(binding.consumer_id, binding.input)] = false
+    context.default_status_updates[(object_id, variable)] = false
     return nothing
 end
 
@@ -7972,10 +7933,10 @@ function _prepare_model_input_statuses_batched!(
                 rewrites_avoided += Base.@inline _with_application_defaults(application, object_id, schemas, Val(:inputs)) do defaults
                     preparation = _status_preparation_for_object!(
                         recipes, recipe_order, model, object_id)
-                    selected = (; context..., application, object_id)
-                    _with_canonical_status_preparation(_stage_model_input_defaults!,
-                        recipes, model.registry.objects.catalog, preparation,
-                        keys(defaults), values(defaults), selected)
+                    selected = (; context..., application_id=application.id, object_id)
+                    _with_canonical_status_preparation(_stage_model_status_defaults!,
+                        recipes, model.registry.objects.catalog, preparation, defaults,
+                        keys(defaults), _stage_model_input_default!, selected)
                 end
             end
             return rewrites_avoided
