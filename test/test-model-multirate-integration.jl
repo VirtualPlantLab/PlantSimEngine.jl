@@ -208,7 +208,14 @@ end
             @test collect(stream) == [(4.0, 4.0), (5.0, 5.0)]
         end
         register_object!(model, Object(:long; scale=:Long))
-        continue!(simulation; steps=0)
+        previous_step = current_step(simulation)
+        previous_history = copy(short_history)
+        @test_throws ArgumentError continue!(simulation; steps=-1)
+        @test current_step(simulation) == previous_step
+        @test continue!(simulation; steps=0) === simulation
+        @test current_step(simulation) == previous_step
+        @test short_history == previous_history
+        @test isempty(long_history)
         @test outputs(simulation)[key] === stream
         if retention === :none
             @test length(stream.times) == 5

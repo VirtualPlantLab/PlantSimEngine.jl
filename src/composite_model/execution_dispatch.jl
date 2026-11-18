@@ -12,7 +12,7 @@ struct FixedExecution <: ExecutionTopology end
     end
 end
 
-function _refresh_timeline!(simulation::Simulation, ::DynamicExecution)
+Base.@noinline function _refresh_timeline!(simulation::Simulation, ::DynamicExecution)
     lifecycle = _pending_output_request_lifecycle_delta(simulation.model)
     _refresh_simulation_runtime!(simulation)
     _refresh_output_request_targets!(simulation, lifecycle)

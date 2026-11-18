@@ -7779,6 +7779,10 @@ function _continue_scene!(simulation::Simulation, steps::Integer)
         _refresh_timeline!(simulation, simulation.execution_plan.topology)
         return simulation
     end
+    return _continue_positive_scene!(simulation, steps)
+end
+
+Base.@noinline function _continue_positive_scene!(simulation::Simulation, steps::Integer)
     final_step = Base.Checked.checked_add(simulation.current_step, Int(steps))
     start_step = Base.Checked.checked_add(simulation.current_step, 1)
     for step in start_step:final_step

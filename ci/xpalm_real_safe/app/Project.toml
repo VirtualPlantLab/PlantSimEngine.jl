@@ -1,0 +1,31 @@
+name = "XPalmLifecycleApp"
+uuid = "69212268-88b2-4fbf-a918-b8dcb37be631"
+version = "0.1.0"
+
+[deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"
+Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+XPalm = "6b523e1e-d512-416c-8e51-a8fbef0064e7"
+
+[compat]
+CSV = "0.10"
+DataFrames = "1"
+Dates = "1"
+PlantSimEngine = "0.15"
+Tables = "1"
+XPalm = "0.7"
+julia = "1.13"
+
+[extras]
+SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["SHA", "Test"]
+
+[sources]
+PlantSimEngine = {path = "../../.."}
+XPalm = {path = "../../../scientific/XPalm"}

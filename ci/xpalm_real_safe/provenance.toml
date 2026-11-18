@@ -1,0 +1,47 @@
+"base_pse" = "1a09d5b8d9471312e841df7f0bc1ac84b3d475da"
+"xpalm" = "1496bb95c9f609c4d38c099aaa4123dc71fa1e0d"
+"plantgeom" = "1e00511430def53c2a24790f4a8b9a57aa39fac2"
+"julia" = "1.13.4"
+"juliac" = "0.3.12"
+"orderedcollections_registry_tree" = "b079a6affebde167dad8ffe0d670b53917fbcb68"
+"orderedcollections_registry_version" = "2.0.3"
+
+[experiments]
+"dynamic_refresh_diff_sha256" = "6ceae986bf9cf45146c739447538440be8f702b7031c455528ea7b797cee9e25"
+"positive_loop_diff_sha256" = "3b88563c7e515eca351eb7faffa05e446e1e3780926baf64371b15af66704c39"
+
+[pse_experimental_files]
+"src/composite_model/execution_dispatch.jl" = "b7cd4efcf448e7e37300be2bb989300345347a0125c6c09239c56c840ed167aa"
+"src/composite_model/runtime_outputs.jl" = "c58359dda3f2f3afa175b6db031bf099e5ec03fc147286c2a2b13d975877c919"
+"test/test-model-multirate-integration.jl" = "ebc2469d0207badd2b691b337729f16da569af8eb610cd9ef79052f85d0a85b3"
+
+[app_files]
+"src/XPalmLifecycleApp.jl" = "fc1be8420b4a311326a5d0cf40bab91416db60c4f3386394ecd66684afb0c65e"
+"src/identity_preparation.jl" = "8eb9ec662b31d1a2e920594564e09617e4c843c5b08c5438e2877d26aaaa552e"
+"src/witnesses.jl" = "de0e573d253ef9753a7aab55fb27489378a6979875a4dfb3181dc72d444d8dce"
+"test/oracle.jl" = "1bf45b5cb1b8860888bcdab4282ec60d8e2bff8e98be7c8eaf1dc0e9cd93e8e9"
+"test/runtests.jl" = "eb93d7627bd8556a12f420c649a32a669d3e652cdd9e494918c3ba348073b5c8"
+"test/verify_native_t1.jl" = "ad76dcab90ee9772aad08466d6d19d788c19f7dc31ecd916eef1ce40f1e70c7c"
+
+[reference_files]
+"test/references/regression/README.md" = "03e6041d2b427b2a8f1ec53b24c29cca8280237768d255e8198094dca8c71f34"
+"test/references/regression/v0.6.1/README.md" = "04eba6d2714e858e366a7f521359ddff4bf1ba30f5fd1c2486973c9ec29e0d3a"
+"test/references/regression/v0.6.1/harvest_events.csv" = "8c908bcf6dae530b019c55bd7fc25b7114f5e8d8c44b6a55d71bbe3b0a3a3ec5"
+"test/references/regression/v0.6.1/metadata.toml" = "c2821964c1e2896310a7a9ae871e5d0ed052f60254bd4ec2c3475c767318fa0a"
+"test/references/regression/v0.6.1/summary.csv" = "488decfb46e31076c4e5f1a9c1e71fdafb5021151df88d3b78d9622d4d8ce838"
+"test/references/regression/v0.6.1/trajectory_checkpoints.csv" = "0aeba13de75ed8bf0f0632816fb2c7601ee0b1213d40734650b8eeca174b72cc"
+"test/references/regression/v0.7.0-catchup-dev/README.md" = "eb7108a4ec715df46808c5f506f5c4155d111ec288b0e43660bb930f148ab09f"
+"test/references/regression/v0.7.0-catchup-dev/harvest_events.csv" = "3ca7c853d248dede8fba4dc849ac9b5e3c9358c7c5442a27ee454b74cfc2a90f"
+"test/references/regression/v0.7.0-catchup-dev/metadata.toml" = "a37cb6cb71b5f89f667fac2797cd2a547ba172a4c30eaf2ace4201ce93e315d3"
+"test/references/regression/v0.7.0-catchup-dev/summary.csv" = "4e02b8f5c285240df00f08796bde5a6cd5091b975383552ae1b6700563d2b99e"
+"test/references/regression/v0.7.0-catchup-dev/trajectory_checkpoints.csv" = "f742f74f7db90cc7b6f119f2301cc47638be7604b3aeaeffcba994cd03ad06f7"
+"test/references/regression/v0.7.0-lifecycle-dev/README.md" = "2642759038434d5c4f38f2fd7a5bc166b65580be75e5b19404751e90da5e5872"
+"test/references/regression/v0.7.0-lifecycle-dev/harvest_events.csv" = "3470b5d9df2a1cf13fedfc7284a06eba5642895648cb929be36287caec490a23"
+"test/references/regression/v0.7.0-lifecycle-dev/metadata.toml" = "9642141dce1638794086c8e060e896458e809454757282f5e83ccd6f74f50c60"
+"test/references/regression/v0.7.0-lifecycle-dev/summary.csv" = "5db0313932cb50e3835e5cabe25118b8cd874a03368bbc44b4d6daf152fed6bb"
+"test/references/regression/v0.7.0-lifecycle-dev/trajectory_checkpoints.csv" = "96d059e2b282597195e27a9ff54ae1cf9fd42d617b29d1da9488d952e8e2cb45"
+"test/references/regression/v0.7.0/README.md" = "65f6cf67091042019ef6a7eeac7b92e778daab4cd5fd6e0a937dc74c86d28e3b"
+"test/references/regression/v0.7.0/harvest_events.csv" = "c887048a8530f5c7834964ace71e2660b8b1a189b275787172da348116522b77"
+"test/references/regression/v0.7.0/metadata.toml" = "5ae064dc9a20f861b980c2610ce1c95840e7c088d61a71b290503cf1d39eb0c0"
+"test/references/regression/v0.7.0/summary.csv" = "ea1d0e929b13f379e9924f35d058bd7f895695268004b6603ec1101255df50e0"
+"test/references/regression/v0.7.0/trajectory_checkpoints.csv" = "5b4b6cdd2bddcf63393810a5bfb825c8081b221517ad8f97decfb3a8edad0b95"
