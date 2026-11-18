@@ -30,6 +30,35 @@ function fixture(::Type{T}; empty=false) where {T}
 end
 input(sim) = only(sim.compiled.status_views_by_target[(:consumer, ObjectId(:scene))].temporal_inputs)
 
+@testset "Many can read a newly materialized canonical output through its status" begin
+    function status_scene(mode, scale)
+        return CompositeModel(Object(:scene; scale=:Scene), Object(:a; scale=:Leaf, parent=:scene);
+            applications=(
+                ModelSpec(Source(2f0); name=:source, on=Many(scale=scale),
+                    output_routing=(signal=mode,)),
+                ModelSpec(Consumer{Float32}(); name=:consumer, on=One(scale=:Scene),
+                    inputs=(signals=Many(scale=:Leaf, within=SceneScope(),
+                        var=:signal, from_status=true, after=:source),)),
+            ), environment=(duration=Hour(1),))
+    end
+    model = status_scene(:canonical, :Leaf)
+    sim = run!(model; steps=1, outputs=:all)
+    binding = only(sim.compiled.input_bindings)
+    @test fieldtypes(binding.plan.reference_types) == (Base.RefValue{Float32},)
+    @test isempty(binding.plan.potential_source_application_ids)
+    @test isempty(binding.source_application_ids)
+    @test binding.order_after_application_ids == (:source,)
+    @test only(parent(binding.carrier)) === PSE.refvalue(model_status(model, :a), :signal)
+    @test final_state(sim, :scene).total === 3f0
+    register_object!(model, Object(:b; scale=:Leaf, parent=:scene))
+    step!(sim)
+    @test final_state(sim, :scene).total === 7f0
+    @test outputs(sim)[(:consumer, ObjectId(:scene), :total)] == [(1.0, 3f0), (2.0, 7f0)]
+    for (mode, scale) in ((:stream_only, :Leaf), (:canonical, :Root))
+        @test_throws "no concrete configured source type" run!(status_scene(mode, scale); steps=0)
+    end
+end
+
 @testset "homogeneous initial values retain their numerical schema across growth" begin
     for T in (Float32, Float64), retention in (:none, :all)
         model = fixture(T)

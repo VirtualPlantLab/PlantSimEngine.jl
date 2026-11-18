@@ -8523,9 +8523,28 @@ function _many_model_variant_types(producer)
     return ((model, ports.output_types, ports.output_element_types),)
 end
 
+function _add_status_writer_reference_types!(references, model, selector, variable, writers, plans)
+    for writer in writers
+        _application_may_output_variable(writer, variable, selector,
+            _model_canonical_output_names(writer), plans) || continue
+        _foreach_application_variant(writer) do _, ports
+            R = _prepared_status_declared_reference(model.status_conversion, variable,
+                getproperty(ports.output_types, variable), get(ports.output_element_types, variable, nothing))
+            R === Union{} || append!(references, Base.uniontypes(R))
+        end
+    end
+    return references
+end
+
 function _prepare_input_reference_types(model, consumer, input, selector,
-    source_var, producer_ids, applications_by_id, distributed_output_plans)
+    source_var, producer_ids, applications_by_id, writer_applications, distributed_output_plans)
     references = Any[]
+    # A status read can see a canonical output before its first value has been
+    # materialized. Its declared cell type does not create a stream dependency.
+    if _selector_from_status(selector)
+        _add_status_writer_reference_types!(references, model, selector, source_var,
+            get(writer_applications, source_var, ()), distributed_output_plans)
+    end
     add(R) = R in references || push!(references, R)
     declared_input = _configured_status_value_type(model.status_conversion, input,
         getproperty(_application_ports(consumer).input_types, input), nothing)
@@ -8554,7 +8573,6 @@ function _prepare_input_reference_types(model, consumer, input, selector,
             current = _many_current_source_ids(model, consumer, producer, variant,
                 selector, source_selectors, distributed)
             missing_current = copy(current)
-            observed_any = false
             for source_selector in source_selectors
                 matcher = _authored_selector_matcher(source_selector)
                 for object in values(model.registry.objects)
@@ -8565,7 +8583,6 @@ function _prepare_input_reference_types(model, consumer, input, selector,
                     reference = refvalue(status, source_var)
                     reference isa Ref || continue
                     add(typeof(reference))
-                    observed_any = true
                     delete!(missing_current, object.id)
                 end
             end
@@ -8588,7 +8605,7 @@ function _prepare_input_reference_types(model, consumer, input, selector,
             # Existing complete references remain valid evidence; no transform
             # is called here to manufacture an additional type witness.
             if isempty(candidates)
-                (current_complete || (isnothing(producer) && observed_any) ||
+                (current_complete || (isnothing(producer) && !isempty(references)) ||
                     (selector isa OptionalOne && isempty(current))) && continue
             end
             isempty(candidates) && throw(ArgumentError(
@@ -8686,7 +8703,7 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
         _selector_window(selector),
         _prepare_input_reference_types(model, application, input, selector,
             source_var, potential_source_application_ids,
-            applications_by_id, distributed_output_plans),
+            applications_by_id, writer_applications, distributed_output_plans),
     )
 end
 
