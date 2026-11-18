@@ -1574,18 +1574,19 @@ end
             :newborn_leaf;
             scale=:Leaf,
             parent=:scene,
-            status=Status(marker=1.0),
+            status=Status(value=1.0),
         ),
     )
     newborn_status = model_status(model, newborn)
-    @test propertynames(newborn_status) == (:marker,)
+    @test propertynames(newborn_status) == (:value,)
     @test_throws "Expected exactly one object" run_call!(
         context,
         :children;
         objects=newborn,
         publish=true,
     )
-    @test propertynames(model_status(model, newborn)) == (:marker,)
+    @test propertynames(model_status(model, newborn)) == (:value,)
+    @test newborn_status.value == 1.0
     @test model_status(model, :existing_leaf).calls == existing_calls
     @test Advanced.bindings_dirty(model)
     @test simulation.compiled === context.compiled
