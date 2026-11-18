@@ -978,6 +978,8 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectMet
     allowed = Set((:scale, :kind, :species, :name, :geometry, :parent))
     unknown = setdiff(Set(Symbol.(keys(edit.configuration))), allowed)
     isempty(unknown) || error("Unsupported object metadata fields: $(sort!(collect(unknown); by=string)).")
+    id = _index_object_id(model.registry.objects, object.id)
+    _validate_object_family_status_owner!(model.registry.objects, object.status, id)
     _deindex_object!(model.registry, object)
     for (key_, value) in pairs(edit.configuration)
         key = Symbol(key_)
@@ -991,7 +993,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectMet
             setfield!(object, key, isnothing(value) ? nothing : Symbol(value))
         end
     end
-    _index_object!(model.registry, object)
+    _index_object_labels!(model.registry, object, id)
     if haskey(edit.configuration, :parent)
         before = _object_instance_name(model, object.id)
         reparent_object!(model, object.id, edit.configuration.parent)

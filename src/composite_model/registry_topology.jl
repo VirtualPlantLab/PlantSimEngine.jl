@@ -1104,9 +1104,7 @@ function _delete_index!(index::Dict{Symbol,Set{ObjectId}}, key, id::ObjectId)
     return nothing
 end
 
-function _index_object!(registry::ObjectRegistry, object::Object)
-    id = _index_object_id(registry.objects, object.id)
-    _validate_status_identity_available!(registry, object.status, id)
+function _index_object_labels!(registry::ObjectRegistry, object::Object, id::ObjectId)
     _push_index!(registry.by_scale, object.scale, id)
     _push_index!(registry.by_kind, object.kind, id)
     _push_index!(registry.by_species, object.species, id)
@@ -1119,14 +1117,6 @@ function _deindex_object!(registry::ObjectRegistry, object::Object)
     _delete_index!(registry.by_kind, object.kind, id)
     _delete_index!(registry.by_species, object.species, id)
     return nothing
-end
-
-function _validate_status_identity_available!(
-    registry::ObjectRegistry,
-    status,
-    object_id::ObjectId,
-)
-    return _validate_object_family_status_owner!(registry.objects, status, object_id)
 end
 
 @inline function _validate_status_source_identity_available!(
@@ -1492,14 +1482,14 @@ end
         converted
     end
     registry = model.registry
-    _validate_status_identity_available!(registry, status, id)
+    _validate_object_family_status_owner!(registry.objects, status, id)
     object.status = status
     instance = isnothing(parent_id) ? nothing : _instance_for_object(model, parent_id)
     _apply_instance_labels!(object, instance)
     object.parent = parent_id
     store = registry.objects
     _store_object_family_row!(store, object, id, status)
-    _index_object!(registry, object)
+    _index_object_labels!(registry, object, id)
     _set_status_source_identity!(model, id, identity)
     ancestors = isnothing(parent_id) ?
                 ObjectId[id] :
