@@ -7,8 +7,43 @@ using SHA
 using TOML
 using XPalm
 
-const XPALM_REFERENCE_BASELINE = "v0.7.0"
-const XPALM_REFERENCE_SOURCE_COMMIT = "d4ded8891d03f85bb5691b89572a4e003ac6eb7a"
+# This versioned reference was introduced with standard bunch-growth recovery
+# in XPalm 4f825f7. Older checkouts retain the published reference unchanged.
+function _xpalm_reference_baseline(xpalm_root)
+    candidate = "v0.7.0-catchup-dev"
+    return isdir(joinpath(xpalm_root, "test", "references", "regression", candidate)) ?
+           candidate : "v0.7.0"
+end
+
+function _xpalm_reference_identity(baseline)
+    if baseline == "v0.7.0"
+        return (
+            source_commit="d4ded8891d03f85bb5691b89572a4e003ac6eb7a",
+            scientific_change=nothing,
+            predecessor=nothing,
+            csv_sha256=(
+                "trajectory_checkpoints.csv" => "5b4b6cdd2bddcf63393810a5bfb825c8081b221517ad8f97decfb3a8edad0b95",
+                "harvest_events.csv" => "c887048a8530f5c7834964ace71e2660b8b1a189b275787172da348116522b77",
+                "summary.csv" => "ea1d0e929b13f379e9924f35d058bd7f895695268004b6603ec1101255df50e0",
+            ),
+        )
+    elseif baseline == "v0.7.0-catchup-dev"
+        return (
+            source_commit="7650eccf039a7d2b9cf3263d2d77292bbaea876a",
+            scientific_change="reproductive-lifecycle-rooted-recharge-and-bunch-growth-recovery",
+            predecessor="v0.7.0",
+            csv_sha256=(
+                "trajectory_checkpoints.csv" => "f742f74f7db90cc7b6f119f2301cc47638be7604b3aeaeffcba994cd03ad06f7",
+                "harvest_events.csv" => "3ca7c853d248dede8fba4dc849ac9b5e3c9358c7c5442a27ee454b74cfc2a90f",
+                "summary.csv" => "4e02b8f5c285240df00f08796bde5a6cd5091b975383552ae1b6700563d2b99e",
+            ),
+        )
+    end
+    error("Unsupported XPalm numerical reference: $(baseline).")
+end
+
+const XPALM_REFERENCE_BASELINE =
+    _xpalm_reference_baseline(dirname(dirname(pathof(XPalm))))
 
 const XPALM_REFERENCE_BENCHMARK_VARIABLES = Dict{Symbol,Any}(
     :Scene => (:lai, :leaf_area, :aPPFD),
@@ -190,17 +225,33 @@ end
 
 function xpalm_reference_full_cycle_expected_state(;
     xpalm_root=dirname(dirname(pathof(XPalm))),
+    baseline=_xpalm_reference_baseline(xpalm_root),
 )
+    identity = _xpalm_reference_identity(baseline)
     reference_dir = joinpath(
-        xpalm_root, "test", "references", "regression", XPALM_REFERENCE_BASELINE,
+        xpalm_root, "test", "references", "regression", baseline,
     )
     metadata = TOML.parsefile(joinpath(reference_dir, "metadata.toml"))
     source = metadata["source"]
     inputs = metadata["inputs"]
-    source["baseline_id"] == XPALM_REFERENCE_BASELINE ||
-        error("XPalm benchmark reference baseline does not match $(XPALM_REFERENCE_BASELINE).")
-    source["xpalm_commit"] == XPALM_REFERENCE_SOURCE_COMMIT ||
+    source["baseline_id"] == baseline ||
+        error("XPalm benchmark reference baseline does not match $(baseline).")
+    source["xpalm_commit"] == identity.source_commit ||
         error("XPalm benchmark reference source commit has changed; review its provenance.")
+    isequal(get(source, "scientific_change_id", nothing), identity.scientific_change) &&
+        isequal(get(source, "predecessor_baseline", nothing), identity.predecessor) ||
+        error("XPalm benchmark reference identifies a different scientific change.")
+    seeds = metadata["stochastic_configuration"]
+    seeds["sex_determination_seed"] == 1 && seeds["abortion_seed"] == 1 ||
+        error("XPalm benchmark reference uses different stochastic seeds.")
+    for (file, expected) in identity.csv_sha256
+        bytes2hex(SHA.sha256(read(joinpath(reference_dir, file)))) == expected ||
+            error("XPalm benchmark reference data changed: $(file).")
+    end
+    if identity.scientific_change !== nothing
+        metadata["fixture"]["csv_sha256"] == Dict(identity.csv_sha256) ||
+            error("XPalm benchmark reference data provenance has changed.")
+    end
     source["parameter_source"] == "XPalm.default_parameters()" ||
         error("XPalm benchmark reference uses a different parameter scenario.")
     inputs["meteo_file"] == "0-data/meteo.csv" ||
