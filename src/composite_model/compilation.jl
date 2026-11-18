@@ -1793,12 +1793,28 @@ mutable struct CompiledModelStatusView{S,C,T,P,BI}
     # One logical application/object execution identity, shared by all context
     # leases and by rebuilt views of the same live scientific state.
     const execution_stamp::Base.RefValue{UInt64}
+    # Scalar evidence belongs to this immutable projection, not to a later
+    # canonical header. Keep it before the parameterized component fields.
+    const canonical_identity::Base.RefValue{Nothing}
+    const reference_epoch::UInt
     const status::S
     const canonical_status::C
     const temporal_inputs::T
     const private_outputs::P
     const bound_inputs::BI
+
+    function CompiledModelStatusView{S,C,T,P,BI}(execution_stamp, status,
+        canonical_status, temporal_inputs, private_outputs, bound_inputs,
+    ) where {S,C,T,P,BI}
+        return new{S,C,T,P,BI}(execution_stamp, _status_identity(canonical_status),
+            _status_reference_epoch(status), status, canonical_status,
+            temporal_inputs, private_outputs, bound_inputs)
+    end
 end
+CompiledModelStatusView(execution_stamp, status::S, canonical_status::C,
+    temporal_inputs::T, private_outputs::P, bound_inputs::BI,
+) where {S,C,T,P,BI} = CompiledModelStatusView{S,C,T,P,BI}(execution_stamp,
+    status, canonical_status, temporal_inputs, private_outputs, bound_inputs)
 
 # Per-application view families are metadata only. A host-owned tracing schema
 # may extend this narrow callback operation; no unknown schema falls back open.
@@ -3954,20 +3970,36 @@ function _extend_temporal_many_inputs_in_place!(view::CompiledModelStatusView,
     return _apply_temporal_many_extensions!(staged)
 end
 
-@inline function _status_view_epoch_is_current(view, model, object_id)
+@inline function _status_view_epoch_is_current(canonical_identity::Base.RefValue{Nothing},
+    reference_epoch::UInt, model, object_id,
+)
     canonical = model_status(model, object_id)
-    return view.canonical_status === canonical &&
-        _status_reference_epoch(view.status) == _status_reference_epoch(canonical)
+    return canonical isa Status && canonical_identity === _status_identity(canonical) &&
+        reference_epoch == _status_reference_epoch(canonical)
 end
+@inline _status_view_epoch_is_current(view::CompiledModelStatusView, model, object_id) =
+    _status_view_epoch_is_current(view.canonical_identity, view.reference_epoch, model, object_id)
 
-# Keep the existing key across the view's dispatch boundary. Read its inline ID
-# only after the callback owns the concrete view and key argument types.
-Base.@noinline function _status_view_key_epoch_is_current(view, model, key)
+@inline function _status_view_key_epoch_is_current(canonical_identity::Base.RefValue{Nothing},
+    reference_epoch::UInt, model, key,
+)
     objects = model.registry.objects
     object_id = _index_object_id(objects, getfield(key, 2))
     haskey(objects, object_id) || return true # removed objects were skipped by this scan
-    return _status_view_epoch_is_current(view, model, object_id)
+    return _status_view_epoch_is_current(canonical_identity, reference_epoch, model, object_id)
 end
+@inline _status_view_key_epoch_is_current(view::CompiledModelStatusView, model, key) =
+    _status_view_key_epoch_is_current(view.canonical_identity, view.reference_epoch, model, key)
+
+# Open preparation needs only these fixed scalar fields. Custom/closed schemas
+# keep their existing admission callback, including rejection of stale foreign views.
+@inline function _status_view_key_epoch_is_current(::Nothing, application_id, view, model, key)
+    current = view::CompiledModelStatusView
+    return _status_view_key_epoch_is_current(current.canonical_identity, current.reference_epoch, model, key)
+end
+@inline _status_view_key_epoch_is_current(schema, application_id, view, model, key) =
+    Base.@inline _with_model_status_view(_status_view_key_epoch_is_current,
+        schema, application_id, view, model, key)
 
 # Keep the real application inside its finite metadata branch. Transient
 # views are read only after admission, never captured by a metadata callback.
@@ -4006,7 +4038,7 @@ function _refresh_model_status_view_for_target!(
     return nothing
 end
 
-function _extend_model_status_views(
+function _extend_model_status_views!(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
     applications,
@@ -4043,8 +4075,8 @@ function _extend_model_status_views(
 
     for (key, previous_view) in views
         application_id = getfield(key, 1)
-        current = Base.@inline _with_model_status_view(_status_view_key_epoch_is_current,
-            compiled.status_view_schema, application_id, previous_view, model, key::Key)
+        current = _status_view_key_epoch_is_current(compiled.status_view_schema,
+            application_id, previous_view, model, key::Key)
         current || push!(affected_keys, key)
     end
 
@@ -4076,7 +4108,7 @@ function _extend_model_status_views(
             distributed_outputs, previous_temporal_sources,
         )
     end
-    return views
+    return affected_keys
 end
 
 function _append_added_many_call_targets!(
@@ -5083,7 +5115,7 @@ function _extend_compiled_scene(
     application_children = compiled.scenario_plan.application_children
     application_order = compiled.scenario_plan.application_order
     started_at = _runtime_performance_start(performance)
-    status_views_by_target = _extend_model_status_views(
+    rebuilt_views = _extend_model_status_views!(
         model,
         compiled,
         applications,
@@ -5097,6 +5129,7 @@ function _extend_compiled_scene(
         distributed_outputs,
         previous_views,
     )
+    status_views_by_target = compiled.status_views_by_target
     _runtime_performance_finish!(
         performance,
         :status_view_refresh,
@@ -5105,23 +5138,12 @@ function _extend_compiled_scene(
     # Keep the published owner's storage type, while admitting each incoming
     # identity before constructing the key consumed by its Set operations.
     changed_execution_target_ids = Set{Tuple{Symbol,ObjectId}}()
-    for (application_id, object_ids) in new_targets
-        for raw_id in object_ids
-            object_id = _index_object_id(model.registry.objects, raw_id)
-            push!(changed_execution_target_ids, (application_id, object_id))
-        end
-    end
-    for incoming in (affected_temporal_keys, changed_target_ids_seed, changed_call_target_keys)
+    # A reference can be replaced on an existing organ during growth. An
+    # execution target must use the same view that was just rebuilt for it.
+    for incoming in (rebuilt_views, affected_temporal_keys, changed_target_ids_seed, changed_call_target_keys)
         for (application_id, raw_id) in incoming
             object_id = _index_object_id(model.registry.objects, raw_id)
             push!(changed_execution_target_ids, (application_id, object_id))
-        end
-    end
-    for raw_id in rewired_consumer_ids
-        let object_id = _index_object_id(model.registry.objects, raw_id)
-            _foreach_object_application(compiled, object_id) do application
-                push!(changed_execution_target_ids, (application.id, object_id))
-            end
         end
     end
     Key = Tuple{Symbol,keytype(model.registry.objects)}

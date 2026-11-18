@@ -254,4 +254,53 @@ end
     @test reason(data) === nothing
 end
 
+
+@testset "scalar view evidence preserves reference edits, replacements and family admission" begin
+    data = fixture()
+    original = view_cache(data)[VIEW_KEY]
+    canonical = model_status(data.model, :consumer)
+    @test PSE._status_view_key_epoch_is_current(nothing, :consumer, original, data.model, VIEW_KEY)
+    canonical.value = 7.0
+    @test PSE._status_view_key_epoch_is_current(nothing, :consumer, original, data.model, VIEW_KEY)
+    replacement = Ref(7.0)
+    PSE._set_status_reference!(canonical, :value, replacement)
+    @test !PSE._status_view_key_epoch_is_current(nothing, :consumer, original, data.model, VIEW_KEY)
+    register_object!(data.model, Object(:unmatched_axis; scale=:Axis, parent=:scene))
+    step!(data.simulation)
+    current = view_cache(data)[VIEW_KEY]
+    @test current !== original
+    @test PSE.refvalue(current.status, :value) === replacement
+    @test model_status(data.model, :consumer).value == 9.0
+    @test PSE._status_view_key_epoch_is_current(nothing, :consumer, current, data.model, VIEW_KEY)
+    canonical = model_status(data.model, :consumer)
+    PSE._drop_status_reference!(canonical, :value)
+    @test !PSE._status_view_key_epoch_is_current(nothing, :consumer, current, data.model, VIEW_KEY)
+    PSE._set_status_reference!(canonical, :value, replacement)
+    @test !PSE._status_view_key_epoch_is_current(nothing, :consumer, current, data.model, VIEW_KEY)
+
+    data = fixture()
+    original = view_cache(data)[VIEW_KEY]
+    canonical = model_status(data.model, :consumer)
+    fresh = PSE._new_prepared_status(typeof(canonical), Status((
+        signal=PSE.refvalue(canonical, :signal), value=PSE.refvalue(canonical, :value),
+        visits=PSE.refvalue(canonical, :visits))))
+    PSE._replace_model_object_status!(data.model, ObjectId(:consumer), fresh)
+    @test !PSE._status_view_key_epoch_is_current(nothing, :consumer, original, data.model, VIEW_KEY)
+    @test all(PSE.refvalue(fresh, name) === PSE.refvalue(canonical, name) for name in keys(canonical))
+    PSE._replace_model_object_status!(data.model, ObjectId(:consumer), nothing)
+    @test !PSE._status_view_key_epoch_is_current(nothing, :consumer, original, data.model, VIEW_KEY)
+
+    # Matching scalar evidence must not bypass a closed family's type check.
+    data = fixture()
+    original = view_cache(data)[VIEW_KEY]
+    schema = PSE.CompiledMetadataTable((consumer=typeof(original)[],))
+    incompatible = shell(original; bound_inputs=(foreign=0,))
+    view_cache(data)[VIEW_KEY] = incompatible
+    @test_throws "outside its prepared application family" PSE._status_view_key_epoch_is_current(
+        schema, :consumer, incompatible, data.model, VIEW_KEY)
+    PSE._set_status_reference!(model_status(data.model, :consumer), :value, Ref(0.0))
+    @test_throws "outside its prepared application family" PSE._status_view_key_epoch_is_current(
+        schema, :consumer, incompatible, data.model, VIEW_KEY)
+end
+
 end # module StatusViewCacheAdmissionChecks47
