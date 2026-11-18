@@ -1714,9 +1714,15 @@ explain_environment_bindings(sim::Simulation) =
 @inline function _compiled_application_by_id(f::F, compiled::CompiledCompositeModel,
     id::Symbol,
 ) where {F}
-    haskey(compiled.applications_by_id, id) ||
+    return _compiled_application_by_id(f, compiled.applications_by_id, id)
+end
+
+@inline function _compiled_application_by_id(f::F,
+    applications_by_id::CompiledMetadataTable, id::Symbol,
+) where {F}
+    haskey(applications_by_id, id) ||
         error("No compiled model application with id `$(id)`.")
-    return _with_metadata_entry(f, compiled.applications_by_id, id)
+    return _with_metadata_entry(f, applications_by_id, id)
 end
 
 _compiled_application_by_id(compiled::CompiledCompositeModel, id::Symbol) =
@@ -4799,6 +4805,14 @@ end
 function _with_model_temporal_retention(f::F, compiled::CompiledCompositeModel,
     binding::CompiledModelInputBinding,
 ) where {F}
+    return _with_model_temporal_retention(f, compiled.applications_by_id,
+        compiled.scenario_plan.input_plans, compiled.scenario_plan.timeline, binding)
+end
+
+Base.@noinline function _with_model_temporal_retention(f::F,
+    applications_by_id::CompiledMetadataTable, input_plans, timeline,
+    binding::CompiledModelInputBinding,
+) where {F}
     input_plan = getfield(binding, :plan)
     application_id, plan_slot = input_plan.application_id, input_plan.slot
     input_name = input_plan.input
@@ -4807,14 +4821,13 @@ function _with_model_temporal_retention(f::F, compiled::CompiledCompositeModel,
     policy = getfield(binding, :policy)
     integrates = policy isa Union{Integrate,Aggregate}
     interpolates = policy isa Union{Interpolate,PreviousTimeStep}
-    consumer_dt = _compiled_application_by_id(compiled, application_id) do consumer
+    consumer_dt = _compiled_application_by_id(applications_by_id, application_id) do consumer
         consumer.clock.dt
     end
     # The old loop resolves its consumer/plan owner but does not validate a
     # window when no real producer is selected.
     has_sources = !isempty(source_application_ids)
-    timeline = compiled.scenario_plan.timeline
-    window_steps = _with_metadata_entry(compiled.scenario_plan.input_plans, plan_slot) do actual_plan
+    window_steps = _with_metadata_entry(input_plans, plan_slot) do actual_plan
         actual_plan.application_id === application_id && actual_plan.input === input_name &&
             actual_plan.source_var === source_var ||
             throw(ArgumentError("A temporal retention binding is outside its current input plan owner."))
@@ -4823,7 +4836,7 @@ function _with_model_temporal_retention(f::F, compiled::CompiledCompositeModel,
     end
     has_sources || return true
     for source_application_id in source_application_ids
-        source_dt = _compiled_application_by_id(compiled, source_application_id) do source
+        source_dt = _compiled_application_by_id(applications_by_id, source_application_id) do source
             source.clock.dt
         end
         required = _model_temporal_retention_horizon(window_steps, integrates, interpolates, source_dt)
@@ -4838,7 +4851,7 @@ function _model_output_retention_covers_binding(
     binding::CompiledModelInputBinding,
 )
     plan.retain_all && return true
-    return Base.@inline _with_model_temporal_retention(compiled, binding) do source_application_id, source_var, required
+    return _with_model_temporal_retention(compiled, binding) do source_application_id, source_var, required
         key = (source_application_id, source_var)
         key in plan.temporal_dependencies && get(plan.dependency_horizons, key, -Inf) >= required
     end
@@ -4905,31 +4918,28 @@ function _model_status_view_refresh_is_pure_addition(
     return all(key -> last(key) in added_object_ids, new_keys)
 end
 
-function _model_application_output_variables(
-    compiled,
-    application,
-    ::NoCompiledDistributedOutputs,
-)
+_retention_destination_ids(::NoCompiledDistributedOutputs) = nothing
+_retention_destination_ids(outputs::CompiledDistributedOutputs) =
+    outputs.destination_ids_by_application_variable
+_retention_output_plans(::NoCompiledDistributedOutputPlans) = nothing
+_retention_output_plans(plans::CompiledDistributedOutputPlans) = plans.by_application
+
+function _model_application_output_variables(application, ::Nothing, plans_by_application)
     return _model_output_names(application)
 end
 
 function _model_application_output_variables(
-    compiled,
-    application,
-    distributed_outputs::CompiledDistributedOutputs,
+    application, destinations_by_application_variable::AbstractDict, plans_by_application,
 )
     variables = Symbol[Symbol(variable) for variable in _model_output_names(application)]
-    for ((application_id, variable), destination_ids) in
-        distributed_outputs.destination_ids_by_application_variable
+    for ((application_id, variable), destination_ids) in destinations_by_application_variable
         application_id == application.id || continue
         isempty(destination_ids) && continue
         variable in variables || push!(variables, variable)
     end
-    # Plans with an initially empty destination set still define retainable
-    # variables that may acquire destinations at a later lifecycle barrier.
-    plans = compiled.scenario_plan.distributed_output_plans
-    if plans isa CompiledDistributedOutputPlans
-        for plan in _application_plans(plans.by_application, application.id)
+    # Empty routes retain their declarations before any destination is born.
+    if !isnothing(plans_by_application)
+        for plan in _application_plans(plans_by_application, application.id)
             for variable_ in plan.variable_names
                 variable = Symbol(variable_)
                 variable in variables || push!(variables, variable)
@@ -4939,12 +4949,71 @@ function _model_application_output_variables(
     return Tuple(variables)
 end
 
-_model_application_output_variables(compiled, application) =
-    _model_application_output_variables(
-        compiled,
-        application,
-        compiled.distributed_outputs,
+function _append_retained_application_outputs!(
+    application, all_outputs, destinations, plans_by_application,
+)
+    for variable in _model_application_output_variables(application, destinations, plans_by_application)
+        push!(all_outputs, (application.id, variable))
+    end
+    return nothing
+end
+
+Base.@noinline function _collect_retained_output_keys(
+    applications_by_id, destinations, plans_by_application,
+)
+    all_outputs = Set{Tuple{Symbol,Symbol}}()
+    for application_id in keys(applications_by_id)
+        _with_metadata_entry(_append_retained_application_outputs!, applications_by_id,
+            application_id, all_outputs, destinations, plans_by_application)
+    end
+    return all_outputs
+end
+
+Base.@noinline function _compile_temporal_output_retention(
+    input_bindings, applications_by_id, input_plans, timeline,
+)
+    temporal_dependencies = Set{Tuple{Symbol,Symbol}}()
+    dependency_horizons = Dict{Tuple{Symbol,Symbol},Float64}()
+    for binding in input_bindings
+        binding.carrier_hint == :temporal_stream || continue
+        _with_model_temporal_retention(applications_by_id, input_plans, timeline, binding) do source_application_id, source_var, required
+            key = (source_application_id, source_var)
+            push!(temporal_dependencies, key)
+            dependency_horizons[key] = max(get(dependency_horizons, key, 0.0), required)
+            return true
+        end
+    end
+    return temporal_dependencies, dependency_horizons
+end
+
+function _retain_requested_model_output!(request, model, applications_by_id,
+    destinations, plans_by_application, manual_application_ids, requested_outputs,
+    names, accepted_call_times,
+)
+    request.name in names && error(
+        "Duplicate output request name `$(request.name)`. Request names must be unique."
     )
+    push!(names, request.name)
+    application_id = _model_request_application_id(model, applications_by_id,
+        destinations, plans_by_application, manual_application_ids, request)
+    push!(requested_outputs, (application_id, request.var))
+    if application_id in manual_application_ids
+        get!(accepted_call_times, application_id, -Inf)
+    end
+    return nothing
+end
+
+Base.@noinline function _compile_requested_output_retention(
+    model, applications_by_id, destinations, plans_by_application,
+    manual_application_ids, output_requests, accepted_call_times,
+)
+    requested_outputs = Set{Tuple{Symbol,Symbol}}()
+    names = Set{Symbol}()
+    _foreach_output_request(_retain_requested_model_output!, output_requests,
+        model, applications_by_id, destinations, plans_by_application,
+        manual_application_ids, requested_outputs, names, accepted_call_times)
+    return requested_outputs
+end
 
 function compile_model_output_retention(
     compiled::CompiledCompositeModel,
@@ -4952,46 +5021,19 @@ function compile_model_output_retention(
     retain_all::Bool=false,
     accepted_call_times=Dict{Symbol,Float64}(),
 )
-    temporal_dependencies = Set{Tuple{Symbol,Symbol}}()
-    dependency_horizons = Dict{Tuple{Symbol,Symbol},Float64}()
-    for binding in compiled.input_bindings
-        binding.carrier_hint == :temporal_stream || continue
-        Base.@inline _with_model_temporal_retention(compiled, binding) do source_application_id, source_var, required
-            key = (source_application_id, source_var)
-            push!(temporal_dependencies, key)
-            dependency_horizons[key] = max(get(dependency_horizons, key, 0.0), required)
-            return true
-        end
-    end
-
-    requested_outputs = Set{Tuple{Symbol,Symbol}}()
-    names = Set{Symbol}()
-    _foreach_output_request(output_requests) do request
-        request.name in names && error(
-            "Duplicate output request name `$(request.name)`. Request names must be unique."
-        )
-        push!(names, request.name)
-        application_id = _model_request_application_id(
-            compiled.model,
-            compiled,
-            request,
-        )
-        push!(requested_outputs, (application_id, request.var))
-        if application_id in compiled.scenario_plan.manual_application_ids
-            get!(accepted_call_times, application_id, -Inf)
-        end
-    end
+    temporal_dependencies, dependency_horizons = _compile_temporal_output_retention(
+        compiled.input_bindings, compiled.applications_by_id,
+        compiled.scenario_plan.input_plans, compiled.scenario_plan.timeline)
+    destinations = _retention_destination_ids(compiled.distributed_outputs)
+    plans_by_application = _retention_output_plans(compiled.scenario_plan.distributed_output_plans)
+    requested_outputs = _compile_requested_output_retention(
+        compiled.model, compiled.applications_by_id, destinations, plans_by_application,
+        compiled.scenario_plan.manual_application_ids, output_requests, accepted_call_times)
     retained_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
     retained_keys = if retain_all
-        all_outputs = Set{Tuple{Symbol,Symbol}}()
-        for retained_application_id in keys(compiled.applications_by_id)
-            _compiled_application_by_id(compiled, retained_application_id) do application
-                for variable in _model_application_output_variables(compiled, application)
-                    push!(all_outputs, (application.id, variable))
-                end
-            end
-        end
-        all_outputs
+        _collect_retained_output_keys(compiled.applications_by_id,
+            _retention_destination_ids(compiled.distributed_outputs),
+            _retention_output_plans(compiled.scenario_plan.distributed_output_plans))
     else
         union(temporal_dependencies, requested_outputs)
     end
@@ -5016,15 +5058,9 @@ end
 
 function _explain_output_retention(compiled::CompiledCompositeModel, plan)
     keys_to_explain = if plan.retain_all
-        all_outputs = Set{Tuple{Symbol,Symbol}}()
-        for retained_application_id in keys(compiled.applications_by_id)
-            _compiled_application_by_id(compiled, retained_application_id) do application
-                for variable in _model_application_output_variables(compiled, application)
-                    push!(all_outputs, (application.id, variable))
-                end
-            end
-        end
-        all_outputs
+        _collect_retained_output_keys(compiled.applications_by_id,
+            _retention_destination_ids(compiled.distributed_outputs),
+            _retention_output_plans(compiled.scenario_plan.distributed_output_plans))
     else
         union(plan.temporal_dependencies, plan.requested_outputs)
     end
@@ -7853,12 +7889,12 @@ end
     variable::Symbol,
 ) = _prepared_output_request_types(_execution_cohort_schema(schema), variable)
 
-@inline _visit_output_request(request, operation::F) where {F} = operation(request)
-@inline _visit_output_request(record::CompiledOutputRequest, operation::F) where {F} = operation(record.request)
+@inline _visit_output_request(request, operation::F, args::Vararg{Any,N}) where {F,N} = operation(request, args...)
+@inline _visit_output_request(record::CompiledOutputRequest, operation::F, args::Vararg{Any,N}) where {F,N} = operation(record.request, args...)
 
-function _foreach_output_request(operation::F, requests) where {F}
+function _foreach_output_request(operation::F, requests, args::Vararg{Any,N}) where {F,N}
     for slot in 1:length(requests)
-        Base.@inline _with_metadata_entry(_visit_output_request, requests, slot, operation)
+        Base.@inline _with_metadata_entry(_visit_output_request, requests, slot, operation, args...)
     end
     return nothing
 end
@@ -8440,32 +8476,56 @@ function _materialize_model_output_rows(rows, sink)
 end
 
 function _model_request_application_id(model::CompositeModel, compiled::CompiledCompositeModel, request)
+    return _model_request_application_id(model, compiled.applications_by_id,
+        _retention_destination_ids(compiled.distributed_outputs),
+        _retention_output_plans(compiled.scenario_plan.distributed_output_plans),
+        compiled.scenario_plan.manual_application_ids, request)
+end
+
+Base.@noinline function _model_request_application_id(model::CompositeModel,
+    applications_by_id, destinations, plans_by_application, manual_application_ids, request,
+)
     I = keytype(typeof(model.registry.objects))
     requested_ids = Set{I}()
     for id in resolve_object_ids(model, request.selector; context=request.context)
         push!(requested_ids, _index_object_id(model.registry.objects, id))
     end
     declared_scale = _selector_declared_scale(request.selector)
+    return _select_model_request_application(model.registry.objects, applications_by_id,
+        destinations, plans_by_application, manual_application_ids, request,
+        requested_ids, declared_scale)
+end
+
+function _model_request_application_matches(application, objects, destinations,
+    plans_by_application, request, requested_ids, declared_scale,
+)
+    isnothing(request.application) ||
+        application.id == request.application ||
+        application.name == request.application ||
+        return false
+    local_output = request.var in _model_output_names(application)
+    local_match = local_output && (
+        any(id -> id in requested_ids, application.target_ids) ||
+        (!isnothing(declared_scale) &&
+         _model_application_matches_scale(objects, application, declared_scale))
+    )
+    distributed_match = _model_request_matches_distributed_output(
+        application, request, requested_ids, destinations, plans_by_application,
+    )
+    (local_match || distributed_match) || return false
+    return !(isnothing(request.application) && !distributed_match &&
+        _publish_mode_for_output(application.spec, request.var) == :stream_only)
+end
+
+Base.@noinline function _select_model_request_application(objects, applications_by_id,
+    destinations, plans_by_application, manual_application_ids, request,
+    requested_ids, declared_scale,
+)
     candidates = Symbol[]
-    for application_id in keys(compiled.applications_by_id)
-        matches = _compiled_application_by_id(compiled, application_id) do application
-            isnothing(request.application) ||
-                application.id == request.application ||
-                application.name == request.application ||
-                return false
-            local_output = request.var in _model_output_names(application)
-            local_match = local_output && (
-                any(id -> id in requested_ids, application.target_ids) ||
-                (!isnothing(declared_scale) &&
-                 _model_application_matches_scale(model, application, declared_scale))
-            )
-            distributed_match = _model_request_matches_distributed_output(
-                compiled, application, request, requested_ids,
-            )
-            (local_match || distributed_match) || return false
-            return !(isnothing(request.application) && !distributed_match &&
-                _publish_mode_for_output(application.spec, request.var) == :stream_only)
-        end
+    for application_id in keys(applications_by_id)
+        matches = _with_metadata_entry(_model_request_application_matches,
+            applications_by_id, application_id, objects, destinations,
+            plans_by_application, request, requested_ids, declared_scale)
         matches && push!(candidates, application_id)
     end
     if isempty(candidates)
@@ -8479,7 +8539,6 @@ function _model_request_application_id(model::CompositeModel, compiled::Compiled
         error(String(take!(io)))
     elseif length(candidates) > 1
         if isnothing(request.application)
-            manual_application_ids = _manual_call_application_ids(compiled)
             root_candidates = filter(
                 id -> !(id in manual_application_ids),
                 candidates,
@@ -8501,48 +8560,26 @@ function _model_request_application_id(model::CompositeModel, compiled::Compiled
 end
 
 _model_request_matches_distributed_output(
-    compiled,
-    application,
-    request,
-    requested_ids,
-    ::NoCompiledDistributedOutputs,
+    application, request, requested_ids, ::Nothing, plans_by_application,
 ) = false
 
-function _model_request_matches_distributed_output(
-    compiled,
-    application,
-    request,
-    requested_ids,
-    distributed_outputs::CompiledDistributedOutputs,
+function _model_request_matches_distributed_output(application, request, requested_ids,
+    destinations_by_application_variable::AbstractDict, plans_by_application,
 )
     destination_ids = get(
-        distributed_outputs.destination_ids_by_application_variable,
+        destinations_by_application_variable,
         (application.id, request.var),
         (),
     )
     concrete_match = any(id -> id in requested_ids, destination_ids)
     isempty(requested_ids) || return concrete_match
-    plans = compiled.scenario_plan.distributed_output_plans
-    plans isa CompiledDistributedOutputPlans || return false
+    isnothing(plans_by_application) && return false
     return any(
         plan -> request.var in plan.variable_names &&
                 _selector_labels_may_overlap(request.selector, plan.selector),
-        _application_plans(plans.by_application, application.id),
+        _application_plans(plans_by_application, application.id),
     )
 end
-
-_model_request_matches_distributed_output(
-    compiled,
-    application,
-    request,
-    requested_ids,
-) = _model_request_matches_distributed_output(
-    compiled,
-    application,
-    request,
-    requested_ids,
-    compiled.distributed_outputs,
-)
 
 function _selector_declared_scale(selector::AbstractObjectMultiplicity)
     selector_criteria = criteria(selector)
@@ -8550,14 +8587,14 @@ function _selector_declared_scale(selector::AbstractObjectMultiplicity)
 end
 
 function _model_application_matches_scale(
-    model::CompositeModel,
+    objects::AbstractDict,
     application::CompiledModelApplication,
     scale::Symbol,
 )
     declared_scale = _selector_declared_scale(application.applies_to)
     declared_scale == scale && return true
     for object_id in application.target_ids
-        object = get(model.registry.objects, object_id, nothing)
+        object = get(objects, object_id, nothing)
         !isnothing(object) && object.scale == scale && return true
     end
     return false

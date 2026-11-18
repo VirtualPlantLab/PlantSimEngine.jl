@@ -134,6 +134,18 @@ end
     finite = construction_trace(; schema, prototype)
     @test finite.snapshots == control.snapshots
     @test finite.conversions == control.conversions
+    request = OutputRequest(Many(scale=:Leaf), :private; name=:chosen, application=:writer)
+    for (requests, retain_all) in (((), false), ((), true), ((request,), false))
+        ordinary_retention = PSE.compile_model_output_retention(
+            control.simulation.compiled, requests; retain_all)
+        finite_retention = PSE.compile_model_output_retention(
+            finite.simulation.compiled, requests; retain_all)
+        @test PSE._same_model_output_retention(ordinary_retention, finite_retention)
+        @test finite_retention.temporal_dependencies == Set([(:writer, :private)])
+        @test finite_retention.dependency_horizons == Dict((:writer, :private) => 2.0)
+        @test PSE._explain_output_retention(control.simulation.compiled, ordinary_retention) ==
+            PSE._explain_output_retention(finite.simulation.compiled, finite_retention)
+    end
     @test isempty(prototype)
     @test all(isempty, values(schema))
     @test all(typeof(view) in control.schema.families[application]
