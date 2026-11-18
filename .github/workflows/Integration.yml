@@ -1,53 +1,46 @@
-name: Integration
+name: XPalm PR141 auxiliary public integration
+run-name: XPalm public pair PSE4efc1956 XPalm1496 complete and reference
 on:
-  push:
-    branches:
-      - main
-    tags: "*"
-  pull_request:
   workflow_dispatch:
+permissions:
+  contents: read
 concurrency:
   # Skip intermediate builds: always.
   # Cancel intermediate builds: only if it is a pull request build.
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+  group: xpalm-public-pair-4efc1496-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   test:
     name: ${{ matrix.package.name }} - Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}${{ matrix.test_args && ' - reference-regression' || '' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout_minutes || 60 }}
-    permissions:
-      # needed to allow julia-actions/cache to proactively delete old caches that it has created
-      actions: write
-      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Keep the complete XPalm suite, including JET, on Julia 1.12.
+          # The same full suite/JET row as Integration, with explicit source pins.
           - version: "1.12"
             os: ubuntu-latest
-            # The complete XPalm suite includes cold compilation and VPalm tests.
             timeout_minutes: 90
-            package: { name: XPalm, user: PalmStudio, repo: XPalm.jl, branch: main, default: main }
+            package: { name: XPalm, user: PalmStudio, repo: XPalm.jl, branch: 1496bb95c9f609c4d38c099aaa4123dc71fa1e0d, default: main }
+          # The same full-cycle scientific oracle row as Integration.
           - version: "1"
             os: ubuntu-latest
-            package: { name: PlantBiophysics, user: VEZY, repo: PlantBiophysics.jl, branch: master, default: master }
-          - version: "1"
-            os: ubuntu-latest
-            package: { name: PlantGeom, user: VEZY, repo: PlantGeom.jl, branch: main, default: main }
-          # XPalm's existing mode runs its full-cycle scientific oracle on latest Julia.
-          - version: "1"
-            os: ubuntu-latest
-            package: { name: XPalm, user: PalmStudio, repo: XPalm.jl, branch: main, default: main }
+            package: { name: XPalm, user: PalmStudio, repo: XPalm.jl, branch: 1496bb95c9f609c4d38c099aaa4123dc71fa1e0d, default: main }
             test_args: reference-regression
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: 4efc1956056ab13ac0cdb5e8ce97547102870f7f
+          persist-credentials: false
       - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.version }}
       - name: Cache Julia packages
         uses: julia-actions/cache@v3
+        with:
+          delete-old-caches: false
+          save-always: false
       - name: Test the integration source configuration
         shell: julia --color=yes {0}
         run: include(joinpath(pwd(), ".github", "scripts", "test_configure_local_sources.jl"))
@@ -58,13 +51,30 @@ jobs:
           repository: ${{ matrix.package.user }}/${{ matrix.package.repo }}
           ref: ${{ matrix.package.branch }}
           path: downstream
+          persist-credentials: false
       - name: Clone PlantGeom for XPalm
         if: ${{ matrix.package.name == 'XPalm' }}
         uses: actions/checkout@v7
         with:
           repository: VEZY/PlantGeom.jl
-          ref: main
+          ref: 1e00511430def53c2a24790f4a8b9a57aa39fac2
           path: sources/PlantGeom
+          persist-credentials: false
+      - name: Verify and record the exact auxiliary source pair
+        env:
+          PSE_EXPECTED: 4efc1956056ab13ac0cdb5e8ce97547102870f7f
+          XPALM_EXPECTED: 1496bb95c9f609c4d38c099aaa4123dc71fa1e0d
+          PG_EXPECTED: 1e00511430def53c2a24790f4a8b9a57aa39fac2
+        shell: python
+        run: |
+          import pathlib,subprocess,json,os
+          pins={}
+          for name,path,key in [("PSE",".","PSE_EXPECTED"),("XPalm","downstream","XPALM_EXPECTED"),("PlantGeom","sources/PlantGeom","PG_EXPECTED")]:
+              actual=subprocess.check_output(["git","-C",path,"rev-parse","HEAD"],text=True).strip()
+              assert actual==os.environ[key], (name,actual,os.environ[key])
+              pins[name]={"checkout_sha":actual,"source":str(pathlib.Path(path).resolve())}
+          print(json.dumps(pins,indent=2))
+          pathlib.Path("auxiliary-source-pins.json").write_text(json.dumps(pins,indent=2)+"\n")
       - name: Configure local integration sources
         env:
           DOWNSTREAM_PACKAGE: ${{ matrix.package.name }}
@@ -147,12 +157,22 @@ jobs:
               push!(julia_args, "--load=" * joinpath(pwd(), ".github", "scripts", "require_complete_jet.jl"))
           end
           Pkg.test(; test_args, julia_args)
-      - name: Only succeed if the checks pass on the dependencies' main/master branches
-        if: ${{ matrix.package.branch != matrix.package.default }}
+      # This is a separate PR141 qualification, never the PR247 main-branch gate.
+      # The normal Integration workflow and its main/master policy are untouched.
+      - name: Verify maintained downstream science and assertions are unchanged
+        if: always()
         run: |
-          echo "This action requires the downstream dependencies' branches to be set to their main/master to succeed. Please switch them back and ensure tests pass before merging"
-          exit 1
-      - uses: julia-actions/julia-processcoverage@v1
-      - uses: codecov/codecov-action@v7
+          git -C downstream diff --exit-code -- . ':(exclude)Project.toml' ':(exclude)test/Project.toml'
+          git -C sources/PlantGeom diff --exit-code
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          files: lcov.info
+          name: xpalm-public-pair-${{ matrix.version }}-${{ github.run_id }}
+          path: |
+            auxiliary-source-pins.json
+            downstream/Project.toml
+            downstream/Manifest*.toml
+            downstream/test/Project.toml
+            downstream/test/Manifest*.toml
+          if-no-files-found: warn
+          retention-days: 14
