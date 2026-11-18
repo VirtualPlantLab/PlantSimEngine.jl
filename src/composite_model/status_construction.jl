@@ -23,6 +23,15 @@ _status_schema_names(::Type{Nothing}) = ()
 _status_schema_names(::Type{Status{Names,T}}) where {Names,T} = Names
 _status_schema_references(::Type{Status{Names,T}}) where {Names,T} =
     _status_storage_reference_types(T)
+
+# These witnesses contain only the prepared namespace and exact reference
+# classes, so identical views share one schema calculation across objects.
+@generated function _projected_status_type(
+    ::Type{C}, ::Val{NAMES}, ::Type{R},
+) where {C<:Status,NAMES,R<:Tuple}
+    return QuoteNode(_projected_status_type(C, NAMES, R))
+end
+
 _status_schema_values(::Nothing) = ()
 _status_schema_values(status::Status{N,<:NamedTuple}) where {N} = refvalues(status)
 _status_schema_values(status::Status{N,<:Union{_FixedStatusStorage,_ProjectedStatusStorage}}) where {N} =

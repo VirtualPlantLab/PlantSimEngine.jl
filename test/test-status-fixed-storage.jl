@@ -66,7 +66,11 @@ end
 @testset "dense hot and full namespace snapshot use identical private overrides" begin
     owner = PSE._new_prepared_status(SCHEMA,Status(x=3f0,q=1//2,seed=Float32[2]))
     private = Ref(100.0)
-    Projected = PSE._projected_status_type(SCHEMA,(:x,:q),Tuple{RF64,RR})
+    Projected = @inferred PSE._projected_status_type(SCHEMA,Val((:x,:q)),Tuple{RF64,RR})
+    @test Projected === PSE._projected_status_type(SCHEMA,(:x,:q),Tuple{RF64,RR})
+    @test PSE._projected_status_type(SCHEMA,Val(()),Tuple{}) ===
+        PSE._projected_status_type(SCHEMA,(),Tuple{})
+    @test_throws ArgumentError PSE._projected_status_type(SCHEMA,Val((:unprepared,)),Tuple{RF32})
     factory = PSE.ExactReferenceFactory(SCHEMA,Tuple{RF64},Projected,(:x,))
     old = PSE._construct_status(factory,owner,(private,))
     @test old.x === 100.0 && first(Tuple(old)) === 100.0
@@ -78,7 +82,9 @@ end
     PSE._set_status_reference!(owner,:literal,Ref(nothing))
     @test keys(old) === (:x,:q,:seed) && !hasproperty(old,:literal)
     @test old.x === 100.0 && PSE.refvalue(old,:x) === private
-    Fresh = PSE._projected_status_type(SCHEMA,(:x,:q),Tuple{RF32,RR})
+    Fresh = @inferred PSE._projected_status_type(SCHEMA,Val((:x,:q)),Tuple{RF32,RR})
+    @test Fresh === PSE._projected_status_type(SCHEMA,(:x,:q),Tuple{RF32,RR})
+    @test Fresh !== Projected
     current = PSE._construct_status(PSE.ExactReferenceFactory(SCHEMA,Tuple{},Fresh,()),owner,())
     @test PSE.refvalue(current,:x) === replacement
     @test current.x === first(Tuple(current)) === 4f0

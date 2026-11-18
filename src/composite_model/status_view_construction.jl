@@ -539,7 +539,7 @@ function _open_status_view_type(parts)
         hasproperty(parts.canonical_status,name) || throw(ArgumentError("A declared kernel port has no initialized value."))
         typeof(refvalue(parts.canonical_status,name))
     end
-    S = _projected_status_type(C, parts.hot_names, Tuple{hot_references...})
+    S = _projected_status_type(C, Val(parts.hot_names), Tuple{hot_references...})
     bound_types = map(parts.many_names, parts.many_ids) do name, ids
         Value = if (index = findfirst(recipe -> recipe.input === name, parts.temporal)) !== nothing
             _open_status_view_storage_type(parts.temporal[index])
