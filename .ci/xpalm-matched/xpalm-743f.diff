@@ -1,0 +1,141 @@
+--- a/src/plant/phytomer/ReproductiveOrgans/Male/final_potential_biomass.jl
++++ b/src/plant/phytomer/ReproductiveOrgans/Male/final_potential_biomass.jl
+@@ -9,6 +9,7 @@
+ 
+ # Inputs
+ 
++- `sex`: determined sex supplied when the organ is created (`:Male` or `:Female`).
+ - `initiation_age`: age of the plant when the organ was initiated (days)
+ 
+ # Outputs
+@@ -23,6 +24,7 @@
+ 
+ PlantSimEngine.inputs_(::MaleFinalPotentialBiomass) = (
+     initiation_age=PlantSimEngine.Required(Real),
++    sex=PlantSimEngine.Required(Symbol),
+ )
+ PlantSimEngine.outputs_(::MaleFinalPotentialBiomass) = (final_potential_biomass=-Inf,)
+ PlantSimEngine.variable_contracts_(::MaleFinalPotentialBiomass) = (
+--- a/src/plant/phytomer/ReproductiveOrgans/Female/final_potential_biomass.jl
++++ b/src/plant/phytomer/ReproductiveOrgans/Female/final_potential_biomass.jl
+@@ -22,6 +22,7 @@
+ 
+ # Inputs
+ 
++- `sex`: determined sex supplied when the organ is created (`:Male` or `:Female`).
+ - `initiation_age`: age at which the palm starts to make bunches (days)
+ 
+ # Outputs
+@@ -43,7 +44,7 @@
+ scene = CompositeModel(
+     model;
+     scale=:Female,
+-    status=(initiation_age=5000.0,),
++    status=(initiation_age=5000.0, sex=:Female),
+ )
+ run!(scene)
+ only(model_objects(scene; scale=:Female)).status.potential_fruits_number
+@@ -86,6 +87,7 @@
+ 
+ PlantSimEngine.inputs_(::FemaleFinalPotentialFruits) = (
+     initiation_age=PlantSimEngine.Required(Real),
++    sex=PlantSimEngine.Required(Symbol),
+ )
+ PlantSimEngine.outputs_(::FemaleFinalPotentialFruits) = (potential_fruits_number=-9999, final_potential_fruit_biomass=-Inf, final_potential_biomass_stalk=-Inf, final_potential_biomass_oil_fruit=-Inf, final_potential_biomass_non_oil_fruit=-Inf, final_potential_oil_biomass=-Inf, final_potential_non_oil_biomass=-Inf)
+ PlantSimEngine.variable_contracts_(::FemaleFinalPotentialFruits) = (
+--- a/src/plant/phytomer/phytomer/add_phytomer.jl
++++ b/src/plant/phytomer/phytomer/add_phytomer.jl
+@@ -81,8 +81,13 @@
+         3;
+         index=status.phytomer_count,
+         id=status.graph_node_count,
+-        attributes=Dict{Symbol,Any}(),
+-        initial_status=(plant_age=plant_age, initiation_age=plant_age),
++        initial_status=(
++            plant_age=plant_age,
++            initiation_age=plant_age,
++            TT_since_init=0.0,
++            state=:undetermined,
++            sex=:undetermined,
++        ),
+     )
+ 
+     phytomer_id = PlantSimEngine.object_id(context, st_phyto)
+@@ -98,8 +103,13 @@
+         4;
+         index=status.phytomer_count,
+         id=status.graph_node_count,
+-        attributes=Dict{Symbol,Any}(),
+-        initial_status=(plant_age=plant_age, initiation_age=plant_age),
++        initial_status=(
++            plant_age=plant_age,
++            initiation_age=plant_age,
++            TT_since_init=0.0,
++            state=:undetermined,
++            sex=:undetermined,
++        ),
+     )
+     internode_id = PlantSimEngine.object_id(context, st_internode)
+ 
+@@ -114,8 +124,13 @@
+         4;
+         index=status.phytomer_count,
+         id=status.graph_node_count,
+-        attributes=Dict{Symbol,Any}(),
+-        initial_status=(plant_age=plant_age, initiation_age=plant_age),
++        initial_status=(
++            plant_age=plant_age,
++            initiation_age=plant_age,
++            TT_since_init=0.0,
++            state=:undetermined,
++            sex=:undetermined,
++        ),
+     )
+     leaf_id = PlantSimEngine.object_id(context, st_leaf)
+ 
+--- a/src/plant/phytomer/phytomer/add_reproductive_organ.jl
++++ b/src/plant/phytomer/phytomer/add_reproductive_organ.jl
+@@ -49,8 +49,8 @@
+         4;
+         index=status.phytomer_count,
+         id=status.graph_node_count,
+-        attributes=Dict{Symbol,Any}(),
+         initial_status=(
++            plant_age=-9999,
+             initiation_age=copy(status.plant_age),
+             TT_since_init=copy(status.TT_since_init),
+             state=status.state,
+--- a/test/test-biomass.jl
++++ b/test/test-biomass.jl
+@@ -92,3 +92,31 @@
+     @test status.biomass_oil ≈ 2.34375
+     @test status.biomass ≈ status.biomass_stalk + status.biomass_fruits
+ end
++
++
++@testset "MaleFinalPotentialBiomass keeps the initialized sex" begin
++    source = Status(initiation_age=50.0, sex=:Male)
++    sex_reference = PlantSimEngine.refvalue(source, :sex)
++    scene = test_scene(:Male, MaleFinalPotentialBiomass(1000.0, 100.0, 0.1);
++        status=source)
++    run!(scene)
++    status = test_status(scene, :Male)
++    @test status.sex === :Male
++    @test PlantSimEngine.refvalue(status, :sex) === sex_reference
++    @test status.final_potential_biomass ≈ 550.0
++end
++
++@testset "FemaleFinalPotentialFruits keeps the initialized sex" begin
++    source = Status(initiation_age=6500.0, sex=:Female)
++    sex_reference = PlantSimEngine.refvalue(source, :sex)
++    scene = test_scene(:Female, FemaleFinalPotentialFruits(); status=source)
++    run!(scene)
++    status = test_status(scene, :Female)
++    @test status.sex === :Female
++    @test PlantSimEngine.refvalue(status, :sex) === sex_reference
++    @test status.potential_fruits_number == 2000
++    @test status.final_potential_fruit_biomass ≈ 6.5
++    @test status.final_potential_biomass_stalk ≈ 2100.0
++    @test status.final_potential_oil_biomass ≈ 3250.0
++    @test status.final_potential_non_oil_biomass ≈ 9750.0
++end
