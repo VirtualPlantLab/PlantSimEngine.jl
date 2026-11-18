@@ -7054,18 +7054,27 @@ function _output_column_carrier_type(::Type{RT}) where {RT<:Tuple}
     return Union{carriers...}
 end
 
+# Use the same physical column layout for the binding and for the collection
+# that owns it. Empty target sets can acquire their first members during growth.
+function _model_output_column_schema(S, names)
+    fields, references = _status_schema_names(S), _status_schema_references(S)
+    families = map(names) do name
+        field = findfirst(isequal(name), fields)
+        Tuple{Base.uniontypes(fieldtype(references, field))...}
+    end
+    C = NamedTuple{names,Tuple{map(_output_column_carrier_type, families)...}}
+    return families, C
+end
+
 _model_output_destination_columns(model::CompositeModel, plan, destination_ids) =
     _with_prepared_canonical_status_type(_model_output_destination_columns,
         model, model, plan, destination_ids)
 @generated function _model_output_destination_columns(::Type{S}, model,
     ::CompiledModelOutputDestinationPlan{GROUP,NAMES}, destination_ids,
 ) where {S<:Status,GROUP,NAMES}
-    names, references = _status_schema_names(S), _status_schema_references(S)
-    families = Tuple(Tuple{Base.uniontypes(fieldtype(references,
-        findfirst(isequal(name), names)))...} for name in NAMES)
+    families, C = _model_output_column_schema(S, NAMES)
     all(R -> all(T -> T <: Ref && isconcretetype(T), fieldtypes(R)), families) ||
         return :(throw(ArgumentError("An output column requires exact prepared reference classes.")))
-    C = NamedTuple{NAMES,Tuple{map(_output_column_carrier_type, families)...}}
     columns = Expr(:tuple, [:(
         _model_output_destination_column(model, destination_ids,
             Val{$(QuoteNode(name))}(), $(families[index]))
@@ -7146,14 +7155,33 @@ function _compile_model_output_application_bindings!(
     )
 end
 
+@generated function _model_output_binding_storage(::Type{S}, ::Type{I},
+    plans::CompiledDistributedOutputPlans{P,G},
+) where {S<:Status,I<:ObjectId,P,G}
+    bindings = Union{}
+    groups = Union{}
+    for routes in fieldtypes(G)
+        isempty(fieldtypes(routes)) && continue
+        row_types = map(fieldtypes(routes)) do route
+            _, columns = _model_output_column_schema(S, route.parameters[2])
+            CompiledModelOutputDestinationBinding{route,columns,Dict{I,Int},I}
+        end
+        names = Tuple(route.parameters[1] for route in fieldtypes(routes))
+        bindings = Union{bindings,row_types...}
+        groups = Union{groups,NamedTuple{names,Tuple{row_types...}}}
+    end
+    return :(Vector{$bindings}(), Dict{Tuple{Symbol,$I},$groups}())
+end
+
 function _compile_model_output_destination_bindings(
     model::CompositeModel,
     resolved_destinations,
     plans::CompiledDistributedOutputPlans,
 )
-    bindings = Any[]
-    sizehint!(bindings, length(resolved_destinations))
     I = keytype(model.registry.objects)
+    bindings, by_execution_target = _with_prepared_canonical_status_type(
+        _model_output_binding_storage, model, I, plans)
+    sizehint!(bindings, length(resolved_destinations))
     resolved_by_plan = Dict{Int,Vector{Tuple{I,Vector{I}}}}()
     for resolved in resolved_destinations
         plan = getfield(resolved, :plan)::CompiledModelOutputDestinationPlan
@@ -7164,15 +7192,12 @@ function _compile_model_output_destination_bindings(
         push!(get!(valtype(resolved_by_plan), resolved_by_plan,
             getfield(plan, :slot)), (execution_object_id, destination_ids))
     end
-    by_execution_target = Dict{Tuple{Symbol,ObjectId},Any}()
     for application_id in keys(plans.by_application)
         _with_metadata_entry(
             _compile_model_output_application_bindings!, plans.by_application,
             application_id, model, resolved_by_plan, bindings, by_execution_target,
         )
     end
-    # Keep the same lifecycle cache shell; its values are built from the finite
-    # authored groups instead of recovering their schema from erased bindings.
     return bindings, by_execution_target
 end
 
@@ -7350,6 +7375,39 @@ function _resolve_incremental_model_output_addition!(
     return true
 end
 
+# Bindings and their new columns share the route's prepared column layout.
+@generated function _model_output_column_additions(::Vector{B}) where {B}
+    records = Union{}
+    for binding in Base.uniontypes(B)
+        C = fieldtype(binding, :columns)
+        IDs = fieldtype(binding, :destination_ids)
+        records = Union{records,NamedTuple{(:binding, :destination_ids, :columns),Tuple{binding,IDs,C}}}
+    end
+    return :(Vector{$records}())
+end
+
+# The binding and its columns are one correlated alternative from the existing
+# staging vector. Admit them together before constructing that exact record.
+@generated function _append_model_output_column_addition!(
+    additions::Vector{A}, binding, destination_ids, columns,
+) where {A}
+    branches = Expr[]
+    for record in Base.uniontypes(A)
+        B, IDs, C = fieldtype(record, :binding), fieldtype(record, :destination_ids),
+            fieldtype(record, :columns)
+        push!(branches, quote
+            if binding isa $B && destination_ids isa $IDs && columns isa $C
+                push!(additions, $record((binding::$B, destination_ids::$IDs, columns::$C)))
+                return nothing
+            end
+        end)
+    end
+    return quote
+        $(branches...)
+        throw(ArgumentError("Distributed addition fields do not match their prepared binding."))
+    end
+end
+
 function _incremental_distributed_output_addition!(
     model::CompositeModel,
     previous::CompiledDistributedOutputs,
@@ -7389,7 +7447,7 @@ function _incremental_distributed_output_addition!(
     _validate_compiled_writer_ownership!(staged_ownership, applications_by_id)
     _prepare_model_output_destination_statuses!(model, resolved_additions)
 
-    column_additions = Any[]
+    column_additions = _model_output_column_additions(previous.bindings)
     for resolved in resolved_additions
         key = (resolved.plan.application_id, resolved.execution_object_id)
         groups = previous.by_execution_target[key]
@@ -7404,7 +7462,8 @@ function _incremental_distributed_output_addition!(
                 all(reference -> reference isa eltype(existing_references), added_references) ||
                 return nothing
         end
-        push!(column_additions, (binding=binding, resolved=resolved, columns=columns))
+        _append_model_output_column_addition!(column_additions, binding,
+            resolved.destination_ids, columns)
     end
 
     for (key, owners) in staged_ownership
@@ -7412,7 +7471,7 @@ function _incremental_distributed_output_addition!(
     end
     for addition in column_additions
         binding = addition.binding
-        resolved = addition.resolved
+        destination_ids = addition.destination_ids
         for variable_ in binding.plan.variable_names
             variable = Symbol(variable_)
             append!(
@@ -7423,11 +7482,11 @@ function _incremental_distributed_output_addition!(
                 (binding.application_id, variable)
             ]
             indexed_ids === binding.destination_ids ||
-                _insert_sorted_object_ids!(indexed_ids, resolved.destination_ids)
+                _insert_sorted_object_ids!(indexed_ids, destination_ids)
         end
         first_position = length(binding.destination_ids) + 1
-        append!(binding.destination_ids, resolved.destination_ids)
-        for (offset, object_id) in enumerate(resolved.destination_ids)
+        append!(binding.destination_ids, destination_ids)
+        for (offset, object_id) in enumerate(destination_ids)
             binding.destination_index[object_id] = first_position + offset - 1
         end
         binding.membership_generation = UInt64(model.revision)

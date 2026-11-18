@@ -1435,3 +1435,27 @@ include("fixtures/distributed_growth.jl")
         @test only(sample for sample in lag_stream if first(sample) == 3.0) == (3.0, 14f0)
     end
 end
+
+
+@testset "existing distributed producers acquire a new destination together" begin
+    model = DistributedGrowthFixture.make_model()
+    simulation = run!(model; steps=2, outputs=:all)
+    retained = outputs(simulation)[(:distributed, ObjectId(:leaf_a), :delivered)]
+    supplied = Status(x=20f0, tick=0, delivered=-7f0, prospective=-11f0)
+    delivered = PlantSimEngine.refvalue(supplied, :delivered)
+    prospective = PlantSimEngine.refvalue(supplied, :prospective)
+    # Both producers already exist; only a monotonic new destination is added.
+    register_object!(model, Object(:leaf_c; scale=:Leaf, parent=:root, status=supplied))
+    step!(simulation)
+    @test outputs(simulation)[(:distributed, ObjectId(:leaf_a), :delivered)] === retained
+    @test retained == [(1.0, 10f0), (2.0, 20f0), (3.0, 30f0)]
+    @test PlantSimEngine.refvalue(model_status(model, :leaf_c), :delivered) === delivered
+    @test PlantSimEngine.refvalue(model_status(model, :leaf_c), :prospective) === prospective
+    @test delivered[] === 30f0
+    @test prospective[] === 60f0
+    @test final_state(simulation, :leaf_c).x === 21f0
+    # PreviousTimeStep reads A=3, B=11 published at2, and C's initial20.
+    @test final_state(simulation, :root).lagtotal === 34f0
+    @test outputs(simulation)[(:distributed, ObjectId(:leaf_c), :delivered)] == [(3.0, 30f0)]
+    @test outputs(simulation)[(:prospective_distributor, ObjectId(:leaf_c), :prospective)] == [(3.0, 60f0)]
+end
