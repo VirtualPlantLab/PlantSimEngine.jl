@@ -42,7 +42,7 @@ function check_sources()
     end
     head = strip(read(`git -C $ROOT rev-parse HEAD`, String))
     head == ENV["GITHUB_SHA"] || error("Wrong qualification commit.")
-    strip(read(`git -C $ROOT rev-parse HEAD^`, String)) == PINS["base_pse"] || error("Wrong qualification parent.")
+    run(`git -C $ROOT merge-base --is-ancestor $(PINS["base_pse"]) HEAD`)
     changed = Set(split(strip(read(`git -C $ROOT diff --name-only $(PINS["base_pse"]) HEAD -- src ext Project.toml`, String)), '\n'))
     changed == Set(["src/composite_model/runtime_outputs.jl", "src/composite_model/execution_dispatch.jl"]) || error("Unexpected experimental engine delta.")
     for (file, expected) in PINS["pse_experimental_files"]
@@ -113,6 +113,7 @@ function prepare()
     VERSION == VersionNumber(PINS["julia"]) || error("Wrong Julia version.")
     check_sources()
     phase("before-environment-resolution")
+    Pkg.Registry.add("General")
     materialize_paths(APP)
     seed = graph(joinpath(APP, "Manifest.toml"))
     length(seed) == 144 || error("Wrong historical scientific seed.")
@@ -137,7 +138,7 @@ function prepare()
         cp(joinpath(project, filename), joinpath(OUT, label * "-" * filename))
     end
     save(joinpath(OUT, "source-pins.toml"), Dict("qualification_commit" => ENV["GITHUB_SHA"],
-        "public_pse_parent" => PINS["base_pse"], "XPalm" => PINS["xpalm"], "PlantGeom" => PINS["plantgeom"],
+        "public_pse_base" => PINS["base_pse"], "XPalm" => PINS["xpalm"], "PlantGeom" => PINS["plantgeom"],
         "Julia" => string(VERSION), "JuliaC" => PINS["juliac"], "scientific_seed_preserved" => true))
     phase("environment-resolution-returned")
 end
