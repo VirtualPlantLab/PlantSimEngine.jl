@@ -1598,13 +1598,13 @@ end
 
 # Pre-registration matching sees the exact admitted parent and the labels that
 # normal registration would inherit. Every other object remains the real model.
-struct _PreparedStatusObjectTopology{M,I<:ObjectId,P,K,SP}
+struct _PreparedStatusObjectTopology{M,I<:ObjectId,P}
     model::M
     object::Object
     id::I
     parent::P
-    kind::K
-    species::SP
+    kind::Union{Nothing,Symbol}
+    species::Union{Nothing,Symbol}
 end
 
 function _prepared_status_object_labels(model, object, parent_id)
@@ -1691,9 +1691,12 @@ function _prepared_status_route_matches(model, object, parent_id, application,
     # Output destinations and from-status input sources use the same predicate.
     id = _index_object_id(model.registry.objects, object.id)
     topology = _prepared_status_topology(model, object, id, parent_id)
-    _prepared_status_scope_is_current(model, topology, destination_plan.matcher.scope, execution_id) || return false
-    return _selector_matches_object_id(topology, destination_plan.matcher,
-        id, execution_id, true, _default_dependency_scope(topology, execution_id), false)
+    matcher = destination_plan.matcher
+    _prepared_status_scope_is_current(model, topology, matcher.scope, execution_id) || return false
+    default_scope = isnothing(matcher.scope) && isnothing(matcher.relation) ?
+        _default_dependency_scope(topology, execution_id) : nothing
+    return _selector_matches_object_id(topology, matcher,
+        id, execution_id, true, default_scope, false)
 end
 
 # This is the actual object awaiting registration, never a manufactured origin.
