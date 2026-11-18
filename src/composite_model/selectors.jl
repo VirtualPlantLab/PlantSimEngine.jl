@@ -549,41 +549,30 @@ function _object_id_from_context(context)
     return ObjectId(context)
 end
 
-function _append_descendant_ids!(
-    ids::Vector{ObjectId},
-    model::CompositeModel,
-    root_id::ObjectId,
-)
-    push!(ids, root_id)
-    object = _model_object(model, root_id)
-    for child_id in object.children
-        _append_descendant_ids!(ids, model, child_id)
-    end
-    return ids
-end
-
-function _descendant_ids(model::CompositeModel, root_id::ObjectId)
-    return _append_descendant_ids!(ObjectId[], model, root_id)
-end
+# Full and budgeted queries walk the same child order. Only a budgeted
+# walk can stop early in favour of the smaller registry index.
+_descendant_ids(model::CompositeModel, root_id::ObjectId) =
+    _descendant_ids_up_to(model, root_id, nothing)
 
 function _descendant_ids_up_to(
     model::CompositeModel,
     root_id::ObjectId,
-    limit::Int,
+    limit::Union{Nothing,Int},
 )
-    ids = ObjectId[]
+    objects = model.registry.objects
+    ids = keytype(objects)[]
     # Borrow child vectors and retain only a depth-sized cursor stack. Pushing
     # every child onto a worklist would allocate for a huge subtree even when
     # a sparse index gives this traversal a budget of only a few objects.
     cursors = Tuple{Vector{ObjectId},Int}[]
-    current_id = root_id
+    current_id = _index_object_id(objects, root_id)
     while true
-        length(ids) >= limit && return nothing
+        !isnothing(limit) && length(ids) >= limit && return nothing
         push!(ids, current_id)
         children = _model_object(model, current_id).children
         if !isempty(children)
             push!(cursors, (children, 2))
-            current_id = first(children)
+            current_id = _index_object_id(objects, first(children))
             continue
         end
         found_next = false
@@ -591,7 +580,7 @@ function _descendant_ids_up_to(
             siblings, next_index = pop!(cursors)
             next_index > length(siblings) && continue
             push!(cursors, (siblings, next_index + 1))
-            current_id = siblings[next_index]
+            current_id = _index_object_id(objects, siblings[next_index])
             found_next = true
             break
         end
@@ -626,11 +615,11 @@ function _ancestor_id(
     final_index = lastindex(ancestors) - (include_self ? 0 : 1)
     final_index < firstindex(ancestors) && return nothing
     isnothing(scale) && isnothing(kind) &&
-        return @inbounds ancestors[final_index]
+        return _index_object_id(model.registry.objects, @inbounds ancestors[final_index])
     !isnothing(scale) && !haskey(model.registry.by_scale, scale) && return nothing
     !isnothing(kind) && !haskey(model.registry.by_kind, kind) && return nothing
     for index in final_index:-1:firstindex(ancestors)
-        id = @inbounds ancestors[index]
+        id = _index_object_id(model.registry.objects, @inbounds ancestors[index])
         _ancestor_matches_indexed_labels(model, id, scale, kind) && return id
     end
     return nothing
@@ -1526,13 +1515,14 @@ function _resolve_object_ids(
     else
         nothing
     end
+    I = keytype(model.registry.objects)
     local_ids = if !isnothing(subtree_root)
-        if !haskey(model.registry.objects, subtree_root)
-            ObjectId[]
+        if !(subtree_root isa I) || !haskey(model.registry.objects, subtree_root::I)
+            I[]
         else
             budget = isnothing(indexed) ? length(model.registry.objects) :
                      min(indexed.estimate, length(model.registry.objects))
-            _descendant_ids_up_to(model, subtree_root, budget)
+            _descendant_ids_up_to(model, subtree_root::I, budget)
         end
     else
         nothing

@@ -3047,6 +3047,29 @@ function _record_consumer_input_bindings!(
     return nothing
 end
 
+# Admit one existing recipe entry before resolving/materializing that route.
+function _compile_consumer_input_plan!(
+    plan, query_slot, bindings, model, application_id, application_process,
+    consumer_id, applications_by_object, applications_by_id, distributed_outputs,
+    many_binding_cache, performance, query_cache,
+)
+    if !isnothing(many_binding_cache)
+        shared_binding = _shared_many_input_binding(
+            many_binding_cache, model, plan, consumer_id,
+        )
+        if !isnothing(shared_binding)
+            push!(bindings, shared_binding)
+            _runtime_performance_count!(performance, :many_input_binding_precompile_reuses)
+            return nothing
+        end
+    end
+    _resolve_materialize_input_route!(
+        bindings, model, application_id, application_process, consumer_id, plan,
+        applications_by_object, applications_by_id, nothing, distributed_outputs;
+        query_cache, query_slot,
+    )
+end
+
 function _compile_consumer_input_recipe!(
     bindings,
     model,
@@ -3062,22 +3085,12 @@ function _compile_consumer_input_recipe!(
     performance=nothing,
 )
     query_cache = _input_query_cache(model.registry.objects, recipe.query_count)
-    foreach(recipe.explicit, recipe.query_slots) do plan, query_slot
-        if !isnothing(many_binding_cache)
-            shared_binding = _shared_many_input_binding(
-                many_binding_cache, model, plan, consumer_id,
-            )
-            if !isnothing(shared_binding)
-                push!(bindings, shared_binding)
-                _runtime_performance_count!(performance, :many_input_binding_precompile_reuses)
-                return nothing
-            end
-        end
-        _resolve_materialize_input_route!(
-            bindings, model, application_id, application_process, consumer_id, plan,
-            applications_by_object, applications_by_id, nothing, distributed_outputs;
-            query_cache, query_slot,
-        )
+    # Keep the same positional zip while admitting each heterogeneous plan.
+    for (slot, query_slot) in zip(eachindex(recipe.explicit), recipe.query_slots)
+        _with_metadata_entry(_compile_consumer_input_plan!, recipe.explicit, slot,
+            query_slot, bindings, model, application_id, application_process,
+            consumer_id, applications_by_object, applications_by_id,
+            distributed_outputs, many_binding_cache, performance, query_cache)
     end
     application_id in manual_application_ids && return bindings
     foreach(recipe.inferred) do group
