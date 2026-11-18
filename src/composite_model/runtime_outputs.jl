@@ -7941,10 +7941,44 @@ function _compile_output_request(model, compiled, request)
     end
 end
 
+# Memberships for requested outputs are retained in append-only streams. Use
+# the same reference classes that the fixed Status and its private ports admit,
+# including families with no current objects. This inspects no live value.
+function _output_request_types(model, application, variable)
+    manifest = _prepared_status_manifest(model)
+    open_types = (references=Tuple{Any}, values=Tuple{Any}, streams=Tuple{Any})
+    if _publish_mode_for_output(application.spec, variable) === :stream_only
+        variants = manifest.permissions[application.slot].variants
+        all(v -> any(p -> first(p) === variable, v.outputs), variants) || return open_types
+        refs = unique(R for variant in variants for (name, R) in variant.outputs if name === variable)
+    else
+        storage = fieldtype(manifest.status_type, :vars)
+        slot = findfirst(isequal(variable), fieldnames(fieldtype(storage, :refs)))
+        refs = isnothing(slot) ? DataType[] :
+            filter(R -> R <: Ref, Base.uniontypes(fieldtype(_status_storage_reference_types(storage), slot)))
+    end
+    values = unique(V for R in refs for V in Base.uniontypes(eltype(R)))
+    if isempty(values) || !all(isconcretetype, values)
+        # A user-defined reference such as Ref{Real} can hold a previously
+        # unseen concrete value. Keep its open membership semantics.
+        return open_types
+    end
+    return (references=Tuple{refs...}, values=Tuple{values...},
+        streams=Tuple{(Vector{Tuple{Float64,V}} for V in values)...})
+end
+
+function _output_request_record(request, matcher, application_id, ::Type{I}, types) where {I}
+    values = fieldtypes(types.values)
+    Target = values === (Any,) ? Any : Union{(OutputRequestTarget{T} for T in values)...}
+    return CompiledOutputRequest(request, matcher, application_id, Dict{I,Target}(),
+        types.references, types.values, types.streams)
+end
+
 function _compile_output_request_targets(model, compiled, request, matcher, application)
     I = keytype(typeof(model.registry.objects))
-    targets = Dict{I,Any}()
-    record = CompiledOutputRequest(request, matcher, application.id, targets, Tuple{Any}, Tuple{Any}, Tuple{Any})
+    types = _output_request_types(model, application, request.var)
+    record = _output_request_record(request, matcher, application.id, I, types)
+    targets = record.targets
     owned_ids = Set{I}(_index_object_id(model.registry.objects, id)
         for id in _model_output_object_ids(compiled, application, request.var))
     for raw_id in _resolve_object_ids(model, request.selector, matcher; context=request.context)
@@ -7968,13 +8002,10 @@ end
 function _prepare_output_request_record(record, schemas)
     schema = getproperty(schemas, record.application_id)
     types = _prepared_output_request_types(schema, record.request.var)
-    Target = Union{(OutputRequestTarget{T} for T in fieldtypes(types.values))...}
-    I = keytype(typeof(record.targets))
-    targets = Dict{I,Target}()
-    prepared = CompiledOutputRequest(record.request, record.matcher, record.application_id,
-        targets, types.references, types.values, types.streams)
+    prepared = _output_request_record(record.request, record.matcher, record.application_id,
+        keytype(record.targets), types)
     for (id, target) in record.targets
-        targets[id] = _with_output_request_target(identity, prepared, target)
+        prepared.targets[id] = _with_output_request_target(identity, prepared, target)
     end
     return prepared
 end

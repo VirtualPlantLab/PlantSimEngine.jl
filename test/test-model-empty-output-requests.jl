@@ -39,6 +39,20 @@ end
     @test_throws ErrorException PSE._model_output_selection(:unsupported)
 end
 
+@testset "retained output type before the first matching leaf is born" begin
+    model = CompositeModel(Object(0; scale=:Plant);
+        applications=(ModelSpec(Counter(); name=:counter, on=Many(scale=:Leaf)),))
+    request = OutputRequest(Many(scale=:Leaf), :counter; application=:counter)
+    simulation = run!(model; steps=0, outputs=request)
+    record = only(simulation.output_requests)
+    @test isempty(record.targets)
+    @test valtype(record.targets) === PSE.OutputRequestTarget{Int}
+    register_object!(model, Object(1; scale=:Leaf, parent=0))
+    step!(simulation)
+    @test only(values(record.targets)) isa PSE.OutputRequestTarget{Int}
+    @test outputs(simulation)[(:counter, ObjectId(1), :counter)] == [(1.0, 1)]
+end
+
 @testset "typed requests share one owner through output membership changes" begin
     model = CompositeModel(
         Object(1; scale=:Plant),
@@ -53,6 +67,12 @@ end
     @test Tuple(entry.request for entry in simulation.output_requests) ===
         (first_request, plant_request)
     record = simulation.output_requests[:plant]
+    # A normal run already owns the output families before any optional
+    # batch preparation. Existing target objects survive the batch preparation.
+    @test record.reference_types === Tuple{Base.RefValue{Int}}
+    @test record.value_types === Tuple{Int}
+    @test record.stream_types === Tuple{Vector{Tuple{Float64,Int}}}
+    @test valtype(record.targets) === PSE.OutputRequestTarget{Int}
     original_target = record.targets[ObjectId(2)]
     original_memberships = original_target.memberships
     batch = only(simulation.execution_plan.batches)
