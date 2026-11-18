@@ -1707,9 +1707,12 @@ end
 function _prepared_status_application_matches(model, object, parent_id, application)
     id = _index_object_id(model.registry.objects, object.id)
     topology = _prepared_status_topology(model, object, id, parent_id)
-    _prepared_status_scope_is_current(model, topology, application.target_matcher.scope, nothing) || return false
-    return _selector_matches_object_id(topology, application.target_matcher,
-        id, nothing, false, nothing, false)
+    return _prepared_status_application_matches_id(model, topology, application.target_matcher, id)
+end
+
+function _prepared_status_application_matches_id(model, topology, matcher, id)
+    _prepared_status_scope_is_current(model, topology, matcher.scope, nothing) || return false
+    return _selector_matches_object_id(topology, matcher, id, nothing, false, nothing, false)
 end
 
 function _prepared_status_route_matches(model, object, parent_id, application,

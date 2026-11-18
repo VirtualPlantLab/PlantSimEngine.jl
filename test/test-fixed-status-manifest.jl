@@ -245,4 +245,23 @@ end
     @test (base.calls[], replacement.calls[]) == counts
 end
 
+
+@testset "pending consumers admit their own from-status source before registration" begin
+    model = CompositeModel(Object(:scene; scale=:Scene); applications=(
+        ModelSpec(Reader(); name=:reader, on=Many(scale=:Leaf),
+            inputs=(x=One(Self(); var=:seed, from_status=true),)),))
+    supplied = Status(seed=3f0)
+    reference = PSE.refvalue(supplied, :seed)
+    wrong = Object(:wrong; scale=:Leaf, parent=:scene, status=Status(seed=3.0))
+    @test_throws ArgumentError register_object!(model, wrong)
+    @test Set(keys(model.registry.objects)) == Set([ObjectId(:scene)])
+    leaf = Object(:pending; scale=:Leaf, parent=:scene, status=supplied)
+    @test register_object!(model, leaf) === leaf
+    @test PSE.refvalue(model_status(model, leaf), :seed) === reference
+    @test Set(keys(model.registry.objects)) == Set([ObjectId(:scene), ObjectId(:pending)])
+    run!(model; steps=1, outputs=:none)
+    @test PSE.refvalue(model_status(model, leaf), :x) === reference
+    @test model_status(model, leaf).x === 3f0
+end
+
 end

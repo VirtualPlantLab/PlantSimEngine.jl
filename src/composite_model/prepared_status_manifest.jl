@@ -416,6 +416,15 @@ function _prepared_status_application_reference_allowed(manifest, model, object,
     return false
 end
 
+# Registered producers and consumers already belong to the registry's scale
+# index. A pending object's inherited labels and route still use the full matcher.
+_prepared_status_context_ids(objects::AbstractDict) = keys(objects)
+function _prepared_status_context_ids(model, application)
+    scale = application.target_matcher.scale
+    scale isa Symbol && return get(model.registry.by_scale, scale, ())
+    return _prepared_status_context_ids(model.registry.objects)
+end
+
 # One exact application/permission pair enters the producer/route worker.
 Base.@constprop :none Base.@noinline function _prepared_status_destination_entry_allowed(
     application, permission, plan, model, object, parent_id, name, reference,
@@ -423,11 +432,10 @@ Base.@constprop :none Base.@noinline function _prepared_status_destination_entry
     # Visit registered producer identities in place. No candidate vector or
     # synthetic producer is allocated by this admission path.
     has_producer = false
-    for (execution_id, producer) in model.registry.objects
-        producer_parent = producer.parent
-        producer_parent_id = isnothing(producer_parent) ? nothing :
-            _index_object_id(model.registry.objects, producer_parent)
-        _prepared_status_application_matches(model, producer, producer_parent_id, application) || continue
+    for candidate_id in _prepared_status_context_ids(model, application)
+        execution_id = _index_object_id(model.registry.objects, candidate_id)
+        _prepared_status_application_matches_id(model, model,
+            application.target_matcher, execution_id) || continue
         has_producer = true
         _prepared_status_route_matches(model, object, parent_id,
             application, plan, execution_id) || continue
@@ -483,11 +491,10 @@ function _prepared_status_source_route_admission(source, application, permission
     declared, allowed = false, true
     if source.source_var === name
         has_consumer = false
-        for (consumer_id, consumer) in model.registry.objects
-            consumer_parent = consumer.parent
-            consumer_parent_id = isnothing(consumer_parent) ? nothing :
-                _index_object_id(model.registry.objects, consumer_parent)
-            _prepared_status_application_matches(model, consumer, consumer_parent_id, application) || continue
+        for candidate_id in _prepared_status_context_ids(model, application)
+            consumer_id = _index_object_id(model.registry.objects, candidate_id)
+            _prepared_status_application_matches_id(model, model,
+                application.target_matcher, consumer_id) || continue
             has_consumer = true
             _prepared_status_route_matches(model, object, parent_id,
                 application, source, consumer_id) || continue
@@ -606,11 +613,10 @@ function _prepared_status_raw_has_context(contexts, plan, origin_id, variant)
 end
 function _prepared_status_raw_destination_count(application, plan, raw, model, object, parent_id)
     count = 0
-    for (execution_id, producer) in model.registry.objects
-        producer_parent = producer.parent
-        producer_parent_id = isnothing(producer_parent) ? nothing :
-            _index_object_id(model.registry.objects, producer_parent)
-        _prepared_status_application_matches(model, producer, producer_parent_id, application) || continue
+    for candidate_id in _prepared_status_context_ids(model, application)
+        execution_id = _index_object_id(model.registry.objects, candidate_id)
+        _prepared_status_application_matches_id(model, model,
+            application.target_matcher, execution_id) || continue
         _prepared_status_route_matches(model, object, parent_id,
             application, plan, execution_id) || continue
         variant = _prepared_status_variant_slot(application, execution_id)
@@ -635,11 +641,10 @@ end
 
 function _prepared_status_raw_source_count(source, application, raw, model, object, parent_id)
     count = 0
-    for (consumer_id, consumer) in model.registry.objects
-        consumer_parent = consumer.parent
-        consumer_parent_id = isnothing(consumer_parent) ? nothing :
-            _index_object_id(model.registry.objects, consumer_parent)
-        _prepared_status_application_matches(model, consumer, consumer_parent_id, application) || continue
+    for candidate_id in _prepared_status_context_ids(model, application)
+        consumer_id = _index_object_id(model.registry.objects, candidate_id)
+        _prepared_status_application_matches_id(model, model,
+            application.target_matcher, consumer_id) || continue
         _prepared_status_route_matches(model, object, parent_id,
             application, source, consumer_id) || continue
         variant = _prepared_status_variant_slot(application, consumer_id)

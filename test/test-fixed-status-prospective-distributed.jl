@@ -39,4 +39,24 @@ end
     @test canonical.x === 7.0
     @test reference[] === 7.0
 end
+
+@testset "public metadata edits update registered producer scale candidates" begin
+    model = CompositeModel(Object(:plant; scale=:Plant),
+        Object(:producer; scale=:Dormant, parent=:plant); applications=(
+        ModelSpec(Source(7.0); name=:source, on=Many(scale=:Scene),
+            outputs_to=(OutputTo(Many(SceneScope(), scale=:Leaf)),)),))
+    edited = PSE.GraphEditor.apply_model_graph_edit(model,
+        PSE.GraphEditor.SetModelObjectMetadata(:producer; scale=:Scene, name="Active producer"))
+    @test model_object(model, :producer).scale === :Dormant
+    @test model_object(edited, :producer).scale === :Scene
+    @test model_object(edited, :producer).name == "Active producer"
+    @test resolve_object_ids(edited, Many(scale=:Scene)) == [ObjectId(:producer)]
+    supplied = Status(x=4.0)
+    reference = PSE.refvalue(supplied, :x)
+    register_object!(edited, Object(:leaf; scale=:Leaf, parent=:plant, status=supplied))
+    run!(edited; steps=1, outputs=:none)
+    @test PSE.refvalue(model_status(edited, :leaf), :x) === reference
+    @test reference[] === 7.0
+end
+
 end

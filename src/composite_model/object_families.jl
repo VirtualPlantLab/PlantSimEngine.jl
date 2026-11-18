@@ -65,6 +65,7 @@ ObjectFamilyStore() = ObjectFamilyStore{ObjectId}()
 
 Base.length(store::ObjectFamilyStore) = length(store.locations)
 Base.haskey(store::ObjectFamilyStore, id) = haskey(store.locations, id)
+_prepared_status_context_ids(store::ObjectFamilyStore) = keys(store.locations)
 Base.getindex(store::ObjectFamilyStore, id) = store.locations[id].object
 
 function Base.get(store::ObjectFamilyStore, id, default)
