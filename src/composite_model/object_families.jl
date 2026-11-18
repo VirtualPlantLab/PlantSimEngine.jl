@@ -240,6 +240,24 @@ function _closed_object_family_store(store::ObjectFamilyStore{K,<:ClosedObjectFa
     # closure narrows only that ID domain, never discovers another Status layout.
     K !== ObjectId && return store
     I = isempty(store) ? K : Union{unique(typeof(id) for id in keys(store))...}
+    return _copy_closed_object_family_store(store, I)
+end
+
+function _closed_object_family_store(store::ObjectFamilyStore{K,<:ClosedObjectFamilyCatalog},
+    ::Type{I}) where {K,I}
+    members = Base.uniontypes(I)
+    !isempty(members) && all(T -> T <: ObjectId && isconcretetype(T), members) ||
+        throw(ArgumentError("A declared closed identity domain requires concrete ObjectId types."))
+    K === I && return store
+    # Validate any narrower domain before copying a row: row admission installs
+    # reference-change watchers on the existing canonical Status headers.
+    (K <: I || all(id -> id isa I, keys(store))) ||
+        throw(ArgumentError("The declared closed identity domain excludes an existing object."))
+    return _copy_closed_object_family_store(store, I)
+end
+
+function _copy_closed_object_family_store(store::ObjectFamilyStore{K,<:ClosedObjectFamilyCatalog},
+    ::Type{I}) where {K,I}
     manifest = store.catalog.status_manifest
     S = manifest.status_type
     families = (ObjectFamily{I,Nothing}(Union{Nothing,ObjectFamilyRow{I,Nothing}}[]),

@@ -411,4 +411,64 @@ end
     end
 end
 
+@testset "declared closed ID domains admit real future identities before row copies" begin
+    parent = Object(:plant; kind=:plant, status=Status(value=1f0))
+    model = CompositeModel(parent; applications=(ModelSpec(
+        FamilyReplacement((value=0f0,)); name=:leaves, on=Many(kind=:leaf)),))
+    original = model_status(model, :plant)
+    reference = PSE.refvalue(original, :value)
+    snapshot_watchers() = begin
+        watchers = PSE._status_vars(original).watchers
+        watchers isa Vector ? copy(watchers) : watchers
+    end
+    before_watchers = snapshot_watchers()
+    for invalid in (ObjectId, Int, Union{}, ObjectId{Int})
+        @test_throws ArgumentError PSE._closed_object_family_store(model.registry.objects, invalid)
+        @test snapshot_watchers() == before_watchers
+        @test model_status(model, :plant) === original
+        @test PSE.refvalue(original, :value) === reference
+    end
+    I = Union{ObjectId{Symbol},ObjectId{Tuple{Symbol,Symbol,Int}}}
+    store = PSE._closed_object_family_store(model.registry.objects, I)
+    @test keytype(store) === I
+    @test store.catalog.status_manifest === model.registry.objects.catalog.status_manifest
+    admitted_watchers = snapshot_watchers()
+    @test PSE._closed_object_family_store(store, I) === store
+    @test snapshot_watchers() == admitted_watchers
+    registry = PSE.ObjectRegistry(store, model.registry.by_scale, model.registry.by_kind,
+        model.registry.by_species, model.registry.ancestor_ids_by_object)
+    closed = PSE.CompositeModel(registry,
+        (getfield(model, index) for index in 2:fieldcount(typeof(model)))...)
+    @test model_object(closed, :plant) === parent
+    @test model_status(closed, :plant) === original
+    @test PSE.refvalue(model_status(closed, :plant), :value) === reference
+    supplied = Status(value=2f0)
+    newborn_reference = PSE.refvalue(supplied, :value)
+    newborn = Object((:plant, :leaf, 1); kind=:leaf, parent=:plant, status=supplied)
+    register_object!(closed, newborn)
+    @test model_object(closed, newborn.id) === newborn
+    @test object_id(closed, newborn) === ObjectId((:plant, :leaf, 1))
+    @test model_status(closed, newborn.id) === newborn.status
+    @test PSE.refvalue(newborn.status, :value) === newborn_reference
+    children = copy(parent.children)
+    @test_throws ArgumentError register_object!(closed,
+        Object(17; kind=:leaf, parent=:plant, status=Status(value=3f0)))
+    @test !haskey(store, ObjectId(17))
+    @test parent.children == children
+    @test PSE._closed_object_family_store(store) === store
+
+    empty_model = CompositeModel(; applications=(ModelSpec(
+        FamilyReplacement((value=0f0,)); name=:leaves, on=Many(kind=:leaf)),))
+    empty_store = empty_model.registry.objects
+    legacy_empty = PSE._closed_object_family_store(empty_store)
+    @test isempty(legacy_empty)
+    @test keytype(legacy_empty) === ObjectId
+    @test legacy_empty !== empty_store
+    @test legacy_empty.catalog.status_manifest === empty_store.catalog.status_manifest
+    declared_empty = PSE._closed_object_family_store(empty_store, I)
+    @test isempty(declared_empty)
+    @test keytype(declared_empty) === I
+    @test PSE._closed_object_family_store(declared_empty, I) === declared_empty
+end
+
 end
