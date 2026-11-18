@@ -4,7 +4,8 @@ using Test, PlantSimEngine
 using PlantSimEngine.GraphEditor
 const PSE = PlantSimEngine
 
-nearest_ancestor(model, id; kwargs...) = PSE._ancestor_id(model, ObjectId(id); kwargs...)
+nearest_ancestor(model, id; scale=nothing, kind=nothing, include_self=true) =
+    PSE._ancestor_id(model, ObjectId(id), scale, kind, include_self)
 function ancestor_scene()
     CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),

@@ -590,22 +590,6 @@ end
 
 function _ancestor_id(
     model::CompositeModel,
-    current_id::ObjectId;
-    scale=nothing,
-    kind=nothing,
-    include_self::Bool=true,
-)
-    return _ancestor_id(
-        model,
-        current_id,
-        _maybe_symbol(scale),
-        _maybe_symbol(kind),
-        include_self,
-    )
-end
-
-function _ancestor_id(
-    model::CompositeModel,
     current_id::ObjectId,
     scale::Union{Nothing,Symbol},
     kind::Union{Nothing,Symbol},
@@ -1521,7 +1505,7 @@ function _resolve_object_ids(
         isnothing(current_id) && error(
             "`Ancestor(...)` selectors require a current object context.",
         )
-        ancestor_id = _ancestor_id(model, current_id; scale=scope.scale, include_self=false)
+        ancestor_id = _scope_anchor(model, scope::Ancestor, current_id)
         matches(isnothing(ancestor_id) ? () : (ancestor_id,))
     elseif !isnothing(local_ids)
         matches(local_ids)

@@ -509,23 +509,7 @@ function _selector_scope_anchor(
     isnothing(context) && return nothing
     context_id = _object_id_from_context(context)
     scope isa Union{Self,Subtree} && return context_id
-    if scope isa SelfPlant
-        return _ancestor_id(
-            model,
-            context_id,
-            :Plant,
-            nothing,
-            true,
-        )
-    elseif scope isa Ancestor
-        return _ancestor_id(
-            model,
-            context_id,
-            scope.scale,
-            nothing,
-            false,
-        )
-    end
+    scope isa Union{SelfPlant,Ancestor} && return _scope_anchor(model, scope, context_id)
     if isnothing(scope) && !isnothing(matcher.relation)
         relation = _compiled_relation_symbol(matcher.relation)
         relation in (:self, :children, :descendants) && return context_id
@@ -3270,12 +3254,12 @@ function _many_binding_scope_anchor(
         return _many_scope_anchor(model, :scene, nothing)
     elseif scope isa SelfPlant
         return _many_scope_anchor(model, :plant,
-            _ancestor_id(model, consumer_id; scale=:Plant))
+            _scope_anchor(model, scope, consumer_id))
     elseif scope isa Scope
         return _many_scope_anchor(model, :scope, _named_scope_root_id(model, scope))
     elseif scope isa Ancestor
         return _many_scope_anchor(model, :ancestor,
-            _ancestor_id(model, consumer_id; scale=scope.scale, include_self=false))
+            _scope_anchor(model, scope, consumer_id))
     end
     return _many_scope_anchor(model, :consumer, consumer_id)
 end
