@@ -4,6 +4,8 @@ abstract type AbstractExecutionCohort end
 # target. Removing a target releases it without invalidating existing row indices.
 struct _ExecutionCohortSlot{T}
     value::Union{Nothing,T}
+
+    _ExecutionCohortSlot{T}(value::Union{Nothing,T}) where {T} = new{T}(value)
 end
 
 mutable struct ExecutionCohort{T,I<:ObjectId,O} <: AbstractExecutionCohort
