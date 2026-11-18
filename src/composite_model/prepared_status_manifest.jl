@@ -742,11 +742,11 @@ end
 
 # Visit the prepared namespace in order without building a per-field method body.
 # The existing finite classifier admits each exact Ref before the shared worker.
-function _prepared_status_source_allowed(recipe::PreparedBirthRecipe{S},
-    model, object, parent_id, source::Status, raw) where {S}
+Base.@noinline Base.@nospecializeinfer function _prepared_status_source_allowed(recipe::PreparedBirthRecipe{S},
+    model, object, parent_id, @nospecialize(references::NamedTuple), raw) where {S}
     present = 0
     for name in _status_schema_names(S)
-        reference = _initial_status_reference(source, name)
+        reference = _initial_status_reference(references, name)
         if reference !== nothing
             present += 1
             allowed, compatible = _prepared_status_configured_reference_admission(recipe, model,
@@ -755,7 +755,7 @@ function _prepared_status_source_allowed(recipe::PreparedBirthRecipe{S},
                 _prepared_status_raw_reference_allowed(raw, name, reference)) || return false
         end
     end
-    return present == _initial_status_reference_count(source)
+    return present == _initial_status_reference_count(references)
 end
 
 _object_birth_recipe(manifest, object) = get(manifest.birth_recipes, object.scale, manifest.all_routes)
@@ -767,11 +767,12 @@ _object_birth_recipe(manifest, object) = get(manifest.birth_recipes, object.scal
     isnothing(source_status) && return nothing
     source_status isa Status || throw(ArgumentError("Prepared initial data must be Status or nothing."))
     recipe = _object_birth_recipe(manifest, object)
-    allowed = Base.@inline _prepared_status_source_allowed(recipe, model, object, parent_id, source_status, nothing)
+    references = _initial_status_reference_storage(source_status)
+    allowed = _prepared_status_source_allowed(recipe, model, object, parent_id, references, nothing)
     allowed && return nothing
     for raw in recipe.raw_families
         _prepared_status_raw_matches(raw, recipe, model, object, parent_id) || continue
-        Base.@inline _prepared_status_source_allowed(recipe, model, object, parent_id, source_status, raw) && return nothing
+        _prepared_status_source_allowed(recipe, model, object, parent_id, references, raw) && return nothing
     end
     throw(ArgumentError("Status reference classes are incompatible with this prepared object configuration/raw family."))
 end

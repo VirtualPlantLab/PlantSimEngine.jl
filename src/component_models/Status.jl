@@ -329,17 +329,22 @@ Base.copy(status::Status) = Status(_copy_status_storage(_status_vars(status)))
     storage isa Union{_FixedStatusStorage,_ProjectedStatusStorage} || throw(ArgumentError("Unknown Status backing."))
     return getfield(storage, :refs)
 end
-@inline function _initial_status_reference_count(source::Status)
-    references = _initial_status_reference_storage(source)
+@inline _initial_status_reference_count(source::Status) =
+    _initial_status_reference_count(_initial_status_reference_storage(source))
+# A newborn may supply any admitted layout. Box its directory once at this
+# boundary so scanning a wide, mutable Status does not copy it for each field.
+Base.@noinline Base.@nospecializeinfer function _initial_status_reference_count(@nospecialize(references::NamedTuple))
     count = 0
     for index in 1:nfields(references)
         getfield(references, index) === nothing || (count += 1)
     end
     return count
 end
-@inline function _initial_status_reference(source::Status, name::Symbol)
-    references = _initial_status_reference_storage(source)
-    return isdefined(references, name) ? getfield(references, name) : nothing
+@inline _initial_status_reference(source::Status, name::Symbol) =
+    _initial_status_reference(_initial_status_reference_storage(source), name)
+@inline function _initial_status_reference(references::NamedTuple, name::Symbol)
+    slot = Base.fieldindex(typeof(references), name, false)
+    return iszero(slot) ? nothing : getfield(references, slot)
 end
 
 # S is admitted by the prepared owner BEFORE this generated operation. No source

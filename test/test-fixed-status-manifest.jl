@@ -19,6 +19,25 @@ PSE.inputs_(::Reader) = (x=Default(0f0),)
 PSE.outputs_(::Reader) = (;)
 PSE.run!(::Reader, status, environment, constants, context) = nothing
 
+function _wide_leaf_admission_bytes(model, leaf, status)
+    return @allocated PSE._validate_prepared_initial_status(model, leaf, status, leaf.parent)
+end
+
+@testset "admission reads a wide prepared leaf status without copying it for each field" begin
+    names = ntuple(i -> Symbol(:raw_, i), 160)
+    cells = ntuple(i -> isodd(i) ? Ref(i) : Ref(Float64(i)), length(names))
+    scene = Object(:scene; scale=:Scene, status=Status(NamedTuple{names}(cells)))
+    old = Object(:old; scale=:Leaf, parent=:scene, status=Status(x=2.0))
+    model = CompositeModel(scene, old; applications=(
+        ModelSpec(Source(0.0, 0.0, Ref(0)); name=:leaf_source, on=Many(scale=:Leaf)),))
+    supplied = copy(model_status(model, :old))
+    leaf = Object(:new; scale=:Leaf, parent=:scene, status=supplied)
+    _wide_leaf_admission_bytes(model, leaf, supplied)
+    @test _wide_leaf_admission_bytes(model, leaf, supplied) <= 4096
+    @test register_object!(model, leaf) === leaf
+    @test PSE.refvalue(model_status(model, :new), :x) === PSE.refvalue(supplied, :x)
+end
+
 @testset "future declarations bound storage without cross-config numeric admission" begin
     a = Source(1f0, 2.0, Ref(0))
     b = Source(1.0, 2f0, Ref(0))
