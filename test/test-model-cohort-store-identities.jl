@@ -328,15 +328,16 @@ end
 _key_value(dict, key) = get(dict, key, 0)
 
 @testset "bounded keys admit independent caller and callee identities" begin
-    I = Union{ObjectId{Int},ObjectId{Symbol}}
+    leaf = ObjectId((:tree, :leaf, 1))
+    I = Union{ObjectId{Int},ObjectId{Symbol},typeof(leaf)}
     O = Union{Nothing,Tuple{Symbol,I,Symbol,Symbol}}
     store = PSE.ExecutionCohortStore{I,O}()
     K = PSE.ExecutionCohortKey{O,I}
     @test isconcretetype(K)
     @test fieldtype(K, :owner) === O
     @test fieldtype(K, :item) === I
-    # Both cross-products are valid: caller identity is not the callee's type.
-    for (caller,callee) in ((ObjectId(:root),ObjectId(1)),(ObjectId(1),ObjectId(:leaf)))
+    for (caller,callee) in ((ObjectId(:root),ObjectId(1)), (ObjectId(1),ObjectId(:leaf)),
+        (leaf,ObjectId(:root)), (ObjectId(:root),leaf))
         first = (:controller,caller,:first,:call)
         alias = (:controller,caller,:alias,:call)
         scheduled = PSE._execution_location_key(store, nothing, :leaf, callee)
@@ -344,6 +345,8 @@ _key_value(dict, key) = get(dict, key, 0)
         aliased = PSE._execution_location_key(store, alias, :leaf, callee)
         @test typeof(scheduled) === typeof(called) === typeof(aliased) === K
         @test !isequal(scheduled, called) && !isequal(called, aliased)
+        seed = UInt(17)
+        @test hash(called, seed) == hash(callee, hash(:leaf, hash(first, seed)))
         values = Dict{K,Int}(scheduled=>1,called=>2,aliased=>3)
         @test (@inferred _key_value(values, called)) == 2
         @test values[scheduled] == 1 && values[aliased] == 3

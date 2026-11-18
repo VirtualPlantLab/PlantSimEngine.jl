@@ -38,8 +38,19 @@ end
     isequal(left.owner, right.owner) &&
     left.application_id === right.application_id && isequal(left.item, right.item)
 
-@inline Base.hash(key::ExecutionCohortKey, seed::UInt) =
-    hash(key.item, hash(key.application_id, hash(key.owner, seed)))
+@inline function Base.hash(key::ExecutionCohortKey, seed::UInt)
+    owner = key.owner
+    if owner isa Tuple{Symbol,ObjectId,Symbol,Symbol}
+        # A call's owner can contain several caller ID types. Hash the four
+        # fields directly so a closed dictionary needs no tuple dispatch.
+        application, caller, name, mode = owner
+        seed = hash(mode, hash((), seed))
+        seed = hash(application, hash(caller, hash(name, seed)))
+    else
+        seed = hash(owner, seed)
+    end
+    return hash(key.item, hash(key.application_id, seed))
+end
 
 """Persistent payload storage with identity/owner types independent of target types.
 
