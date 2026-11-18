@@ -6722,6 +6722,15 @@ function _status_recipe_add_default!(
     return _status_recipe_set_reference!(recipe, variable, Ref(initial))
 end
 
+# Keep the directory as one function argument. Indexing a wide NamedTuple
+# loaded from a mutable status can otherwise box the entire tuple at each slot.
+Base.@noinline function _copy_status_reference_cells!(cells, directory::NamedTuple)
+    for slot in eachindex(cells)
+        cells[slot] = getfield(directory, slot)
+    end
+    return cells
+end
+
 # Stage one reference directory. Committing it once keeps every existing status
 # projection on its original cells if any edit fails admission.
 function _finish_canonical_status_recipe!(recipe::_CanonicalStatusRecipe)
@@ -6731,9 +6740,7 @@ function _finish_canonical_status_recipe!(recipe::_CanonicalStatusRecipe)
     current = storage.refs
     slots = typeof(current)
     cells = Vector{Union{Nothing,Ref}}(undef, nfields(current))
-    for slot in eachindex(cells)
-        cells[slot] = getfield(current, slot)
-    end
+    _copy_status_reference_cells!(cells, current)
     changed = false
     for (name, reference) in zip(recipe.edit_names, recipe.edit_references)
         slot = Base.fieldindex(slots, name, false)

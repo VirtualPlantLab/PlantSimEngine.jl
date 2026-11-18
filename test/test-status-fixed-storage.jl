@@ -145,6 +145,24 @@ end
     end
 end
 
+function _wide_status_commit_bytes!(recipe, name, value)
+    PSE._status_recipe_set_reference!(recipe, name, Ref(value))
+    return @allocated PSE._finish_canonical_status_recipe!(recipe)
+end
+
+@testset "a sparse edit copies a heterogeneous status directory once" begin
+    names = ntuple(i -> Symbol(:port_, i), 160)
+    classes = ntuple(i -> isodd(i) ? RF32 : RF64, length(names))
+    schema = PSE._fixed_status_type(names, Tuple{classes...})
+    state = PSE._new_prepared_status(schema, nothing)
+    recipe = PSE._CanonicalStatusRecipe(state, true)
+    _wide_status_commit_bytes!(recipe, first(names), 1f0)
+    bytes = _wide_status_commit_bytes!(recipe, first(names), 2f0)
+    # Allow space for the staging vector, the tuple and its final directory.
+    @test bytes <= 64 * length(names) + 4096
+    @test PSE.refvalue(state, first(names))[] === 2f0
+end
+
 @testset "deepcopy preserves internal ref aliases, RefAny and RefReal stay exact" begin
     S = PSE._fixed_status_type((:a,:b,:abstract,:opaque),Tuple{RF32,RF32,Base.RefValue{Real},Base.RefValue{Any}})
     reference = Ref(1f0)
