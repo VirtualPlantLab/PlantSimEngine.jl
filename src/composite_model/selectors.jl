@@ -891,12 +891,17 @@ function _indexed_object_ids(model::CompositeModel; scale=nothing, kind=nothing,
     if isnothing(candidates) && all(isnothing, (scale, kind, species, id))
         return nothing
     end
-    candidate_ids = isnothing(candidates) ? keys(model.registry.objects) : candidates.ids
-    return unique!(ObjectId[
-        candidate for candidate in candidate_ids
-        if haskey(model.registry.objects, candidate) &&
-           _matches_object_criteria(_model_object(model, candidate); scale, kind, species, id)
-    ])
+    objects = model.registry.objects
+    I = keytype(objects)
+    ids = I[]
+    candidate_ids = isnothing(candidates) ? keys(objects) : candidates.ids
+    for candidate in candidate_ids
+        candidate isa I || continue
+        object = get(objects, candidate::I, nothing)
+        isnothing(object) && continue
+        _matches_object_criteria(object; scale, kind, species, id) && push!(ids, candidate)
+    end
+    return unique!(ids)
 end
 
 # Resolve topology once, before choosing between a bounded local walk and a

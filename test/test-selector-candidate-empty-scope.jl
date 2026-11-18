@@ -1,6 +1,10 @@
 using PlantSimEngine
 using Test
 
+function _selector_scope_test_key(index, anchor, label=nothing, value=nothing)
+    return keytype(index.by_scope_anchor)(anchor, label, value)
+end
+
 @testset "Selector candidates with and without scoped entries" begin
     model = CompositeModel(
         Object(:scene; scale=:Scene),
@@ -51,20 +55,20 @@ using Test
     end
 
     @testset "Scoped candidates include the ancestor chain and self" begin
-        index.by_scope_anchor[ObjectId(:scene)] = [6]
-        index.by_scope_anchor[ObjectId(:plant)] = [7]
-        index.by_scope_anchor[ObjectId(:axis)] = [8]
-        index.by_scope_anchor[leaf_id] = [9]
-        index.by_scope_anchor[(ObjectId(:plant), :scale, :Leaf)] = [10]
-        index.by_scope_anchor[(ObjectId(:axis), :kind, :photosynthetic)] = [11]
-        index.by_scope_anchor[(ObjectId(:scene), :species, :rauh)] = [12]
-        index.by_scope_anchor[(leaf_id, :id, leaf_id)] = [13]
+        index.by_scope_anchor[_selector_scope_test_key(index, ObjectId(:scene))] = [6]
+        index.by_scope_anchor[_selector_scope_test_key(index, ObjectId(:plant))] = [7]
+        index.by_scope_anchor[_selector_scope_test_key(index, ObjectId(:axis))] = [8]
+        index.by_scope_anchor[_selector_scope_test_key(index, leaf_id)] = [9]
+        index.by_scope_anchor[_selector_scope_test_key(index, ObjectId(:plant), :scale, :Leaf)] = [10]
+        index.by_scope_anchor[_selector_scope_test_key(index, ObjectId(:axis), :kind, :photosynthetic)] = [11]
+        index.by_scope_anchor[_selector_scope_test_key(index, ObjectId(:scene), :species, :rauh)] = [12]
+        index.by_scope_anchor[_selector_scope_test_key(index, leaf_id, :id, leaf_id)] = [13]
         # Another plant and nonmatching labels cannot contribute candidates.
-        index.by_scope_anchor[ObjectId(:other_plant)] = [94]
-        index.by_scope_anchor[(ObjectId(:plant), :scale, :Fruit)] = [95]
-        index.by_scope_anchor[(ObjectId(:axis), :kind, :wood)] = [96]
-        index.by_scope_anchor[(ObjectId(:scene), :species, :merisier)] = [97]
-        index.by_scope_anchor[(ObjectId(:plant), :id, ObjectId(:other_leaf))] = [98]
+        index.by_scope_anchor[_selector_scope_test_key(index, ObjectId(:other_plant))] = [94]
+        index.by_scope_anchor[_selector_scope_test_key(index, ObjectId(:plant), :scale, :Fruit)] = [95]
+        index.by_scope_anchor[_selector_scope_test_key(index, ObjectId(:axis), :kind, :wood)] = [96]
+        index.by_scope_anchor[_selector_scope_test_key(index, ObjectId(:scene), :species, :merisier)] = [97]
+        index.by_scope_anchor[_selector_scope_test_key(index, ObjectId(:plant), :id, ObjectId(:other_leaf))] = [98]
         for candidate_index in (index, PlantSimEngine._freeze_selector_candidate_index(index))
             candidates = Set([99])
             result = PlantSimEngine._union_selector_candidates!(
@@ -127,12 +131,27 @@ end
             I = keytype(model.registry.objects)
             expected_id_type = closed ? Union{map(id -> typeof(ObjectId(id)), ids)...} : ObjectId
             @test I === expected_id_type
+            selected = object_ids(model; id=(ObjectId(leaf_id), ObjectId(plant_id),
+                ObjectId(leaf_id), ObjectId(1.5)))
+            @test eltype(selected) === I
+            @test selected == sort!(ObjectId.([leaf_id, plant_id]); by=id -> string(id.value))
+            @test only(model_objects(model; scale=:Leaf)) === model_object(model, leaf_id)
+            @test isempty(object_ids(model; id=1.5))
             index = PlantSimEngine._selector_candidate_index(model, nothing)
             frozen_empty = PlantSimEngine._freeze_selector_candidate_index(index)
             @test keytype(index.by_id) === keytype(frozen_empty.by_id) === I
             @test keytype(index.by_scope_anchor) === keytype(frozen_empty.by_scope_anchor) ===
-                Union{I,Tuple{I,Symbol,Union{Symbol,I}}}
+                PlantSimEngine._SelectorScopeAnchorKey{I}
             @test eltype(index.scope_roots) === eltype(frozen_empty.scope_roots) === I
+            K = keytype(index.by_scope_anchor)
+            @test isconcretetype(K)
+            bare = K(ObjectId(plant_id), nothing, nothing)
+            labeled = K(ObjectId(plant_id), :scale, :Leaf)
+            @test isequal(bare, K(ObjectId(plant_id), nothing, nothing))
+            @test hash(bare) == hash(K(ObjectId(plant_id), nothing, nothing))
+            @test isequal(labeled, K(ObjectId(plant_id), :scale, :Leaf))
+            @test hash(labeled) == hash(K(ObjectId(plant_id), :scale, :Leaf))
+            @test !isequal(bare, labeled)
             @test isempty(frozen_empty.by_id) && isempty(frozen_empty.by_scope_anchor)
             selectors = (
                 Many(id=leaf_id),
@@ -142,14 +161,41 @@ end
                 Many(scale=:Leaf, within=Subtree()),
                 Many(within=Subtree()),
                 Many(id=scene_id),
+                Many(scale=(:Leaf, :Fruit), within=Subtree()),
             )
             for (position, selector) in pairs(selectors)
                 matcher = PlantSimEngine._compile_selector_matcher(model, selector)
-                PlantSimEngine._index_selector_candidate!(
+                @test (@inferred PlantSimEngine._index_selector_candidate!(
                     index, model, matcher, position, ObjectId(plant_id), nothing,
-                )
+                )) === index
             end
-            expected = Set([1, 2, 5, 6])
+            # The same concrete buckets also collect template roots. This
+            # owner must not widen its dictionaries when choosing a label.
+            cache = PlantSimEngine._application_target_template_cache(I)
+            cached = PlantSimEngine._selector_candidate_index(model, cache)
+            for (position, selector) in pairs(selectors)
+                matcher = PlantSimEngine._compile_selector_matcher(model, selector)
+                @test PlantSimEngine._index_selector_candidate!(
+                    cached, model, matcher, position, ObjectId(plant_id), nothing,
+                ) === cached
+            end
+            for field in (:wildcard, :by_id, :by_scale, :by_kind, :by_species, :by_scope_anchor)
+                @test getfield(cached, field) == getfield(index, field)
+                @test typeof(getfield(cached, field)) === typeof(getfield(index, field))
+            end
+            @test cached.application_target_templates === cache
+            @test cached.scope_roots == Set{I}([ObjectId(plant_id)])
+            @test isempty(index.scope_roots)
+            skipped = PlantSimEngine._selector_candidate_index(model, nothing)
+            for selector in (Many(Self()), Many(Ancestor(scale=:Plant); scale=:Plant))
+                matcher = PlantSimEngine._compile_selector_matcher(model, selector)
+                @test PlantSimEngine._index_selector_candidate!(skipped, model,
+                    matcher, 1, ObjectId(leaf_id), nothing) === skipped
+            end
+            @test all(field -> isempty(getfield(skipped, field)),
+                (:wildcard, :by_id, :by_scale, :by_kind, :by_species, :by_scope_anchor))
+
+            expected = Set([1, 2, 5, 6, 8])
             isnothing(kind) || push!(expected, 3)
             isnothing(species) || push!(expected, 4)
             for candidate_index in (index, PlantSimEngine._freeze_selector_candidate_index(index))
@@ -182,7 +228,7 @@ end
                 if future_id isa I
                     @test haskey(future_index.by_id, future_id)
                     @test haskey(future_index.by_scope_anchor,
-                        (ObjectId(plant_id), :id, future_id))
+                        _selector_scope_test_key(future_index, ObjectId(plant_id), :id, future_id))
                     register_object!(model, Object(raw_future; scale=:Leaf,
                         parent=axis_id, kind, species))
                     for candidate_index in (future_index, frozen_future)

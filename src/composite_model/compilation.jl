@@ -426,6 +426,20 @@ function _application_target_template_cache(::Type{I}) where {I<:ObjectId}
     return Dict{_ApplicationTargetTemplateKey{I},_ApplicationTargetTemplate}()
 end
 
+# A fixed key type also covers a registry with several concrete ID families.
+# A missing label denotes the unqualified anchor; labeled values retain the
+# same Symbol/ObjectId domain admitted by the selector index.
+struct _SelectorScopeAnchorKey{I<:ObjectId}
+    anchor::I
+    label::Union{Nothing,Symbol}
+    value::Union{Nothing,Symbol,I}
+end
+
+function _selector_scope_anchor_key(::Type{I}, anchor::I, label::Symbol, value) where {I<:ObjectId}
+    value isa Union{Symbol,I} || return nothing
+    return _SelectorScopeAnchorKey{I}(anchor, label, value)
+end
+
 """Reverse candidate index for compiled selector matchers."""
 struct SelectorCandidateIndex{W,S,K,SP,I,A,R,L,C}
     wildcard::W
@@ -448,7 +462,7 @@ function _selector_candidate_index(model::CompositeModel, application_target_tem
         Dict{Symbol,Vector{Int}}(),
         Dict{I,Vector{Int}}(),
         Dict{
-            Union{I,Tuple{I,Symbol,Union{Symbol,I}}},
+            _SelectorScopeAnchorKey{I},
             Vector{Int},
         }(),
         Set{I}(),
@@ -521,16 +535,32 @@ function _selector_scope_anchor(
     return nothing
 end
 
-function _selector_candidate_destination(
+# Perform the insertion while the chosen dictionary retains its exact key type.
+# Selector keys outside a closed registry's ID family remain empty matches.
+function _index_selector_candidate_bucket!(index::SelectorCandidateIndex,
+    groups::AbstractDict{K}, values, candidate_index::Int,
+) where {K}
+    for value in values
+        value isa K || continue
+        push!(get!(groups, value::K, Int[]), candidate_index)
+        !isnothing(index.application_target_templates) &&
+            groups === index.by_scope_anchor && push!(index.scope_roots,
+                value isa _SelectorScopeAnchorKey ? value.anchor : value)
+    end
+    return index
+end
+
+function _index_selector_candidate_destination!(
     index::SelectorCandidateIndex,
     model::CompositeModel,
     matcher::CompiledSelectorMatcher,
+    candidate_index::Int,
     context,
     default_scope,
 )
     scope = isnothing(matcher.scope) ? default_scope : matcher.scope
     if scope isa Self && isnothing(matcher.relation)
-        return nothing
+        return index
     end
     # `Ancestor(scale=S)` combined with a source at `scale=S` selects the
     # nearest matching ancestor. Adding a descendant cannot change that source
@@ -540,7 +570,7 @@ function _selector_candidate_destination(
        scope isa Ancestor &&
        !isnothing(matcher.scale) &&
        matcher.scale == scope.scale
-        return nothing
+        return index
     end
     anchor = _selector_scope_anchor(
         model,
@@ -550,36 +580,37 @@ function _selector_candidate_destination(
     )
     if !isnothing(anchor)
         I = keytype(index.by_id)
-        anchor_id = ObjectId(anchor)
+        raw_anchor_id = ObjectId(anchor)
         # An out-of-family anchor cannot acquire an object in this registry.
-        anchor_id isa I || return nothing
-        anchor_id = anchor_id::I
+        raw_anchor_id isa I || return index
+        anchor_id = raw_anchor_id::I
         for (label, value) in (
             (:id, matcher.id),
             (:scale, matcher.scale),
             (:kind, matcher.kind),
             (:species, matcher.species),
         )
-            isnothing(value) || return (
-                index.by_scope_anchor,
-                Tuple(
-                    (anchor_id, label, candidate)
-                    for candidate in _selector_candidate_values(value)
-                ),
+            isnothing(value) || return _index_selector_candidate_bucket!(
+                index, index.by_scope_anchor,
+                map(candidate -> _selector_scope_anchor_key(I, anchor_id, label, candidate),
+                    _selector_candidate_values(value)),
+                candidate_index,
             )
         end
-        return (index.by_scope_anchor, (anchor_id,))
+        return _index_selector_candidate_bucket!(
+            index, index.by_scope_anchor,
+            (_SelectorScopeAnchorKey{I}(anchor_id, nothing, nothing),), candidate_index)
     end
-    for (groups, value) in (
-        (index.by_id, matcher.id),
-        (index.by_scale, matcher.scale),
-        (index.by_kind, matcher.kind),
-        (index.by_species, matcher.species),
-    )
-        isnothing(value) ||
-            return (groups, _selector_candidate_values(value))
-    end
-    return (nothing, ())
+    isnothing(matcher.id) || return _index_selector_candidate_bucket!(
+        index, index.by_id, _selector_candidate_values(matcher.id), candidate_index)
+    isnothing(matcher.scale) || return _index_selector_candidate_bucket!(
+        index, index.by_scale, _selector_candidate_values(matcher.scale), candidate_index)
+    isnothing(matcher.kind) || return _index_selector_candidate_bucket!(
+        index, index.by_kind, _selector_candidate_values(matcher.kind), candidate_index)
+    isnothing(matcher.species) || return _index_selector_candidate_bucket!(
+        index, index.by_species, _selector_candidate_values(matcher.species), candidate_index)
+    push!(index.wildcard, candidate_index)
+    return index
 end
 
 function _index_selector_candidate!(
@@ -604,31 +635,8 @@ function _index_selector_candidate!(
             end
         end
     end
-    destination = _selector_candidate_destination(
-        index,
-        model,
-        matcher,
-        context,
-        default_scope,
-    )
-    isnothing(destination) && return index
-    groups, values = destination
-    if isnothing(groups)
-        push!(index.wildcard, candidate_index)
-    else
-        for value in values
-            # Selectors may name future/missing IDs, including an ID family
-            # that this closed registry cannot ever register. Keep them empty.
-            value isa keytype(groups) || continue
-            push!(get!(groups, value, Int[]), candidate_index)
-            tracks_application_targets &&
-                groups === index.by_scope_anchor && push!(
-                index.scope_roots,
-                value isa Tuple ? first(value) : value,
-            )
-        end
-    end
-    return index
+    return _index_selector_candidate_destination!(
+        index, model, matcher, candidate_index, context, default_scope)
 end
 
 # Keep each dictionary/key pair concrete at its lookup rather than joining
@@ -638,8 +646,18 @@ end
     return candidates
 end
 
-@inline function _union_selector_bucket!(candidates, groups, anchor, label, value)
-    isnothing(value) || _union_selector_bucket!(candidates, groups, (anchor, label, value))
+@inline function _union_selector_bucket!(candidates,
+    groups::AbstractDict{_SelectorScopeAnchorKey{I}}, anchor::ObjectId,
+) where {I}
+    return _union_selector_bucket!(candidates, groups,
+        _SelectorScopeAnchorKey{I}(anchor, nothing, nothing))
+end
+
+@inline function _union_selector_bucket!(candidates,
+    groups::AbstractDict{_SelectorScopeAnchorKey{I}}, anchor, label, value,
+) where {I}
+    isnothing(value) || _union_selector_bucket!(candidates, groups,
+        _SelectorScopeAnchorKey{I}(anchor, label, value))
     return candidates
 end
 
