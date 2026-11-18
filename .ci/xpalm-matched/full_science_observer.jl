@@ -220,7 +220,11 @@ function persistent_execution_entries(graph, simulation)
     if hasfield(typeof(simulation.temporal_streams), :cohorts)
         for raw_cohort in values(simulation.temporal_streams.cohorts.cohorts)
             with_value(graph.admission, raw_cohort) do cohort
-                for raw_target in cohort.rows
+                # Newer cohorts expose the live target through indexing. The
+                # historical storage already contains the target or nothing.
+                rows = @static isdefined(PSE, :_ExecutionCohortSlot) ? cohort : cohort.rows
+                for index in eachindex(cohort.rows)
+                    raw_target = rows[index]
                     isnothing(raw_target) && continue
                     with_value(graph.admission, raw_target) do target
                         push!(entries, (owner=cohort.owner, application=cohort.application_id,
