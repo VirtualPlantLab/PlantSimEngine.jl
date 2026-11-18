@@ -5930,13 +5930,6 @@ _resolve_model_output_destinations(
 
 # Port names are authored metadata; defaults belong to the actual initial or
 # newborn destination event, never a previous binding's cached declaration.
-function _model_output_destination_declarations(
-    application, execution_object_id, plan::CompiledModelOutputDestinationPlan,
-)
-    return _with_application_variant(_read_model_output_destination_declarations,
-        application, execution_object_id, plan)
-end
-
 function _read_model_output_destination_declarations(producer, ports,
     ::CompiledModelOutputDestinationPlan{GROUP,NAMES},
 ) where {GROUP,NAMES}
@@ -5996,34 +5989,54 @@ function _record_model_output_destination!(rows::Vector{R}, plan, declarations,
 end
 
 function _resolve_model_output_destinations(
-    model::CompositeModel,
-    applications_by_id,
-    compiled_plans::CompiledDistributedOutputPlans,
+    model::CompositeModel, applications_by_id, plans::CompiledDistributedOutputPlans,
 )
-    resolved = _model_output_destination_rows(
-        keytype(model.registry.objects), applications_by_id, compiled_plans)
-    for plan in compiled_plans.plans
-        application = applications_by_id[plan.application_id]
-        for execution_object_id in application.target_ids
-            declarations = _model_output_destination_declarations(
-                application, execution_object_id, plan,
-            )
-            destination_ids = _application_target_ids(
-                model,
-                _dependency_object_ids(
-                    model,
-                    plan.selector,
-                    plan.matcher,
-                    execution_object_id,
-                ),
-            )
-            sizehint!(destination_ids, length(destination_ids) + 1)
-            _record_model_output_destination!(
-                resolved, plan, declarations, execution_object_id, destination_ids,
-            )
-        end
+    rows = _model_output_destination_rows(keytype(model.registry.objects), applications_by_id, plans)
+    _visit_model_output_routes(_resolve_producer_destinations!, applications_by_id,
+        plans.by_application, nothing, model, rows, nothing, nothing)
+    return rows
+end
+
+# Grouped routes and applications have the same authored keys. Visit each route
+# with its owning producer so unrelated model schemas never enter inference.
+# Growth supplies the slot of the one route whose membership just changed.
+@generated function _visit_model_output_routes(f::F, applications::CompiledMetadataTable,
+    groups::G, slot::S, args::Vararg{Any,N},
+) where {F,G<:NamedTuple,S<:Union{Int,Nothing},N}
+    visits = Expr[]
+    for owner in fieldnames(G), i in 1:fieldcount(fieldtype(G, owner))
+        route = :(getfield(getfield(groups, $(QuoteNode(owner))), $i))
+        application = :(getfield(getfield(applications, :entries), $(QuoteNode(owner))))
+        visit = :(f($application, $route, args...))
+        push!(visits, S === Nothing ? visit : :(getfield($route, :slot) == slot && return $visit))
     end
-    return resolved
+    return quote
+        $(visits...)
+        $(S === Nothing ? :(return nothing) : :(throw(BoundsError(groups, slot))))
+    end
+end
+
+function _resolve_producer_destinations!(application, plan, model, rows, execution_id, destination_ids)
+    origins = isnothing(execution_id) ? application.target_ids : (execution_id,)
+    for origin in origins
+        _with_application_variant(_capture_model_output_destination!, application,
+            origin, plan, model, rows, origin, destination_ids)
+    end
+    return nothing
+end
+
+# Read defaults from the effective producer before resolving the initial
+# destination query. On growth the caller already knows the additional IDs.
+function _capture_model_output_destination!(producer, ports, plan, model, rows,
+    execution_id, destination_ids,
+)
+    declarations = _read_model_output_destination_declarations(producer, ports, plan)
+    if isnothing(destination_ids)
+        destination_ids = _application_target_ids(model,
+            _dependency_object_ids(model, plan.selector, plan.matcher, execution_id))
+        sizehint!(destination_ids, length(destination_ids) + 1)
+    end
+    return _record_model_output_destination!(rows, plan, declarations, execution_id, destination_ids)
 end
 
 # During growth only touched keys are copied. Validation can therefore reject
@@ -7281,6 +7294,40 @@ function _refresh_model_distributed_outputs(
     return previous, Set{Tuple{Symbol,ObjectId}}(), nothing
 end
 
+# Admit the old route through the existing finite plan owner before selecting
+# new destinations. A changed route family uses the complete refresh below.
+function _resolve_incremental_model_output_addition!(
+    application, plan::P, binding::CompiledModelOutputDestinationBinding,
+    objects::AbstractDict{I}, model, resolved_additions, added_ids,
+) where {P<:CompiledModelOutputDestinationPlan,I<:ObjectId}
+    previous_plan = getfield(binding, :plan)::CompiledModelOutputDestinationPlan
+    previous_plan isa P || return false
+    execution_id = _index_object_id(objects, getfield(binding, :execution_object_id))
+    previous_ids = getfield(binding, :destination_ids)::Vector{I}
+    default_scope = _default_dependency_scope(model, execution_id)
+    destination_ids = I[
+        object_id for object_id in added_ids
+        if _selector_matches_object_id(
+            model,
+            previous_plan.matcher,
+            object_id,
+            execution_id,
+            true,
+            default_scope,
+            false,
+        ) && !first(_sorted_object_id_position(previous_ids, object_id))
+    ]
+    isempty(destination_ids) && return true
+    _sort_object_ids!(destination_ids)
+    if !isempty(previous_ids) &&
+       !_object_id_isless(last(previous_ids), first(destination_ids))
+        return false
+    end
+    _resolve_producer_destinations!(application, plan, model,
+        resolved_additions, execution_id, destination_ids)
+    return true
+end
+
 function _incremental_distributed_output_addition!(
     model::CompositeModel,
     previous::CompiledDistributedOutputs,
@@ -7300,40 +7347,12 @@ function _incremental_distributed_output_addition!(
 
     resolved_additions = _model_output_destination_rows(
         keytype(model.registry.objects), applications_by_id, plans)
-    for binding in previous.bindings
-        default_scope = _default_dependency_scope(
-            model,
-            binding.execution_object_id,
-        )
-        destination_ids = keytype(model.registry.objects)[
-            object_id for object_id in added_ids
-            if _selector_matches_object_id(
-                model,
-                binding.matcher,
-                object_id,
-                binding.execution_object_id,
-                true,
-                default_scope,
-                false,
-            ) && !first(
-                _sorted_object_id_position(
-                    binding.destination_ids,
-                    object_id,
-                ),
-            )
-        ]
-        isempty(destination_ids) && continue
-        _sort_object_ids!(destination_ids)
-        if !isempty(binding.destination_ids) &&
-           !_object_id_isless(last(binding.destination_ids), first(destination_ids))
-            return nothing
-        end
-        declarations = _model_output_destination_declarations(
-            applications_by_id[binding.application_id], binding.execution_object_id, binding.plan,
-        )
-        _record_model_output_destination!(
-            resolved_additions, binding.plan, declarations, binding.execution_object_id, destination_ids,
-        )
+    for raw_binding in previous.bindings
+        binding = raw_binding::CompiledModelOutputDestinationBinding
+        previous_plan = getfield(binding, :plan)::CompiledModelOutputDestinationPlan
+        _visit_model_output_routes(_resolve_incremental_model_output_addition!,
+            applications_by_id, plans.by_application, getfield(previous_plan, :slot),
+            binding, model.registry.objects, model, resolved_additions, added_ids) || return nothing
     end
 
     _validate_model_output_destination_statuses!(model, resolved_additions)

@@ -113,8 +113,9 @@ end
     @test plan.variable_names === (:payload,)
     seed[] = 8f0
     before_actual = queries[]
-    declarations = @inferred PSE._model_output_destination_declarations(
-        only(applications), ObjectId(:scene), plan)
+    rows = @inferred PSE._resolve_model_output_destinations(
+        model, PSE._applications_by_id(applications), destinations)
+    declarations = only(rows).declarations
     @test queries[] == before_actual + 1
     @test declarations.payload.value == Float32[8, 8]
     resolved = only(PSE._resolve_model_output_destinations(model, PSE._applications_by_id(applications), destinations))

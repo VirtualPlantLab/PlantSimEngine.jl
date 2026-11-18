@@ -1269,7 +1269,8 @@ end
         @test index[(:closed_destination_writer, :incident_par)] === ids
         @test object_ids(PSE.OutputTargets(binding, 1)).ids === ids
         application = simulation.compiled.applications_by_id[:closed_destination_writer]
-        declarations = PSE._model_output_destination_declarations(application, binding.execution_object_id, binding.plan)
+        declarations = PSE._with_application_variant(PSE._read_model_output_destination_declarations,
+            application, binding.execution_object_id, binding.plan)
         resolved = PSE.ResolvedModelOutputDestination(binding.plan, declarations, binding.execution_object_id, ids)
         @test resolved.destination_ids === ids
         @test fieldtype(typeof(resolved), :destination_ids) === typeof(ids)
@@ -1367,4 +1368,70 @@ end
     @test combined == ObjectId.(Int[10, 20, 30])
     @test all(combined !== binding.destination_ids for binding in bindings)
     @test model_status(merged_model, 30).incident_par == 101.0
+end
+
+
+include("fixtures/distributed_growth.jl")
+
+@testset "same-step leaf and producer growth preserves weather, lagged Many and history" begin
+    # Growth, leaf sources and the newborn producer run hourly. The other
+    # producer and reader can run every two hours across the birth at tick 2.
+    # PreviousTimeStep uses global t-1, not the reader's preceding invocation.
+    for cadence in (Hour(1), Hour(2))
+        model = DistributedGrowthFixture.make_model(; reader_every=cadence, distributor_every=cadence)
+        simulation = run!(model; steps=0, outputs=:all)
+        lag_key = (:reader, ObjectId(:root), :lagtotal)
+        lag_stream = outputs(simulation)[lag_key]
+        @test isempty(lag_stream)
+        @test Set(object_ids(model)) == Set(ObjectId.((:root, :leaf_a)))
+
+        expected_lag = cadence == Hour(1) ?
+            [(1.0, 1f0), (2.0, 12f0), (3.0, 14f0), (4.0, 16f0)] :
+            [(1.0, 1f0), (3.0, 14f0)]
+        expected_delivery = cadence == Hour(1) ?
+            [(1.0, 10f0), (2.0, 20f0), (3.0, 30f0), (4.0, 40f0)] :
+            [(1.0, 10f0), (3.0, (20f0 + 30f0) / 2)]
+        for hour in 1:4
+            step!(simulation)
+            streams = outputs(simulation)
+            @test current_step(simulation) == hour
+            @test streams[lag_key] === lag_stream
+            @test lag_stream == filter(sample -> first(sample) <= hour, expected_lag)
+            @test final_state(simulation, :root).lagtotal === last(last(lag_stream))
+            @test streams[(:grower, ObjectId(:root), :seen)] ==
+                [(Float64(t), (10.0, 20.0, 30.0, 40.0)[t]) for t in 1:hour]
+            @test streams[(:grower, ObjectId(:root), :dose)] ==
+                [(Float64(t), (10.0, 30.0, 60.0, 100.0)[t]) for t in 1:hour]
+            @test streams[(:source, ObjectId(:leaf_a), :x)] ==
+                [(Float64(t), Float32(t + 1)) for t in 1:hour]
+            @test streams[(:distributed, ObjectId(:leaf_a), :delivered)] ==
+                filter(sample -> first(sample) <= hour, expected_delivery)
+            if hour < 2
+                @test Set(object_ids(model)) == Set(ObjectId.((:root, :leaf_a)))
+                @test !haskey(streams, (:prospective_distributor, ObjectId(:leaf_a), :prospective))
+            else
+                @test Set(object_ids(model)) == Set(ObjectId.((:root, :leaf_a, :leaf_b, :emitter)))
+                # B and its previously absent producer BOTH execute on birth tick 2.
+                @test streams[(:source, ObjectId(:leaf_b), :x)] ==
+                    [(Float64(t), Float32(t + 9)) for t in 2:hour]
+                @test get(streams, (:distributed, ObjectId(:leaf_b), :delivered),
+                    Tuple{Float64,Float32}[]) ==
+                    filter(sample -> 2 <= first(sample) <= hour, expected_delivery)
+                if cadence == Hour(2) && hour == 2
+                    # The old producer is not due: supplied data survives until
+                    # its next tick, which averages temperature over hours 2 and 3.
+                    @test final_state(simulation, :leaf_b).delivered === -7f0
+                end
+                for leaf in (:leaf_a, :leaf_b)
+                    @test streams[(:prospective_distributor, ObjectId(leaf), :prospective)] ==
+                        [(Float64(t), 20f0 * t) for t in 2:hour]
+                end
+            end
+        end
+        # At global tick 3 the reader uses the actual tick-2 source publications:
+        # A=3 and newborn B=11. Both are newer than the reader's preceding tick 1.
+        @test outputs(simulation)[(:source, ObjectId(:leaf_a), :x)][2] == (2.0, 3f0)
+        @test first(outputs(simulation)[(:source, ObjectId(:leaf_b), :x)]) == (2.0, 11f0)
+        @test only(sample for sample in lag_stream if first(sample) == 3.0) == (3.0, 14f0)
+    end
 end
