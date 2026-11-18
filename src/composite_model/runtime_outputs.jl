@@ -413,7 +413,7 @@ end
     hasproperty(context.bound_inputs, input) || throw(
         ArgumentError(
             "Application `$(context.application.id)` on object " *
-            "`$(context.object_id.value)` has no declared Many input " *
+            "`$(_object_id_diagnostic_text(context.object_id))` has no declared Many input " *
             "`$(input)`. Available identity-aware inputs: " *
             "`$(propertynames(context.bound_inputs))`.",
         ),
@@ -460,7 +460,7 @@ end
 
 @noinline function _missing_distributed_output_target(context, name)
     throw(ArgumentError(
-        "Application `$(context.application.id)` on object `$(context.object_id.value)` " *
+        "Application `$(context.application.id)` on object `$(_object_id_diagnostic_text(context.object_id))` " *
         "has no distributed output `$(name)`. Available variables: " *
         "`$(propertynames(context.output_targets))`.",
     ))
@@ -1737,7 +1737,7 @@ end
 function _model_object_status(model::CompositeModel, object_id::ObjectId)
     status = model_status(model, object_id)
     status isa Status || error(
-        "CompositeModel object `$(object_id.value)` has no `Status`; model runtime requires status-backed objects."
+        "CompositeModel object `$(_object_id_diagnostic_text(object_id))` has no `Status`; model runtime requires status-backed objects."
     )
     return status
 end
@@ -1751,7 +1751,7 @@ end
     key = (application.id, id)
     haskey(compiled.status_views_by_target, key) || error(
         "No compiled status view for application `$(application.id)` on object ",
-        "`$(object_id.value)`.",
+        "`$(_object_id_diagnostic_text(object_id))`.",
     )
     return Base.@inline _with_model_status_view(identity, compiled.status_view_schema,
         application.id, compiled.status_views_by_target[key])
@@ -2435,7 +2435,7 @@ function _model_temporal_source_value(
 )
     policy isa PreviousTimeStep && return nothing
     error(
-        "Temporal model input from `$(source_id.value).$(source_var)` has no ",
+        "Temporal model input from `$(_object_id_diagnostic_text(source_id)).$(source_var)` has no ",
         "source application for policy `$(typeof(policy))`."
     )
 end
@@ -2504,7 +2504,7 @@ function _materialize_model_temporal_input!(
                 policy isa PreviousTimeStep || error(
                     "No temporal model value available for input ",
                     "`$(plan.input)` from ",
-                    "`$(source_ids[index].value).$(plan.source_var)` ",
+                    "`$(_object_id_diagnostic_text(source_ids[index])).$(plan.source_var)` ",
                     "at t=$(time).",
                 )
                 value = temporal_input.initial[index]
@@ -2527,7 +2527,7 @@ function _materialize_model_temporal_input!(
     if isnothing(value)
         policy isa PreviousTimeStep || error(
             "No temporal model value available for input `$(plan.input)` from ",
-            "`$(source_id.value).$(plan.source_var)` at t=$(time).",
+            "`$(_object_id_diagnostic_text(source_id)).$(plan.source_var)` at t=$(time).",
         )
         value = temporal_input.initial
     end
@@ -2676,7 +2676,7 @@ function _materialize_model_temporal_input!(
                 policy isa PreviousTimeStep || error(
                     "No temporal model value available for input ",
                     "`$(plan.input)` from ",
-                    "`$(source_ids[index].value).$(plan.source_var)` ",
+                    "`$(_object_id_diagnostic_text(source_ids[index])).$(plan.source_var)` ",
                     "at t=$(time).",
                 )
                 value = temporal_input.initial[index]
@@ -2696,7 +2696,7 @@ function _materialize_model_temporal_input!(
     if isnothing(value)
         policy isa PreviousTimeStep || error(
             "No temporal model value available for input `$(plan.input)` from ",
-            "`$(source_id.value).$(plan.source_var)` at t=$(time).",
+            "`$(_object_id_diagnostic_text(source_id)).$(plan.source_var)` at t=$(time).",
         )
         value = temporal_input.initial
     end
@@ -3218,7 +3218,7 @@ function _runtime_temporal_source_stream(
     stream = get(streams, key, nothing)
     isnothing(stream) && error(
         "No initialized temporal source stream for application ",
-        "`$(application_id)` on object `$(binding.source_ids[index].value)` ",
+        "`$(application_id)` on object `$(_object_id_diagnostic_text(binding.source_ids[index]))` ",
         "and variable `$(binding.source_var)`.",
     )
     return stream
@@ -3297,7 +3297,7 @@ Base.@nospecializeinfer function _runtime_model_output_streams(
         if isnothing(stream)
             initialize_missing || error(
                 "No initialized retained output stream for application ",
-                "`$(application.id)` on object `$(object_id.value)` and variable ",
+                "`$(application.id)` on object `$(_object_id_diagnostic_text(object_id))` and variable ",
                 "`$(variable)`.",
             )
             stream = _model_new_output_stream(
@@ -5721,7 +5721,7 @@ end
     available = Symbol[targets.binding.call for targets in context.calls]
     error(
         "Application `$(context.application.id)` on object ",
-        "`$(context.object_id.value)` did not declare call `$(name)`. ",
+        "`$(_object_id_diagnostic_text(context.object_id))` did not declare call `$(name)`. ",
         "Declared calls: $(available).",
     )
 end
@@ -6052,7 +6052,7 @@ function _targeted_new_object_call_targets(
         initialization_key = (only(binding.potential_callee_application_ids), object_id)
         initialization_key in delta.initialized_targets && error(
             "Application `$(first(initialization_key))` already initialized newly " *
-            "registered object `$(object_id.value)` in this lifecycle event.",
+            "registered object `$(_object_id_diagnostic_text(object_id))` in this lifecycle event.",
         )
     end
 
@@ -6396,7 +6396,7 @@ function _current_topology_call_targets(
         available = Symbol[candidate.call for candidate in bindings]
         error(
             "Application `$(context.application.id)` on object ",
-            "`$(context.object_id.value)` did not declare call `$(name)`. ",
+            "`$(_object_id_diagnostic_text(context.object_id))` did not declare call `$(name)`. ",
             "Declared calls: $(available).",
         )
     end
@@ -6515,7 +6515,7 @@ function _environment_binding_for_current_context(context::RunContext)
     if isnothing(binding) || isnothing(binding.backend)
         error(
             "Cannot commit environment state for `$(context.application.id)` on object ",
-            "`$(context.object_id.value)`: no environment binding is configured. ",
+            "`$(_object_id_diagnostic_text(context.object_id))`: no environment binding is configured. ",
             "Attach an environment with `CompositeModel(...; environment=...)` and ",
             "`ModelSpec(model; environment=Environment(...))`."
         )

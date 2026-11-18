@@ -3128,7 +3128,7 @@ function _compile_consumer_input_recipe!(
         isempty(matches) && return nothing
         if length(matches) > 1
             error(
-                "Input `$(plan.input)` on application `$(application_id)` for object `$(consumer_id.value)` " *
+                "Input `$(plan.input)` on application `$(application_id)` for object `$(_object_id_diagnostic_text(consumer_id))` " *
                 "has ambiguous same-object producers: `$([match.application for match in matches])`. " *
                 "Add `inputs=(:$(plan.input) => One(...),)` to disambiguate."
             )
@@ -5598,7 +5598,7 @@ function _explain_initialization(model, applications, input_bindings,
                     provided_type=provided_type,
                     conversion...,
                     detail=disposition == :required ?
-                           "Provide `$(variable)` on object `$(object_id.value)` Status or add `inputs=(:$(variable) => ..., )` to application `$(application.id)`." :
+                           "Provide `$(variable)` on object `$(_object_id_diagnostic_text(object_id))` Status or add `inputs=(:$(variable) => ..., )` to application `$(application.id)`." :
                            nothing,
                 ))
             end
@@ -5950,7 +5950,7 @@ function _validate_model_writer_groups!(writer_groups, applications_by_id)
                 if _declares_update_without_previous_writer(application.spec, variable, previous)
                     error(
                         "Application `$(application.id)` declares `Updates($(variable))` for object ",
-                        "`$(object_id.value)`, but no previous writer for `$(variable)` exists. ",
+                        "`$(_object_id_diagnostic_text(object_id))`, but no previous writer for `$(variable)` exists. ",
                         "Move it after the producer named in `after=...`."
                     )
                 end
@@ -5963,7 +5963,7 @@ function _validate_model_writer_groups!(writer_groups, applications_by_id)
                     previous_labels = join(sort!([String(label) for label in labels]), ", ")
                     error(
                         "Ambiguous canonical writers for variable `$(variable)` on object ",
-                        "`$(object_id.value)`. ",
+                        "`$(_object_id_diagnostic_text(object_id))`. ",
                         "applications. Application `$(application.id)` must declare ",
                         "`Updates(:$(variable); after=...)` matching one of the previous writers ",
                         "`$(previous_labels)`."
@@ -5974,7 +5974,7 @@ function _validate_model_writer_groups!(writer_groups, applications_by_id)
                     previous_writer = last(previous)
                     error(
                         "Application `$(application.id)` updates `$(variable)` on object ",
-                        "`$(object_id.value)` without an ordering relation to the immediately ",
+                        "`$(_object_id_diagnostic_text(object_id))` without an ordering relation to the immediately ",
                         "previous writer `$(previous_writer)`. Add that application identifier ",
                         "to `Updates(:$(variable); after=...)`."
                     )
@@ -6148,7 +6148,7 @@ function _validate_compiled_writer_ownership!(ownership, applications_by_id)
             if owner.application_slot == owners[index - 1].application_slot
                 error(
                     "Application `$(owner.application_id)` declares more than one canonical " *
-                    "writer for `$(variable)` on object `$(object_id.value)`. Ensure its " *
+                    "writer for `$(variable)` on object `$(_object_id_diagnostic_text(object_id))`. Ensure its " *
                     "`on=...` targets and `outputs_to` destinations do not overlap.",
                 )
             end
@@ -6769,7 +6769,7 @@ function _model_object_status_for_preparation(
 )
     status = model_status(model, object_id)
     (isnothing(status) || status isa Status) || error(
-        "Model object `$(object_id.value)` uses model applications but its status has type " *
+        "Model object `$(_object_id_diagnostic_text(object_id))` uses model applications but its status has type " *
         "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
     )
     return status
@@ -6874,7 +6874,7 @@ end
         status = _replace_model_object_status!(model, object, replacement)
     end
     status isa Status || error(
-        "Model object `$(object_id.value)` uses model applications but its status has type ",
+        "Model object `$(_object_id_diagnostic_text(object_id))` uses model applications but its status has type ",
         "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
     )
     status isa S || throw(ArgumentError(
@@ -6977,13 +6977,13 @@ function _validate_required_model_output_destinations!(
                     value isa expected_type || throw(ArgumentError(
                         "Distributed output `$(variable)` on application " *
                         "`$(resolved.plan.application_id)` requires `$(expected_type)` " *
-                        "on destination `$(destination_id.value)`; got `$(typeof(value))`.",
+                        "on destination `$(_object_id_diagnostic_text(destination_id))`; got `$(typeof(value))`.",
                     ))
                     continue
                 end
                 push!(missing,
                     "`$(resolved.plan.application_id).$(resolved.plan.group)` requires " *
-                    "`$(variable)` on destination object `$(destination_id.value)`")
+                    "`$(variable)` on destination object `$(_object_id_diagnostic_text(destination_id))`")
             end
         end
     end
@@ -7007,7 +7007,7 @@ function _validate_model_output_destination_statuses!(
             (isnothing(status) || status isa Status) && continue
             error(
                 "Output destination `$(resolved.plan.application_id).$(resolved.plan.group)` " *
-                "selected object `$(destination_id.value)` with status type " *
+                "selected object `$(_object_id_diagnostic_text(destination_id))` with status type " *
                 "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`.",
             )
         end
@@ -7135,7 +7135,7 @@ function _model_output_destination_index(destination_ids::AbstractVector{I}) whe
     for (position, object_id) in pairs(destination_ids)
         haskey(index, object_id) && error(
             "Compiled output destination membership contains duplicate object " *
-            "ID `$(object_id.value)`.",
+            "ID `$(_object_id_diagnostic_text(object_id))`.",
         )
         index[object_id] = position
     end
@@ -8014,8 +8014,8 @@ function _temporal_source_application(
         binding.policy isa PreviousTimeStep && return nothing
         error(
             "Temporal model input `$(binding.input)` from ",
-            "`$(source_id.value).$(binding.source_var)` has no source application ",
-            "matching object `$(source_id.value)`.",
+            "`$(_object_id_diagnostic_text(source_id)).$(binding.source_var)` has no source application ",
+            "matching object `$(_object_id_diagnostic_text(source_id))`.",
         )
     elseif binding.policy isa PreviousTimeStep
         return last(sort!(matches; by=application_id -> application_positions[application_id]))
@@ -9448,7 +9448,7 @@ function _validate_model_required_inputs!(model::CompositeModel, applications, a
     isempty(missing) && return nothing
     details = join(
         [
-            "`$(row.application_id)` on object `$(row.object_id.value)` requires `$(row.input)`"
+            "`$(row.application_id)` on object `$(_object_id_diagnostic_text(row.object_id))` requires `$(row.input)`"
             for row in missing
         ],
         "; ",

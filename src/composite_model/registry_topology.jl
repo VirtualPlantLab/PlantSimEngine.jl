@@ -286,7 +286,7 @@ function _register_mtg_object_identity!(adapter::MTGObjectAdapter, node)
         error(
             "The MTG id accessor maps nodes " *
             "$(MultiScaleTreeGraph.node_id(existing)) and " *
-            "$(MultiScaleTreeGraph.node_id(node)) to duplicate ObjectId `$(id.value)`.",
+            "$(MultiScaleTreeGraph.node_id(node)) to duplicate ObjectId `$(_object_id_diagnostic_text(id))`.",
         )
     end
     adapter.object_ids_by_node[node] = id
@@ -453,7 +453,7 @@ function _collect_model_items(items, instances)
     end
     ids = Set{ObjectId}()
     for object in objects
-        object.id in ids && error("CompositeModel contains object id `$(object.id.value)` more than once.")
+        object.id in ids && error("CompositeModel contains object id `$(_object_id_diagnostic_text(object.id))` more than once.")
         push!(ids, object.id)
     end
     return objects, mounted_instances
@@ -481,13 +481,13 @@ function _prepare_object_instances!(objects, instances)
     for instance in instances
         root_id = _instance_root_id(instance)
         haskey(objects_by_id, root_id) || error(
-            "Object instance `$(instance.name)` refers to missing root object `$(root_id.value)`."
+            "Object instance `$(instance.name)` refers to missing root object `$(_object_id_diagnostic_text(root_id))`."
         )
         ids = _object_descendant_ids(objects_by_id, root_id)
         for id in ids
             if haskey(claimed_ids, id)
                 error(
-                    "Object `$(id.value)` belongs to both instances `$(claimed_ids[id])` and `$(instance.name)`."
+                    "Object `$(_object_id_diagnostic_text(id))` belongs to both instances `$(claimed_ids[id])` and `$(instance.name)`."
                 )
             end
             claimed_ids[id] = instance.name
@@ -1146,7 +1146,7 @@ end
         throw(
             ArgumentError(
                 "The same Status instance cannot be owned by model objects " *
-                "`$(existing.value)` and `$(object_id.value)`. Give each Object " *
+                "`$(_object_id_diagnostic_text(existing))` and `$(_object_id_diagnostic_text(object_id))`. Give each Object " *
                 "its own Status instance.",
             ),
         )
@@ -1187,7 +1187,7 @@ function _replace_model_object_status!(
     status,
 )
     (isnothing(status) || status isa Status) || error(
-        "Model object `$(object.id.value)` status must be a `Status` or `nothing`, " *
+        "Model object `$(_object_id_diagnostic_text(object.id))` status must be a `Status` or `nothing`, " *
         "got `$(typeof(status))`.",
     )
     object.status === status && return status
@@ -1213,13 +1213,13 @@ end
 
 # Scalar diagnostics retain their ordinary display. Composite identities use
 # the existing typed printer rather than Julia's generic syntax display.
-_object_id_diagnostic_text(value) = string(value)
-_object_id_diagnostic_text(value::Tuple) = _selector_diagnostic_text(value)
+_object_id_diagnostic_text(id::ObjectId) = string(id.value)
+_object_id_diagnostic_text(id::ObjectId{<:Tuple}) = _selector_diagnostic_text(id.value)
 
 function _model_object(model::CompositeModel, id)
     oid = ObjectId(id)
     object = get(model.registry.objects, oid, nothing)
-    isnothing(object) && error("No model object with id `", _object_id_diagnostic_text(oid.value), "`.")
+    isnothing(object) && error("No model object with id `", _object_id_diagnostic_text(oid), "`.")
     return object
 end
 
@@ -1262,7 +1262,7 @@ function object_id(model::CompositeModel, object::Object)
     registered = _model_object(model, object.id)
     registered === object || throw(
         ArgumentError(
-            "Object `$(object.id.value)` is not the Object instance registered by this model.",
+            "Object `$(_object_id_diagnostic_text(object.id))` is not the Object instance registered by this model.",
         ),
     )
     return object.id
@@ -1277,7 +1277,7 @@ function object_id(model::CompositeModel, status::Status)
     matched_id = index[identity]
     _model_object(model, matched_id).status === status || error(
         "PlantSimEngine's Status identity index is inconsistent for object " *
-        "`$(matched_id.value)`. Replace runtime status through the model API.",
+        "`$(_object_id_diagnostic_text(matched_id))`. Replace runtime status through the model API.",
     )
     return matched_id
 end
@@ -1328,7 +1328,7 @@ function source_node(model::CompositeModel, source)
     id = object_id(model, source)
     node = get(adapter.nodes_by_object_id, id, nothing)
     isnothing(node) && error(
-        "No source MTG node is registered for model object `$(id.value)`.",
+        "No source MTG node is registered for model object `$(_object_id_diagnostic_text(id))`.",
     )
     return node
 end
@@ -1339,7 +1339,7 @@ function _object_ancestor_ids(
 )
     ancestors = get(registry.ancestor_ids_by_object, object_id, nothing)
     isnothing(ancestors) && error(
-        "No cached topology path for model object `$(object_id.value)`.",
+        "No cached topology path for model object `$(_object_id_diagnostic_text(object_id))`.",
     )
     return ancestors
 end
@@ -1454,10 +1454,10 @@ end
 )
     registry = model.registry
     id = _index_object_id(registry.objects, object.id)
-    haskey(registry.objects, id) && error("CompositeModel already contains object id `$(id.value)`.")
+    haskey(registry.objects, id) && error("CompositeModel already contains object id `$(_object_id_diagnostic_text(id))`.")
     parent_id = isnothing(parent) ? nothing : _index_object_id(registry.objects, ObjectId(parent))
     if !isnothing(parent_id) && !haskey(registry.objects, parent_id)
-        error("No model object with id `$(parent_id.value)`.")
+        error("No model object with id `$(_object_id_diagnostic_text(parent_id))`.")
     end
     return _register_object_status!(model, object, id, parent_id, status_values_materialized)
 end
@@ -1687,7 +1687,7 @@ function _validate_mutable_object_subtree!(
     )
     isempty(instance_roots) && return nothing
     error(
-        "Cannot $(operation) object `$(object.id.value)` because its subtree contains ",
+        "Cannot $(operation) object `$(_object_id_diagnostic_text(object.id))` because its subtree contains ",
         "immutable ObjectInstance root(s) `$([id.value for id in instance_roots])`. ",
         "Mutate ordinary instance descendants instead.",
     )
@@ -1703,7 +1703,7 @@ function remove_object!(model::CompositeModel, id; recursive::Bool=true)
         descendant_ids,
     )
     if !recursive && !isempty(object.children)
-        error("Cannot remove object `$(object.id.value)` with children unless `recursive=true`.")
+        error("Cannot remove object `$(_object_id_diagnostic_text(object.id))` with children unless `recursive=true`.")
     end
     snapshots = LifecycleObjectSnapshot[
         _lifecycle_object_snapshot(model, _model_object(model, object_id))
@@ -1737,12 +1737,12 @@ function reparent_object!(model::CompositeModel, id, new_parent)
     )
     new_parent_id = isnothing(new_parent) ? nothing : ObjectId(new_parent)
     if !isnothing(new_parent_id)
-        haskey(model.registry.objects, new_parent_id) || error("No model object with id `$(new_parent_id.value)`.")
+        haskey(model.registry.objects, new_parent_id) || error("No model object with id `$(_object_id_diagnostic_text(new_parent_id))`.")
         new_parent_id == object.id && error(
-            "Cannot reparent object `$(object.id.value)` to itself.",
+            "Cannot reparent object `$(_object_id_diagnostic_text(object.id))` to itself.",
         )
         new_parent_id in descendant_ids && error(
-            "Cannot reparent object `$(object.id.value)` below its descendant `$(new_parent_id.value)`.",
+            "Cannot reparent object `$(_object_id_diagnostic_text(object.id))` below its descendant `$(_object_id_diagnostic_text(new_parent_id))`.",
         )
     end
     old_parent_id = object.parent

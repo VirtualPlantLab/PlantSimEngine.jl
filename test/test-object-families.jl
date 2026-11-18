@@ -89,6 +89,19 @@ PSE.inputs_(::FamilyReplacement) = (;)
 PSE.outputs_(model::FamilyReplacement) = model.defaults
 PSE.run!(::FamilyReplacement, status, environment, constants, context) = nothing
 
+@testset "application status diagnostics identify unselected objects" begin
+    root = Object(:root; status=Status(value=1f0))
+    leaf = Object((:tree, :leaf, 2); scale=:Leaf, parent=:root, status=Status(value=2f0))
+    model = CompositeModel(root, leaf; applications=(ModelSpec(
+        FamilyReplacement((value=1f0,)); name=:replacement, on=One(id=:root)),))
+    compiled = run!(model; steps=0).compiled
+    application = PSE._compiled_application_by_id(compiled, :replacement)
+    @test !isnothing(PSE._model_status_view_for_application(compiled, application, root.id))
+    @test_throws ErrorException("No compiled status view for application `replacement` on object " *
+        "`(Symbol(\"tree\"), Symbol(\"leaf\"), 2)`.") PSE._model_status_view_for_application(
+        compiled, application, leaf.id)
+end
+
 @noinline function escape_registered_status!(sink, model, id, count)
     for _ in 1:count
         sink[] = model_status(model, id)
