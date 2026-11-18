@@ -69,7 +69,7 @@ jobs:
       - name: Check out PlantSimEngine
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Check out XPalm
         uses: actions/checkout@v7
