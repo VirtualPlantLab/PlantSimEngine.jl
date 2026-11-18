@@ -663,8 +663,11 @@ _prepared_call_plan_name(::Type{<:CompiledModelCallPlan{NAME}}) where {NAME} = N
 
 # Host-only type lowering of an OBSERVED real batch's context. No current
 # target, callback, status value or model parameter is sampled or reconstructed.
-function _execution_batch_type_with_call_schemas(::Type{B}, schemas::NamedTuple) where {B<:CompiledExecutionBatch}
-    Target = eltype(fieldtype(B,:targets))
+Base.@noinline Base.@nospecializeinfer function _execution_batch_type_with_call_schemas(
+    batch_type::Type{<:CompiledExecutionBatch}, schemas::NamedTuple,
+)
+    @nospecialize batch_type schemas
+    Target = eltype(fieldtype(batch_type,:targets))
     Context = fieldtype(Target,:context)
     Context <: RunContext || throw(ArgumentError("Prepared calls need a real context type."))
     calls = fieldtype(Context,:calls)
@@ -688,11 +691,11 @@ function _execution_batch_type_with_call_schemas(::Type{B}, schemas::NamedTuple)
     parameters[9] = prepared_context
     prepared_target = Core.apply_type(CompiledExecutionTarget,parameters...)
     I = fieldtype(prepared_target,:object_id)
-    Store = fieldtype(fieldtype(B, :targets), :store)
+    Store = fieldtype(fieldtype(batch_type, :targets), :store)
     Owner = _execution_store_owner_type(Store)
     Rows = ExecutionCohortRows{prepared_target,I,Owner,Store}
-    return CompiledExecutionBatch{fieldtype(B,:application),Rows,
-        fieldtype(B,:environment_provider),fieldtype(B,:output_publication)}
+    return CompiledExecutionBatch{fieldtype(batch_type,:application),Rows,
+        fieldtype(batch_type,:environment_provider),fieldtype(batch_type,:output_publication)}
 end
 
 @generated function _current_call_binding_for_application(compiled::CS,

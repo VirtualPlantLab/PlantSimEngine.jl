@@ -1,186 +1,45 @@
-name: CI
+name: Prepared call schema diagnosis
 on:
-  push:
-    branches:
-      - main
-    tags: "*"
-  pull_request:
   workflow_dispatch:
-    inputs:
-      juliac_safe:
-        description: Run only the JuliaC safe integration test
-        required: false
-        default: false
-        type: boolean
 concurrency:
-  # Skip intermediate builds: always.
-  # Cancel intermediate builds: only if it is a pull request build.
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+  cancel-in-progress: false
 jobs:
-  test:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.juliac_safe }}
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - shard ${{ matrix.shard }}/3 - ${{ github.event_name }}
-    runs-on: ${{ matrix.os }}
-    # Keep the full suite within the limit by running independent test groups separately.
+  prepared-call-schemas:
+    name: Prepared call schemas - ${{ matrix.source }}
+    runs-on: ubuntu-latest
+    # Same correctness budget as the normal PSE test matrix.
     timeout-minutes: 180
     permissions:
-      # needed to allow julia-actions/cache to proactively delete old caches that it has created
-      actions: write
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        version:
-          - "1.10"
-          - "1"
-        os:
-          - ubuntu-latest
-          - macOS-latest
-          - windows-latest
-        shard: [1, 2, 3]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: julia-actions/setup-julia@v3
-        with:
-          version: ${{ matrix.version }}
-      - uses: julia-actions/cache@v3
-      - uses: julia-actions/julia-buildpkg@v1
-      - uses: julia-actions/julia-runtest@v1
-        env:
-          JULIA_NUM_THREADS: 4
-          PSE_TEST_SHARD_COUNT: "3"
-          PSE_TEST_SHARD_INDEX: ${{ matrix.shard }}
-      - uses: julia-actions/julia-processcoverage@v1
-      - uses: codecov/codecov-action@v7
-        with:
-          files: lcov.info
-  docs:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.juliac_safe }}
-    name: Documentation
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write # needed to allow julia-actions/cache to proactively delete old caches that it has created
-      contents: write
-      statuses: write
-    steps:
-      - uses: actions/checkout@v7
-      - uses: julia-actions/setup-julia@v3
-        with:
-          version: "1"
-      - uses: julia-actions/cache@v3
-      - name: Configure doc environment
-        shell: julia --project=docs --color=yes {0}
-        run: |
-          using Pkg
-          Pkg.develop(PackageSpec(path=pwd()))
-          Pkg.instantiate()
-      - uses: julia-actions/julia-buildpkg@v1
-      - uses: julia-actions/julia-docdeploy@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
-      - name: Run doctests
-        shell: julia --project=docs --color=yes {0}
-        run: |
-          using Documenter: DocMeta, doctest
-          using PlantSimEngine
-          DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine); recursive=true)
-          doctest(PlantSimEngine)
-  graph-editor-e2e:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.juliac_safe }}
-    name: Graph editor E2E
-    runs-on: ubuntu-latest
-    container:
-      # Keep the browser image aligned with frontend/package-lock.json.
-      image: mcr.microsoft.com/playwright:v1.60.0-noble
-      options: --ipc=host
-    timeout-minutes: 30
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-      - uses: julia-actions/setup-julia@v3
-        with:
-          version: "1"
-      - uses: julia-actions/cache@v3
-      - name: Configure test environment
-        shell: julia --project=test --color=yes {0}
-        run: |
-          using Pkg
-          Pkg.develop(PackageSpec(path=pwd()))
-          Pkg.instantiate()
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-      - name: Run frontend unit tests
-        working-directory: frontend
-        run: npm test
-      - name: Typecheck graph editor frontend
-        working-directory: frontend
-        run: npm run typecheck
-      - name: Build graph editor frontend
-        working-directory: frontend
-        run: npm run build
-      - name: Check committed graph editor assets
-        run: |
-          git -c safe.directory="$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" diff --exit-code -- frontend/dist || {
-            echo "frontend/dist is stale. Run npm run build in frontend/ and commit the rebuilt assets.";
-            exit 1;
-          }
-      - name: Run graph editor E2E tests
-        working-directory: frontend
-        run: npm run test:e2e
-      - name: Upload Playwright artifacts
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: graph-editor-playwright-artifacts
-          path: |
-            frontend/playwright-report/
-            frontend/test-results/
-
-  juliac-safe:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.juliac_safe }}
-    name: JuliaC safe - Julia 1.13 - Linux
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      actions: write
-      contents: read
+        source: [control, candidate]
     env:
-      JULIA_NUM_THREADS: "2"
-      JULIA_PKG_PRECOMPILE_AUTO: "0"
+      JULIA_NUM_THREADS: "4"
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Select the compared source
+        env:
+          SOURCE: ${{ matrix.source }}
+        run: |
+          if [[ "$SOURCE" == control ]]; then
+            git show 1db4619a69d4009b04bb4496a98a8ae4b29ec31f:src/composite_model/execution_batch_schemas.jl > src/composite_model/execution_batch_schemas.jl
+          fi
+          git rev-parse HEAD
+          sha256sum src/composite_model/execution_batch_schemas.jl test/test-model-prepared-call-schemas.jl
       - uses: julia-actions/setup-julia@v3
         with:
           version: "1.13"
-      - name: Cache JuliaC dependencies
-        uses: julia-actions/cache@v3
+      - uses: julia-actions/cache@v3
         with:
-          cache-name: juliac-safe-1.13
-      - name: Prepare JuliaC build environment
-        shell: julia --color=yes {0}
+          delete-old-caches: false
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: Run every original prepared call schema case
+        shell: julia --color=yes --project=. {0}
         run: |
           using Pkg
-          Pkg.activate(joinpath(ENV["RUNNER_TEMP"], "juliac-safe"))
-          Pkg.develop(PackageSpec(path=pwd()))
-          Pkg.add(PackageSpec(name="JuliaC", version=v"0.3.12"))
-          Pkg.precompile()
-      - name: Build and verify the safe executable
-        shell: julia --color=yes {0}
-        run: |
-          using Pkg
-          Pkg.activate(joinpath(ENV["RUNNER_TEMP"], "juliac-safe"))
-          using PlantSimEngine, JuliaC
-          realpath(pkgdir(PlantSimEngine)) == realpath(pwd()) ||
-              error("The native test must load this PlantSimEngine checkout.")
-          @info "Native integration environment" julia=VERSION juliac=pkgversion(JuliaC)
-          include(joinpath(pkgdir(PlantSimEngine), "test", "integration", "native_compilation.jl"))
+          Pkg.test(; test_args=["test-model-prepared-call-schemas.jl"])

@@ -113,11 +113,15 @@ function observed_schemas(simulation; borrowed_leaf_batch=nothing)
     middle_calls = call_targets(root.context, :middle)
     @test middle_calls.execution_batches isa PSE.LazyCallExecutionBatches
     @test isnothing(middle_calls.execution_batches.batches)
+    @info "Prepared call schema diagnostic" phase=:before_observe_middle_batches source_line=116
     middle_batch = only(PSE._materialize_call_execution_batches!(middle_calls))
+    @info "Prepared call schema diagnostic" phase=:after_observe_middle_batches source_line=116
     leaf_calls = call_targets(first(middle_batch.targets).context, :leaf)
     @test leaf_calls.execution_batches isa PSE.LazyCallExecutionBatches
     @test isnothing(leaf_calls.execution_batches.batches)
+    @info "Prepared call schema diagnostic" phase=:before_observe_leaf_batches source_line=120
     leaf_batches = PSE._materialize_call_execution_batches!(leaf_calls)
+    @info "Prepared call schema diagnostic" phase=:after_observe_leaf_batches source_line=120
     LeafB = if isnothing(borrowed_leaf_batch)
         typeof(only(leaf_batches))
     else
@@ -131,14 +135,24 @@ function observed_schemas(simulation; borrowed_leaf_batch=nothing)
     @test fieldtype(LeafContext, :temporal_streams) === typeof(simulation.temporal_streams)
     @test fieldtype(LeafContext, :output_retention) === typeof(simulation.output_retention)
     @test fieldtype(LeafContext, :constants) === typeof(simulation.constants)
+    @info "Prepared call schema diagnostic" phase=:before_construct_leaf_schema source_line=134
     leaf_schema = PSE.PreparedExecutionBatchSchema{Vector{LeafB}}()
+    @info "Prepared call schema diagnostic" phase=:after_construct_leaf_schema source_line=134
+    @info "Prepared call schema diagnostic" phase=:before_lower_middle_type source_line=135
     MiddleB = PSE._execution_batch_type_with_call_schemas(typeof(middle_batch),
         (leaf=leaf_schema,))
+    @info "Prepared call schema diagnostic" phase=:after_lower_middle_type source_line=135
+    @info "Prepared call schema diagnostic" phase=:before_construct_middle_schema source_line=137
     middle_schema = PSE.PreparedExecutionBatchSchema{Vector{MiddleB}}()
+    @info "Prepared call schema diagnostic" phase=:after_construct_middle_schema source_line=137
+    @info "Prepared call schema diagnostic" phase=:before_lower_root_type source_line=138
     RootB = PSE._execution_batch_type_with_call_schemas(
         typeof(only(only(simulation.execution_plan.groups).batches)),
         (middle=middle_schema,))
+    @info "Prepared call schema diagnostic" phase=:after_lower_root_type source_line=138
+    @info "Prepared call schema diagnostic" phase=:before_construct_root_schema source_line=141
     root_schema = PSE.PreparedExecutionBatchSchema{Vector{RootB}}()
+    @info "Prepared call schema diagnostic" phase=:after_construct_root_schema source_line=141
     return (; schemas=(root=root_schema, middle=middle_schema, leaf=leaf_schema),
         LeafB, MiddleB, RootB)
 end
@@ -175,20 +189,27 @@ function assert_prepared_tree(simulation)
     return nothing
 end
 
+@info "Prepared call schema testset start" title="bottom-up call activation changes metadata without science or references" source_line=178
 @testset "bottom-up call activation changes metadata without science or references" begin
+    @info "Prepared call schema diagnostic" phase=:before_first_fixture source_line=179
     data = fixture()
+    @info "Prepared call schema diagnostic" phase=:after_first_fixture source_line=179
     before = scientific_state(data.model)
     cells = status_cells(data.model)
     random_state = rng_probe(data.rng)
     original_root = root_target(data.simulation)
     streams = Dict(key => stream for (key, stream) in outputs(data.simulation))
+    @info "Prepared call schema diagnostic" phase=:before_first_observed_schemas source_line=185
     learned = observed_schemas(data.simulation)
+    @info "Prepared call schema diagnostic" phase=:after_first_observed_schemas source_line=185
     @test data.kernels == Dict(:root => 0, :middle => 0, :leaf => 0)
     @test scientific_state(data.model) == before
     @test rng_probe(data.rng) == random_state
     @test data.capture[] === nothing && isempty(data.contexts)
     assert_same_cells(data.model, cells)
+    @info "Prepared call schema diagnostic" phase=:before_prepare_execution_batch_schemas source_line=191
     prepared = PSE._prepare_execution_batch_schemas(data.simulation, learned.schemas)
+    @info "Prepared call schema diagnostic" phase=:after_prepare_execution_batch_schemas source_line=191
     @test prepared !== data.simulation
     @test prepared.temporal_streams !== data.simulation.temporal_streams
     @test prepared.temporal_streams.streams === data.simulation.temporal_streams.streams
@@ -206,7 +227,9 @@ end
     @test Set(keys(outputs(prepared))) == Set(keys(streams))
     @test all(outputs(prepared)[key] === stream for (key, stream) in streams)
     assert_same_cells(data.model, cells)
+    @info "Prepared call schema diagnostic" phase=:before_first_pending_middle source_line=209
     pending = call_targets(root_target(prepared).context, :middle)
+    @info "Prepared call schema diagnostic" phase=:after_first_pending_middle source_line=209
     @test pending.execution_batches isa Vector{learned.MiddleB}
     @test isempty(pending.execution_batches)
     @test !pending.execution_batches_materialized
@@ -219,7 +242,9 @@ end
     PSE.Diagnostics.explain_calls(prepared.compiled)
     @test !PSE._call_execution_batches_materialized(pending)
     # A full Middle request constructs its contexts, not their Leaf memberships.
+    @info "Prepared call schema diagnostic" phase=:before_first_materialize_prepared_middle source_line=222
     middle_batches = PSE._materialize_call_execution_batches!(pending)
+    @info "Prepared call schema diagnostic" phase=:after_first_materialize_prepared_middle source_line=222
     for batch in middle_batches, middle in batch.targets
         leaves = call_targets(middle.context, :leaf)
         @test !PSE._call_execution_batches_materialized(leaves)
@@ -228,18 +253,23 @@ end
         PSE.Diagnostics.explain_calls(prepared.compiled)
         @test !PSE._call_execution_batches_materialized(leaves)
     end
+    @info "Prepared call schema diagnostic" phase=:before_first_inspect_prepared_tree source_line=231
     assert_prepared_tree(prepared) # Full inspection is explicit and still metadata-only.
+    @info "Prepared call schema diagnostic" phase=:after_first_inspect_prepared_tree source_line=231
     @test scientific_state(data.model) == before
     @test rng_probe(data.rng) == random_state
     assert_same_cells(data.model, cells)
     @test typeof(root_target(prepared)) === eltype(fieldtype(learned.RootB, :targets))
 end
 
+@info "Prepared call schema testset start" title="prepared Many selection and cloned shells leave complete membership cold" source_line=238
 @testset "prepared Many selection and cloned shells leave complete membership cold" begin
     witness = fixture()
     learned = observed_schemas(witness.simulation)
     ordinary, activated = fixture(), fixture() # No membership/cache/RNG owner is borrowed.
+    @info "Prepared call schema diagnostic" phase=:before_prepare_execution_batch_schemas source_line=242
     prepared = PSE._prepare_execution_batch_schemas(activated.simulation, learned.schemas)
+    @info "Prepared call schema diagnostic" phase=:after_prepare_execution_batch_schemas source_line=242
     prototype = call_targets(root_target(prepared).context, :middle)
     @test !PSE._call_execution_batches_materialized(prototype)
     @test !PSE._compiled_call_membership_is_observed(prototype.binding)
@@ -292,11 +322,14 @@ end
     @test isnothing(warm_clone.evaluation) && isnothing(warm_clone.target_buffer_cache)
 end
 
+@info "Prepared call schema testset start" title="prepared Many stays cold through growth removal and newborn selection" source_line=295
 @testset "prepared Many stays cold through growth removal and newborn selection" begin
     witness = fixture()
     learned = observed_schemas(witness.simulation)
     ordinary, activated = fixture(), fixture()
+    @info "Prepared call schema diagnostic" phase=:before_prepare_execution_batch_schemas source_line=299
     prepared = PSE._prepare_execution_batch_schemas(activated.simulation, learned.schemas)
+    @info "Prepared call schema diagnostic" phase=:after_prepare_execution_batch_schemas source_line=299
     for (data, simulation) in ((ordinary, ordinary.simulation), (activated, prepared))
         step!(simulation)
         retained = call_targets(data.capture[], :middle)
@@ -340,6 +373,7 @@ end
     @test history(ordinary.simulation) == history(prepared)
 end
 
+@info "Prepared call schema testset start" title="pending prepared Many rejects an unlearned prepared numeric view" source_line=343
 @testset "pending prepared Many rejects an unlearned prepared numeric view" begin
     witness = fixture(; unselected_numeric=true)
     learned = observed_schemas(witness.simulation)
@@ -367,7 +401,9 @@ end
         :output_retention, :constants, :environment)
         @test getfield(fresh_owner, name) isa fieldtype(ExpectedContext, name)
     end
+    @info "Prepared call schema diagnostic" phase=:before_prepare_execution_batch_schemas source_line=370
     prepared = PSE._prepare_execution_batch_schemas(fresh, learned.schemas)
+    @info "Prepared call schema diagnostic" phase=:after_prepare_execution_batch_schemas source_line=370
     step!(prepared)
     full = call_targets(data.capture[], :middle)
     PSE.Diagnostics.explain_calls(prepared.compiled)
@@ -391,6 +427,7 @@ end
     assert_same_cells(data.model, cells)
 end
 
+@info "Prepared call schema testset start" title="a nonempty Tuple batch schema keeps prepared Many pending" source_line=394
 @testset "a nonempty Tuple batch schema keeps prepared Many pending" begin
     witness = fixture()
     learned = observed_schemas(witness.simulation)
@@ -401,7 +438,9 @@ end
     schemas = (root=PSE.PreparedExecutionBatchSchema{Vector{RootB}}(),
         middle=middle_schema, leaf=leaf_schema)
     ordinary, activated = fixture(), fixture()
+    @info "Prepared call schema diagnostic" phase=:before_prepare_execution_batch_schemas source_line=404
     prepared = PSE._prepare_execution_batch_schemas(activated.simulation, schemas)
+    @info "Prepared call schema diagnostic" phase=:after_prepare_execution_batch_schemas source_line=404
     owner = root_target(prepared).context
     pending = call_targets(owner, :middle)
     @test pending.batch_schema === middle_schema
@@ -433,10 +472,13 @@ end
     @test history(ordinary.simulation) == history(prepared)
 end
 
+@info "Prepared call schema testset start" title="cold real Many calls retain public evaluation, history and lease behavior" source_line=436
 @testset "cold real Many calls retain public evaluation, history and lease behavior" begin
     ordinary, activated = fixture(), fixture()
     learned = observed_schemas(activated.simulation)
+    @info "Prepared call schema diagnostic" phase=:before_prepare_execution_batch_schemas source_line=439
     prepared = PSE._prepare_execution_batch_schemas(activated.simulation, learned.schemas)
+    @info "Prepared call schema diagnostic" phase=:after_prepare_execution_batch_schemas source_line=439
     simulations = (ordinary.simulation, prepared)
     fixtures = (ordinary, activated)
     cells = map(data -> status_cells(data.model), fixtures)
@@ -512,6 +554,7 @@ end
     @test history(ordinary.simulation) == history(prepared)
 end
 
+@info "Prepared call schema testset start" title="initially empty Many admits an observed real future leaf batch" source_line=515
 @testset "initially empty Many admits an observed real future leaf batch" begin
     witness = fixture()
     witness_before = scientific_state(witness.model)
@@ -526,7 +569,9 @@ end
     cells = status_cells(empty.model)
     random_state = rng_probe(empty.rng)
     learned = observed_schemas(empty.simulation; borrowed_leaf_batch=real_leaf_batch)
+    @info "Prepared call schema diagnostic" phase=:before_prepare_execution_batch_schemas source_line=529
     prepared = PSE._prepare_execution_batch_schemas(empty.simulation, learned.schemas)
+    @info "Prepared call schema diagnostic" phase=:after_prepare_execution_batch_schemas source_line=529
     @test scientific_state(empty.model) == before
     @test rng_probe(empty.rng) == random_state
     @test empty.kernels == Dict(:root => 0, :middle => 0, :leaf => 0)
@@ -559,6 +604,7 @@ end
     assert_prepared_tree(prepared)
 end
 
+@info "Prepared call schema testset start" title="an empty call layout is finite and declaration changes start a new timeline" source_line=562
 @testset "an empty call layout is finite and declaration changes start a new timeline" begin
     data = fixture()
     model = data.model
