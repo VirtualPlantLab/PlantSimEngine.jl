@@ -1,0 +1,90 @@
+{
+  "source_commit": "16c63353472e947d707e7ab3eaa19c760ef3455b",
+  "files": [
+    {
+      "path": ".ci/xpalm-matched/compare.jl",
+      "git_blob_sha1": "eb2078e7209cd3930200fa97811bbf8a1f4cb2cf",
+      "sha256": "0a831b7f074be5f9d7cd0156e4eadd7479926daaf8729ccab37a574629b47aba",
+      "bytes": 4570
+    },
+    {
+      "path": ".ci/xpalm-matched/environment/Manifest.toml",
+      "git_blob_sha1": "3166cd1bba04617d6f1c95b755183750dbbf06fe",
+      "sha256": "ca05ed199d3ce9c82023b55b54ecf4e7c0d457d90ff7b9779191fd6eb5f06663",
+      "bytes": 33919
+    },
+    {
+      "path": ".ci/xpalm-matched/environment/Project.toml",
+      "git_blob_sha1": "ff1f8e12a4b7086c33104fdf751ea6f176c51030",
+      "sha256": "d00bc6e869c0ae16b936c5b352a11e6dd1473f5731655789aad70bc492e45d17",
+      "bytes": 416
+    },
+    {
+      "path": ".ci/xpalm-matched/finite-values.jl",
+      "git_blob_sha1": "9b0e9c4a6d418162c2f326b3431f100d3edac01e",
+      "sha256": "247c2e2288251e6aaf1258ae957735ed67cf3364a0b398216fdc7e3bcd3ac22a",
+      "bytes": 2314
+    },
+    {
+      "path": ".ci/xpalm-matched/full_science_observer.jl",
+      "git_blob_sha1": "28b3c9682cbf39696f0019be3d6226df98204af0",
+      "sha256": "3f8b7586269623e25190d57f3711c79cdbd05fee0081f109f49b3d48fd690b21",
+      "bytes": 21785
+    },
+    {
+      "path": ".ci/xpalm-matched/harness/benchmark/juliac_program/app/src/full_xpalm_fixture.jl",
+      "git_blob_sha1": "e6a3b2cfc7d81ac61907efd1647d1581526f0e43",
+      "sha256": "a9c96eda1f9e208e443536ab745f0d3a106e468b4fb63fdafdd43463ff7de9b8",
+      "bytes": 10806
+    },
+    {
+      "path": ".ci/xpalm-matched/harness/benchmark/regular_execution/observations.jl",
+      "git_blob_sha1": "086f432b3fef709d486d3059ebd3c70c81873585",
+      "sha256": "3a034cfd1308e45c82d6f9f44dc65389a44f4c4164ad1c0bee837481817e4fdb",
+      "bytes": 1409
+    },
+    {
+      "path": ".ci/xpalm-matched/harness/benchmark/regular_execution/xpalm.jl",
+      "git_blob_sha1": "a6c54a8a86b7cf325b0dc04f3f193523790a8e3b",
+      "sha256": "7370c5db17c0fa80dc67df666acf18b81ac845c43953f682b33035be22c19b2f",
+      "bytes": 9964
+    },
+    {
+      "path": ".ci/xpalm-matched/reference.json",
+      "git_blob_sha1": "9d43e9a736fff43c461c7459ee861ebea549e747",
+      "sha256": "9dfee9246a0928c6cfee394ef66de471f5d02c064cbe4910c3a2557cac80e562",
+      "bytes": 17756
+    },
+    {
+      "path": ".ci/xpalm-matched/run.py",
+      "git_blob_sha1": "b362f37fb5fd83b33674a189cbabfb5f8efead89",
+      "sha256": "baf4af416e780a01aaabd67c70878184c6583832550b60a474de6f1351da6fd3",
+      "bytes": 4373
+    },
+    {
+      "path": ".ci/xpalm-matched/status-semantic-projection.jl",
+      "git_blob_sha1": "605f169c24616eef3370f9312e386dba42b0710d",
+      "sha256": "65a317ab1b26af3372c44ebf8d441048a1be1cb35b22934ffbe4425238b35a5c",
+      "bytes": 873
+    },
+    {
+      "path": ".ci/xpalm-matched/status-semantic-types.jl",
+      "git_blob_sha1": "e030760f6c4d3fb8788c9a29e5b23c742f706e66",
+      "sha256": "b22584c4c57091a54a0f688082897ad32b9ffd43dced6ab3f255147a589001bc",
+      "bytes": 2814
+    },
+    {
+      "path": ".ci/xpalm-matched/strict-snapshot-observations.jl",
+      "git_blob_sha1": "bc859604512118fab9fd5dc51eb781b04036aa13",
+      "sha256": "d3afc5e91bbf6da4e2da74498b905ebbb2c43607fa331fb0f315c1bf32772ab8",
+      "bytes": 2183
+    },
+    {
+      "path": ".ci/xpalm-matched/xpalm-743f.diff",
+      "git_blob_sha1": "79c48ec79670745b62f06edc8edaaec5ce825acf",
+      "sha256": "743f931fbb9d6208a6c46b42b11180fba210b5fb09af58912749002ce675a61f",
+      "bytes": 5330
+    }
+  ],
+  "all_bytes_exact": true
+}
