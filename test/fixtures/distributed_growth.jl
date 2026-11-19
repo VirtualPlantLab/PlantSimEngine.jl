@@ -103,8 +103,9 @@ function PSE.run!(::ProducerBirth, status, environment, constants, context)
 end
 
 producer_birth_leaf_ids() = [PSE.ObjectId((:tree, :leaf, index)) for index in 1:30]
-function make_producer_birth_model()
-    objects = PSE.Object[PSE.Object(:root; scale=:Scene, status=PSE.Status(visits=0))]
+function make_producer_birth_model(; extra_root_status=NamedTuple())
+    objects = PSE.Object[PSE.Object(:root; scale=:Scene,
+        status=PSE.Status(; visits=0, extra_root_status...))]
     for (index, id) in enumerate(producer_birth_leaf_ids())
         push!(objects, PSE.Object(id; scale=:Leaf, parent=:root, status=PSE.Status(ordinal=index)))
     end

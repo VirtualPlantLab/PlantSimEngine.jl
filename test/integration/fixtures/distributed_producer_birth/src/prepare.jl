@@ -1,5 +1,25 @@
 # Host preparation only: one public scenario, actual finite core owners.
 const APPLICATION_IDS = (:birth, :producer)
+# The existing binary also reads a real wide, heterogeneous Status snapshot.
+const WIDE_SNAPSHOT_NAMES = ntuple(i -> Symbol("snapshot_width_", i), 33)
+const WIDE_SNAPSHOT_VALUES = ntuple(33) do i
+    mod(i, 3) == 0 ? iseven(i) : mod(i, 3) == 1 ? i : Float64(i)
+end
+const WIDE_SNAPSHOT_STATUS = NamedTuple{WIDE_SNAPSHOT_NAMES}(WIDE_SNAPSHOT_VALUES)
+make_native_producer_model() = DistributedGrowthFixture.make_producer_birth_model(;
+    extra_root_status=WIDE_SNAPSHOT_STATUS)
+
+function wide_snapshot_checkpoint(simulation)
+    snapshot = PSE.final_state(simulation, :root)
+    snapshot isa NamedTuple && length(snapshot) == 34 || return false
+    for index in eachindex(WIDE_SNAPSHOT_NAMES)
+        value = getfield(snapshot, WIDE_SNAPSHOT_NAMES[index])
+        value isa Union{Bool,Int,Float64} || return false
+        value === WIDE_SNAPSHOT_VALUES[index] || return false
+    end
+    return true
+end
+
 function state_for(simulation)
     ids = DistributedGrowthFixture.producer_birth_leaf_ids()
     S = typeof(PSE.model_status(simulation, first(ids)))
@@ -15,6 +35,7 @@ end
 function checkpoint(state, day)
     sim, model = state.simulation, state.simulation.model
     PSE.current_step(sim) == day || return false
+    wide_snapshot_checkpoint(sim) || return false
     length(state.ids) == 30 || return false
     listed = PSE.model_objects(model; scale=:Leaf)
     length(listed) == 30 || return false
@@ -71,13 +92,13 @@ end
 
 function prepare_control()
     # The public ordinary maintained test is independently executed by the host gate.
-    baseline = state_for(PSE.run!(DistributedGrowthFixture.make_producer_birth_model();
+    baseline = state_for(PSE.run!(make_native_producer_model();
         steps=0, outputs=:all))
     advance_host!(baseline)
     observed = RuntimeTypes()
     input_trace = InputTrace(observed)
     environment = PSE._collecting_environment_binding_schema()
-    recording = PSE._prepare_simulation!(close_registry(DistributedGrowthFixture.make_producer_birth_model());
+    recording = PSE._prepare_simulation!(close_registry(make_native_producer_model());
         steps=0, outputs=:all, constants=PSE.Constants(), environment_schema=environment,
         input_binding_storage=input_trace, status_view_schema=observed)
     advance_host!(state_for(recording))
@@ -90,7 +111,7 @@ function prepare_control()
         Vector{Union{types...}}()
     end))
     environment = PSE._freeze_environment_binding_schema(environment)
-    prepare() = PSE._prepare_simulation!(close_registry(DistributedGrowthFixture.make_producer_birth_model());
+    prepare() = PSE._prepare_simulation!(close_registry(make_native_producer_model());
         steps=0, outputs=:all, constants=PSE.Constants(), environment_schema=environment,
         input_binding_storage=prototype, status_view_schema=schema)
     finite = prepare()

@@ -765,7 +765,7 @@ _object_birth_recipe(manifest, object) = get(manifest.birth_recipes, object.scal
     isnothing(source_status) && return nothing
     source_status isa Status || throw(ArgumentError("Prepared initial data must be Status or nothing."))
     recipe = _object_birth_recipe(manifest, object)
-    references = _initial_status_reference_storage(source_status)
+    references = _status_reference_slots(source_status)
     allowed = _prepared_status_source_allowed(recipe, model, object, parent_id, references, nothing)
     allowed && return nothing
     for raw in recipe.raw_families

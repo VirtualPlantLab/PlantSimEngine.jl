@@ -72,7 +72,7 @@ end
     Refs = projected ? fieldtype(Storage, :hot).parameters[2] : _status_schema_references(Result)
     # Read the reference layout once. Each action indexes this named tuple
     # directly, including when a field is present only in the full snapshot.
-    load_refs = Existing === Nothing ? :(NamedTuple()) : :(_initial_status_reference_storage(original))
+    load_refs = Existing === Nothing ? :(NamedTuple()) : :(_status_reference_slots(original))
     hot = [:( _status_construction_reference(getfield(factory.construction.actions,$i),
         original_refs, edited)::$(fieldtype(Refs,i)) ) for i in eachindex(Names)]
     Hot = NamedTuple{Names,Refs}

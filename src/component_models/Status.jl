@@ -250,12 +250,18 @@ end
 _status_vars(status) = getfield(status, :vars)
 # Read or transform each concrete reference before selecting the currently
 # present fields. A present reference may itself contain nothing.
-_map_status_slots(::typeof(identity), slots) = slots
-_map_status_slots(f::F, slots) where {F} =
-    map(slot -> isnothing(slot) ? nothing : f(slot), slots)
+# Preserve each slot type for wide prepared layouts without tuple-map widening.
+_map_status_slots(::typeof(identity), slots::NamedTuple) = slots
+@generated function _map_status_slots(f::F, slots::NamedTuple{names}) where {F,names}
+    fields = [:(let slot = getfield(slots, $i)
+        isnothing(slot) ? nothing : f(slot)
+    end) for i in 1:length(names)]
+    data = Expr(:tuple, fields...)
+    return :(NamedTuple{$(QuoteNode(names))}($data))
+end
 
 function _map_status_fields(f::F, ::Type{T}, status::Status) where {F,T}
-    fields = _map_status_slots(f, _initial_status_reference_storage(status))
+    fields = _map_status_slots(f, _status_reference_slots(status))
     names = keys(status)
     if names === keys(fields)
         return T === Tuple ? Tuple(fields) : fields
@@ -349,14 +355,14 @@ Base.copy(status::Status) = Status(_copy_status_storage(_status_vars(status)))
 # Keep Base's single-IdDict deepcopy: it preserves internal aliases/cycles and
 # copies refs, owner metadata and the identity token together; no elementwise map.
 
-@inline function _initial_status_reference_storage(source::Status)
+@inline function _status_reference_slots(source::Status)
     storage = _status_vars(source)
     storage isa NamedTuple && return storage
     storage isa Union{_FixedStatusStorage,_ProjectedStatusStorage} || throw(ArgumentError("Unknown Status backing."))
     return _status_reference_slots(storage)
 end
 @inline _initial_status_reference_count(source::Status) =
-    _initial_status_reference_count(_initial_status_reference_storage(source))
+    _initial_status_reference_count(_status_reference_slots(source))
 # A newborn may supply any admitted layout. Box its directory once at this
 # boundary so scanning a wide, mutable Status does not copy it for each field.
 Base.@noinline Base.@nospecializeinfer function _initial_status_reference_count(@nospecialize(references::NamedTuple))
@@ -367,7 +373,7 @@ Base.@noinline Base.@nospecializeinfer function _initial_status_reference_count(
     return count
 end
 @inline _initial_status_reference(source::Status, name::Symbol) =
-    _initial_status_reference(_initial_status_reference_storage(source), name)
+    _initial_status_reference(_status_reference_slots(source), name)
 @inline function _initial_status_reference(references::NamedTuple, name::Symbol)
     slot = Base.fieldindex(typeof(references), name, false)
     return iszero(slot) ? nothing : getfield(references, slot)
