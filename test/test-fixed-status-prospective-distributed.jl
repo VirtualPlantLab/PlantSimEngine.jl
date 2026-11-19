@@ -82,4 +82,36 @@ end
     @test outputs(sim)[(:delivery, sibling.id, :x)] == [(1.0, 7.0)]
 end
 
+struct LeafAreaSum <: AbstractFixed_Status_Future_DistributedModel end
+PSE.inputs_(::LeafAreaSum) = (areas=Default(Float64[]),)
+PSE.outputs_(::LeafAreaSum) = (leaf_area=0.0,)
+function PSE.run!(::LeafAreaSum, status, environment, constants, context)
+    status.leaf_area = sum(bound_input(context, :areas); init=0.0)
+    return nothing
+end
+
+@testset "initial leaves record their own producer and consumer on each palm" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:north; scale=:Plant, parent=:scene),
+        Object(:south; scale=:Plant, parent=:scene),
+        Object(:first; scale=:Leaf, parent=:north, status=Status(area=2.0)),
+        Object(:second; scale=:Leaf, parent=:south, status=Status(area=3.0));
+        applications=(
+            ModelSpec(Source(7.0); name=:delivery, on=Many(scale=:Plant),
+                outputs_to=(OutputTo(Many(Subtree(); scale=:Leaf)),)),
+            ModelSpec(LeafAreaSum(); name=:area_sum, on=Many(scale=:Plant),
+                inputs=(areas=Many(Subtree(); scale=:Leaf, var=:area, from_status=true),)),
+        ),
+    )
+    leaf_families = filter(f -> f.labels[1] === :Leaf, PSE._prepared_status_manifest(model).raw_families)
+    @test length(leaf_families) == 2
+    @test Set((only(f.destinations)[2], only(f.sources)[2]) for f in leaf_families) ==
+        Set((ObjectId(id), ObjectId(id)) for id in (:north, :south))
+    run!(model; steps=1)
+    @test model_status(model, :north).leaf_area == 2.0
+    @test model_status(model, :south).leaf_area == 3.0
+    @test model_status(model, :first).x == model_status(model, :second).x == 7.0
+end
+
 end

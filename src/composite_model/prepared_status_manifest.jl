@@ -248,6 +248,16 @@ function _prepared_birth_recipes(S, applications, permissions, destinations, raw
     return recipes, all_routes
 end
 
+function _append_prepared_raw_contexts!(contexts, model, object, application, route)
+    for candidate in _prepared_status_context_ids(model, application, route, object, object.parent)
+        id = _index_object_id(model.registry.objects, candidate)
+        _prepared_status_application_matches_id(model, model, application.target_matcher, id) || continue
+        _prepared_status_route_matches(model, object, object.parent, application, route, id) || continue
+        push!(contexts, (route.slot, id, _prepared_status_variant_slot(application, id)))
+    end
+    return contexts
+end
+
 function _prepared_status_raw_signature(model, object, applications, permissions, destinations)
     I = keytype(model.registry.objects)
     selected = Tuple{Int,Int}[(application.slot, _prepared_status_variant_slot(application, object.id))
@@ -256,23 +266,11 @@ function _prepared_status_raw_signature(model, object, applications, permissions
     routes = Tuple{Int,I,Int}[]
     for plan in destinations
         application = only(a for a in applications if a.slot == plan.application_slot)
-        for (execution_id, producer) in model.registry.objects
-            _prepared_status_application_matches(model, producer, producer.parent, application) || continue
-            _prepared_status_route_matches(model, object, object.parent,
-                application, plan, execution_id) || continue
-            push!(routes, (plan.slot, execution_id,
-                _prepared_status_variant_slot(application, execution_id)))
-        end
+        _append_prepared_raw_contexts!(routes, model, object, application, plan)
     end
     sources = Tuple{Int,I,Int}[]
     for (application, permission) in zip(applications, permissions), source in permission.sources
-        for (consumer_id, consumer) in model.registry.objects
-            _prepared_status_application_matches(model, consumer, consumer.parent, application) || continue
-            _prepared_status_route_matches(model, object, object.parent,
-                application, source, consumer_id) || continue
-            push!(sources, (source.slot, consumer_id,
-                _prepared_status_variant_slot(application, consumer_id)))
-        end
+        _append_prepared_raw_contexts!(sources, model, object, application, source)
     end
     labels = _prepared_status_object_labels(model, object, object.parent)
     return (labels=(labels.scale, labels.kind, labels.species),

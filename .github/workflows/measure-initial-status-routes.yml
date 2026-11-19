@@ -1,0 +1,75 @@
+name: Compare initial status route preparation
+on:
+  push:
+    branches: [codex/measure-initial-status-routes-4f]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      JULIA_NUM_THREADS: "1"
+      JULIA_PKG_PRECOMPILE_AUTO: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: candidate
+      - uses: actions/checkout@v7
+        with:
+          path: previous
+          ref: 4f72300465391d50637faf823332cfe344220734
+      - uses: actions/checkout@v7
+        with:
+          path: main
+          ref: 8d1f8484c8ad68cc5da8004209b2062070cac28a
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.12.1'
+      - name: Resolve identical dependencies for the three checkouts
+        shell: julia --startup-file=no {0}
+        run: |
+          using Pkg, TOML
+          function prepare(tree)
+              env = joinpath(ENV["RUNNER_TEMP"], tree)
+              Pkg.activate(env)
+              Pkg.develop(path=realpath(tree))
+              Pkg.precompile()
+              packages = TOML.parsefile(joinpath(env, "Manifest.toml"))["deps"]
+              @assert realpath(joinpath(env, only(pop!(packages, "PlantSimEngine"))["path"])) == realpath(tree)
+              return packages
+          end
+          base = prepare("main")
+          @assert prepare("previous") == base
+          @assert prepare("candidate") == base
+      - name: Check initial and newborn routes against their expected owners
+        run: |
+          set -eu
+          for tree in previous candidate; do
+            julia --startup-file=no --project="$RUNNER_TEMP/$tree" -e '
+              using PlantSimEngine, Test
+              @assert realpath(pkgdir(PlantSimEngine)) == realpath(ARGS[1])
+              include("candidate/test/test-fixed-status-prospective-distributed.jl")' "$tree"
+          done
+      - name: Measure the same distributed setup at two scene sizes
+        run: |
+          set -eu
+          for tree in main previous candidate; do
+            julia --startup-file=no --project="$RUNNER_TEMP/$tree" candidate/.ci/initial-status-setup.jl "$tree" "$RUNNER_TEMP/$tree-setup.toml"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, statistics, tomllib
+          for tree in ("main", "previous", "candidate"):
+              rows = tomllib.loads((Path(os.environ["RUNNER_TEMP"]) / (tree + "-setup.toml")).read_text())["rows"]
+              for n in (1000, 10000):
+                  group = [r for r in rows if r["size"] == n]
+                  assert len(group) == 3 and all(r["compile_seconds"] == 0 for r in group)
+                  print(tree, n, "seconds", statistics.median(r["seconds"] for r in group),
+                        "bytes", statistics.median(r["bytes"] for r in group))
+          PY
+      - name: Preserve the individual samples
+        uses: actions/upload-artifact@v7
+        with:
+          name: distributed-setup-results
+          path: ${{ runner.temp }}/*-setup.toml
