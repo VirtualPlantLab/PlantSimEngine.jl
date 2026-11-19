@@ -303,3 +303,15 @@ const TEST_GROUPS = (
         "test-model-call-evaluation-temporal-inputs.jl",
     ),
 )
+
+# On Julia 1.10 the prepared execution tests alone can take over two hours.
+# Run them together in one job; the other three jobs retain source order.
+const CI_TEST_SHARDS = let
+    group_index(name) = only(findall(group -> first(group) == name, TEST_GROUPS))
+    prepared = group_index("Prepared execution schemas")
+    newborn = group_index("Newborn retained manual calls")
+    identities = group_index("Identity-aware Many inputs")
+    @assert prepared < newborn < identities
+    (filter(!=(prepared), 1:(newborn - 1)), prepared:prepared,
+        newborn:(identities - 1), identities:lastindex(TEST_GROUPS))
+end

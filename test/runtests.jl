@@ -38,7 +38,8 @@ else
     shard_index = parse(Int, get(ENV, "PSE_TEST_SHARD_INDEX", "1"))
     1 <= shard_index <= shard_count <= length(TEST_GROUPS) ||
         error("Test shard index/count must satisfy 1 <= index <= count <= $(length(TEST_GROUPS)).")
-    group_indices = shard_index:shard_count:length(TEST_GROUPS)
+    group_indices = shard_count == length(CI_TEST_SHARDS) ?
+        CI_TEST_SHARDS[shard_index] : (shard_index:shard_count:length(TEST_GROUPS))
     @info "Test partition" shard_index shard_count groups=length(group_indices)
 
     @testset "Testing PlantSimEngine" begin
