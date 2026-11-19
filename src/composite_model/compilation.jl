@@ -2384,7 +2384,7 @@ function _index_observed_manual_call_binding_application_targets!(
     binding::CompiledModelCallBinding,
     binding_index::Int,
     callee_application_id::Symbol,
-    application,
+    application_target_ids,
 )
     if binding.multiplicity != :many &&
        length(binding.callee_application_ids) == 1
@@ -2399,38 +2399,14 @@ function _index_observed_manual_call_binding_application_targets!(
         return index
     end
 
-    application_target_ids = application.target_ids
     binding_target_ids = binding.callee_object_ids
-    if length(application_target_ids) <= length(binding_target_ids)
-        for callee_object_id in application_target_ids
-            first(
-                _sorted_object_id_position(
-                    binding_target_ids,
-                    callee_object_id,
-                ),
-            ) || continue
-            _push_observed_manual_call_binding_index!(
-                index,
-                callee_application_id,
-                callee_object_id,
-                binding_index,
-            )
-        end
-    else
-        for callee_object_id in binding_target_ids
-            first(
-                _sorted_object_id_position(
-                    application_target_ids,
-                    callee_object_id,
-                ),
-            ) || continue
-            _push_observed_manual_call_binding_index!(
-                index,
-                callee_application_id,
-                callee_object_id,
-                binding_index,
-            )
-        end
+    shorter, longer = length(application_target_ids) <= length(binding_target_ids) ?
+        (application_target_ids, binding_target_ids) : (binding_target_ids, application_target_ids)
+    for callee_object_id in shorter
+        first(_sorted_object_id_position(longer, callee_object_id)) || continue
+        _push_observed_manual_call_binding_index!(
+            index, callee_application_id, callee_object_id, binding_index,
+        )
     end
     return index
 end
@@ -2444,13 +2420,9 @@ function _index_observed_manual_call_binding_by_callee_target!(
     _compiled_call_mode(binding) === :manual || return index
     _compiled_call_membership_is_observed(binding) || return index
     for callee_application_id in binding.callee_application_ids
-        application = applications_by_id[callee_application_id]
+        target_ids = getfield(applications_by_id[callee_application_id], :target_ids)
         _index_observed_manual_call_binding_application_targets!(
-            index,
-            binding,
-            binding_index,
-            callee_application_id,
-            application,
+            index, binding, binding_index, callee_application_id, target_ids,
         )
     end
     return index
@@ -2514,13 +2486,9 @@ function _extend_observed_manual_call_binding_callee_target_index!(
     for application_position in new_application_positions
         callee_application_id =
             binding.callee_application_ids[application_position]
-        application = applications_by_id[callee_application_id]
+        target_ids = getfield(applications_by_id[callee_application_id], :target_ids)
         _index_observed_manual_call_binding_application_targets!(
-            index,
-            binding,
-            binding_index,
-            callee_application_id,
-            application,
+            index, binding, binding_index, callee_application_id, target_ids,
         )
     end
     return index
