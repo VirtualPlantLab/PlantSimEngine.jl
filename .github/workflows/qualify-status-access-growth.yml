@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 77e60af9f5f030ee1057c916166e99bf7c3e03f2
+          ref: c9dd9ac6589df2bdce0038b670e7c57f3093286b
           persist-credentials: false
       - uses: julia-actions/setup-julia@v3
         with:
