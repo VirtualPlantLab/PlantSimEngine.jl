@@ -9374,20 +9374,21 @@ function _validate_declared_model_input_name!(application, input_sym::Symbol)
     )
 end
 
-function _bound_model_inputs(input_bindings)
-    bound = Set{Tuple{Symbol,ObjectId,Symbol}}()
+function _bound_model_inputs(input_bindings, objects::AbstractDict{I}) where {I<:ObjectId}
+    bound = _object_key_set(Tuple{Symbol,I,Symbol})
     for binding in input_bindings
         binding.policy isa PreviousTimeStep && continue
         binding.carrier_hint == :optional_default &&
             isnothing(binding.carrier) &&
             continue
-        push!(bound, (binding.application_id, binding.consumer_id, binding.input))
+        consumer_id = _index_object_id(objects, binding.consumer_id)
+        push!(bound, (binding.application_id, consumer_id, binding.input))
     end
     return bound
 end
 
 function _validate_model_required_inputs!(model::CompositeModel, applications, applications_by_id, input_bindings)
-    bound = _bound_model_inputs(input_bindings)
+    bound = _bound_model_inputs(input_bindings, model.registry.objects)
     I = keytype(model.registry.objects)
     missing = NamedTuple{(:application_id, :object_id, :input),Tuple{Symbol,I,Symbol}}[]
     for partial in applications

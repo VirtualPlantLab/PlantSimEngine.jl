@@ -813,4 +813,57 @@ end
     end
 end
 
+@testset "required inputs retain the registry identity domain" begin
+    consumer = (:tree, :leaf, 1)
+    for closed in (false, true)
+        cell = Ref(3f0)
+        model = CompositeModel(
+            Object(:source; scale=:Leaf, status=Status((x=cell,))),
+            Object(consumer; scale=:Leaf);
+            applications=(
+                ModelSpec(Leaf(); name=:leaf, on=One(id=:source)),
+                ModelSpec(Reader(); name=:reader, on=One(id=ObjectId(consumer)),
+                    inputs=(single=One(id=:source, within=SceneScope(), application=:leaf, var=:x),)),
+            ))
+        closed && (model = close_registry(model))
+        simulation = run!(model; steps=0, outputs=:none)
+        bound = PSE._bound_model_inputs(simulation.compiled.input_bindings, model.registry.objects)
+        @test eltype(bound) === Tuple{Symbol,keytype(model.registry.objects),Symbol}
+        @test (:reader, ObjectId(consumer), :single) in bound
+        @test !((:reader, ObjectId(:source), :single) in bound)
+        binding = only(filter(binding -> binding.input === :single, simulation.compiled.input_bindings))
+        @test binding.carrier === cell
+        @test PSE.refvalue(model_status(model, :source), :x) === cell
+        @test cell[] === 3f0
+        @test current_step(simulation) == 0
+
+        for provided in (true, false)
+            status = provided ? Status((single=cell,)) : Status()
+            direct = CompositeModel(Object(:root; scale=:Plant),
+                Object(consumer; scale=:Leaf, parent=:root, status);
+                applications=(ModelSpec(Reader(); name=:reader, on=One(id=ObjectId(consumer))),))
+            closed && (direct = close_registry(direct))
+            if provided
+                direct_simulation = run!(direct; steps=0, outputs=:none)
+                direct_bound = PSE._bound_model_inputs(direct_simulation.compiled.input_bindings,
+                    direct.registry.objects)
+                @test !((:reader, ObjectId(consumer), :single) in direct_bound)
+                @test PSE.refvalue(model_status(direct, consumer), :single) === cell
+                @test current_step(direct_simulation) == 0
+            else
+                exception = try
+                    run!(direct; steps=0, outputs=:none)
+                    nothing
+                catch error
+                    error
+                end
+                @test exception isa ErrorException
+                @test occursin("requires `single`", sprint(showerror, exception))
+                @test occursin("tree", sprint(showerror, exception))
+                @test cell[] === 3f0
+            end
+        end
+    end
+end
+
 end
