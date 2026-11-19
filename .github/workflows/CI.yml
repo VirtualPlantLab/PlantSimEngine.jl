@@ -22,8 +22,8 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || !inputs.juliac_safe }}
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - shard ${{ matrix.shard }}/4 - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
-    # Keep the full suite within the limit by running independent test groups separately.
-    timeout-minutes: 180
+    # Cold compilation of the nested call tests can take 170 minutes on macOS 1.10.
+    timeout-minutes: ${{ matrix.os == 'macOS-latest' && matrix.version == '1.10' && 225 || 180 }}
     permissions:
       # needed to allow julia-actions/cache to proactively delete old caches that it has created
       actions: write

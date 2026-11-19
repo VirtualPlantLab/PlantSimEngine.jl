@@ -28,7 +28,7 @@ jobs:
           - version: "1.12"
             os: ubuntu-latest
             # The complete XPalm suite includes cold compilation and VPalm tests.
-            timeout_minutes: 90
+            timeout_minutes: 120
             package: { name: XPalm, user: PalmStudio, repo: XPalm.jl, branch: main, default: main }
           - version: "1"
             os: ubuntu-latest
@@ -39,6 +39,7 @@ jobs:
           # XPalm's existing mode runs its full-cycle scientific oracle on latest Julia.
           - version: "1"
             os: ubuntu-latest
+            timeout_minutes: 75
             package: { name: XPalm, user: PalmStudio, repo: XPalm.jl, branch: main, default: main }
             test_args: reference-regression
     steps:
