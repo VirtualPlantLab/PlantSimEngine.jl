@@ -1587,11 +1587,11 @@ end
 
 # Pre-registration matching sees the exact admitted parent and the labels that
 # normal registration would inherit. Every other object remains the real model.
-struct _PreparedStatusObjectTopology{M,I<:ObjectId,P}
+struct _PreparedStatusObjectTopology{M,I<:ObjectId}
     model::M
     object::Object
     id::I
-    parent::P
+    parent::Union{Nothing,I}
     kind::Union{Nothing,Symbol}
     species::Union{Nothing,Symbol}
 end
@@ -1609,7 +1609,8 @@ function _prepared_status_topology(model, object, id, parent_id)
         return model
     end
     labels = _prepared_status_object_labels(model, object, parent)
-    return _PreparedStatusObjectTopology(model, object, id, parent, labels.kind, labels.species)
+    I = keytype(model.registry.objects)
+    return _PreparedStatusObjectTopology{typeof(model),I}(model, object, id, parent, labels.kind, labels.species)
 end
 
 @inline _relation_same_object(topology::_PreparedStatusObjectTopology, left, right) =
@@ -1666,7 +1667,11 @@ end
 function _prepared_status_application_matches(model, object, parent_id, application)
     id = _index_object_id(model.registry.objects, object.id)
     topology = _prepared_status_topology(model, object, id, parent_id)
-    return _prepared_status_application_matches_id(model, topology, application.target_matcher, id)
+    matcher = application.target_matcher
+    if topology isa _PreparedStatusObjectTopology
+        return Base.@inline _prepared_status_application_matches_id(model, topology, matcher, id)
+    end
+    return Base.@inline _prepared_status_application_matches_id(model, model, matcher, id)
 end
 
 function _prepared_status_application_matches_id(model, topology, matcher, id)

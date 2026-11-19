@@ -10,7 +10,7 @@ PSE.inputs_(::Source) = NamedTuple()
 PSE.outputs_(model::Source) = (x=model.initial,)
 PSE.run!(::Source, status, environment, constants, context) = nothing
 
-function fixture(second_id=17)
+function fixture(second_id=17; finite_ids=false)
     first = Object(:plant_a; scale=:Plant)
     second = Object(second_id; scale=:Plant)
     a = Object(:leaf_a; scale=:Leaf, parent=first.id, status=Status(x=1f0))
@@ -21,6 +21,14 @@ function fixture(second_id=17)
     model = CompositeModel(
         ObjectInstance(:a, template(0f0); root=first, objects=(a,)),
         ObjectInstance(:b, template(0.0); root=second, objects=(b,)))
+    if finite_ids
+        previous = model.registry
+        objects = PSE._closed_object_family_store(previous.objects)
+        registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
+            previous.by_species, previous.ancestor_ids_by_object)
+        model = PSE.CompositeModel(registry,
+            (getfield(model, index) for index in 2:fieldcount(typeof(model)))...)
+    end
     return (; model, first, second, a, b)
 end
 
@@ -73,15 +81,8 @@ end
 end
 
 @testset "prospective matching uses the finite registry identity family" begin
-    data = fixture(:plant_b)
-    previous = data.model.registry
-    objects = PSE._closed_object_family_store(previous.objects)
-    registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
-        previous.by_species, previous.ancestor_ids_by_object)
-    fields = map(fieldnames(typeof(data.model))) do name
-        name === :registry ? registry : getfield(data.model, name)
-    end
-    model = PSE.CompositeModel(fields...)
+    data = fixture(:plant_b; finite_ids=true)
+    model = data.model
     @test keytype(model.registry.objects) === ObjectId{Symbol}
 
     wrong = Object(:wrong_closed; scale=:Leaf, status=Status(x=6.0))
@@ -161,6 +162,50 @@ end
     @test register_object!(model, root) === root
     @test PSE.refvalue(model_status(model, root.id), :x) === reference
     @test resolve_object_ids(model, selector) == [root.id]
+end
+
+@testset "prospective topology retains one identity family and real relations" begin
+    data = fixture((:tree, :plant, 2); finite_ids=true)
+    model = data.model
+    first = Object(:pending_symbol; scale=:Leaf, parent=data.first.id, status=Status(x=3f0))
+    second = Object((:tree, :leaf, 3); scale=:Leaf, parent=data.second.id, status=Status(x=4.0))
+    orphan = Object(:pending_orphan; scale=:Leaf, status=Status(x=5f0))
+    parents_before = (copy(data.first.children), copy(data.second.children))
+
+    a = PSE._prepared_status_topology(model, first, first.id, first.parent)
+    b = PSE._prepared_status_topology(model, second, second.id, second.parent)
+    c = PSE._prepared_status_topology(model, orphan, orphan.id, nothing)
+    @test typeof(a) === typeof(b) === typeof(c)
+    for (topology, object, parent) in (
+        (a, first, data.first.id),
+        (b, second, data.second.id),
+        (c, orphan, nothing),
+    )
+        @test topology.model === model
+        @test topology.object === object
+        @test topology.id === object.id
+        @test topology.parent === parent
+    end
+
+    @test a.kind === b.kind === :tree
+    @test a.species === b.species === :same
+    @test PSE._relation_parent(a, first.id) === data.first.id
+    @test PSE._relation_parent(b, second.id) === data.second.id
+    @test PSE._relation_parent(a, data.b.id) === data.second.id
+    @test PSE._scope_ancestor(a, first.id, :Plant, true) === data.first.id
+    @test PSE._scope_ancestor(b, second.id, :Plant, true) === data.second.id
+    @test !PSE._relation_in_subtree(c, orphan.id, data.first.id)
+    @test (data.first.children, data.second.children) == parents_before
+    @test PSE._prepared_status_topology(model, data.a, data.a.id, data.a.parent) === model
+
+    first_cell = PSE.refvalue(first.status, :x)
+    second_cell = PSE.refvalue(second.status, :x)
+    @test register_object!(model, first) === first
+    @test register_object!(model, second) === second
+    @test PSE.refvalue(model_status(model, first.id), :x) === first_cell
+    @test PSE.refvalue(model_status(model, second.id), :x) === second_cell
+    @test PSE._prepared_status_topology(model, first, first.id, first.parent) === model
+    @test PSE._prepared_status_topology(model, second, second.id, second.parent) === model
 end
 
 end
