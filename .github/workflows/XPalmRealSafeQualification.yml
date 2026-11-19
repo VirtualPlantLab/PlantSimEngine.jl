@@ -1,0 +1,194 @@
+name: XPalm exact eeeb real host and stock-safe 4160-day qualification
+"on":
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: xpalm-real-eeeb-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  JULIA_NUM_THREADS: '2'
+  JULIA_CPU_TARGET: generic
+  JULIA_PKG_PRECOMPILE_AUTO: '0'
+  XPALM_EVIDENCE: ${{ github.workspace }}/xpalm-real-evidence
+  XPALM_HOST_EVIDENCE: ${{ github.workspace }}/xpalm-host-evidence
+  XPALM_BUNDLE: ${{ github.workspace }}/xpalm-real-bundle
+  PSE_XPALM_PREPARATION_LOG: ${{ github.workspace }}/xpalm-real-evidence/preparation-phases.tsv
+jobs:
+  real-host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PalmStudio/XPalm.jl
+          ref: 1496bb95c9f609c4d38c099aaa4123dc71fa1e0d
+          path: scientific/XPalm
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: VEZY/PlantGeom.jl
+          ref: 1e00511430def53c2a24790f4a8b9a57aa39fac2
+          path: scientific/PlantGeom
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.13.3'
+          arch: x64
+      - uses: julia-actions/cache@v2
+        with:
+          cache-name: xpalm-real-safe-eeeb-julia-1.13.3
+          save-always: true
+      - name: Toolchain and exact public revisions
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang lld lsof
+          mkdir -p "$XPALM_EVIDENCE"
+          julia --version
+          clang --version
+          git rev-parse HEAD
+          git -C scientific/XPalm rev-parse HEAD
+          git -C scientific/PlantGeom rev-parse HEAD
+          df -h .
+      - name: Resolve unchanged seed144 and verify app/build scientific graphs
+        run: julia --threads=2 --gcthreads=1 -C generic --startup-file=no ci/xpalm_real_safe/qualify.jl prepare >"$XPALM_EVIDENCE/resolution.log" 2>&1
+      - name: Two real trajectories, fresh T0, public T1 and independent full reference
+        shell: bash
+        run: |
+          julia --threads=2 --gcthreads=1 -C generic --startup-file=no --project=ci/xpalm_real_safe/app ci/xpalm_real_safe/qualify.jl host >"$XPALM_EVIDENCE/host.log" 2>&1 &
+          child=$!
+          while kill -0 "$child" 2>/dev/null; do
+            test ! -f "$XPALM_EVIDENCE/preparation-phases.tsv" || tail -n 1 "$XPALM_EVIDENCE/preparation-phases.tsv"
+            sleep 30
+          done
+          wait "$child"
+      - name: Bound archived diagnostics
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,tarfile
+          root=pathlib.Path(os.environ['XPALM_EVIDENCE']); root.mkdir(exist_ok=True)
+          summary={}
+          for path in list(root.rglob('*')):
+              if not path.is_file(): continue
+              size=path.stat().st_size
+              if path.suffix=='.log' and size>32*1024*1024:
+                  with path.open('rb') as src:
+                      digest=hashlib.file_digest(src,'sha256').hexdigest()
+                      src.seek(0); head=src.read(8*1024*1024); src.seek(-8*1024*1024,2); tail=src.read()
+                  path.with_suffix('.head-tail.log').write_bytes(head+b'\nARCHIVE CLIPPED; ORIGINAL COUNT/HASH IN archive-limits.json\n'+tail)
+                  summary[path.name]={'original_bytes':size,'sha256':digest,'archive_clipped':True}
+                  path.unlink()
+          bundle=pathlib.Path(os.environ['XPALM_BUNDLE'])
+          if bundle.is_dir():
+              size=sum(p.stat().st_size for p in bundle.rglob('*') if p.is_file())
+              if size<=512*1024*1024:
+                  with tarfile.open(root/'actual-bundle.tar.gz','w:gz') as archive: archive.add(bundle,arcname='bundle')
+              else: summary['bundle']={'bytes':size,'archive_omitted_over_512MiB':True}
+          (root/'archive-limits.json').write_text(json.dumps(summary,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xpalm-eeeb-host-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ env.XPALM_EVIDENCE }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 1
+  stock-native:
+    needs: real-host
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PalmStudio/XPalm.jl
+          ref: 1496bb95c9f609c4d38c099aaa4123dc71fa1e0d
+          path: scientific/XPalm
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: VEZY/PlantGeom.jl
+          ref: 1e00511430def53c2a24790f4a8b9a57aa39fac2
+          path: scientific/PlantGeom
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.13.3'
+          arch: x64
+      - uses: julia-actions/cache@v2
+        with:
+          cache-name: xpalm-real-safe-eeeb-julia-1.13.3
+          save-always: true
+      - name: Toolchain and exact public revisions
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang lld lsof
+          mkdir -p "$XPALM_EVIDENCE"
+          julia --version
+          clang --version
+          git rev-parse HEAD
+          git -C scientific/XPalm rev-parse HEAD
+          git -C scientific/PlantGeom rev-parse HEAD
+          df -h .
+      - uses: actions/download-artifact@v4
+        with:
+          name: xpalm-eeeb-host-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ env.XPALM_HOST_EVIDENCE }}
+      - name: Resolve unchanged seed144 and verify app/build scientific graphs
+        run: julia --threads=2 --gcthreads=1 -C generic --startup-file=no ci/xpalm_real_safe/qualify.jl prepare >"$XPALM_EVIDENCE/resolution.log" 2>&1
+      - name: Verify host handoff and build stock safe, same-binary 0/1/4160 parity
+        shell: bash
+        run: |
+          julia --threads=2 --gcthreads=1 -C generic --startup-file=no --project=ci/xpalm_real_safe/build ci/xpalm_real_safe/qualify.jl native >"$XPALM_EVIDENCE/native-driver.log" 2>&1 &
+          child=$!
+          while kill -0 "$child" 2>/dev/null; do
+            test ! -f "$XPALM_EVIDENCE/phase.toml" || cat "$XPALM_EVIDENCE/phase.toml"
+            test ! -f "$XPALM_EVIDENCE/preparation-phases.tsv" || tail -n 1 "$XPALM_EVIDENCE/preparation-phases.tsv"
+            sleep 30
+          done
+          wait "$child"
+      - name: Bound archived diagnostics
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,tarfile
+          root=pathlib.Path(os.environ['XPALM_EVIDENCE']); root.mkdir(exist_ok=True)
+          summary={}
+          for path in list(root.rglob('*')):
+              if not path.is_file(): continue
+              size=path.stat().st_size
+              if path.suffix=='.log' and size>32*1024*1024:
+                  with path.open('rb') as src:
+                      digest=hashlib.file_digest(src,'sha256').hexdigest()
+                      src.seek(0); head=src.read(8*1024*1024); src.seek(-8*1024*1024,2); tail=src.read()
+                  path.with_suffix('.head-tail.log').write_bytes(head+b'\nARCHIVE CLIPPED; ORIGINAL COUNT/HASH IN archive-limits.json\n'+tail)
+                  summary[path.name]={'original_bytes':size,'sha256':digest,'archive_clipped':True}
+                  path.unlink()
+          bundle=pathlib.Path(os.environ['XPALM_BUNDLE'])
+          if bundle.is_dir():
+              size=sum(p.stat().st_size for p in bundle.rglob('*') if p.is_file())
+              if size<=512*1024*1024:
+                  with tarfile.open(root/'actual-bundle.tar.gz','w:gz') as archive: archive.add(bundle,arcname='bundle')
+              else: summary['bundle']={'bytes':size,'archive_omitted_over_512MiB':True}
+          (root/'archive-limits.json').write_text(json.dumps(summary,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xpalm-eeeb-native-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ env.XPALM_EVIDENCE }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 1
