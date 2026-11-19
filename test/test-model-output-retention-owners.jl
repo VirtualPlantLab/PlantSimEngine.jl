@@ -174,6 +174,18 @@ end
     previous_owner = simulation.model.binding_cache
     key = (:writer, ObjectId(3))
     before = compiled.status_views_by_target[key]
+    reader_view = compiled.status_views_by_target[(:reader, ObjectId(0))]
+    previous_sources = PSE._previous_temporal_source_storage(simulation.model)
+    restored = PSE._preserve_model_status_view_temporal_state!(
+        schema, :writer, before, before, previous_sources, key,
+    )
+    @test restored.execution_stamp === before.execution_stamp
+    @test restored.private_outputs.private === before.private_outputs.private
+    for (current, previous) in ((reader_view, before), (before, reader_view))
+        @test_throws "outside its prepared application family" PSE._preserve_model_status_view_temporal_state!(
+            schema, :writer, current, previous, previous_sources, key,
+        )
+    end
     invalid = PSE.CompiledMetadataTable((writer=Vector{Union{}}(),))
     positions = Dict(id => index for (index, id) in pairs(compiled.application_order))
     @test_throws "outside supported prepared application view families" PSE._compile_model_status_view(

@@ -1834,18 +1834,16 @@ function _model_status_view_family_types(V)
     return families
 end
 
-# Select the application and its exact view in one generated boundary. The raw
-# Any-valued dictionary payload never crosses another metadata callback first.
-@generated function _with_model_status_view(f::F, schema::CompiledMetadataTable{T},
-    application_id::Symbol, view, args::Vararg{Any,N},
-) where {F,T,N}
+# Select the application before admitting its views. Dictionary values reach
+# the callback only after crossing the concrete family checks in this branch.
+function _model_status_view_dispatch(admission, T)
     branches = Expr[]
     for (index, application) in enumerate(fieldnames(T))
         Prototype = fieldtype(T, index)
         Prototype <: AbstractVector || throw(ArgumentError(
             "Status view family prototypes require vector storage."))
         families = _model_status_view_family_types(eltype(Prototype))
-        admitted = [:(view isa $V && return f(view::$V, args...)) for V in families]
+        admitted = admission(families)
         push!(branches, quote
             if application_id === $(QuoteNode(application))
                 prototype = getfield(getfield(schema, :entries), $index)
@@ -1858,6 +1856,14 @@ end
     return quote
         $(branches...)
         throw(KeyError(application_id))
+    end
+end
+
+@generated function _with_model_status_view(f::F, schema::CompiledMetadataTable{T},
+    application_id::Symbol, view, args::Vararg{Any,N},
+) where {F,T,N}
+    return _model_status_view_dispatch(T) do families
+        [:(view isa $V && return f(view::$V, args...)) for V in families]
     end
 end
 
@@ -3811,6 +3817,25 @@ function _preserve_model_status_view_temporal_state!(schema, application_id::Sym
         schema, application_id, previous, schema, application_id,
         current, previous_temporal_sources, key)
     return _admit_model_status_view!(schema, application_id, view)
+end
+
+# The two views belong to the same application. Selecting it once prevents
+# specializations for pairs of models that can never share this target.
+@generated function _preserve_model_status_view_temporal_state!(
+    schema::CompiledMetadataTable{T}, application_id::Symbol, current, previous,
+    previous_temporal_sources, key,
+) where {T}
+    return _model_status_view_dispatch(T) do families
+        family = Union{families...}
+        [quote
+            if current isa $C && previous isa $P
+                view = _preserve_model_status_view_temporal_state!(
+                    current::$C, previous::$P, previous_temporal_sources, key,
+                )
+                view isa $family && return view
+            end
+        end for C in families for P in families]
+    end
 end
 
 function _record_previous_temporal_source!(input::CompiledTemporalInput, sources, key)
