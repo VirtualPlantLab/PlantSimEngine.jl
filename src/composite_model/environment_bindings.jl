@@ -746,10 +746,11 @@ end
 end
 
 function _index_environment_binding_positions(bindings, ::Type{I}) where {I<:ObjectId}
-    return Dict{Tuple{Symbol,I},Int}(
-        _environment_binding_target_key(binding, I) => index
-        for (index, binding) in pairs(bindings)
-    )
+    result = _object_key_index(Tuple{Symbol,I}, Int)
+    for (position, binding) in pairs(bindings)
+        result[_environment_binding_target_key(binding, I)] = position
+    end
+    return result
 end
 
 function _index_environment_targets_by_object(bindings, ::Type{I}) where {I<:ObjectId}
@@ -770,7 +771,7 @@ function _index_environment_bindings(bindings, ::Type{I}) where {I<:ObjectId}
     # Keep lifecycle indexing open to future binding families; reads validate the
     # CompiledEnvironmentBinding domain. Execution targets retain concrete
     # handles and sampling plans.
-    by_target = Dict{Tuple{Symbol,I},Any}()
+    by_target = _object_key_index(Tuple{Symbol,I}, Any)
     sizehint!(by_target, length(bindings))
     for binding in bindings
         by_target[_environment_binding_target_key(binding, I)] = binding
@@ -971,7 +972,7 @@ function _reconcile_environment_binding_metadata(
             context = _object_environment_context(application.id, application.process, object, object_id)
             _, geometry_source_object_id, geometry_source =
                 _environment_binding_object(model, object)
-            binding = _reconcile_environment_binding(environment_schema, old, plan,
+            binding = Base.@inline _reconcile_environment_binding(environment_schema, old, plan,
                 object_id, context, geometry_source_object_id, geometry_source,
                 keytype(cached.targets_by_object))
             isnothing(binding) && return nothing
@@ -1029,8 +1030,8 @@ function _refresh_environment_bindings_for_objects(
         dirty_ids,
     )
     K = keytype(cached.by_target)
-    stale_targets = Set{K}()
-    replacements = Dict{K,Any}()
+    stale_targets = _object_key_set(K)
+    replacements = _object_key_index(K, Any)
     empty_targets = K[]
     for dirty_id in dirty_ids
         object_id = _index_object_id(cached.targets_by_object, dirty_id)
@@ -1080,7 +1081,7 @@ function _refresh_environment_bindings_for_objects(
         pop!(cached.bindings)
         delete!(cached.by_target, target)
         object_targets = cached.targets_by_object[target[2]]
-        target_index = findfirst(==(target), object_targets)
+        target_index = findfirst(key -> key[1] === target[1], object_targets)
         isnothing(target_index) || deleteat!(object_targets, target_index)
         isempty(object_targets) && delete!(cached.targets_by_object, target[2])
     end

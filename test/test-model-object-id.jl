@@ -612,3 +612,136 @@ end
     @test model_status(model, 200).total == 9.0
     @test last.(outputs(simulation)[(:first__source, ObjectId(102), :signal)]) == [1.0]
 end
+
+module ObjectKeyIndexContractChecks
+using Test, PlantSimEngine
+const PSE = PlantSimEngine
+const I = Union{ObjectId{Symbol},ObjectId{Tuple{Symbol,Symbol,Int}}}
+
+struct UnfaithfulKey{T}
+    value::T
+end
+Base.convert(::Type{K}, key::UnfaithfulKey) where {K<:Tuple} = convert(K, key.value)
+
+function caught(f)
+    try
+        f()
+        return nothing
+    catch error
+        return error
+    end
+end
+
+@testset "nominal object indexes preserve public tuple collection contracts" begin
+    for arity in (2, 3)
+        K = arity == 2 ? Tuple{Symbol,I} : Tuple{Symbol,I,Symbol}
+        index = PSE._object_key_index(K, Any)
+        reference = Dict{K,Any}()
+        raw_keys = K[]
+        for number in 1:64
+            id = isodd(number) ? ObjectId(Symbol(:leaf_, number)) : ObjectId((:tree, :leaf, number))
+            key = arity == 2 ? (:probe, id) : (:probe, id, :signal)
+            cell = Ref{Any}(number)
+            push!(raw_keys, key)
+            @test setindex!(index, cell, key) === index
+            reference[key] = cell
+            @test index[key] === cell
+            stored = PSE._stored_object_key(PSE._stored_object_key_type(K), key)
+            @test isconcretetype(typeof(stored))
+            for seed in (UInt(0), UInt(0x123456), typemax(UInt))
+                @test hash(stored, seed) == hash(key, seed)
+            end
+        end
+        @test collect(keys(index)) == collect(keys(reference))
+        @test collect(index) == collect(reference)
+        @test Dict(index) == reference
+        clone = copy(index)
+        @test typeof(clone) === typeof(index)
+        @test clone !== index
+        @test all(clone[key] === reference[key] for key in raw_keys)
+        first_key = first(raw_keys)
+        first_cell = index[first_key]
+        clone[first_key] = Ref{Any}(:copy_only)
+        @test index[first_key] === first_cell
+        bare = empty(index)
+        @test isempty(bare) && typeof(bare) === typeof(index)
+        @test sizehint!(bare, 128) === bare
+        bare[first_key] = first_cell
+        @test bare[first_key] === first_cell
+        @test empty!(bare) === bare && isempty(bare)
+
+        actual_set = PSE._object_key_set(K)
+        reference_set = Set{K}()
+        @test sizehint!(actual_set, 128) === actual_set
+        sizehint!(reference_set, 128)
+        union!(actual_set, raw_keys)
+        union!(reference_set, raw_keys)
+        @test collect(actual_set) == collect(reference_set)
+        @test all(key in actual_set for key in raw_keys)
+        set_clone = copy(actual_set)
+        delete!(set_clone, first_key)
+        @test first_key in actual_set && !(first_key in set_clone)
+        @test typeof(empty(actual_set)) === typeof(actual_set)
+        @test isempty(empty(actual_set))
+        @test empty!(set_clone) === set_clone && isempty(set_clone)
+
+        missing_id = ObjectId((:tree, :leaf, 999))
+        missing = arity == 2 ? (:probe, missing_id) : (:probe, missing_id, :signal)
+        for operation in (getindex, pop!)
+            error = caught(() -> operation(index, missing))
+            @test error isa KeyError
+            @test error.key === missing
+        end
+        marker = Ref{Any}(:missing)
+        @test get(index, missing, marker) === marker
+        @test pop!(index, missing, marker) === marker
+        outside = arity == 2 ? (:probe, ObjectId(1)) : (:probe, ObjectId(1), :signal)
+        @test get(index, outside, marker) === get(reference, outside, marker) === marker
+        @test haskey(index, outside) == haskey(reference, outside) == false
+        @test delete!(index, outside) === index
+        @test length(index) == length(reference)
+        bad = UnfaithfulKey(first_key)
+        for mode in (:setindex, :get_default, :get_thunk)
+            target = empty(index)
+            control = Dict{K,Any}()
+            calls = Ref(0)
+            make = () -> (calls[] += 1; marker)
+            operation = mode === :setindex ? ((d, k) -> setindex!(d, marker, k)) :
+                        mode === :get_default ? ((d, k) -> get!(d, k, marker)) :
+                        ((d, k) -> get!(make, d, k))
+            expected = caught(() -> operation(control, bad))
+            observed = caught(() -> operation(target, bad))
+            @test typeof(observed) === typeof(expected)
+            @test observed isa Exception
+            @test isempty(target) && isempty(control)
+            @test calls[] == 0
+        end
+        bad_set = PSE._object_key_set(K)
+        expected = caught(() -> push!(Set{K}(), bad))
+        observed = caught(() -> push!(bad_set, bad))
+        @test typeof(observed) === typeof(expected)
+        @test isempty(bad_set)
+    end
+end
+
+@testset "stored key arity and ordinary identity pools" begin
+    pair = (:probe, ObjectId(:leaf))
+    triple = (:probe, ObjectId(:leaf), nothing)
+    KP = Tuple{Symbol,I}
+    KT = Tuple{Symbol,I,Nothing}
+    stored_pair = PSE._stored_object_key(PSE._stored_object_key_type(KP), pair)
+    stored_triple = PSE._stored_object_key(PSE._stored_object_key_type(KT), triple)
+    @test !isequal(stored_pair, stored_triple)
+    for seed in (UInt(0), UInt(42))
+        @test hash(stored_pair, seed) == hash(pair, seed)
+        @test hash(stored_triple, seed) == hash(triple, seed)
+    end
+    @test PSE._object_key_index(Tuple{Symbol,ObjectId{Int}}, Any) isa Dict
+    @test PSE._object_key_set(Tuple{Symbol,ObjectId{Int}}) isa Set
+    open_index = PSE._object_key_index(Tuple{Symbol,ObjectId}, Any)
+    @test open_index isa Dict
+    cell = Ref{Any}(:live)
+    open_index[(:probe, ObjectId((:future, 1.0f0)))] = cell
+    @test only(values(open_index)) === cell
+end
+end

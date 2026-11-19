@@ -67,11 +67,11 @@ function close_registry(model::CompositeModel)
     )
 end
 
-function fixture(closed::Bool; environment_schema=PSE.EnvironmentBindingSchema())
+function fixture(closed::Bool; environment_schema=PSE.EnvironmentBindingSchema(), first_id=1)
     backend = Backend(Dict(:a => 10.0f0, :b => 20.0f0), 0, Any[], nothing)
     model = CompositeModel(
         Object(:root; scale=:Scene, status=Status(seen=0.0f0, visits=0)),
-        Object(1; scale=:Leaf, parent=:root, geometry=(cell=:a,),
+        Object(first_id; scale=:Leaf, parent=:root, geometry=(cell=:a,),
             status=Status(seen=0.0f0, visits=0)),
         Object(:leaf; scale=:Leaf, parent=:root, geometry=(cell=:b,),
             status=Status(seen=0.0f0, visits=0));
@@ -579,6 +579,43 @@ end
         @test outputs(simulation)[(:probe, ObjectId(1), :seen)] ==
             [(1.0, 11.0f0), (2.0, 11.0f0)]
         check_indexes(model, simulation.environment_bindings)
+    end
+end
+
+
+@testset "environment bindings retain symbolic and compound leaf identities through growth" begin
+    for closed in (false, true)
+        first_id = (:tree, :leaf, 1)
+        next_id = (:tree, :leaf, 2)
+        (; model, simulation) = fixture(closed; first_id)
+        owner = simulation.environment_bindings
+        check_indexes(model, owner)
+
+        leaf_key = (:probe, ObjectId(:leaf))
+        first_key = (:probe, ObjectId(first_id))
+        survivor = owner.by_target[leaf_key]
+        old_binding = owner.by_target[first_key]
+        cell = PSE.refvalue(model_status(model, :leaf), :seen)
+        mark_environment_binding_dirty!(model, first_id)
+        continue!(simulation; steps=0)
+        refreshed = simulation.environment_bindings
+        @test refreshed.by_target === owner.by_target
+        @test refreshed.positions_by_target === owner.positions_by_target
+        @test refreshed.targets_by_object === owner.targets_by_object
+        @test refreshed.by_target[leaf_key] === survivor
+        @test refreshed.by_target[first_key] !== old_binding
+        check_indexes(model, refreshed)
+
+        remove_object!(model, first_id)
+        continue!(simulation; steps=0)
+        @test !haskey(simulation.environment_bindings.by_target, first_key)
+        register_object!(model, Object(next_id; scale=:Leaf, parent=:root, geometry=(cell=:a,),
+            status=Status(seen=0.0f0, visits=0)))
+        step!(simulation)
+        check_indexes(model, simulation.environment_bindings)
+        @test model_status(model, next_id).visits == 1
+        @test model_status(model, :leaf).visits == 2
+        @test PSE.refvalue(model_status(model, :leaf), :seen) === cell
     end
 end
 

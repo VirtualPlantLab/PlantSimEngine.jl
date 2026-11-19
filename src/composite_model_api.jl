@@ -1,6 +1,7 @@
 # The Composite Model/Object API is one public compiler and runtime. Internal ownership is
 # split by dependency direction; these files are not modules and add no public
 # abstraction boundary.
+include("composite_model/object_key_indexes.jl")
 include("composite_model/status_conversion.jl")
 include("composite_model/registry_topology.jl")
 include("composite_model/status_construction.jl")

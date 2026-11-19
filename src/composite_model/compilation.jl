@@ -278,7 +278,7 @@ end
 """Compiled columnar references for one execution object and output group."""
 mutable struct CompiledModelOutputDestinationBinding{P,C,I,ID<:ObjectId}
     const plan::P
-    const execution_object_id::ObjectId
+    const execution_object_id::ID
     destination_ids::Vector{ID}
     columns::C
     destination_index::I
@@ -2455,7 +2455,7 @@ function _index_observed_manual_call_bindings_by_callee_target(
     applications_by_id,
     objects::ObjectFamilyStore{I},
 ) where {I<:ObjectId}
-    index = Dict{Tuple{Symbol,I},Vector{Int}}()
+    index = _object_key_index(Tuple{Symbol,I}, Vector{Int})
     for (binding_index, binding) in pairs(bindings)
         _index_observed_manual_call_binding_by_callee_target!(
             index,
@@ -2536,7 +2536,7 @@ end
 
 function _group_model_bindings(bindings::AbstractVector{B}, ::Type{I}) where {B,I<:ObjectId}
     K = Tuple{Symbol,I}
-    grouped = Dict{K,Vector{B}}()
+    grouped = _object_key_index(K, Vector{B})
     for binding in bindings
         key = _model_binding_target_key(binding, I)
         values = get!(grouped, key) do
@@ -2588,7 +2588,7 @@ function _index_model_call_bindings!(index, bindings, plans_by_application, ::Ty
 end
 
 function _index_model_call_bindings(bindings::AbstractVector{B}, plans_by_application, ::Type{I}) where {B,I<:ObjectId}
-    index = Dict{Tuple{Symbol,I},Tuple{Vararg{B}}}()
+    index = _object_key_index(Tuple{Symbol,I}, Tuple{Vararg{B}})
     return _index_model_call_bindings!(index, bindings, plans_by_application, I)
 end
 
@@ -2811,7 +2811,7 @@ function _compile_scene(
         status_views_by_target,
         status_view_schema,
         Set{Symbol}(application.id for application in applications),
-        Set(keys(status_views_by_target)),
+        _object_key_set(keytype(status_views_by_target), keys(status_views_by_target)),
         false,
         application_order,
         model.revision,
@@ -3822,7 +3822,7 @@ end
 
 function _previous_temporal_source_storage(model::CompositeModel)
     I = keytype(model.registry.objects)
-    return Dict{Tuple{Symbol,I,Symbol},Vector{I}}()
+    return _object_key_index(Tuple{Symbol,I,Symbol}, Vector{I})
 end
 
 function _record_previous_temporal_sources!(view::CompiledModelStatusView, sources, key)
@@ -4019,12 +4019,11 @@ end
 
 # Keep the real application inside its finite metadata branch. Transient
 # views are read only after admission, never captured by a metadata callback.
-function _refresh_model_status_view_for_target!(
-    application, model, compiled, views, previous_views, key,
-    input_bindings_by_target, applications_by_id, positions,
-    distributed_outputs, previous_temporal_sources,
-)
-    application_id, object_id = key
+function _refresh_model_status_view_for_target!(application, object_id, state)
+    (; model, compiled, views, previous_views, input_bindings_by_target,
+        applications_by_id, positions, distributed_outputs, previous_temporal_sources) = state
+    application_id = application.id
+    key = (application_id, object_id)
     previous_view = get(previous_views, key, nothing)
     if !isnothing(previous_view)
         Base.@inline _with_model_status_view(_record_previous_temporal_sources!,
@@ -4070,7 +4069,7 @@ function _extend_model_status_views!(
 )
     views = compiled.status_views_by_target
     Key = Tuple{Symbol,keytype(model.registry.objects)}
-    affected_keys = Set{Key}()
+    affected_keys = _object_key_set(Key)
     for (application_id, raw_id) in affected_temporal_keys
         object_id = _index_object_id(model.registry.objects, raw_id)
         push!(affected_keys, (application_id, object_id))
@@ -4126,14 +4125,11 @@ function _extend_model_status_views!(
             current && delete!(affected_keys, key)
         end
     end
-    for key in affected_keys
-        application_id = getfield(key, 1)
-        _with_metadata_entry(
-            _refresh_model_status_view_for_target!, applications_by_id,
-            application_id, model, compiled, views, previous_views, key,
-            input_bindings_by_target, applications_by_id, positions,
-            distributed_outputs, previous_temporal_sources,
-        )
+    state = (; model, compiled, views, previous_views, input_bindings_by_target,
+        applications_by_id, positions, distributed_outputs, previous_temporal_sources)
+    for (application_id, object_id) in affected_keys
+        Base.@inline _with_metadata_entry(_refresh_model_status_view_for_target!,
+            applications_by_id, application_id, object_id, state)
     end
     return affected_keys
 end
@@ -4209,12 +4205,12 @@ function _propagate_changed_manual_call_owners!(
     performance=nothing,
 ) where {I<:ObjectId}
     Key = Tuple{Symbol,I}
-    frontier = Key[]
+    frontier = _object_key_set(Key)
     for (application_id, raw_id) in changed_callee_target_ids
         object_id = _index_object_id(objects, raw_id)
         push!(frontier, (application_id, object_id))
     end
-    seen_owner_keys = Set{Key}(frontier)
+    seen_owner_keys = copy(frontier)
     while !isempty(frontier)
         _runtime_performance_count!(
             performance,
@@ -4231,7 +4227,7 @@ function _propagate_changed_manual_call_owners!(
                 union!(candidate_binding_indices, binding_indices)
         end
         isempty(candidate_binding_indices) && break
-        next_frontier = Key[]
+        next_frontier = _object_key_set(Key)
         for binding_index in candidate_binding_indices
             _runtime_performance_count!(
                 performance,
@@ -4266,7 +4262,7 @@ function _changed_previous_time_step_targets(
     input_bindings,
     input_bindings_by_target,
 ) where {I<:ObjectId}
-    changed_target_ids = Set{Tuple{Symbol,I}}()
+    changed_target_ids = _object_key_set(Tuple{Symbol,I})
     for (application_id, raw_id, input) in keys(previous_temporal_sources)
         object_id = _index_object_id(objects, raw_id)
         target_key = (application_id, object_id)
@@ -4307,7 +4303,7 @@ end
 
 # Rebind keys use the same prepared identity family as the registry index.
 _input_binding_key_set(::AbstractDict{I}) where {I<:ObjectId} =
-    Set{Tuple{Symbol,I,Symbol}}()
+    _object_key_set(Tuple{Symbol,I,Symbol})
 
 function _prepare_structural_compiled_delta(
     model::CompositeModel,
@@ -4321,7 +4317,7 @@ function _prepare_structural_compiled_delta(
     for object_id in dirty_object_ids
         push!(dirty, _index_object_id(model.registry.objects, object_id))
     end
-    removed_target_keys = Set{Tuple{Symbol,ObjectId}}()
+    removed_target_keys = _object_key_set(Tuple{Symbol,I})
     changed_application_ids = Set{Symbol}()
     applications_by_object = compiled.applications_by_object
     for object_id in dirty
@@ -4376,7 +4372,7 @@ function _prepare_structural_compiled_delta(
         end
         push!(call_bindings, binding)
     end
-    forced_call_target_keys = Set{Tuple{Symbol,ObjectId}}()
+    forced_call_target_keys = _object_key_set(Tuple{Symbol,I})
     for binding in call_bindings
         _compiled_call_membership_is_observed(binding) || continue
         _sorted_object_ids_intersect_set(binding.callee_object_ids, dirty) ||
@@ -4477,8 +4473,8 @@ function _refresh_scene_call_bindings!(
     has_calls = !isempty(compiled.scenario_plan.call_plans)
     I = keytype(model.registry.objects)
     K = Tuple{Symbol,I}
-    rebuilt_existing_call_targets = Set{K}()
-    changed_call_target_keys = Set{K}()
+    rebuilt_existing_call_targets = _object_key_set(K)
+    changed_call_target_keys = _object_key_set(K)
     for (application_id, raw_id) in forced_call_target_keys
         key = (application_id, _index_object_id(model.registry.objects, raw_id))
         push!(rebuilt_existing_call_targets, key)
@@ -4826,11 +4822,11 @@ function _extend_compiled_scene(
     compiled::CompiledCompositeModel,
     added_objects;
     forced_input_binding_keys=_input_binding_key_set(model.registry.objects),
-    forced_call_target_keys=Set{Tuple{Symbol,ObjectId}}(),
+    forced_call_target_keys=_object_key_set(Tuple{Symbol,keytype(model.registry.objects)}),
     previous_views=compiled.status_views_by_target,
     previous_temporal_sources_seed=_previous_temporal_source_storage(model),
     changed_application_ids_seed=Set{Symbol}(),
-    changed_target_ids_seed=Set{Tuple{Symbol,ObjectId}}(),
+    changed_target_ids_seed=_object_key_set(Tuple{Symbol,keytype(model.registry.objects)}),
     pure_addition::Bool=true,
     structural_dirty_ids=ObjectId[],
     performance=nothing,
@@ -4966,7 +4962,7 @@ function _extend_compiled_scene(
     many_binding_cache = compiled.many_input_binding_cache
     changed_bindings = similar(input_bindings, 0)
     rewired_consumer_ids = Set{ObjectId}()
-    affected_temporal_keys = Set{Tuple{Symbol,ObjectId}}()
+    affected_temporal_keys = _object_key_set(Tuple{Symbol,I})
     previous_temporal_sources = copy(previous_temporal_sources_seed)
     processed_many_sources = IdDict{Any,Nothing}()
     previous_shared_many_sources = IdDict{Any,Vector{I}}()
@@ -5164,7 +5160,7 @@ function _extend_compiled_scene(
     )
     # Keep the published owner's storage type, while admitting each incoming
     # identity before constructing the key consumed by its Set operations.
-    changed_execution_target_ids = Set{Tuple{Symbol,ObjectId}}()
+    changed_execution_target_ids = _object_key_set(Tuple{Symbol,I})
     # A reference can be replaced on an existing organ during growth. An
     # execution target must use the same view that was just rebuilt for it.
     for incoming in (rebuilt_views, affected_temporal_keys, changed_target_ids_seed, changed_call_target_keys)
@@ -5173,8 +5169,8 @@ function _extend_compiled_scene(
             push!(changed_execution_target_ids, (application_id, object_id))
         end
     end
-    Key = Tuple{Symbol,keytype(model.registry.objects)}
-    changed_manual_target_ids = Set{Key}()
+    Key = Tuple{Symbol,I}
+    changed_manual_target_ids = _object_key_set(Key)
     for (application_id, raw_id) in changed_execution_target_ids
         application_id in manual_application_ids || continue
         object_id = _index_object_id(model.registry.objects, raw_id)
@@ -5849,7 +5845,7 @@ end
 function _model_writer_groups(
     applications, applications_by_id, ::Type{I}, skipped_application_ids=(),
 ) where {I<:ObjectId}
-    groups = Dict{Tuple{I,Symbol},Vector{Tuple{Int,Symbol}}}()
+    groups = _object_key_index(Tuple{I,Symbol}, Vector{Tuple{Int,Symbol}})
     for application in applications
         Base.@inline _with_model_application(applications_by_id, application) do current
             current.id in skipped_application_ids && return nothing
@@ -6123,7 +6119,7 @@ function _record_destination_writers!(ownership, previous, resolved_destinations
 end
 
 function _validate_compiled_writer_ownership!(ownership, applications_by_id)
-    groups = Dict{keytype(ownership),Vector{Tuple{Int,Symbol}}}()
+    groups = _object_key_index(keytype(ownership), Vector{Tuple{Int,Symbol}})
     for ((object_id, variable), owners) in ownership
         length(owners) > 1 || continue
         sort!(owners; by=owner -> owner.application_slot)
@@ -6150,7 +6146,7 @@ function _compile_model_writer_ownership(
     manual_application_ids,
     resolved_destinations,
 ) where {I<:ObjectId}
-    ownership = Dict{Tuple{I,Symbol},Vector{CompiledWriterOwner}}()
+    ownership = _object_key_index(Tuple{I,Symbol}, Vector{CompiledWriterOwner})
     for partial in applications
         getfield(getfield(partial, :plan), :id) in manual_application_ids && continue
         _with_model_application(_record_application_writers!, applications_by_id, partial,
@@ -6183,7 +6179,7 @@ function _validate_model_writers_for_objects!(
     isempty(object_ids) && return nothing
     objects = compiled.model.registry.objects
     I = keytype(objects)
-    groups = Dict{Tuple{I,Symbol},Vector{Tuple{Int,Symbol}}}()
+    groups = _object_key_index(Tuple{I,Symbol}, Vector{Tuple{Int,Symbol}})
     manual_application_ids = compiled.scenario_plan.manual_application_ids
     for raw_id in object_ids
         object_id = _index_object_id(objects, raw_id)
@@ -7197,7 +7193,7 @@ end
         bindings = Union{bindings,row_types...}
         groups = Union{groups,NamedTuple{names,Tuple{row_types...}}}
     end
-    return :(Vector{$bindings}(), Dict{Tuple{Symbol,$I},$groups}())
+    return :(Vector{$bindings}(), _object_key_index(Tuple{Symbol,$I}, $groups))
 end
 
 function _compile_model_output_destination_bindings(
@@ -7325,31 +7321,29 @@ function _compile_model_distributed_outputs(
     )
 end
 
-function _distributed_output_target_membership(
-    objects::AbstractDict{I}, outputs::CompiledDistributedOutputs,
-) where {I<:ObjectId}
-    membership = Dict{Tuple{Symbol,I,Symbol},Vector{I}}()
-    for raw_binding in outputs.bindings
-        binding = raw_binding::CompiledModelOutputDestinationBinding
-        plan = getfield(binding, :plan)::CompiledModelOutputDestinationPlan
-        object_id = _index_object_id(objects, getfield(binding, :execution_object_id))
-        destination_ids = getfield(binding, :destination_ids)::Vector{I}
-        key = (getfield(plan, :application_id), object_id, getfield(plan, :group))
-        membership[key] = destination_ids
+# The origin index already holds every output group and its ordered destinations.
+# Comparing it directly also distinguishes an absent group from an empty group.
+function _model_output_membership_matches(before::NamedTuple, after::NamedTuple)
+    length(before) == length(after) || return false
+    return all(keys(before)) do name
+        prior = getproperty(before, name)
+        next = get(after, name, nothing)
+        !isnothing(next) && getfield(prior, :destination_ids) == getfield(next, :destination_ids)
     end
-    return membership
 end
 
-function _changed_distributed_output_target_ids(
-    objects::AbstractDict{I}, previous, current,
-) where {I<:ObjectId}
-    previous_membership = _distributed_output_target_membership(objects, previous)
-    current_membership = _distributed_output_target_membership(objects, current)
-    changed = Set{Tuple{Symbol,I}}()
-    for key in union(keys(previous_membership), keys(current_membership))
-        get(previous_membership, key, nothing) ==
-        get(current_membership, key, nothing) && continue
-        push!(changed, (key[1], key[2]))
+function _changed_distributed_output_target_ids(previous, current)
+    before = previous.by_execution_target
+    after = current.by_execution_target
+    changed = _object_key_set(keytype(after))
+    for (target, groups) in after
+        prior = get(before, target, nothing)
+        if isnothing(prior) || !_model_output_membership_matches(prior, groups)
+            push!(changed, target)
+        end
+    end
+    for key in keys(before)
+        haskey(after, key) || push!(changed, key)
     end
     return changed
 end
@@ -7365,7 +7359,7 @@ function _refresh_model_distributed_outputs(
     new_targets,
     pure_addition,
 )
-    return previous, Set{Tuple{Symbol,ObjectId}}(), nothing
+    return previous, _object_key_set(Tuple{Symbol,keytype(model.registry.objects)}), nothing
 end
 
 # Admit the old route through the existing finite plan owner before selecting
@@ -7378,19 +7372,14 @@ function _resolve_incremental_model_output_addition!(
     previous_plan isa P || return false
     execution_id = _index_object_id(objects, getfield(binding, :execution_object_id))
     previous_ids = getfield(binding, :destination_ids)::Vector{I}
-    default_scope = _default_dependency_scope(model, execution_id)
-    destination_ids = I[
-        object_id for object_id in added_ids
-        if _selector_matches_object_id(
-            model,
-            previous_plan.matcher,
-            object_id,
-            execution_id,
-            true,
-            default_scope,
-            false,
-        ) && !first(_sorted_object_id_position(previous_ids, object_id))
-    ]
+    matcher = previous_plan.matcher
+    default_scope = isnothing(matcher.scope) ? _default_dependency_scope(model, execution_id) : nothing
+    destination_ids = I[]
+    for object_id in added_ids
+        Base.@inline _selector_matches_object_id(model, matcher, object_id, execution_id,
+            true, default_scope, false) || continue
+        first(_sorted_object_id_position(previous_ids, object_id)) || push!(destination_ids, object_id)
+    end
     isempty(destination_ids) && return true
     _sort_object_ids!(destination_ids)
     if !isempty(previous_ids) &&
@@ -7518,13 +7507,10 @@ function _incremental_distributed_output_addition!(
         end
         binding.membership_generation = UInt64(model.revision)
     end
-    changed_targets = Set{Tuple{Symbol,ObjectId}}(
-        (
-            resolved.plan.application_id,
-            resolved.execution_object_id,
-        )
-        for resolved in resolved_additions
-    )
+    changed_targets = _object_key_set(keytype(previous.by_execution_target))
+    for resolved in resolved_additions
+        push!(changed_targets, (resolved.plan.application_id, resolved.execution_object_id))
+    end
     return previous, changed_targets, nothing
 end
 
@@ -7559,9 +7545,7 @@ function _refresh_model_distributed_outputs(
         manual_application_ids,
         plans,
     )
-    changed_targets = _changed_distributed_output_target_ids(
-        model.registry.objects, previous, current,
-    )
+    changed_targets = _changed_distributed_output_target_ids(previous, current)
     changed_writers_by_variable = if pure_addition
         # A new origin may write to a destination already in the registry.
         _new_writers_on_existing_destinations(
@@ -8006,7 +7990,7 @@ function _temporal_source_application(
     end
     io = IOBuffer()
     print(io, "Temporal model input `", binding.input, "` from `",
-        source_id.value, '.', binding.source_var,
+        _object_id_text(source_id), '.', binding.source_var,
         "` has ambiguous source applications `")
     _print_selector_diagnostic(io, matches, Any[])
     print(io, "`. Add `application=...` to the `inputs=...` selector.")
@@ -8067,7 +8051,7 @@ function _compile_model_status_views(
     distributed_outputs=NoCompiledDistributedOutputs();
     status_view_schema,
 )
-    views = Dict{Tuple{Symbol,ObjectId},Any}()
+    views = _object_key_index(Tuple{Symbol,keytype(model.registry.objects)}, Any)
     previous = getfield(model, :binding_cache)
     previous_views = previous isa CompiledCompositeModel ? previous.status_views_by_target : nothing
     positions = Dict(
