@@ -4671,6 +4671,17 @@ function _refresh_scene_call_bindings!(
            observed_manual_call_binding_indices_by_callee_target
 end
 
+# A replacement can belong to any of the prepared input binding types.
+# Keep the admission and store independent of the binding being replaced.
+Base.@noinline function _store_rebuilt_input_binding!(
+    bindings, changed_bindings, index, replacement, cache, model,
+)
+    binding = _share_many_input_binding!(cache, model, only(replacement))
+    bindings[index] = binding
+    push!(changed_bindings, binding)
+    return binding
+end
+
 # One existing-binding lifecycle operation; admission precedes this worker.
 function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S) where {B<:CompiledModelInputBinding,S}
     (;
@@ -4790,13 +4801,9 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
        get(many_binding_cache.by_query, old_cache_key, nothing) === binding
         delete!(many_binding_cache.by_query, old_cache_key)
     end
-    replacement_binding = _share_many_input_binding!(
-        many_binding_cache,
-        model,
-        only(replacement),
+    replacement_binding = _store_rebuilt_input_binding!(
+        input_bindings, changed_bindings, index, replacement, many_binding_cache, model,
     )
-    input_bindings[index] = replacement_binding
-    push!(changed_bindings, replacement_binding)
     push!(rewired_consumer_ids, consumer_id)
     if binding.carrier_hint == :temporal_stream
         key = (binding.application_id, consumer_id)
