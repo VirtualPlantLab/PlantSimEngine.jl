@@ -8439,7 +8439,7 @@ function _model_output_rows(sim::Simulation, filter_object=nothing, filter_var=n
     rows = NamedTuple[]
     for ((application_id, object_id, variable), samples) in sort!(
         collect(sim.temporal_streams);
-        by=pair -> (string(first(pair)[1]), string(first(pair)[2].value), string(first(pair)[3])),
+        by=pair -> (string(first(pair)[1]), _object_id_text(first(pair)[2]), string(first(pair)[3])),
     )
         isnothing(filter_object) || object_id == ObjectId(filter_object) || continue
         isnothing(filter_var) || variable == Symbol(filter_var) || continue
@@ -8668,7 +8668,7 @@ function _model_requested_output_rows(
         for row in sort!(
             nonempty_source_rows;
             by=row -> (
-                string(row.object_id.value),
+                _object_id_text(row.object_id),
                 row.membership.start_time,
             ),
         )
@@ -8806,7 +8806,7 @@ function explain_outputs(sim::Simulation)
         )
         for ((application_id, object_id, variable), samples) in sort!(
             collect(sim.temporal_streams);
-            by=pair -> (string(first(pair)[1]), string(first(pair)[2].value), string(first(pair)[3])),
+            by=pair -> (string(first(pair)[1]), _object_id_text(first(pair)[2]), string(first(pair)[3])),
         )
     ]
 end

@@ -115,6 +115,10 @@ PSE.run!(::FamilyReplacement, status, environment, constants, context) = nothing
     @test_throws ErrorException("No compiled status view for application `replacement` on object " *
         "`(:tree, :leaf, 2)`.") PSE._model_status_view_for_application(
         compiled, application, leaf.id)
+    @test_throws ErrorException("Input binding `demand` on application `replacement` " *
+        "for object `(:tree, :leaf, 2)` reads `supply` from objects `[Symbol(\"root\")]`, " *
+        "but no source `Status` reference is available.") PSE._validate_model_input_source!(
+        model, :replacement, leaf.id, :demand, :supply, [root.id], nothing, :status)
 end
 
 @noinline function escape_registered_status!(sink, model, id, count)

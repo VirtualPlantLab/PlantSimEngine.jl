@@ -731,9 +731,9 @@ function CompositeModel(
     inferred_name = if !isnothing(name)
         Symbol(name)
     elseif root isa Object
-        Symbol(string(root.id.value))
+        Symbol(_object_id_text(root.id))
     else
-        Symbol(string(ObjectId(root).value))
+        Symbol(_object_id_text(ObjectId(root)))
     end
     instance = ObjectInstance(
         inferred_name,

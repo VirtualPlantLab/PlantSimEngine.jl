@@ -9371,7 +9371,7 @@ function _validate_model_input_source!(
     isempty(status_source_ids) && return nothing
     io = IOBuffer()
     print(io, "Input binding `", input_sym, "` on application `", application_id,
-        "` for object `", consumer_id.value, "` reads `", source_var, "` from objects `[")
+        "` for object `", _object_id_text(consumer_id), "` reads `", source_var, "` from objects `[")
     for (index, source_id) in pairs(status_source_ids)
         index == 1 || print(io, ", ")
         _print_selector_diagnostic(io, source_id.value, Any[])

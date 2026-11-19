@@ -80,7 +80,7 @@ _status_transform(model) = model.status_conversion.transform
 
 function _status_conversion_context(; object_id=nothing, application_id=nothing, origin=:unknown)
     parts = String["status variable"]
-    isnothing(object_id) || push!(parts, "on object `$(ObjectId(object_id).value)`")
+    isnothing(object_id) || push!(parts, "on object `$(_object_id_text(ObjectId(object_id)))`")
     isnothing(application_id) || push!(parts, "for application `$(application_id)`")
     origin === :unknown || push!(parts, "from `$(origin)`")
     return join(parts, " ")

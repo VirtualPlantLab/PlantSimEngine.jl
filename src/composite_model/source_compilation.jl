@@ -209,7 +209,7 @@ end
 function _compiled_source_application_models(application::CompiledModelApplication)
     models = Any[_application_default_model(application)]
     if !isnothing(_application_model_overrides(application))
-        for object_id in sort!(collect(keys(_application_model_overrides(application))); by=id -> string(id.value))
+        for object_id in sort!(collect(keys(_application_model_overrides(application))); by=_object_id_text)
             push!(models, _application_model_overrides(application)[object_id])
         end
     end
