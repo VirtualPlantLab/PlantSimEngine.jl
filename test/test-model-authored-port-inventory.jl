@@ -679,4 +679,97 @@ Base.showerror(io::IO, error::TaggedHookError) = print(io, "saved hook error: ",
 end
 end
 
+PSE.@process "captured_required_names" verbose=false
+struct InstanceRequiredNames{D,C} <: AbstractCaptured_Required_NamesModel
+    names::NTuple{3,Symbol}
+    declarations::D
+    calls::C
+end
+function PSE.inputs_(model::InstanceRequiredNames)
+    model.calls[] += 1
+    return NamedTuple{model.names}(model.declarations)
+end
+PSE.outputs_(::InstanceRequiredNames) = NamedTuple()
+PSE.run!(::InstanceRequiredNames, status, environment, constants, context) = nothing
+
+function required_name_model(; reverse=false)
+    names = reverse ? (:a, :buffer, :z) : (:z, :buffer, :a)
+    declarations = reverse ? (Required(Integer), Default(1f0), Required(Float32)) :
+        (Required(Float32), Default(1f0), Required(Integer))
+    return InstanceRequiredNames(names, declarations, Ref(0))
+end
+
+@testset "Required validation uses captured instance names in declaration order" begin
+    process_model = required_name_model()
+    cell = Ref(3f0)
+    model = CompositeModel(Object(:first; status=Status((z=cell, a=Ref(4),)));
+        applications=(ModelSpec(process_model; name=:dynamic, on=Many()),))
+    applications = PSE._compile_model_applications(model, PSE._model_timeline(model))
+    table = PSE._applications_by_id(applications)
+    application = only(applications)
+    before = process_model.calls[]
+    @test PSE._required_input_names(PSE._application_ports(application)) === (:z, :a)
+    @test PSE._validate_model_required_inputs!(model, applications, table,
+        PSE.CompiledModelInputBinding[]) === nothing
+    @test process_model.calls[] == before
+    @test PSE.refvalue(model_status(model, :first), :z) === cell
+    required = PSE._initialization_required_input_schema(application)
+    @test Set(keys(required)) == Set((:z, :a))
+    @test required[:z] isa Required{Float32}
+    @test required[:a] isa Required{Integer}
+    @test process_model.calls[] == before
+    # Real-value inspection remains fresh; only Required membership is captured.
+    @test keys(PSE._model_input_schema(application)) === (:z, :buffer, :a)
+    @test process_model.calls[] == before + 1
+
+    # The supplied object provides the physical cell type for Required(Integer).
+    missing_model = CompositeModel(Object(:first), Object(:second),
+        Object(:supplied; status=Status(z=1f0, a=1));
+        applications=(ModelSpec(process_model; name=:dynamic, on=Many()),))
+    missing_apps = PSE._compile_model_applications(missing_model, PSE._model_timeline(missing_model))
+    before = process_model.calls[]
+    error = try
+        PSE._validate_model_required_inputs!(missing_model, missing_apps,
+            PSE._applications_by_id(missing_apps), PSE.CompiledModelInputBinding[])
+        nothing
+    catch exception
+        exception
+    end
+    @test error isa ErrorException
+    fields = [(match.captures[1], match.captures[2]) for match in
+        eachmatch(r"on object `([^`]+)` requires `([^`]+)`", sprint(showerror, error))]
+    @test fields == [("first", "z"), ("first", "a"), ("second", "z"), ("second", "a")]
+    @test process_model.calls[] == before
+end
+
+@testset "object overrides preserve canonical Required order without replay" begin
+    base, replacement = required_name_model(), required_name_model(; reverse=true)
+    template = CompositeModelTemplate((ModelSpec(base; name=:dynamic, on=Many(scale=:Leaf)),))
+    instance = ObjectInstance(:stand, template; root=Object(:plant; scale=:Plant),
+        objects=(Object(:base_leaf; scale=:Leaf, parent=:plant, status=Status(z=1f0, a=1)),
+            Object(:leaf; scale=:Leaf, parent=:plant)),
+        object_overrides=(Override(object=:leaf, application=:dynamic, model=replacement),))
+    model = CompositeModel(instance)
+    applications = PSE._compile_model_applications(model, PSE._model_timeline(model))
+    before = (base.calls[], replacement.calls[])
+    error = try
+        PSE._validate_model_required_inputs!(model, applications,
+            PSE._applications_by_id(applications), PSE.CompiledModelInputBinding[])
+        nothing
+    catch exception
+        exception
+    end
+    @test error isa ErrorException
+    fields = [match.captures[1] for match in eachmatch(r"requires `([^`]+)`", sprint(showerror, error))]
+    @test fields == ["z", "a"]
+    @test (base.calls[], replacement.calls[]) == before
+    application = only(applications)
+    PSE._with_application_variant(application, ObjectId(:leaf)) do effective, ports
+        @test effective === replacement
+        @test ports.input_names === (:a, :buffer, :z)
+        @test getproperty(ports.input_declaration_types, :a) === Required{Integer}
+        @test getproperty(ports.input_declaration_types, :z) === Required{Float32}
+    end
+end
+
 end

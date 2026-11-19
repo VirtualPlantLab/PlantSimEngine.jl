@@ -1,0 +1,38 @@
+name: Validate captured required fields
+on:
+  push:
+    branches: [codex/qualify-prepared-required-fields]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    name: Required fields on Julia ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["1.10", "1.13.4"]
+    env:
+      JULIA_PKG_PRECOMPILE_AUTO: "0"
+      JULIA_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.version }}
+      - name: Instantiate PSE
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+      - name: Verify initialization, captured ports, shared cells and their growth
+        shell: bash
+        run: |
+          julia --project=. --startup-file=no -e '
+            using Test, PlantSimEngine
+            @assert realpath(pkgdir(PlantSimEngine)) == realpath(pwd())
+            for file in ("test-model-authored-port-inventory.jl", "test-model-status-initialization.jl", "test-fixed-status-prospective-distributed.jl", "test-status-fixed-storage.jl")
+                @testset "$file" begin
+                    include(joinpath("test", file))
+                end
+            end'
