@@ -1,0 +1,40 @@
+name: Matched XPalm execution on one Linux runner
+on:
+  push:
+    branches:
+      - codex/qualify-inline-kernel-ports
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 285
+    env:
+      OPENBLAS_NUM_THREADS: 1
+      OMP_NUM_THREADS: 1
+      JULIA_PKG_PRECOMPILE_AUTO: 0
+      JULIA_NUM_PRECOMPILE_TASKS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PalmStudio/XPalm.jl
+          ref: 5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd
+          path: public-xpalm
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.13.3'
+      - name: Compare main, historical, and the candidate before and after the status change
+        run: python3 .ci/xpalm-matched/run.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: matched-xpalm-linux
+          path: ${{ runner.temp }}/xpalm-results/*.json
+          if-no-files-found: warn
+          retention-days: 14
+

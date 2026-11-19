@@ -1,0 +1,41 @@
+name: Validate projected status reads during growth
+on:
+  push:
+    branches: [codex/qualify-inline-kernel-ports]
+permissions:
+  contents: read
+jobs:
+  growth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      JULIA_NUM_THREADS: "1"
+      JULIA_PKG_PRECOMPILE_AUTO: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 4f2ecc58c16d85fff6389e77b5efbf82fdc75f67
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1.13.4"
+      - name: Resolve the stock compiler and the exact package under test
+        shell: julia --startup-file=no {0}
+        run: |
+          using Pkg
+          Pkg.activate(joinpath(ENV["RUNNER_TEMP"], "status-growth"))
+          Pkg.develop(PackageSpec(path=pwd()))
+          Pkg.add(PackageSpec(name="JuliaC", version=v"0.3.12"))
+          Pkg.precompile()
+      - name: Check full status snapshots and both native growth fixtures
+        shell: bash
+        run: |
+          julia -C generic --project="$RUNNER_TEMP/status-growth" --startup-file=no -e '
+            using Test, PlantSimEngine, JuliaC
+            @assert realpath(pkgdir(PlantSimEngine)) == realpath(pwd())
+            @assert pkgversion(JuliaC) == v"0.3.12"
+            @testset "Status" begin
+                include("test/test-status-fixed-storage.jl")
+                include("test/test-model-status-view-cache-admission.jl")
+            end
+            include("test/integration/native_growth.jl")'
