@@ -142,7 +142,7 @@ _status_storage_reference_types(::Type{NamedTuple{N,R}}) where {N,R} = R
 _status_storage_reference_types(::Type{<:_FixedStatusStorage{N,R}}) where {N,R} = R
 _status_storage_reference_types(::Type{<:_ProjectedStatusStorage{N,R}}) where {N,R} = R
 @inline _status_reference(storage::NamedTuple, key) = getfield(storage, key)
-@inline function _status_reference(storage::Union{_FixedStatusStorage,_ProjectedStatusStorage}, key::Symbol)
+@inline function _status_reference(storage::_FixedStatusStorage, key::Symbol)
     reference = getfield(storage.refs, key)
     reference === nothing && throw(KeyError(key))
     return reference

@@ -75,6 +75,12 @@ end
     @test_throws ArgumentError PSE._projected_status_type(SCHEMA,Val((:unprepared,)),Tuple{RF32})
     factory = PSE.ExactReferenceFactory(SCHEMA,Tuple{RF64},Projected,(:x,))
     old = PSE._construct_status(factory,owner,(private,))
+    # Both directories share the same cells, so comparing values alone cannot
+    # detect a kernel read falling back to the canonical presence check.
+    projected_storage = typeof(getfield(old, :vars))
+    canonical_storage = typeof(getfield(owner, :vars))
+    @test which(PSE._status_reference, (projected_storage, Symbol)) !==
+          which(PSE._status_reference, (canonical_storage, Symbol))
     @test old.x === 100.0 && first(Tuple(old)) === 100.0
     @test PSE.refvalue(old,:x) === private
     @test PSE.refvalue(old,:seed) === PSE.refvalue(owner,:seed)
