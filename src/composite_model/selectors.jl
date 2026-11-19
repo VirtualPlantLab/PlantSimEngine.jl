@@ -526,6 +526,17 @@ function _mount_object_instance_applications(instances, instance_ids)
     return Tuple(mounted)
 end
 
+# The spelling of built-in key types is fixed. Store it in the compiled method
+# so searching mixed identities does not invoke Julia's generic type printer.
+@generated function _prepared_type_name(::Type{T}) where {T}
+    return QuoteNode(string(T))
+end
+
+const _ObjectIdScalar = Union{Symbol,String,Char,Bool,Base.BitInteger,Float16,Float32,Float64}
+_object_id_type_name(T) = string(T)
+_object_id_type_name(T::Type{<:Union{_ObjectIdScalar,Tuple{Vararg{_ObjectIdScalar}}}}) =
+    _prepared_type_name(T)
+
 function _object_id_isless(left::ObjectId, right::ObjectId)
     left_value = left.value
     right_value = right.value
@@ -533,7 +544,7 @@ function _object_id_isless(left::ObjectId, right::ObjectId)
     # within a type with string ordering between types is not transitive, and
     # distinct identities such as `1` and `Symbol("1")` otherwise compare equal.
     if typeof(left_value) !== typeof(right_value)
-        return isless(string(typeof(left_value)), string(typeof(right_value)))
+        return isless(_object_id_type_name(typeof(left_value)), _object_id_type_name(typeof(right_value)))
     end
     if hasmethod(isless, Tuple{typeof(left_value),typeof(right_value)})
         return isless(left_value, right_value)
@@ -1075,12 +1086,6 @@ function _available_selector_labels(model::CompositeModel, candidate_ids)
     )
 end
 
-# Type display is fixed by the schema. Keeping its text constant avoids the
-# generic Julia syntax printer in the compiled application's error paths.
-@generated function _selector_diagnostic_type_name(::Type{T}) where {T}
-    return QuoteNode(string(T))
-end
-
 function _print_selector_diagnostic(io, value::T, ancestors) where {T}
     # Ancestors are inspected only with ===; recursive values remain typed by
     # this method's argument, never recovered from the identity stack.
@@ -1143,7 +1148,7 @@ function _print_selector_diagnostic_value(io, value::ObjectId, ancestors)
 end
 
 function _print_selector_diagnostic_value(io, ::Type{T}, ancestors) where {T}
-    print(io, _selector_diagnostic_type_name(T))
+    print(io, _prepared_type_name(T))
     return nothing
 end
 
@@ -1178,7 +1183,7 @@ function _print_selector_diagnostic_value(io, items::Union{Tuple,AbstractVector}
 end
 
 function _print_selector_diagnostic_value(io, items::AbstractArray, ancestors)
-    print(io, _selector_diagnostic_type_name(typeof(items)), "(size=")
+    print(io, _prepared_type_name(typeof(items)), "(size=")
     _print_selector_diagnostic(io, size(items), ancestors)
     print(io, ", values=[")
     for (index, item) in enumerate(items)
@@ -1190,7 +1195,7 @@ function _print_selector_diagnostic_value(io, items::AbstractArray, ancestors)
 end
 
 function _print_selector_diagnostic_value(io, items::AbstractDict, ancestors)
-    print(io, _selector_diagnostic_type_name(typeof(items)), '(')
+    print(io, _prepared_type_name(typeof(items)), '(')
     for (index, (key, value)) in enumerate(items)
         index == 1 || print(io, ", ")
         _print_selector_diagnostic(io, key, ancestors)
@@ -1202,7 +1207,7 @@ function _print_selector_diagnostic_value(io, items::AbstractDict, ancestors)
 end
 
 function _print_selector_diagnostic_value(io, items::AbstractSet, ancestors)
-    print(io, _selector_diagnostic_type_name(typeof(items)), '(')
+    print(io, _prepared_type_name(typeof(items)), '(')
     for (index, item) in enumerate(items)
         index == 1 || print(io, ", ")
         _print_selector_diagnostic(io, item, ancestors)
@@ -1258,11 +1263,11 @@ end
 
 function _print_selector_diagnostic_value(io, value::T, ancestors) where {T}
     if isprimitivetype(T)
-        print(io, _selector_diagnostic_type_name(T), "(bytes=")
+        print(io, _prepared_type_name(T), "(bytes=")
         _print_selector_diagnostic(io, reinterpret(NTuple{sizeof(T),UInt8}, value), ancestors)
         print(io, ')')
     else
-        _print_selector_diagnostic_record(io, _selector_diagnostic_type_name(T), value, ancestors)
+        _print_selector_diagnostic_record(io, _prepared_type_name(T), value, ancestors)
     end
     return nothing
 end

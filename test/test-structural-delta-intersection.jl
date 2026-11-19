@@ -13,6 +13,18 @@ struct TiedOrderId
 end
 Base.isless(left::TiedOrderId, right::TiedOrderId) = isless(left.group, right.group)
 
+struct CustomSortKey end
+Base.show(io::IO, ::Type{CustomSortKey}) = print(io, "AAA custom key")
+
+@testset "mixed object IDs keep the order of their concrete type names" begin
+    keys = (:leaf, (:plant, :leaf, 2), 7, (:a, :b), (1.0, 'z'), CustomSortKey())
+    for a in keys, b in keys
+        typeof(a) === typeof(b) && continue
+        @test PSE._object_id_isless(ObjectId(a), ObjectId(b)) ==
+            isless(string(typeof(a)), string(typeof(b)))
+    end
+end
+
 @testset "structural binding intersections preserve set membership" begin
     empty_sources = ObjectId[]
     empty_dirty = Set{ObjectId}()
