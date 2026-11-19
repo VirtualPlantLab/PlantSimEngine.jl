@@ -33,13 +33,20 @@ mutable struct _FixedStatusStorage{N,R<:Tuple,T<:NamedTuple}
     end
 end
 
-# Kernel ports remain a dense NT. The immutable full snapshot captures the SAME
-# refs and presence, including private/temporal overlays, never a latest owner.
-mutable struct _ProjectedStatusStorage{N,R<:Tuple,H<:NamedTuple,T<:NamedTuple}
-    const hot::H
+# A kernel carries its declared reference cells inline. The wider directory of
+# visible cells and the epoch at which it was captured travel as one handle.
+mutable struct _ProjectedStatusSnapshot{T<:NamedTuple}
     const refs::T
     const reference_epoch::UInt
 end
+
+struct _ProjectedStatusStorage{N,R<:Tuple,H<:NamedTuple,T<:NamedTuple}
+    hot::H
+    snapshot::_ProjectedStatusSnapshot{T}
+end
+
+@inline _status_reference_slots(storage::_FixedStatusStorage) = storage.refs
+@inline _status_reference_slots(storage::_ProjectedStatusStorage) = storage.snapshot.refs
 
 """
     Status(vars)
@@ -137,7 +144,7 @@ _fixed_status(names::Val{N}, references::Type{<:Tuple}) where {N} =
 
 _status_storage_names(storage::NamedTuple) = keys(storage)
 _status_storage_names(storage::Union{_FixedStatusStorage{N},_ProjectedStatusStorage{N}}) where {N} =
-    filter(name -> getfield(storage.refs, name) !== nothing, N)
+    filter(name -> getfield(_status_reference_slots(storage), name) !== nothing, N)
 _status_storage_reference_types(::Type{NamedTuple{N,R}}) where {N,R} = R
 _status_storage_reference_types(::Type{<:_FixedStatusStorage{N,R}}) where {N,R} = R
 _status_storage_reference_types(::Type{<:_ProjectedStatusStorage{N,R}}) where {N,R} = R
@@ -149,7 +156,7 @@ _status_storage_reference_types(::Type{<:_ProjectedStatusStorage{N,R}}) where {N
 end
 @inline function _status_reference(storage::_ProjectedStatusStorage{N,R,H}, key::Symbol) where {N,R,H}
     hasfield(H, key) && return getfield(storage.hot, key)
-    reference = getfield(storage.refs, key)
+    reference = getfield(_status_reference_slots(storage), key)
     reference === nothing && throw(KeyError(key))
     return reference
 end
@@ -161,7 +168,8 @@ _status_storage_references(storage::Union{_FixedStatusStorage,_ProjectedStatusSt
 
 # Reference/presence edits invalidate projections; ref[] = value does not.
 _status_reference_epoch(storage::NamedTuple) = UInt(0)
-_status_reference_epoch(storage::Union{_FixedStatusStorage,_ProjectedStatusStorage}) = storage.reference_epoch
+_status_reference_epoch(storage::_FixedStatusStorage) = storage.reference_epoch
+_status_reference_epoch(storage::_ProjectedStatusStorage) = storage.snapshot.reference_epoch
 _status_reference_epoch(status::Status) = _status_reference_epoch(_status_vars(status))
 function _watch_status_references!(status::Status{N,<:_FixedStatusStorage}, sink, id) where {N}
     storage = _status_vars(status)
@@ -327,7 +335,7 @@ Base.copy(status::Status) = Status(_copy_status_storage(_status_vars(status)))
     storage = _status_vars(source)
     storage isa NamedTuple && return storage
     storage isa Union{_FixedStatusStorage,_ProjectedStatusStorage} || throw(ArgumentError("Unknown Status backing."))
-    return getfield(storage, :refs)
+    return _status_reference_slots(storage)
 end
 @inline _initial_status_reference_count(source::Status) =
     _initial_status_reference_count(_initial_status_reference_storage(source))
@@ -397,7 +405,7 @@ end
     name::Symbol,
 ) where {N}
     branches = [:(name === $(QuoteNode(field)) &&
-        return getfield(getfield(storage, :refs), $index) !== nothing)
+        return getfield(_status_reference_slots(storage), $index) !== nothing)
         for (index, field) in enumerate(N)]
     return quote
         $(Expr(:meta, :inline))
