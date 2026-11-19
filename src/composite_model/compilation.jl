@@ -5425,12 +5425,21 @@ function explain_initialization(model::CompositeModel)
     return _explain_initialization(report)
 end
 
+# Required membership comes from the exact declaration-type witnesses; the
+# literal tuple keeps declaration order at any width without replaying inputs_.
+@generated function _required_input_names_from_types(::NamedTuple{Names,Types}) where {Names,Types}
+    required = Tuple(name for (name, declaration) in zip(Names, fieldtypes(Types))
+        if declaration <: Type{<:Required})
+    return QuoteNode(required)
+end
+
+_required_input_names(ports) =
+    _required_input_names_from_types(_authored_metadata_value(ports.input_declaration_types))
+
 function _initialization_required_input_schema(application)
     ports = _application_ports(application)
     required = Dict{Symbol,Required}()
-    for name in ports.input_names
-        declaration = getproperty(ports.input_declaration_types, name)
-        declaration <: Required || continue
+    for name in _required_input_names(ports)
         required[name] = Required(getproperty(ports.input_types, name))
     end
     return required
@@ -9393,11 +9402,9 @@ function _validate_model_required_inputs!(model::CompositeModel, applications, a
     missing = NamedTuple{(:application_id, :object_id, :input),Tuple{Symbol,I,Symbol}}[]
     for partial in applications
         _with_model_application(applications_by_id, partial) do application
-            schema = _model_input_schema(application)
+            required_names = _required_input_names(_application_ports(application))
             for object_id in application.target_ids
-                for (input_, declaration) in pairs(schema)
-                    declaration isa Required || continue
-                    input = Symbol(input_)
+                for input in required_names
                     (application.id, object_id, input) in bound && continue
                     status = model_status(model, object_id)
                     status isa Status && hasproperty(status, input) && continue
