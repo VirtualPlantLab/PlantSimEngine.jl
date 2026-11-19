@@ -1058,7 +1058,9 @@ function _available_selector_labels(model::CompositeModel, candidate_ids)
     scales = Symbol[]
     kinds = Symbol[]
     species = Symbol[]
-    ids = Vector{keytype(model.registry.objects)}()
+    I = keytype(model.registry.objects)
+    V = fieldtype(I, :value)
+    ids = I[]
     for object in objects
         isnothing(object.scale) || push!(scales, object.scale)
         isnothing(object.kind) || push!(kinds, object.kind)
@@ -1069,7 +1071,7 @@ function _available_selector_labels(model::CompositeModel, candidate_ids)
         scales=sort!(unique!(scales); by=string),
         kinds=sort!(unique!(kinds); by=string),
         species=sort!(unique!(species); by=string),
-        ids=[id.value for id in _sort_object_ids!(unique!(ids))],
+        ids=V[id.value for id in _sort_object_ids!(unique!(identity, ids; seen=Set{I}()))],
     )
 end
 

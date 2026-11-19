@@ -457,6 +457,14 @@ end
     catch error
         sprint(showerror, error)
     end
+    mixed = close_registry(CompositeModel(
+        Object(:root; scale=:Scene), Object((:tree, :leaf, 2); scale=:Leaf, parent=:root)))
+    I = keytype(mixed.registry.objects)
+    for ids in (I[], I[ObjectId(:root)], collect(keys(mixed.registry.objects)))
+        available = @inferred PSE._available_selector_labels(mixed, ids)
+        @test eltype(available.ids) === Union{Symbol,Tuple{Symbol,Symbol,Int}}
+        @test Set(available.ids) == Set(id.value for id in ids)
+    end
     for selector in (One(scale=:Leaf), One(scale=:Leef))
         expected = message(ordinary, selector)
         @test occursin("Expected exactly one object", expected)
