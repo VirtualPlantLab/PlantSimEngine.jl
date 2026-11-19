@@ -16,26 +16,28 @@ function trajectory(label, mode, sampled_class)
     sim = preparation.value
     @test model_rngs(source) == initial_rng
     @test !Profile.is_running()
-    Profile.clear()
     execution = @timed if mode === :full
         PSE.continue!(sim; steps=DAYS)
     else
         CP.profile_steps!(PSE.step!, object_count, sim, COUNTS, sampled_class)
     end
     @test !Profile.is_running()
-    profile = sampled_class === :none ? nothing : CP.summarize()
     days = mode === :daily ? execution.value : nothing
+    tail_days = isnothing(days) ? Int[] : [x.day for x in days if x.sampled && x.tail_window]
+    profile = sampled_class === :none ? nothing : CP.summarize(sampled_class;
+        after_word=first(days).raw_word_begin, tail_window_days=tail_days)
     if mode === :daily
         @test length(days) == DAYS
         @test count(x -> x.growth, days) == REF["growth_days"]
         if sampled_class !== :none
             @test count(x -> x.sampled, days) == (sampled_class === :growth ? REF["growth_days"] : DAYS - REF["growth_days"])
-            @test all(x -> x.sampled || iszero(x.profile_words), days)
+            @test all(x -> (x.marker_exit_ns > 0) == x.sampled, days)
             write_json(ROLE * "-" * String(sampled_class) * "-days.json", days)
         end
     end
     if profile !== nothing
         @test profile.samples > 0
+        @test !isempty(tail_days) && profile.late_window_samples > 0
         @test !profile.buffer_full
         @test iszero(execution.compile_time) && iszero(execution.recompile_time)
         write_json(ROLE * "-" * String(sampled_class) * "-profile.json", profile)
