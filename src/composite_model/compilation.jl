@@ -6877,7 +6877,6 @@ end
 function _stage_model_status_defaults!(preparation, defaults::NamedTuple, variables,
     stage_default!::F, context,
 ) where {F}
-    rewrites_avoided = 0
     for variable in variables
         if preparation isa Status
             hasproperty(preparation, variable) && continue
@@ -6886,17 +6885,17 @@ function _stage_model_status_defaults!(preparation, defaults::NamedTuple, variab
         elseif _status_recipe_has_variable(preparation, variable)
             continue
         end
-        rewrites_avoided += _with_metadata_entry(stage_default!, defaults, variable,
+        _with_metadata_entry(stage_default!, defaults, variable,
             preparation, variable, context)
     end
-    return rewrites_avoided
+    return nothing
 end
 
 Base.@noinline function _stage_model_output_default!(value, recipe, variable, context)
     _status_recipe_add_default!(context.model, recipe, context.object_id, variable, value;
         application_id=context.application_id, origin=:model_output_default,
         conversion_records=context.conversion_records)
-    return 0
+    return nothing
 end
 
 function _prepare_model_output_statuses!(
@@ -7818,11 +7817,12 @@ Base.@noinline function _stage_model_input_default!(value, recipe, variable, con
             application_id=context.application_id, origin=:model_input_default,
             conversion_records=context.conversion_records)
         context.default_status_updates[(context.object_id, variable)] = true
-        return 0
+        return nothing
     end
-    return Base.@inline _with_model_input_status_reference(
+    Base.@inline _with_model_input_status_reference(
         _stage_model_input_default_reference!, context.bindings, reference,
         recipe, variable, value, context)
+    return nothing
 end
 
 function _stage_model_input_default_reference!(reference, preparation, variable,
@@ -7835,7 +7835,9 @@ function _stage_model_input_default_reference!(reference, preparation, variable,
             origin=:model_input_default, private_copy=true,
             conversion_records=context.conversion_records)
     _status_recipe_set_reference!(preparation, variable, reference)
-    return 1
+    counter = context.input_default_rewrites_avoided
+    isnothing(counter) || (counter[] += 1)
+    return nothing
 end
 
 function _stage_model_bound_input_reference!(binding, context)
@@ -7898,25 +7900,26 @@ function _prepare_model_input_statuses_batched!(
     record_conversions = !_no_status_conversion(model.status_conversion)
     conversion_records = record_conversions ? Dict{Any,Any}() : model.status_conversion_records
     default_status_updates = Dict{Tuple{I,Symbol},Bool}()
-    input_default_rewrites_avoided = 0
+    # Keep optional telemetry local until the staged status transaction succeeds.
+    input_default_rewrites_avoided = isnothing(performance) ? nothing : Ref(0)
     context = (; model, recipes, recipe_order, bindings, final_references,
-        conversion_records, default_status_updates)
+        conversion_records, default_status_updates, input_default_rewrites_avoided)
     for partial in applications
-        input_default_rewrites_avoided += Base.@inline _with_model_application(applications_by_id, partial) do application
-            rewrites_avoided = 0
+        Base.@inline _with_model_application(applications_by_id, partial) do application
             _model_input_names(application)
             schemas = _application_default_schemas(application, Val(:inputs))
             for object_id in application.target_ids
-                rewrites_avoided += Base.@inline _with_application_defaults(application, object_id, schemas, Val(:inputs)) do defaults
+                Base.@inline _with_application_defaults(application, object_id, schemas, Val(:inputs)) do defaults
                     preparation = _status_preparation_for_object!(
                         recipes, recipe_order, model, object_id)
                     selected = (; context..., application_id=application.id, object_id)
                     _with_canonical_status_preparation(_stage_model_status_defaults!,
                         recipes, model.registry.objects.catalog, preparation, defaults,
                         keys(defaults), _stage_model_input_default!, selected)
+                    return nothing
                 end
             end
-            return rewrites_avoided
+            return nothing
         end
     end
 
@@ -7944,12 +7947,13 @@ function _prepare_model_input_statuses_batched!(
             delete!(variables, variable)
         end
     end
-    iszero(input_default_rewrites_avoided) ||
+    if !isnothing(input_default_rewrites_avoided) && !iszero(input_default_rewrites_avoided[])
         _runtime_performance_count!(
             performance,
             :input_default_status_rewrites_avoided,
-            input_default_rewrites_avoided,
+            input_default_rewrites_avoided[],
         )
+    end
     return result
 end
 

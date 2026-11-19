@@ -132,6 +132,37 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+@testset "input default rewrite telemetry preserves cells across batched births" begin
+    metric = :input_default_status_rewrites_avoided
+    for enabled in (false, true)
+        model = CompositeModel(Object(:plant; scale=:Plant),
+            Object(:leaf_1; scale=:Leaf, parent=:plant);
+            applications=(
+                ModelSpec(StatusTypeLifecycleIncrementModel(); name=:source, on=Many(scale=:Leaf)),
+                ModelSpec(StatusTypeLifecycleBoundConsumerModel(); name=:consumer, on=Many(scale=:Leaf),
+                    inputs=(bound_value=One(Self(); application=:source, var=:value),)),
+            ), environment=(duration=Hour(1),))
+        simulation = run!(model; steps=0, outputs=:all, performance=enabled)
+        performance = Advanced.runtime_performance(simulation)
+        @test isnothing(performance) == !enabled
+        before = enabled ? get(performance.counts, metric, 0) : 0
+        register_object!(model, Object(:leaf_2; scale=:Leaf, parent=:plant))
+        register_object!(model, Object(:leaf_3; scale=:Leaf, parent=:plant))
+        continue!(simulation)
+        for id in (:leaf_1, :leaf_2, :leaf_3)
+            status = model_status(model, id)
+            @test status.value === status.bound_value === status.seen === 1.0
+            @test PlantSimEngine.refvalue(status, :bound_value) ===
+                  PlantSimEngine.refvalue(status, :value)
+        end
+        performance = Advanced.runtime_performance(simulation)
+        @test isnothing(performance) == !enabled
+        if enabled
+            @test performance.counts[metric] - before == 2
+        end
+    end
+end
+
 @testset "pure additions preserve bound-default conversion diagnostics" begin
     calls = Ref(0)
     model = CompositeModel(
