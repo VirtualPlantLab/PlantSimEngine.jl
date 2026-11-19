@@ -304,14 +304,15 @@ const TEST_GROUPS = (
     ),
 )
 
-# On Julia 1.10 the prepared execution tests alone can take over two hours.
-# Run them together in one job; the other three jobs retain source order.
+# Prepared execution alone can take over two hours on Julia 1.10. On macOS
+# the reusable scenario tests also need a separate share of the three-hour job budget.
 const CI_TEST_SHARDS = let
     group_index(name) = only(findall(group -> first(group) == name, TEST_GROUPS))
     prepared = group_index("Prepared execution schemas")
+    reusable = group_index("Reusable scenario plans")
     newborn = group_index("Newborn retained manual calls")
     identities = group_index("Identity-aware Many inputs")
-    @assert prepared < newborn < identities
-    (filter(!=(prepared), 1:(newborn - 1)), prepared:prepared,
-        newborn:(identities - 1), identities:lastindex(TEST_GROUPS))
+    @assert prepared < reusable < newborn < identities
+    (filter(i -> i != prepared && i != reusable, 1:(newborn - 1)), prepared:prepared,
+        newborn:(identities - 1), [reusable; identities:lastindex(TEST_GROUPS)])
 end
