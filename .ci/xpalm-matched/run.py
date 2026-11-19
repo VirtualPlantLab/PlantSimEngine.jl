@@ -15,7 +15,8 @@ results.mkdir()
 revisions = {
     "main": "8d1f8484c8ad68cc5da8004209b2062070cac28a",
     "historical": "cd5517551f4cd4cf01504cb312e2b81f6fabe6ba",
-    "candidate": "eeeb365d9875e2645e493a81e184d08cdc537f2c",
+    "before": "ad69a5993dcfcd596595b43f8e89362849e70134",
+    "candidate": "83e60048ac8a9ec59a992605fabdb83f01ee4f45",
 }
 xpalm_revision = "5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd"
 
@@ -48,7 +49,7 @@ for role, revision in revisions.items():
     arm.mkdir()
     checkout(root, arm / "PlantSimEngine", revision)
     checkout(root / "public-xpalm", arm / "XPalm", xpalm_revision)
-    if role == "candidate":
+    if role in ("before", "candidate"):
         patch = recipe / "xpalm-743f.diff"
         assert digest(patch) == "743f931fbb9d6208a6c46b42b11180fba210b5fb09af58912749002ce675a61f"
         run("git", "apply", "--check", str(patch), cwd=arm / "XPalm")

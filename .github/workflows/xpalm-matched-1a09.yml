@@ -8,7 +8,7 @@ permissions:
 jobs:
   compare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 285
     env:
       OPENBLAS_NUM_THREADS: 1
       OMP_NUM_THREADS: 1
@@ -28,7 +28,7 @@ jobs:
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1.13.3'
-      - name: Compare ordinary main, historical and candidate engines in sequence
+      - name: Compare main, historical, and the candidate before and after the status change
         run: python3 .ci/xpalm-matched/run.py
       - uses: actions/upload-artifact@v4
         if: always()
