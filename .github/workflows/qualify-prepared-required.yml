@@ -25,11 +25,56 @@ jobs:
           version: ${{ matrix.version }}
       - name: Instantiate PSE
         run: julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+      - name: Check required-name inference against the tuple filter on narrow and wide models
+        shell: julia --project=. --startup-file=no {0}
+        run: |
+          using PlantSimEngine, Test
+          const PSE = PlantSimEngine
+
+          function captured_ports(n)
+              names = ntuple(i -> Symbol(:field_, i), n)
+              declarations = ntuple(i -> isodd(i) ? Required(Integer) : Default(1.0), n)
+              types = PSE._authored_port_types(typeof, NamedTuple{names}(declarations))
+              return PSE.AuthoredPortInventory(PSE.AuthoredPortNames(names), nothing, nothing,
+                  nothing, types, nothing, nothing, nothing, nothing, nothing, nothing)
+          end
+
+          filtered(ports) = filter(name -> getproperty(ports.input_declaration_types, name) <: Required,
+              ports.input_names)
+
+          function check(f::F, ports, expected) where {F}
+              @test f(ports) === expected
+              inferred = only(Base.return_types(f, Tuple{typeof(ports)}))
+              bytes = @allocated f(ports)
+              return (exact = inferred === typeof(expected), bytes = bytes)
+          end
+
+          @testset "Capture names at every width" begin
+              for width in (0, 3, 31, 32, 96, 160, 822)
+                  ports = captured_ports(width)
+                  expected = Tuple(ports.input_names[1:2:end])
+                  before = check(filtered, ports, expected)
+                  after = check(PSE._required_input_names, ports, expected)
+                  @test after.exact
+                  println("WIDTH ", width, " filter=", before, " prepared=", after)
+              end
+              err = ArgumentError("input declaration failed")
+              failure = PSE.ScenarioPreparationFailure(:input_ports, :reader, err, nothing)
+              ports = PSE.AuthoredPortInventory(failure, nothing, failure, nothing, failure,
+                  nothing, failure, nothing, nothing, nothing, nothing)
+              caught = try
+                  PSE._required_input_names(ports)
+                  nothing
+              catch exception
+                  exception
+              end
+              @test caught === err
+          end
       - name: Verify initialization, captured ports, shared cells and their growth
         shell: bash
         run: |
           julia --project=. --startup-file=no -e '
-            using Test, PlantSimEngine
+            using Test, PlantSimEngine, PlantSimEngine.Diagnostics
             @assert realpath(pkgdir(PlantSimEngine)) == realpath(pwd())
             for file in ("test-model-authored-port-inventory.jl", "test-model-status-initialization.jl", "test-fixed-status-prospective-distributed.jl", "test-status-fixed-storage.jl")
                 @testset "$file" begin

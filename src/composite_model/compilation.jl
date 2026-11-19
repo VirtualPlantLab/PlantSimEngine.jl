@@ -5425,12 +5425,16 @@ function explain_initialization(model::CompositeModel)
     return _explain_initialization(report)
 end
 
-# Required membership comes from the authored contract. Filter once, in the
-# declaration's order, without reading initializer values or replaying inputs_.
-_required_input_names(ports) = filter(
-    name -> getproperty(ports.input_declaration_types, name) <: Required,
-    ports.input_names,
-)
+# Required membership comes from the exact declaration-type witnesses; the
+# literal tuple keeps declaration order at any width without replaying inputs_.
+@generated function _required_input_names_from_types(::NamedTuple{Names,Types}) where {Names,Types}
+    required = Tuple(name for (name, declaration) in zip(Names, fieldtypes(Types))
+        if declaration <: Type{<:Required})
+    return QuoteNode(required)
+end
+
+_required_input_names(ports) =
+    _required_input_names_from_types(_authored_metadata_value(ports.input_declaration_types))
 
 function _initialization_required_input_schema(application)
     ports = _application_ports(application)
