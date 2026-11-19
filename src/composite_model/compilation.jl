@@ -3014,7 +3014,7 @@ function _compile_application_consumer_bindings!(
             distributed_outputs, many_binding_cache, performance,
         )
         _record_consumer_input_bindings!(
-            recorder, bindings, application, consumer_id,
+            recorder, bindings, application_id, consumer_id,
             first_new_binding, length(bindings),
         )
     end
@@ -3031,7 +3031,7 @@ struct _AddedConsumerInputBindings{M,C,B,I}
 end
 
 function _record_consumer_input_bindings!(
-    recorder::_AddedConsumerInputBindings, bindings::AbstractVector{B}, application, consumer_id,
+    recorder::_AddedConsumerInputBindings, bindings::AbstractVector{B}, application_id::Symbol, consumer_id,
     first_new_binding, last_new_binding,
 ) where {B}
     first_new_binding <= last_new_binding || return nothing
@@ -3045,7 +3045,7 @@ function _record_consumer_input_bindings!(
         push!(new_bindings, binding)
     end
     append!(recorder.changed_bindings, new_bindings)
-    recorder.input_bindings_by_target[(application.id, consumer_id)] = new_bindings
+    recorder.input_bindings_by_target[(application_id, consumer_id)] = new_bindings
     return nothing
 end
 
