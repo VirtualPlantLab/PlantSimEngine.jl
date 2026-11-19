@@ -82,7 +82,7 @@ end
         return Status($dense)::Result
     end
     FullNames = _status_schema_names(Result)
-    Full = fieldtype(Storage, :refs)
+    Full = fieldtype(fieldtype(Storage, :snapshot), :refs)
     full = map(eachindex(FullNames)) do i
         name = FullNames[i]
         hot_index = findfirst(isequal(name), Names)
@@ -93,7 +93,8 @@ end
     return quote
         original_refs = $load_refs
         hot = $dense
-        snapshot = $Full($(Expr(:tuple,full...)))
-        return Status($Storage(hot, snapshot, _status_reference_epoch(original)))::Result
+        refs = $Full($(Expr(:tuple,full...)))
+        snapshot = _ProjectedStatusSnapshot(refs, _status_reference_epoch(original))
+        return Status($Storage(hot, snapshot))::Result
     end
 end

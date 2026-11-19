@@ -67,8 +67,11 @@ end
     owner = PSE._new_prepared_status(SCHEMA,Status(x=3f0,q=1//2,seed=Float32[2]))
     private = Ref(100.0)
     Projected = @inferred PSE._projected_status_type(SCHEMA,Val((:x,:q)),Tuple{RF64,RR})
-    # Execution targets carry a handle to the snapshot, even for a wide namespace.
-    @test sizeof(Projected) == sizeof(SCHEMA)
+    # The kernel header size depends only on the ports it uses.
+    extra = ntuple(i -> Symbol(:other_, i), 64)
+    wide = PSE._fixed_status_type((:x, :q, extra...), Tuple{RF32,RR,Vararg{RF32,64}})
+    wide_projection = PSE._projected_status_type(wide, (:x, :q), Tuple{RF64,RR})
+    @test sizeof(wide_projection) == sizeof(Projected)
     @test Projected === PSE._projected_status_type(SCHEMA,(:x,:q),Tuple{RF64,RR})
     @test PSE._projected_status_type(SCHEMA,Val(()),Tuple{}) ===
         PSE._projected_status_type(SCHEMA,(),Tuple{})
