@@ -457,7 +457,7 @@ end
 
 # Registered producers and consumers already belong to the registry's scale
 # index. A pending object's inherited labels and route still use the full matcher.
-_prepared_status_context_ids(objects::AbstractDict) = keys(objects)
+_registry_object_ids(objects::AbstractDict) = keys(objects)
 function _prepared_status_context_ids(model, application, route, object, parent_id)
     registry = model.registry
     scope = route.matcher.scope
@@ -479,7 +479,7 @@ function _prepared_status_context_ids(model, application, route, object, parent_
     end
     scale = application.target_matcher.scale
     scale isa Symbol && return get(model.registry.by_scale, scale, ())
-    return _prepared_status_context_ids(model.registry.objects)
+    return _registry_object_ids(model.registry.objects)
 end
 
 # One exact application/permission pair enters the producer/route worker.

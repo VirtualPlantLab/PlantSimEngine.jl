@@ -1205,9 +1205,22 @@ _object_id_text(id::ObjectId) = string(id.value)
 _object_id_text(id::ObjectId{<:Tuple}) = sprint(_show_object_id_element, id.value)
 
 _show_object_id_element(io, value) = show(io, value)
-# Inline Julia's Symbol branch to keep its spelling without compiling expression display.
-_show_object_id_element(io, value::Symbol) =
-    Base.@inline Base.show_unquoted_quote_expr(io, value, 0, 0, 0)
+# Preserve Base's quoted-Symbol spelling without its Any-valued Expr branch.
+function _show_object_id_element(io, value::Symbol)
+    if value in Base.quoted_syms
+        print(io, ":(")
+        print(io, value)
+        print(io, ")")
+    elseif Base.isidentifier(value) || (Base._isoperator(value) && value !== Symbol("'"))
+        print(io, ':')
+        print(io, value)
+    else
+        print(io, "Symbol(")
+        show(io, String(value))
+        print(io, ')')
+    end
+    return nothing
+end
 
 function _show_object_id_element(io, value::Tuple)
     print(io, '(')
@@ -1852,6 +1865,14 @@ function _geometry_inheriting_descendants(model::CompositeModel, root_id::Object
 end
 
 
+function _object_id_sort_order(ids)
+    labels = Vector{String}(undef, length(ids))
+    for index in eachindex(ids)
+        labels[index] = _object_id_text(ids[index])
+    end
+    return sortperm(labels)
+end
+
 function object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, id=nothing)
     ids = _indexed_object_ids(
         model;
@@ -1860,12 +1881,25 @@ function object_ids(model::CompositeModel; scale=nothing, kind=nothing, species=
         species=_maybe_symbol_collection(species),
         id=_normalize_object_id_criterion(id),
     )
-    isnothing(ids) && (ids = collect(keys(model.registry.objects)))
+    isnothing(ids) && (ids = collect(_registry_object_ids(model.registry.objects)))
     length(ids) < 2 && return ids
-    return ids[sortperm(map(_object_id_text, ids))]
+    order = _object_id_sort_order(ids)
+    sorted = similar(ids)
+    # sortperm supplies exactly one valid source index for each result slot.
+    @inbounds for index in eachindex(order)
+        sorted[index] = ids[order[index]]
+    end
+    return sorted
 end
 
-model_objects(model::CompositeModel; kwargs...) = [_model_object(model, id) for id in object_ids(model; kwargs...)]
+function model_objects(model::CompositeModel; kwargs...)
+    ids = object_ids(model; kwargs...)
+    objects = Vector{Object}(undef, length(ids))
+    for index in eachindex(ids)
+        objects[index] = _model_object(model, ids[index])
+    end
+    return objects
+end
 
 function _instance_object_ids(model::CompositeModel, instance::ObjectInstance)
     root_id = _instance_root_id(instance)

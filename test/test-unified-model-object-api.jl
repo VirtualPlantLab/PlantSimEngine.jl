@@ -4481,3 +4481,67 @@ end
     run!(strict_hint_override_scene; steps=2)
     @test only(model_objects(strict_hint_override_scene; scale=:Leaf)).status.signal == 2.0
 end
+
+@testset "model_objects returns registered objects in selection order" begin
+    organ = (:leaf, :a, 1)
+    scene = CompositeModel(
+        Object(:root; scale=:Scene, kind=:root),
+        Object(:z; scale=:Leaf, kind=:shoot, species=:alpha, parent=:root, status=Status(x=1.0)),
+        Object(42; scale=:Leaf, kind=:shoot, species=:beta, parent=:root, status=Status(x=2.0)),
+        Object(organ; scale=:Leaf, kind=:shoot, species=:alpha, parent=:root, status=Status(x=3.0)),
+        Object(:a; scale=:Axis, kind=:shoot, species=:alpha, parent=:root, status=Status(x=4.0)),
+    )
+    cases = (
+        (NamedTuple(), (organ, 42, :a, :root, :z)),
+        ((; scale=:Leaf), (organ, 42, :z)),
+        ((; kind=:shoot, species=:alpha), (organ, :a, :z)),
+        ((; scale=(:Leaf, :Axis)), (organ, 42, :a, :z)),
+        ((; id=ObjectId(organ)), (organ,)),
+        ((; scale=:Missing), ()),
+        ((; species=:Missing), ()),
+    )
+    for (criteria, expected) in cases
+        objects = model_objects(scene; criteria...)
+        ids = object_ids(scene; criteria...)
+        @test objects isa Vector{Object}
+        @test Tuple(ids) == map(ObjectId, expected)
+        @test getfield.(objects, :id) == ids
+        @test all(i -> objects[i] === model_object(scene, ids[i]), eachindex(ids))
+    end
+    axis = only(model_objects(scene; id=:a))
+    @test axis.status === model_status(scene, :a)
+    axis.geometry = (x=2.0, y=3.0)
+    @test geometry(model_object(scene, :a)) == axis.geometry
+    @test model_objects(CompositeModel()) isa Vector{Object}
+    @test isempty(model_objects(CompositeModel()))
+    @test_throws MethodError model_objects(scene; unknown_criterion=true)
+end
+
+@testset "ObjectId tuple sort text uses Julia's Symbol spelling" begin
+    spellings = ["leaf", "a b", "+", ":", "::", ":=", "=", "==", "===", "=>",
+        "'", "", "\n", "a\"b", "α₁", "⊗"]
+    for spelling in spellings
+        symbol = Symbol(spelling)
+        for value in ((symbol,), (symbol, :nested, 7), ((symbol,), "text", 'x'))
+            @test PlantSimEngine._object_id_text(ObjectId(value)) == string(value)
+        end
+    end
+end
+
+struct ModelObjectsDisplayKey
+    value::Int
+end
+Base.show(io::IO, key::ModelObjectsDisplayKey) = print(io, "collection-key-", key.value)
+
+@testset "sorting preserves arbitrary identities and custom display" begin
+    ids = ObjectId[ObjectId(ModelObjectsDisplayKey(7)), ObjectId('c'), ObjectId(:c),
+        ObjectId((:nested, ModelObjectsDisplayKey(3))), ObjectId(0.25)]
+    before = copy(ids)
+    expected = sort(ids; by=id -> string(id.value))
+    actual = ids[PlantSimEngine._object_id_sort_order(ids)]
+    @test actual == expected
+    @test hash.(actual) == hash.(expected)
+    @test all(i -> actual[i] === expected[i], eachindex(ids))
+    @test ids == before
+    @test PlantSimEngine._object_id_text(first(ids)) == string(ModelObjectsDisplayKey(7))
+end
