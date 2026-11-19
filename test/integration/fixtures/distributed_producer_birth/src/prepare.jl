@@ -27,12 +27,17 @@ function checkpoint(state, day)
         object === state.objects[index] && object.scale === :Leaf || return false
         PSE.refvalue(status, :ordinal) === state.ordinals[index] || return false
         status.ordinal == index || return false
+        snapshot = PSE.final_state(sim, id)
+        snapshot isa NamedTuple && isdefined(snapshot, :ordinal) || return false
+        getfield(snapshot, :ordinal) === index || return false
         reference = PSE._initial_status_reference(status, :signal)
         stream = get(PSE.outputs(sim), (:producer, id, :signal), nothing)
         if day < 2
+            isdefined(snapshot, :signal) && return false
             isnothing(reference) || return false
             (isnothing(stream) || (stream isa Vector{Tuple{Float64,Float32}} && isempty(stream))) || return false
         else
+            isdefined(snapshot, :signal) && getfield(snapshot, :signal) === Float32(20day) || return false
             reference isa Base.RefValue{Float32} || return false
             reference[] === Float32(20day) || return false
             stream isa Vector{Tuple{Float64,Float32}} || return false

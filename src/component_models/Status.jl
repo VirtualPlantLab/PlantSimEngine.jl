@@ -162,9 +162,6 @@ end
 end
 @inline _status_reference(storage::Union{_FixedStatusStorage,_ProjectedStatusStorage}, key::Int) =
     _status_reference(storage, _status_storage_names(storage)[key])
-_status_storage_references(storage::NamedTuple) = values(storage)
-_status_storage_references(storage::Union{_FixedStatusStorage,_ProjectedStatusStorage}) =
-    map(key -> _status_reference(storage, key), _status_storage_names(storage))
 
 # Reference/presence edits invalidate projections; ref[] = value does not.
 _status_reference_epoch(storage::NamedTuple) = UInt(0)
@@ -251,8 +248,29 @@ function Status(nt::NamedTuple{names}) where {names}
 end
 
 _status_vars(status) = getfield(status, :vars)
-_status_values(status) = getindex.(refvalues(status))
-_status_namedtuple(status) = NamedTuple{keys(status)}(values(status))
+# Read or transform each concrete reference before selecting the currently
+# present fields. A present reference may itself contain nothing.
+_map_status_slots(::typeof(identity), slots) = slots
+_map_status_slots(f::F, slots) where {F} =
+    map(slot -> isnothing(slot) ? nothing : f(slot), slots)
+
+function _map_status_fields(f::F, ::Type{T}, status::Status) where {F,T}
+    fields = _map_status_slots(f, _initial_status_reference_storage(status))
+    names = keys(status)
+    if names === keys(fields)
+        return T === Tuple ? Tuple(fields) : fields
+    end
+    selected = Vector{Any}(undef, length(names))
+    for i in eachindex(names)
+        selected[i] = getfield(fields, names[i])
+    end
+    data = Tuple(selected)
+    T === Tuple && return data
+    return Base.@inline NamedTuple{names}(data)
+end
+
+_status_namedtuple(status) = _map_status_fields(getindex, NamedTuple, status)
+_status_values(status) = _map_status_fields(getindex, Tuple, status)
 _status_tuple(status) = values(status)
 _status_iterate(status, iter=1) = iterate(values(status), iter)
 _status_firstindex(status) = 1
@@ -262,7 +280,7 @@ _status_indexed_iterate(status, i::Int, state=1) = Base.indexed_iterate(values(s
 Base.keys(status::Status) = _status_storage_names(_status_vars(status))
 Base.values(st::Status) = _status_values(st)
 _status_identity(status::Status) = getfield(status, :identity)
-refvalues(mnt::Status) = _status_storage_references(_status_vars(mnt))
+refvalues(mnt::Status) = _map_status_fields(identity, Tuple, mnt)
 Base.@constprop :aggressive @inline refvalue(mnt::Status, key::Symbol) = _status_reference(_status_vars(mnt), key)
 
 Base.NamedTuple(mnt::Status) = _status_namedtuple(mnt)

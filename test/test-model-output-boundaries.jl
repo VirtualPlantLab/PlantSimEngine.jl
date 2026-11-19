@@ -94,6 +94,35 @@ end
     end
 end
 
+@testset "final state copies the visible fields and preserves shared values" begin
+    leaf = Object(:leaf; scale=:Leaf, status=Status(
+        data=zeros(Int, 4), alias=Int[], matrix=zeros(Int, 2, 2), cycle=Any[], nullable=nothing,
+    ))
+    simulation = run!(CompositeModel(leaf, Object(:soil; status=Status(water=2.0))); steps=0)
+    live = model_status(simulation, :leaf)
+    # Establish the relationships on the registered status after preparation.
+    live.data .= 1:4
+    live.alias = live.data
+    live.matrix = reshape(live.data, 2, 2)
+    push!(live.cycle, live.cycle)
+
+    expected = deepcopy(NamedTuple(live))
+    snapshot = final_state(simulation, :leaf)
+    @test typeof(snapshot) === typeof(expected)
+    @test keys(snapshot) == keys(live)
+    @test snapshot.nullable === nothing
+    @test !haskey(snapshot, :water)
+    @test final_state(simulation, :soil) == (water=2.0,)
+    @test snapshot.data == expected.data
+    @test snapshot.data === snapshot.alias
+    @test snapshot.data !== live.data
+    @test snapshot.cycle !== live.cycle && only(snapshot.cycle) === snapshot.cycle
+    # Compare the relationship between reshaped arrays with Julia's own deepcopy.
+    snapshot.matrix[1] = expected.matrix[1] = 20
+    @test snapshot.data == expected.data
+    @test live.data[1] == 1
+end
+
 @testset "requested mutable initial values survive continuation and reentry" begin
     model = CompositeModel(
         Object(:scene; scale=:Scene),

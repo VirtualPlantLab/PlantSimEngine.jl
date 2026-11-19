@@ -1549,8 +1549,37 @@ current_step(simulation::Simulation) = simulation.current_step
 
 outputs(sim::Simulation) = sim.temporal_streams
 
+# Copy values while the prepared slot types are still known. All fields use
+# the same deepcopy memo so shared objects and cycles survive the snapshot.
+@inline _snapshot_value(value, memo) =
+    isbitstype(typeof(value)) ? value : Base.deepcopy_internal(value, memo)::typeof(value)
+
+# Keep the backing store shared between reshaped or offset arrays in one snapshot.
+# Julia's generic Memory deepcopy erases its element type before the copy.
+@static if isdefined(Base, :wrap) && isdefined(Core, :Memory)
+    @inline function _snapshot_value(value::Array{T,N}, memo) where {T,N}
+        isbitstype(T) || return Base.deepcopy_internal(value, memo)::Array{T,N}
+        haskey(memo, value) && return memo[value]::Array{T,N}
+        source = getfield(value, :ref)
+        memory = get!(() -> copy(source.mem), memo, source.mem)::Memory{T}
+        offset = Core.memoryrefoffset(source)
+        first = Core.memoryref(memory)
+        point = isone(offset) ? first : Core.memoryrefnew(first, offset, false)
+        result = Base.wrap(Array, point, size(value))
+        memo[value] = result
+        return result
+    end
+end
+
+function _snapshot_status(status::Status)
+    memo = IdDict()
+    return _map_status_fields(ref -> _snapshot_value(ref[], memo), NamedTuple, status)
+end
+
 @inline function _final_state_snapshot(simulation::Simulation, object_id)
-    return deepcopy(NamedTuple(_model_object_status(simulation.model, ObjectId(object_id))))
+    model = simulation.model
+    status = _model_object_status(model, ObjectId(object_id))
+    return Base.@inline _with_registered_status(_snapshot_status, model.registry.objects.catalog, status)
 end
 
 """
