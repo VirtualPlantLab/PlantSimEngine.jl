@@ -1765,12 +1765,16 @@ function _model_input_binding_storage(prototype::AbstractVector)
     return similar(prototype, 0)
 end
 
+@inline function _with_model_input_binding(f::F, ::AbstractVector{B}, binding, args::Vararg{Any,N}) where {F,B,N}
+    return Base.@inline _with_model_input_binding(f, B, binding, args...)
+end
+
 @inline function _with_model_input_binding(f::F,
-    ::AbstractVector{CompiledModelInputBinding}, binding, args::Vararg{Any,N},
+    ::Type{CompiledModelInputBinding}, binding, args::Vararg{Any,N},
 ) where {F,N}
     return f(binding, args...)
 end
-@generated function _with_model_input_binding(f::F, ::AbstractVector{B}, binding,
+@generated function _with_model_input_binding(f::F, ::Type{B}, binding,
     args::Vararg{Any,N},
 ) where {F,B,N}
     families = _model_input_binding_family_types(B)
@@ -3203,9 +3207,9 @@ Base.isequal(left::_ManyBindingPlanKey, right::_ManyBindingPlanKey) =
 Base.hash(key::_ManyBindingPlanKey, seed::UInt) =
     hash((:compiled_many_input_plan, key.slot, key.anchor), seed)
 
-# Both indexes use exactly the family of the existing global input storage.
-# The binding vector is an alias used by its existing admission gate, not a copy.
-struct _ManyInputBindingCache{I<:ObjectId,S,B,IB<:AbstractVector{B}}
+# A shared entry always has a Many selector. The original vector still admits
+# each incoming binding before the sharing decision.
+struct _ManyInputBindingCache{I<:ObjectId,S,B,IB<:AbstractVector}
     by_query::Dict{_ManyBindingQueryKey{S,I},B}
     by_plan::Dict{_ManyBindingPlanKey{I},B}
     bindings::IB
@@ -3217,20 +3221,24 @@ end
     selectors = Any[]
     if B === CompiledModelInputBinding
         S = Many
+        Cached = B
     else
+        many_bindings = Type[]
         for Binding in _model_input_binding_family_types(B)
             Selector = fieldtype(fieldtype(Binding, :plan), :selector)
             Selector <: Many || continue
             isconcretetype(Selector) || throw(ArgumentError(
                 "Many sharing requires exact prepared selector types."))
             Selector in selectors || push!(selectors, Selector)
+            push!(many_bindings, Binding)
         end
         S = Union{selectors...}
+        Cached = Union{many_bindings...}
     end
-    Cache = _ManyInputBindingCache{I,S,B,IB}
+    Cache = _ManyInputBindingCache{I,S,Cached,IB}
     Query = _ManyBindingQueryKey{S,I}
     Plan = _ManyBindingPlanKey{I}
-    return :($Cache(Dict{$Query,$B}(), Dict{$Plan,$B}(), bindings))
+    return :($Cache(Dict{$Query,$Cached}(), Dict{$Plan,$Cached}(), bindings))
 end
 
 function _many_scope_anchor(model, kind::Symbol, raw_id)
@@ -3306,7 +3314,7 @@ function _shared_many_input_binding(cache::_ManyInputBindingCache,
     canonical = get(cache.by_plan, key, nothing)
     isnothing(canonical) && return nothing
     return Base.@inline _with_model_input_binding(_shared_many_binding_for_plan,
-        cache.bindings, canonical, plan, consumer_id)
+        valtype(typeof(cache.by_plan)), canonical, plan, consumer_id)
 end
 
 function _shared_many_binding_for_plan(canonical, plan, consumer_id)
@@ -3342,7 +3350,7 @@ function _share_admitted_many_input_binding!(binding, cache, model)
         return _cache_many_binding_plan!(binding, cache, model)
     end
     return Base.@inline _with_model_input_binding(_share_many_binding_sources!,
-        cache.bindings, canonical, binding, cache, model)
+        valtype(typeof(cache.by_query)), canonical, binding, cache, model)
 end
 
 function _share_many_binding_sources!(canonical, binding, cache, model)
@@ -3379,7 +3387,7 @@ function _seed_many_input_binding_cache!(binding, cache, model)
     isnothing(key) && return nothing
     haskey(cache.by_query, key) || (cache.by_query[key] = binding)
     return Base.@inline _with_model_input_binding(_cache_many_binding_plan!,
-        cache.bindings, cache.by_query[key], cache, model)
+        valtype(typeof(cache.by_query)), cache.by_query[key], cache, model)
 end
 
 function _shared_same_rate_many_storage(
@@ -3411,7 +3419,7 @@ function _input_binding_shares_many_cache!(binding, model, cache)
     canonical = get(cache.by_query, key, nothing)
     isnothing(canonical) && return false
     return Base.@inline _with_model_input_binding(_input_binding_shares_many_sources,
-        cache.bindings, canonical, binding)
+        valtype(typeof(cache.by_query)), canonical, binding)
 end
 
 function _input_binding_shares_many_sources(canonical, binding)

@@ -122,6 +122,18 @@ end
     data = fixture()
     simulation = prepare(data.model, prototype)
     input_cache = simulation.compiled.input_bindings_by_target
+    shared = simulation.compiled.many_input_binding_cache
+    many = filter(control.families) do B
+        fieldtype(fieldtype(B, :plan), :selector) <: Many
+    end
+    @test !isempty(many) && length(many) < length(control.families)
+    @test valtype(typeof(shared.by_query)) === Union{many...}
+    @test valtype(typeof(shared.by_plan)) === Union{many...}
+    single = binding(simulation, :a, :single)
+    single_cache = PSE._many_input_binding_cache(data.model, [single])
+    @test valtype(typeof(single_cache.by_plan)) === Union{}
+    @test valtype(typeof(single_cache.by_query)) === Union{}
+    @test isempty(single_cache.by_plan) && isempty(single_cache.by_query)
     @test valtype(input_cache) === Vector{eltype(prototype)}
     @test isconcretetype(valtype(input_cache))
     @test simulation.compiled.input_bindings !== prototype
@@ -425,6 +437,9 @@ end
     prototype = Vector{Union{}}()
     simulation = prepare(model, prototype)
     @test simulation.compiled.input_bindings isa Vector{Union{}}
+    shared = simulation.compiled.many_input_binding_cache
+    @test isempty(shared.by_query) && isempty(shared.by_plan)
+    @test valtype(typeof(shared.by_query)) === valtype(typeof(shared.by_plan)) === Union{}
     @test simulation.compiled.input_bindings !== prototype
     @test isempty(simulation.compiled.input_bindings)
     step!(simulation)

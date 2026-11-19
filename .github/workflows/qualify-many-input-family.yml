@@ -1,0 +1,78 @@
+name: Check prepared Many input families
+on:
+  push:
+    branches: [codex/qualify-many-input-family-4f]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      JULIA_NUM_THREADS: "1"
+      JULIA_PKG_PRECOMPILE_AUTO: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: candidate
+      - uses: actions/checkout@v7
+        with:
+          ref: 4f72300465391d50637faf823332cfe344220734
+          path: reference
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.13.4'
+      - name: Resolve both project environments
+        shell: julia --startup-file=no {0}
+        run: |
+          using Pkg, TOML
+          function prepare(tree)
+              env = joinpath(ENV["RUNNER_TEMP"], tree)
+              Pkg.activate(env)
+              Pkg.develop(path=realpath(tree))
+              Pkg.add(PackageSpec(name="JuliaC", version=v"0.3.12"))
+              Pkg.precompile()
+              manifest = TOML.parsefile(joinpath(env, "Manifest.toml"))
+              packages = manifest["deps"]
+              pse = only(pop!(packages, "PlantSimEngine"))
+              @assert realpath(joinpath(env, pse["path"])) == realpath(tree)
+              return packages
+          end
+          @assert prepare("reference") == prepare("candidate")
+      - name: Compare prepared type counts, emitted code and every palm report
+        run: |
+          set -eu
+          for tree in reference candidate; do
+            julia -C generic --project="$RUNNER_TEMP/$tree" --startup-file=no candidate/.ci/many-input-probe.jl "$tree" "$RUNNER_TEMP/$tree-report.toml"
+          done
+          python3 - <<'PY'
+          import os, pathlib, tomllib
+          tmp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          def report(tree):
+              data = tomllib.loads((tmp / (tree + "-report.toml")).read_text())
+              print(tree, data, flush=True)
+              return data
+          base, candidate = report("reference"), report("candidate")
+          for key in ("input_types", "many_types", "palm_report", "neighbours_report"):
+              assert base[key] == candidate[key], key
+          assert candidate["cache_types"] == candidate["many_types"] < base["cache_types"]
+          PY
+      - name: Check the ordinary binding and birth cases on both revisions
+        run: |
+          set -eo pipefail
+          for tree in reference candidate; do
+            export PSE_CHECKOUT="$GITHUB_WORKSPACE/$tree"
+            julia -C generic --project="$RUNNER_TEMP/$tree" --startup-file=no -e '
+              using Test, PlantSimEngine
+              @assert realpath(pkgdir(PlantSimEngine)) == realpath(ENV["PSE_CHECKOUT"])
+              @testset "Prepared inputs and births" begin
+                  include(joinpath(pkgdir(PlantSimEngine), "test", "test-model-input-binding-storage.jl"))
+              end'
+          done
+      - name: Qualify both candidate growth executables with stock JuliaC safe
+        run: |
+          julia -C generic --project="$RUNNER_TEMP/candidate" --startup-file=no -e '
+            using PlantSimEngine, JuliaC
+            @assert realpath(pkgdir(PlantSimEngine)) == realpath("candidate")
+            @assert pkgversion(JuliaC) == v"0.3.12"
+            include(joinpath(pkgdir(PlantSimEngine), "test", "integration", "native_growth.jl"))'
