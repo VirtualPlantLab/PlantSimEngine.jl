@@ -1,0 +1,58 @@
+name: XPalm matched CPU profile
+on:
+  push:
+    branches: [codex/profile-xpalm-matched-4f723004]
+  workflow_dispatch:
+    inputs:
+      cold_trace:
+        description: Run the separate candidate cold diagnostic after profile upload
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  matched-profiles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      JULIA_NUM_THREADS: '1,1'
+      JULIA_NUM_GC_THREADS: '1'
+      JULIA_PKG_PRECOMPILE_AUTO: '0'
+      JULIA_NUM_PRECOMPILE_TASKS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PalmStudio/XPalm.jl
+          ref: 5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd
+          path: public-xpalm
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.13.3'
+      - name: Three sequential matched CPU profiles
+        run: python3 .ci/xpalm-profile/run.py profiles
+      - name: Preserve profiles before the optional cold process
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xpalm-4f723004-cpu-profiles-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/xpalm-profile-results
+          if-no-files-found: error
+      - name: Separate candidate cold diagnostic
+        if: success() && (github.event_name == 'push' || inputs.cold_trace)
+        run: python3 .ci/xpalm-profile/run.py cold
+      - name: Preserve bounded cold metadata
+        if: always() && (github.event_name == 'push' || inputs.cold_trace)
+        uses: actions/upload-artifact@v4
+        with:
+          name: xpalm-4f723004-cold-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/xpalm-profile-results/cold*
+            ${{ runner.temp }}/xpalm-profile-results/candidate-cold.json
+          if-no-files-found: warn
