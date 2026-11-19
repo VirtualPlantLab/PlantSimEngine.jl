@@ -96,6 +96,35 @@ function _authored_port_types(type_for, schema::NamedTuple{Names}) where {Names}
     return NamedTuple{Names,fields}(types)
 end
 
+# Declaration diagnostics belong to authoring. Fresh values must retain the
+# prepared declaration types; only the NamedTuple container may be erased.
+@generated function _admit_authored_port_schema(schema,
+    ::NamedTuple{Names,Types}, kind,
+) where {Names,Types}
+    expected = isempty(Names) ? "(none)" : join(string.(Names), ", ")
+    reject = :(_changed_authored_port_schema(kind, $expected))
+    checks = Any[]
+    values = Any[]
+    for (index, field) in enumerate(fieldtypes(Types))
+        declaration = field.parameters[1]
+        value = gensym(:declaration)
+        push!(checks, :($value = getfield(schema, $(QuoteNode(Names[index])))))
+        push!(checks, :($value isa $declaration || return $reject))
+        push!(values, :($value::$declaration))
+    end
+    return quote
+        schema isa NamedTuple{$(QuoteNode(Names))} || return $reject
+        $(checks...)
+        NamedTuple{$(QuoteNode(Names))}(($(values...),))
+    end
+end
+
+Base.@noinline function _changed_authored_port_schema(::Val{Kind}, expected::String) where {Kind}
+    hook = Kind === :inputs ? "inputs_" : "outputs_"
+    throw(ArgumentError("A model default schema changed after preparation. " *
+        "`" * hook * "` expected variables: " * expected * "."))
+end
+
 # Only real numeric-array defaults have element evidence. Missing fields mean
 # no initializer value (e.g. Required), whereas Tuple{} means a real empty array.
 _output_element_types(value) = nothing

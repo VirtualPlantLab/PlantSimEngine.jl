@@ -5821,15 +5821,23 @@ function _foreach_configured_variant(f::F, entries::Tuple, args::Vararg{Any,N}) 
     return _foreach_configured_variant(f, Base.tail(entries), args...)
 end
 
-_read_application_defaults(model, ::Val{:outputs}) = _local_output_schema(model)
-_read_application_defaults(model, ::Val{:inputs}) = _input_default_values(_input_schema(model))
+function _read_application_defaults(model, kind::Val{:inputs}, ports)
+    schema = Base.@inline _admit_authored_port_schema(inputs_(model),
+        _authored_metadata_value(ports.input_declaration_types), kind)
+    return _input_default_values(schema)
+end
+function _read_application_defaults(model, kind::Val{:outputs}, ports)
+    schema = Base.@inline _admit_authored_port_schema(outputs_(model),
+        _authored_metadata_value(ports.output_declaration_types), kind)
+    return _local_output_declarations(schema)
+end
 _variant_defaults_type(ports, ::Val{:outputs}) = ports.defaults_types.outputs
 _variant_defaults_type(ports, ::Val{:inputs}) = ports.defaults_types.inputs
 
 function _application_default_schemas(application, kind)
     model = model_(application.spec)
     return model isa ObjectModelOverrides ? IdDict{AbstractModel,NamedTuple}() :
-        _read_application_defaults(model, kind)
+        _read_application_defaults(model, kind, _application_ports(application))
 end
 @inline _with_application_defaults(f::F, application, object_id, defaults::NamedTuple,
     kind, args::Vararg{Any,N}) where {F,N} = f(defaults, args...)
@@ -5842,14 +5850,14 @@ end
 @inline function _call_configured_defaults(model, ports, f::F, cache, kind,
     args::Vararg{Any,N},
 ) where {F,N}
-    return _with_configured_defaults(f, model, cache, kind,
+    return _with_configured_defaults(f, model, ports, cache, kind,
         _variant_defaults_type(ports, kind), args...)
 end
-@inline function _with_configured_defaults(f::F, model, cache, kind, ::Type{S},
+@inline function _with_configured_defaults(f::F, model, ports, cache, kind, ::Type{S},
     args::Vararg{Any,N},
 ) where {F,S<:NamedTuple,N}
     schema = get!(cache, model) do
-        _read_application_defaults(model, kind)
+        _read_application_defaults(model, kind, ports)
     end
     schema isa S || throw(ArgumentError("A model default schema changed after preparation."))
     return f(schema::S, args...)
