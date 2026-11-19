@@ -15,8 +15,8 @@ results.mkdir()
 revisions = {
     "main": "8d1f8484c8ad68cc5da8004209b2062070cac28a",
     "historical": "cd5517551f4cd4cf01504cb312e2b81f6fabe6ba",
-    "before": "ad69a5993dcfcd596595b43f8e89362849e70134",
-    "candidate": "83e60048ac8a9ec59a992605fabdb83f01ee4f45",
+    "before": "83e60048ac8a9ec59a992605fabdb83f01ee4f45",
+    "candidate": "77e60af9f5f030ee1057c916166e99bf7c3e03f2",
 }
 xpalm_revision = "5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd"
 
