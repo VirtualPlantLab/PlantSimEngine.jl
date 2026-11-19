@@ -4664,10 +4664,10 @@ end
 Base.@noinline function _store_rebuilt_input_binding!(
     bindings, changed_bindings, index, replacement, cache, model,
 )
-    binding = _share_many_input_binding!(cache, model, only(replacement))
-    bindings[index] = binding
-    push!(changed_bindings, binding)
-    return binding
+    replacement[1] = _share_many_input_binding!(cache, model, only(replacement))
+    copyto!(bindings, index, replacement, 1, 1)
+    append!(changed_bindings, replacement)
+    return nothing
 end
 
 # One existing-binding lifecycle operation; admission precedes this worker.
@@ -4789,7 +4789,7 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
        get(many_binding_cache.by_query, old_cache_key, nothing) === binding
         delete!(many_binding_cache.by_query, old_cache_key)
     end
-    replacement_binding = _store_rebuilt_input_binding!(
+    _store_rebuilt_input_binding!(
         input_bindings, changed_bindings, index, replacement, many_binding_cache, model,
     )
     push!(rewired_consumer_ids, consumer_id)
@@ -4804,11 +4804,14 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
     target = (binding.application_id, consumer_id)
     # Replace the membership container so shallow diagnostic snapshots retain
     # the previous bindings, while all unmodified binding/carrier objects stay shared.
-    members = valtype(typeof(input_bindings_by_target))()
-    for existing in get(input_bindings_by_target, target, ())
-        push!(members, existing === binding ? replacement_binding : existing)
+    members = get(input_bindings_by_target, target) do
+        valtype(typeof(input_bindings_by_target))()
     end
-    input_bindings_by_target[target] = members
+    updated = copy(members)
+    for i in eachindex(members)
+        members[i] === binding && copyto!(updated, i, input_bindings, index, 1)
+    end
+    input_bindings_by_target[target] = updated
     return true
 end
 
@@ -9683,6 +9686,93 @@ function _observe_compiled_call_membership!(
     return binding
 end
 
+function _compile_call_plan_binding!(
+    plan, bindings, model, application_id, consumer_id, application_objects, lookup_applications,
+)
+    call_sym = plan.call
+    selector = plan.selector
+    proc = plan.process
+    app_name = plan.application
+    mode = _compiled_call_mode(plan)
+    callee_object_ids, callee_application_ids = if mode === :initializer
+        # Initializers never cache or track pre-existing target objects.
+        # Their one scheduled application is statically validated, and
+        # run_initializer! resolves only its explicit newborn identity.
+        (
+            keytype(model.registry.objects)[],
+            Symbol[plan.potential_callee_application_ids...],
+        )
+    else
+        isnothing(application_objects) &&
+            (application_objects = _applications_by_object(lookup_applications, model.registry.objects))
+        object_ids = _dependency_object_ids(
+            model,
+            selector,
+            plan.matcher,
+            consumer_id,
+        )
+        application_ids = Symbol[]
+        for object_id in object_ids
+            append!(
+                application_ids,
+                _matching_callee_applications(
+                    application_objects,
+                    object_id,
+                    proc,
+                    app_name,
+                ),
+            )
+        end
+        unique!(application_ids)
+        (object_ids, application_ids)
+    end
+    if mode === :manual &&
+       isempty(callee_application_ids) && selector isa One
+        matched_objects = join([_object_id_text(id) for id in callee_object_ids], ", ")
+        error(
+            "Call `$(call_sym)` on application `$(application_id)` matched objects ",
+            "[$(matched_objects)] but no model application",
+            isnothing(proc) ? "." : " with process `$(proc)`.",
+        )
+    end
+    if mode === :manual && selector isa One &&
+       length(callee_application_ids) != 1
+        callee_applications = join([String(id) for id in callee_application_ids], ", ")
+        error(
+            "Call `$(call_sym)` on application `$(application_id)` expected one callee application, ",
+            "got `[$(callee_applications)]`. Add `application=:name` to disambiguate."
+        )
+    elseif selector isa OptionalOne && length(callee_application_ids) > 1
+        callee_applications = join([String(id) for id in callee_application_ids], ", ")
+        error(
+            "Call `$(call_sym)` on application `$(application_id)` expected zero or one callee application, ",
+            "got `[$(callee_applications)]`. Add `application=:name` to disambiguate."
+        )
+    end
+    push!(
+        bindings,
+        CompiledModelCallBinding(
+            plan,
+            consumer_id,
+            _application_target_ids(model, callee_object_ids),
+            callee_application_ids,
+        ),
+    )
+    return application_objects
+end
+
+function _compile_application_call_bindings!(
+    plans, bindings, model, application_id, targets, application_objects, lookup_applications,
+)
+    for consumer_id in targets, slot in eachindex(plans)
+        application_objects = Base.@inline _with_metadata_entry(
+            _compile_call_plan_binding!, plans, slot, bindings, model, application_id,
+            consumer_id, application_objects, lookup_applications,
+        )
+    end
+    return application_objects
+end
+
 function _compile_model_call_bindings(
     model::CompositeModel,
     applications,
@@ -9705,83 +9795,11 @@ function _compile_model_call_bindings(
         by_object = Base.@inline _with_model_application(
             applications_by_id, partial_application, by_object, plans_by_application,
         ) do application, application_objects, application_plans
-            for consumer_id in application.target_ids
-                for plan in _application_plans(
-                    application_plans,
-                    application.id,
-                )
-                    call_sym = plan.call
-                    selector = plan.selector
-                    proc = plan.process
-                    app_name = plan.application
-                    mode = _compiled_call_mode(plan)
-                    callee_object_ids, callee_application_ids = if mode === :initializer
-                        # Initializers never cache or track pre-existing target objects.
-                        # Their one scheduled application is statically validated, and
-                        # run_initializer! resolves only its explicit newborn identity.
-                        (
-                            ObjectId[],
-                            Symbol[plan.potential_callee_application_ids...],
-                        )
-                    else
-                        isnothing(application_objects) &&
-                            (application_objects = _applications_by_object(lookup_applications, model.registry.objects))
-                        object_ids = _dependency_object_ids(
-                            model,
-                            selector,
-                            plan.matcher,
-                            consumer_id,
-                        )
-                        application_ids = Symbol[]
-                        for object_id in object_ids
-                            append!(
-                                application_ids,
-                                _matching_callee_applications(
-                                    application_objects,
-                                    object_id,
-                                    proc,
-                                    app_name,
-                                ),
-                            )
-                        end
-                        unique!(application_ids)
-                        (object_ids, application_ids)
-                    end
-                    if mode === :manual &&
-                       isempty(callee_application_ids) && selector isa One
-                        matched_objects = join([_object_id_text(id) for id in callee_object_ids], ", ")
-                        error(
-                            "Call `$(call_sym)` on application `$(application.id)` matched objects ",
-                            "[$(matched_objects)] but no model application",
-                            isnothing(proc) ? "." : " with process `$(proc)`.",
-                        )
-                    end
-                    if mode === :manual && selector isa One &&
-                       length(callee_application_ids) != 1
-                        callee_applications = join([String(id) for id in callee_application_ids], ", ")
-                        error(
-                            "Call `$(call_sym)` on application `$(application.id)` expected one callee application, ",
-                            "got `[$(callee_applications)]`. Add `application=:name` to disambiguate."
-                        )
-                    elseif selector isa OptionalOne && length(callee_application_ids) > 1
-                        callee_applications = join([String(id) for id in callee_application_ids], ", ")
-                        error(
-                            "Call `$(call_sym)` on application `$(application.id)` expected zero or one callee application, ",
-                            "got `[$(callee_applications)]`. Add `application=:name` to disambiguate."
-                        )
-                    end
-                    push!(
-                        bindings,
-                        CompiledModelCallBinding(
-                            plan,
-                            consumer_id,
-                            _application_target_ids(model, callee_object_ids),
-                            callee_application_ids,
-                        ),
-                    )
-                end
-            end
-            return application_objects
+            id = application.id
+            return Base.@inline _with_metadata_entry(
+                _compile_application_call_bindings!, application_plans, id,
+                bindings, model, id, application.target_ids, application_objects, lookup_applications,
+            )
         end
     end
     return bindings
