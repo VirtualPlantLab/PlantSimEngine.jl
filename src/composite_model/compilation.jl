@@ -3112,7 +3112,7 @@ function _compile_consumer_input_recipe!(
         isempty(matches) && return nothing
         if length(matches) > 1
             error(
-                "Input `$(plan.input)` on application `$(application_id)` for object `$(_object_id_diagnostic_text(consumer_id))` " *
+                "Input `$(plan.input)` on application `$(application_id)` for object `$(_object_id_text(consumer_id))` " *
                 "has ambiguous same-object producers: `$([match.application for match in matches])`. " *
                 "Add `inputs=(:$(plan.input) => One(...),)` to disambiguate."
             )
@@ -4595,7 +4595,7 @@ function _refresh_scene_call_bindings!(
         replacements = get(replacement_call_bindings_by_target, key, ())
         length(existing) == length(replacements) || error(
             "Incremental hard-call refresh changed the number of declared calls ",
-            "for application `$(first(key))` on object `$(last(key).value)`.",
+            "for application `$(first(key))` on object `$(_object_id_text(last(key)))`.",
         )
         for binding in existing
             binding_index = findfirst(
@@ -4604,7 +4604,7 @@ function _refresh_scene_call_bindings!(
             )
             isnothing(binding_index) && error(
                 "Incremental hard-call refresh lost the existing compiled binding ",
-                "for application `$(first(key))` on object `$(last(key).value)`.",
+                "for application `$(first(key))` on object `$(_object_id_text(last(key)))`.",
             )
             replacement_index = findfirst(
                 candidate ->
@@ -4615,7 +4615,7 @@ function _refresh_scene_call_bindings!(
             isnothing(replacement_index) && error(
                 "Incremental hard-call refresh lost declared call ",
                 "`$(_compiled_call_name(binding))` for application ",
-                "`$(first(key))` on object `$(last(key).value)`.",
+                "`$(first(key))` on object `$(_object_id_text(last(key)))`.",
             )
             replacement = replacements[replacement_index]
             if binding.callee_object_ids != replacement.callee_object_ids ||
@@ -5582,7 +5582,7 @@ function _explain_initialization(model, applications, input_bindings,
                     provided_type=provided_type,
                     conversion...,
                     detail=disposition == :required ?
-                           "Provide `$(variable)` on object `$(_object_id_diagnostic_text(object_id))` Status or add `inputs=(:$(variable) => ..., )` to application `$(application.id)`." :
+                           "Provide `$(variable)` on object `$(_object_id_text(object_id))` Status or add `inputs=(:$(variable) => ..., )` to application `$(application.id)`." :
                            nothing,
                 ))
             end
@@ -5934,7 +5934,7 @@ function _validate_model_writer_groups!(writer_groups, applications_by_id)
                 if _declares_update_without_previous_writer(application.spec, variable, previous)
                     error(
                         "Application `$(application.id)` declares `Updates($(variable))` for object ",
-                        "`$(_object_id_diagnostic_text(object_id))`, but no previous writer for `$(variable)` exists. ",
+                        "`$(_object_id_text(object_id))`, but no previous writer for `$(variable)` exists. ",
                         "Move it after the producer named in `after=...`."
                     )
                 end
@@ -5947,7 +5947,7 @@ function _validate_model_writer_groups!(writer_groups, applications_by_id)
                     previous_labels = join(sort!([String(label) for label in labels]), ", ")
                     error(
                         "Ambiguous canonical writers for variable `$(variable)` on object ",
-                        "`$(_object_id_diagnostic_text(object_id))`. ",
+                        "`$(_object_id_text(object_id))`. ",
                         "applications. Application `$(application.id)` must declare ",
                         "`Updates(:$(variable); after=...)` matching one of the previous writers ",
                         "`$(previous_labels)`."
@@ -5958,7 +5958,7 @@ function _validate_model_writer_groups!(writer_groups, applications_by_id)
                     previous_writer = last(previous)
                     error(
                         "Application `$(application.id)` updates `$(variable)` on object ",
-                        "`$(_object_id_diagnostic_text(object_id))` without an ordering relation to the immediately ",
+                        "`$(_object_id_text(object_id))` without an ordering relation to the immediately ",
                         "previous writer `$(previous_writer)`. Add that application identifier ",
                         "to `Updates(:$(variable); after=...)`."
                     )
@@ -6132,7 +6132,7 @@ function _validate_compiled_writer_ownership!(ownership, applications_by_id)
             if owner.application_slot == owners[index - 1].application_slot
                 error(
                     "Application `$(owner.application_id)` declares more than one canonical " *
-                    "writer for `$(variable)` on object `$(_object_id_diagnostic_text(object_id))`. Ensure its " *
+                    "writer for `$(variable)` on object `$(_object_id_text(object_id))`. Ensure its " *
                     "`on=...` targets and `outputs_to` destinations do not overlap.",
                 )
             end
@@ -6753,7 +6753,7 @@ function _model_object_status_for_preparation(
 )
     status = model_status(model, object_id)
     (isnothing(status) || status isa Status) || error(
-        "Model object `$(_object_id_diagnostic_text(object_id))` uses model applications but its status has type " *
+        "Model object `$(_object_id_text(object_id))` uses model applications but its status has type " *
         "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
     )
     return status
@@ -6858,7 +6858,7 @@ end
         status = _replace_model_object_status!(model, object, replacement)
     end
     status isa Status || error(
-        "Model object `$(_object_id_diagnostic_text(object_id))` uses model applications but its status has type ",
+        "Model object `$(_object_id_text(object_id))` uses model applications but its status has type ",
         "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
     )
     status isa S || throw(ArgumentError(
@@ -6961,13 +6961,13 @@ function _validate_required_model_output_destinations!(
                     value isa expected_type || throw(ArgumentError(
                         "Distributed output `$(variable)` on application " *
                         "`$(resolved.plan.application_id)` requires `$(expected_type)` " *
-                        "on destination `$(_object_id_diagnostic_text(destination_id))`; got `$(typeof(value))`.",
+                        "on destination `$(_object_id_text(destination_id))`; got `$(typeof(value))`.",
                     ))
                     continue
                 end
                 push!(missing,
                     "`$(resolved.plan.application_id).$(resolved.plan.group)` requires " *
-                    "`$(variable)` on destination object `$(_object_id_diagnostic_text(destination_id))`")
+                    "`$(variable)` on destination object `$(_object_id_text(destination_id))`")
             end
         end
     end
@@ -6991,7 +6991,7 @@ function _validate_model_output_destination_statuses!(
             (isnothing(status) || status isa Status) && continue
             error(
                 "Output destination `$(resolved.plan.application_id).$(resolved.plan.group)` " *
-                "selected object `$(_object_id_diagnostic_text(destination_id))` with status type " *
+                "selected object `$(_object_id_text(destination_id))` with status type " *
                 "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`.",
             )
         end
@@ -7119,7 +7119,7 @@ function _model_output_destination_index(destination_ids::AbstractVector{I}) whe
     for (position, object_id) in pairs(destination_ids)
         haskey(index, object_id) && error(
             "Compiled output destination membership contains duplicate object " *
-            "ID `$(_object_id_diagnostic_text(object_id))`.",
+            "ID `$(_object_id_text(object_id))`.",
         )
         index[object_id] = position
     end
@@ -7998,8 +7998,8 @@ function _temporal_source_application(
         binding.policy isa PreviousTimeStep && return nothing
         error(
             "Temporal model input `$(binding.input)` from ",
-            "`$(_object_id_diagnostic_text(source_id)).$(binding.source_var)` has no source application ",
-            "matching object `$(_object_id_diagnostic_text(source_id))`.",
+            "`$(_object_id_text(source_id)).$(binding.source_var)` has no source application ",
+            "matching object `$(_object_id_text(source_id))`.",
         )
     elseif binding.policy isa PreviousTimeStep
         return last(sort!(matches; by=application_id -> application_positions[application_id]))
@@ -9432,7 +9432,7 @@ function _validate_model_required_inputs!(model::CompositeModel, applications, a
     isempty(missing) && return nothing
     details = join(
         [
-            "`$(row.application_id)` on object `$(_object_id_diagnostic_text(row.object_id))` requires `$(row.input)`"
+            "`$(row.application_id)` on object `$(_object_id_text(row.object_id))` requires `$(row.input)`"
             for row in missing
         ],
         "; ",
@@ -9750,7 +9750,7 @@ function _compile_model_call_bindings(
                     end
                     if mode === :manual &&
                        isempty(callee_application_ids) && selector isa One
-                        matched_objects = join([string(id.value) for id in callee_object_ids], ", ")
+                        matched_objects = join([_object_id_text(id) for id in callee_object_ids], ", ")
                         error(
                             "Call `$(call_sym)` on application `$(application.id)` matched objects ",
                             "[$(matched_objects)] but no model application",
@@ -9893,7 +9893,7 @@ function explain_applications(compiled::CompiledCompositeModel)
                                  )
                                  for (object_id, model) in sort!(
                                      collect(_application_model_overrides(application));
-                                     by=pair -> string(first(pair).value),
+                                     by=pair -> _object_id_text(first(pair)),
                                  )
                              ],
         )

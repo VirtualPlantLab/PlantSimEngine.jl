@@ -565,6 +565,11 @@ end
             model, compiled.applications, plans)
         tables = (compiled.applications_by_id,
             Dict(application.id => application for application in compiled.applications))
+        compound_id = ObjectId((:plant, :leaf, 2))
+        @test PSE._missing_model_environment_input_detail(
+            :leaf, :environment_shell_leaf, compound_id, :T, :missing, (:wind, :PAR),
+        ) == "leaf/(:plant, :leaf, 2) (environment_shell_leaf) needs `T` from source " *
+             "`missing`; available=(PAR, wind)"
         messages = String[]
         expected = if local_backend
             "Composite model environment is missing required source inputs: leaf/one " *

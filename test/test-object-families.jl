@@ -31,7 +31,7 @@ const PSE = PlantSimEngine
             exception
         end
         @test failure isa ErrorException
-        expected = id isa Tuple ? "(Symbol(\"plant\"), 4)" : string(id)
+        expected = string(id)
         @test sprint(showerror, failure) == "No model object with id `$(expected)`."
     end
     @test canonical !== supplied
@@ -60,7 +60,7 @@ end
     model = CompositeModel((Object(id; scale=:Leaf) for id in raw_ids)...)
     ids = collect(keys(model.registry.objects))
     for id in ids
-        @test PSE._object_list_sort_key(id) == string(id.value)
+        @test PSE._object_id_text(id) == string(id.value)
     end
     expected = sort(collect(model.registry.by_scale[:Leaf]); by=id -> string(id.value))
     @test object_ids(model; scale=:Leaf) == expected
@@ -80,8 +80,8 @@ end
         17 => "17",
         2.5 => "2.5",
         true => "true",
-        (:missing, :leaf, 2) => "(Symbol(\"missing\"), Symbol(\"leaf\"), 2)",
-        (:missing, (:leaf, 2)) => "(Symbol(\"missing\"), (Symbol(\"leaf\"), 2))",
+        (:missing, :leaf, 2) => "(:missing, :leaf, 2)",
+        (:missing, (:leaf, 2)) => "(:missing, (:leaf, 2))",
     )
     for (id, expected) in cases, lookup in (model_object, model_status, object_id)
         failure = try
@@ -113,7 +113,7 @@ PSE.run!(::FamilyReplacement, status, environment, constants, context) = nothing
     application = PSE._compiled_application_by_id(compiled, :replacement)
     @test !isnothing(PSE._model_status_view_for_application(compiled, application, root.id))
     @test_throws ErrorException("No compiled status view for application `replacement` on object " *
-        "`(Symbol(\"tree\"), Symbol(\"leaf\"), 2)`.") PSE._model_status_view_for_application(
+        "`(:tree, :leaf, 2)`.") PSE._model_status_view_for_application(
         compiled, application, leaf.id)
 end
 

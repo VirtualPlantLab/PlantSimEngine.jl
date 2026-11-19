@@ -634,7 +634,7 @@ end
 function _missing_model_environment_input_detail(
     application_id, process, object_id, target, source, available,
 )
-    location = string(application_id, "/", object_id.value, " (", process, ")")
+    location = string(application_id, "/", _object_id_text(object_id), " (", process, ")")
     variables = join(sort!(collect(available); by=string), ", ")
     return string(location, " needs `", target, "` from source `", source,
         "`; available=(", variables, ")")

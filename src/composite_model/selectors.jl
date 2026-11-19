@@ -389,7 +389,7 @@ function _object_override_models(instance::ObjectInstance, specs, instance_ids)
     valid_ids = Set(instance_ids)
     for override in instance.object_overrides
         override.object in valid_ids || error(
-            "Object override for `$(_object_id_diagnostic_text(override.object))` does not belong to instance `$(instance.name)`."
+            "Object override for `$(_object_id_text(override.object))` does not belong to instance `$(instance.name)`."
         )
         matches = findall(
             index ->
@@ -398,23 +398,23 @@ function _object_override_models(instance::ObjectInstance, specs, instance_ids)
             eachindex(specs),
         )
         isempty(matches) && error(
-            "Object override for `$(_object_id_diagnostic_text(override.object))` in instance `$(instance.name)` ",
+            "Object override for `$(_object_id_text(override.object))` in instance `$(instance.name)` ",
             "does not match a template application."
         )
         length(matches) == 1 || error(
-            "Object override for `$(_object_id_diagnostic_text(override.object))` in instance `$(instance.name)` ",
+            "Object override for `$(_object_id_text(override.object))` in instance `$(instance.name)` ",
             "matches several template applications."
         )
         index = only(matches)
         object_models = get!(entries, index, Pair{ObjectId,AbstractModel}[])
         any(entry -> first(entry) == override.object, object_models) && error(
             "Several object overrides target application `$(_mounted_application_name(specs[index], index))` ",
-            "on object `$(_object_id_diagnostic_text(override.object))` in instance `$(instance.name)`."
+            "on object `$(_object_id_text(override.object))` in instance `$(instance.name)`."
         )
         _validate_model_override_contract!(
             model_(specs[index]),
             override.model;
-            description="Object override for `$(_object_id_diagnostic_text(override.object))` in instance `$(instance.name)`",
+            description="Object override for `$(_object_id_text(override.object))` in instance `$(instance.name)`",
         )
         push!(object_models, override.object => override.model)
     end
@@ -733,7 +733,7 @@ function _named_scope_root_id(model::CompositeModel, scope::Scope)
     root_id, instance_name = _named_scope_root_candidate(model, scope)
     haskey(model.registry.objects, root_id) && return root_id
     isnothing(instance_name) || error(
-        "Object instance `$(instance_name)` has no current root object `$(_object_id_diagnostic_text(root_id))`.",
+        "Object instance `$(instance_name)` has no current root object `$(_object_id_text(root_id))`.",
     )
     available_ids = [id.value for id in object_ids(model)]
     available_instances = sort!(Symbol[instance.name for instance in model.instances]; by=string)
@@ -741,7 +741,7 @@ function _named_scope_root_id(model::CompositeModel, scope::Scope)
     suggestions = root_id.value isa Symbol ?
                   _near_symbol_matches(root_id.value, unique!([available_instances; symbolic_ids])) : Symbol[]
     error(
-        "No instance or object ID `$(_object_id_diagnostic_text(root_id))` found in the model registry. ",
+        "No instance or object ID `$(_object_id_text(root_id))` found in the model registry. ",
         "available_ids=$(available_ids), available_instances=$(available_instances), ",
         "suggestions=$(suggestions).",
     )
@@ -939,9 +939,9 @@ end
 end
 
 _missing_point_scope_anchor(::CompositeModel, ::SelfPlant, id) =
-    error("No `scale=:Plant` ancestor found for object `$(_object_id_diagnostic_text(id))`.")
+    error("No `scale=:Plant` ancestor found for object `$(_object_id_text(id))`.")
 _missing_point_scope_anchor(::CompositeModel, scope::Ancestor, id) =
-    error("No matching ancestor found for object `$(_object_id_diagnostic_text(id))` and scale `$(scope.scale)`.")
+    error("No matching ancestor found for object `$(_object_id_text(id))` and scale `$(scope.scale)`.")
 
 @inline _point_scope_contains(topology, scope::Union{SelfPlant,Ancestor}, origin, object) =
     _relation_in_subtree(topology, object, _required_scope_anchor(topology, scope, origin))

@@ -149,7 +149,7 @@ function _validate_object_family_status_owner!(store::ObjectFamilyStore, status,
     if !isnothing(existing) && existing != id
         throw(ArgumentError(
             "The same Status instance cannot be owned by model objects " *
-            "`$(_object_id_diagnostic_text(existing))` and `$(_object_id_diagnostic_text(id))`. Give each Object its own Status instance.",
+            "`$(_object_id_text(existing))` and `$(_object_id_text(id))`. Give each Object its own Status instance.",
         ))
     end
     return nothing
