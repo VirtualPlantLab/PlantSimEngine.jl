@@ -1,5 +1,5 @@
 name: XPalm PR141 auxiliary public integration
-run-name: XPalm public pair PSE4efc1956 XPalm1496 complete and reference
+run-name: XPalm public pair PSE-main-8d1f8484 XPalm1496 complete and reference
 on:
   workflow_dispatch:
 permissions:
@@ -7,7 +7,7 @@ permissions:
 concurrency:
   # Skip intermediate builds: always.
   # Cancel intermediate builds: only if it is a pull request build.
-  group: xpalm-public-pair-4efc1496-${{ github.ref }}
+  group: xpalm-public-pair-main-1496-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   test:
@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 4efc1956056ab13ac0cdb5e8ce97547102870f7f
+          ref: 8d1f8484c8ad68cc5da8004209b2062070cac28a
           persist-credentials: false
       - uses: julia-actions/setup-julia@v3
         with:
@@ -62,7 +62,7 @@ jobs:
           persist-credentials: false
       - name: Verify and record the exact auxiliary source pair
         env:
-          PSE_EXPECTED: 4efc1956056ab13ac0cdb5e8ce97547102870f7f
+          PSE_EXPECTED: 8d1f8484c8ad68cc5da8004209b2062070cac28a
           XPALM_EXPECTED: 1496bb95c9f609c4d38c099aaa4123dc71fa1e0d
           PG_EXPECTED: 1e00511430def53c2a24790f4a8b9a57aa39fac2
         shell: python
@@ -111,10 +111,18 @@ jobs:
               "PlantSimEngine resolved to $(pse.source), expected $(realpath(pwd()))",
           )
           @info "Verified local PlantSimEngine test source" path=pse.source
+      - name: Check out the JET completeness guard used by the reference job
+        if: ${{ matrix.package.name == 'XPalm' && !matrix.test_args }}
+        uses: actions/checkout@v7
+        with:
+          ref: 9bbd1c177accb6737bf86c8bfd442cbb9566243b
+          path: qualification-harness
+          sparse-checkout: .github/scripts
+          persist-credentials: false
       - name: Test the JET analysis failure guard
         if: ${{ matrix.package.name == 'XPalm' && !matrix.test_args }}
         shell: julia --color=yes {0}
-        run: include(joinpath(pwd(), ".github", "scripts", "test_require_complete_jet.jl"))
+        run: include(joinpath(pwd(), "qualification-harness", ".github", "scripts", "test_require_complete_jet.jl"))
       - name: Run the downstream tests
         env:
           DOWNSTREAM_PACKAGE: ${{ matrix.package.name }}
@@ -154,7 +162,7 @@ jobs:
           test_args = isempty(ENV["DOWNSTREAM_TEST_ARGS"]) ? String[] : [ENV["DOWNSTREAM_TEST_ARGS"]]
           julia_args = String[]
           if ENV["DOWNSTREAM_PACKAGE"] == "XPalm" && isempty(test_args)
-              push!(julia_args, "--load=" * joinpath(pwd(), ".github", "scripts", "require_complete_jet.jl"))
+              push!(julia_args, "--load=" * joinpath(pwd(), "qualification-harness", ".github", "scripts", "require_complete_jet.jl"))
           end
           Pkg.test(; test_args, julia_args)
       # This is a separate PR141 qualification, never the PR247 main-branch gate.
