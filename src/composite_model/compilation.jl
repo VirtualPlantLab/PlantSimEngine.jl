@@ -4000,13 +4000,10 @@ function _apply_temporal_many_extensions!(staged::Tuple)
     return !isnothing(extension) || following_applied
 end
 
-function _extend_temporal_many_inputs_in_place!(view::CompiledModelStatusView,
-    model::CompositeModel, key, previous_temporal_sources, applications_by_id,
-    application_positions, distributed_outputs, status_view_schema,
-)
-    staged = _stage_temporal_many_extensions(view.temporal_inputs, model, key,
-        previous_temporal_sources, applications_by_id, application_positions,
-        distributed_outputs, status_view_schema, view.canonical_status)
+function _extend_temporal_many_inputs_in_place!(view::CompiledModelStatusView, key, state)
+    staged = _stage_temporal_many_extensions(view.temporal_inputs, state.model, key,
+        state.previous_temporal_sources, state.applications_by_id, state.positions,
+        state.distributed_outputs, state.compiled.status_view_schema, view.canonical_status)
     isnothing(staged) && return false
     return _apply_temporal_many_extensions!(staged)
 end
@@ -4135,23 +4132,21 @@ function _extend_model_status_views!(
         application_id => index
         for (index, application_id) in pairs(application_order)
     )
+    state = (; model, compiled, views, previous_views, input_bindings_by_target,
+        applications_by_id, positions, distributed_outputs, previous_temporal_sources)
     for (application_id, raw_id) in affected_temporal_keys
         object_id = _index_object_id(model.registry.objects, raw_id)
         key = (application_id, object_id)
         view = get(views, key, nothing)
         isnothing(view) && continue
         extended = Base.@inline _with_model_status_view(_extend_temporal_many_inputs_in_place!,
-            compiled.status_view_schema, application_id, view, model, key,
-            previous_temporal_sources, applications_by_id, positions, distributed_outputs,
-            compiled.status_view_schema)
+            compiled.status_view_schema, application_id, view, key, state)
         if extended
             current = Base.@inline _with_model_status_view(_status_view_epoch_is_current,
                 compiled.status_view_schema, application_id, view, model, object_id)
             current && delete!(affected_keys, key)
         end
     end
-    state = (; model, compiled, views, previous_views, input_bindings_by_target,
-        applications_by_id, positions, distributed_outputs, previous_temporal_sources)
     for (application_id, object_id) in affected_keys
         Base.@inline _with_metadata_entry(_refresh_model_status_view_for_target!,
             applications_by_id, application_id, object_id, state)
