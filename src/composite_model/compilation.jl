@@ -5033,25 +5033,14 @@ function _extend_compiled_scene(
         rebuild_dynamic_input_index |= rebuilt
     end
     previous_binding_count = length(input_bindings)
-    let many_binding_cache = many_binding_cache
-        recorder = _AddedConsumerInputBindings(
-            model, many_binding_cache, changed_bindings, input_bindings_by_target,
-        )
-        for partial in added_applications
-            _with_model_application(applications_by_id, partial) do application
-                isempty(application.target_ids) && return nothing
-                _with_metadata_entry(
-                    compiled.scenario_plan.input_recipes_by_application, application.id,
-                ) do recipe
-                    _compile_application_consumer_bindings!(
-                        input_bindings, model, application, recipe, manual_application_ids,
-                        applications_by_object, applications_by_id, distributed_outputs,
-                        many_binding_cache, performance, recorder,
-                    )
-                end
-            end
-        end
-    end
+    recorder = _AddedConsumerInputBindings(
+        model, many_binding_cache, changed_bindings, input_bindings_by_target,
+    )
+    _compile_model_input_bindings!(
+        input_bindings, model, added_applications, manual_application_ids,
+        compiled.scenario_plan.input_recipes_by_application, distributed_outputs,
+        applications_by_object, applications_by_id, many_binding_cache, performance, recorder,
+    )
     dynamic_input_binding_indices = if rebuild_dynamic_input_index
         many_binding_cache =
             _many_input_binding_cache(model, input_bindings)
@@ -9007,13 +8996,24 @@ function _compile_model_input_bindings(
     by_id=_applications_by_id(applications),
 )
     bindings = _model_input_binding_storage(input_binding_storage)
-    for application in applications
-        isempty(application.target_ids) && continue
-        recipe = _application_plans(input_recipes_by_application, application.id)
-        _compile_application_consumer_bindings!(
-            bindings, model, application, recipe, manual_application_ids,
-            by_object, by_id, distributed_outputs,
-        )
+    return _compile_model_input_bindings!(bindings, model, applications, manual_application_ids,
+        input_recipes_by_application, distributed_outputs, by_object, by_id)
+end
+
+function _compile_model_input_bindings!(bindings, model, applications, manual_application_ids,
+    recipes, distributed_outputs, by_object, by_id, many_binding_cache=nothing,
+    performance=nothing, recorder=nothing,
+)
+    for partial in applications
+        isempty(partial.target_ids) && continue
+        _with_model_application(by_id, partial) do application
+            _with_metadata_entry(recipes, application.id) do recipe
+                _compile_application_consumer_bindings!(
+                    bindings, model, application, recipe, manual_application_ids,
+                    by_object, by_id, distributed_outputs, many_binding_cache, performance, recorder,
+                )
+            end
+        end
     end
     return bindings
 end
@@ -9575,7 +9575,7 @@ end
 
 function _matching_callee_applications(applications, object_id::ObjectId, proc, application_name_filter)
     matches = Symbol[]
-    for entry in get(applications, object_id, Any[])
+    for entry in get(applications, object_id, ())
         application = entry::CompiledModelApplication
         plan = getfield(application, :plan)::CompiledApplicationPlan
         isnothing(proc) || getfield(plan, :process) == proc || continue
@@ -9697,12 +9697,12 @@ function _compile_call_plan_binding!(
             Symbol[plan.potential_callee_application_ids...],
         )
     else
-        object_ids = _dependency_object_ids(
+        object_ids = _application_target_ids(model, _dependency_object_ids(
             model,
             selector,
             plan.matcher,
             consumer_id,
-        )
+        ))
         application_ids = Symbol[]
         for object_id in object_ids
             append!(
@@ -9746,7 +9746,7 @@ function _compile_call_plan_binding!(
         CompiledModelCallBinding(
             plan,
             consumer_id,
-            _application_target_ids(model, callee_object_ids),
+            callee_object_ids,
             callee_application_ids,
         ),
     )

@@ -5799,10 +5799,7 @@ mutable struct _TargetedTopologyRuntime{CS,MA,I,S,O} <:
                AbstractTargetedTopologyRuntime
     compiled::CS
     model_revision::Int
-    application_sets::Dict{
-        Tuple{Vararg{I}},
-        Union{Nothing,S},
-    }
+    application_sets::Dict{Tuple{Vararg{I}},S}
     added_applications_by_object::O
     indexed_addition_count::Int
     manual_application_ids::MA
@@ -5841,7 +5838,7 @@ function _targeted_topology_runtime!(
     runtime = Runtime(
         compiled,
         model.revision,
-        Dict{Tuple{Vararg{I}},Union{Nothing,S}}(),
+        Dict{Tuple{Vararg{I}},S}(),
         O(),
         0,
         manual,
@@ -5899,15 +5896,13 @@ function _targeted_application_set!(
     model::CompositeModel,
     requested_ids,
 ) where {CS,MA,I}
-    key = Tuple(requested_ids)
+    key = Tuple(requested_ids)::Tuple{Vararg{I}}
     application_set = get!(runtime.application_sets, key) do
-        applications = _new_object_applications(
+        output_applications, added_applications_by_object = _new_object_applications(
             model,
             runtime.compiled,
             requested_ids,
         )
-        isnothing(applications) && return nothing
-        output_applications, added_applications_by_object = applications
         merge!(
             runtime.added_applications_by_object,
             added_applications_by_object,
@@ -5921,7 +5916,6 @@ function _targeted_application_set!(
             false,
         )
     end
-    isnothing(application_set) && return nothing
 
     # A fully initialized source can be registered without an explicit call.
     # Include its application membership before resolving newborn inputs. The
@@ -5930,19 +5924,18 @@ function _targeted_application_set!(
     added = lifecycle_delta(model).added
     unindexed_ids = nothing
     for index in (runtime.indexed_addition_count + 1):length(added)
-        object_id = added[index].id
+        object_id = added[index].id::I
         haskey(runtime.added_applications_by_object, object_id) && continue
         isnothing(unindexed_ids) && (unindexed_ids = I[])
-        push!(unindexed_ids, object_id::I)
+        push!(unindexed_ids, object_id)
     end
     if !isnothing(unindexed_ids)
-        applications = _new_object_applications(
+        _, unindexed_applications = _new_object_applications(
             model,
             runtime.compiled,
             unindexed_ids,
         )
-        isnothing(applications) && return nothing
-        merge!(runtime.added_applications_by_object, last(applications))
+        merge!(runtime.added_applications_by_object, unindexed_applications)
     end
     runtime.indexed_addition_count = length(added)
     return application_set
@@ -6124,13 +6117,6 @@ function _targeted_new_object_call_targets(
         model,
         requested_ids,
     )
-    if isnothing(application_set)
-        initializer && error(
-            "Initializer `$(name)` could not compile its newly registered target " *
-            "against the scheduled application selector.",
-        )
-        return nothing
-    end
     output_applications = application_set.applications
     callee_applications = _targeted_callee_applications(
         binding,
@@ -6182,17 +6168,11 @@ function _prepare_targeted_newborn_targets(
         application_set.outputs_prepared = true
     end
     input_bindings = similar(compiled.input_bindings, 0)
-    for application in callee_applications
-        isempty(application.target_ids) && continue
-        recipe = _application_plans(
-            compiled.scenario_plan.input_recipes_by_application, application.id,
-        )
-        _compile_application_consumer_bindings!(
-            input_bindings, model, application, recipe,
-            targeted_runtime.manual_application_ids, applications_by_object,
-            compiled.applications_by_id, compiled.distributed_outputs,
-        )
-    end
+    _compile_model_input_bindings!(
+        input_bindings, model, callee_applications, targeted_runtime.manual_application_ids,
+        compiled.scenario_plan.input_recipes_by_application, compiled.distributed_outputs,
+        applications_by_object, compiled.applications_by_id,
+    )
     final_input_references = _model_input_status_references(
         model.registry.objects, input_bindings)
     _prepare_model_input_statuses_batched!(
