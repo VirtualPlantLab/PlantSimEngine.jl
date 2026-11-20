@@ -703,15 +703,37 @@ function _install_prepared_canonical_registry(model, manifest, ::Type{S}) where 
     for (object, status) in pending
         setfield!(object, :status, status)
     end
+    return _model_with_object_store(model, store, model.source_adapter, model.scenario_plan_cache)
+end
+
+function _model_with_object_store(model, store, adapter, preparation)
+    previous = model.registry
     registry = ObjectRegistry(store, previous.by_scale, previous.by_kind,
         previous.by_species, previous.ancestor_ids_by_object)
     fields = map(fieldnames(typeof(model))) do name
-        name === :registry ? registry : getfield(model, name)
+        name === :registry && return registry
+        name === :source_adapter && return adapter
+        return getfield(model, name)
     end
     prepared = CompositeModel(fields...)
-    preparation = model.scenario_plan_cache
     _model_owned_scenario_preparation(prepared, preparation)
     return prepared
+end
+
+# An authored executable can fix its object ID types while keeping the status
+# cells, applications and source nodes prepared by the original CompositeModel.
+function _with_object_id_domain(model::CompositeModel, id_type=nothing)
+    isnothing(model.binding_cache) && isnothing(model.environment_binding_cache) ||
+        throw(ArgumentError("Prepare object ID types before binding a simulation."))
+    preparation = _scenario_preparation(model)
+    objects = model.registry.objects
+    store = isnothing(id_type) ? _closed_object_family_store(objects) :
+                                 _closed_object_family_store(objects, id_type)
+    adapter = model.source_adapter
+    if adapter isa MTGObjectAdapter
+        adapter = _closed_mtg_object_adapter(adapter, keytype(store))
+    end
+    return _model_with_object_store(model, store, adapter, preparation)
 end
 
 """

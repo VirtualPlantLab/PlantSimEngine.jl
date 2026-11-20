@@ -3,7 +3,6 @@ import PlantSimEngine as PSE
 export close_registry, RuntimeTypes, InputTrace, remember!, batch_schema
 
 function close_registry(model, id_type=nothing)
-    previous = model.registry
     manifest = PSE._scenario_preparation(model).status_manifest
     for object in PSE.model_objects(model)
         status = PSE.model_status(model, object)
@@ -11,14 +10,10 @@ function close_registry(model, id_type=nothing)
             error("Fresh objects lost the prepared canonical Status owner.")
         status === object.status || error("The facade lost its canonical status.")
     end
-    store = isnothing(id_type) ? PSE._closed_object_family_store(previous.objects) :
-        PSE._closed_object_family_store(previous.objects, id_type)
-    store.catalog.status_manifest === manifest || error("Registry closure changed the manifest.")
-    registry = PSE.ObjectRegistry(store, previous.by_scale, previous.by_kind,
-        previous.by_species, previous.ancestor_ids_by_object)
-    # Build-time reconstruction retains every field of this exact model.
-    return PSE.CompositeModel(registry,
-        (getfield(model, index) for index in 2:fieldcount(typeof(model)))...)
+    prepared = PSE._with_object_id_domain(model, id_type)
+    prepared.registry.objects.catalog.status_manifest === manifest ||
+        error("Registry closure changed the manifest.")
+    return prepared
 end
 
 mutable struct RuntimeTypes

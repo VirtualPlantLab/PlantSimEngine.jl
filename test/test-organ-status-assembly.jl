@@ -105,13 +105,18 @@ end
 @testset "a prepared MTG adapter keeps scientific inputs separate from node annotations" begin
     root = MTG.Node(1, MTG.NodeMTG(:/, :Plant, 1, 1),
         (kind=:plant, note="plant", seed=0f0, geometry=Float32[]))
-    adapter = PSE._closed_mtg_object_adapter(CompositeModel(root).source_adapter, ObjectId{Int})
+    source = CompositeModel(root;
+        applications=(ModelSpec(Probe(2f0); name=:probe, on=Many(scale=:Leaf)),))
+    model = PSE._with_object_id_domain(source, ObjectId{Int})
+    adapter = model.source_adapter
+    @test model.scenario_plan_cache.owner === model
+    @test model.scenario_plan_cache.status_manifest === source.scenario_plan_cache.status_manifest
+    @test source_node(model, 1) === root
     if isdefined(MTG, :prepare_node_edits)
         @test length(adapter.node_edits) == 1
     end
-    model = CompositeModel(only(objects_from_mtg(root)); source_adapter=adapter,
-        applications=(ModelSpec(Probe(2f0); name=:probe, on=Many(scale=:Leaf)),))
     simulation = run!(model; steps=0, outputs=:all)
+    @test_throws "before binding a simulation" PSE._with_object_id_domain(model)
     geometry = Float32[1, 2]
     given = Status(seed=3f0, payload=Float32[])
     leaf = add_organ!(root, simulation, :+, :Leaf, 2;
@@ -140,10 +145,7 @@ end
         MTG.add_column!(root, :Leaf, :name, String; default="young leaf")
         MTG.add_column!(root, :Leaf, :geometry, typeof(geometry); default=geometry)
         model = CompositeModel(root)
-        if prepared
-            adapter = PSE._closed_mtg_object_adapter(model.source_adapter, ObjectId{Int})
-            model = CompositeModel(only(objects_from_mtg(root)); source_adapter=adapter)
-        end
+        prepared && (model = PSE._with_object_id_domain(model, ObjectId{Int}))
         leaf = add_organ!(root, model, :+, :Leaf, 2)
         object = model_object(model, source_node(model, leaf))
         @test (object.kind, object.species, object.name) == (Symbol(3), :guineensis, "young leaf")
@@ -171,10 +173,7 @@ end
             throw(ArgumentError("rejected leaf"))
         end
         model = CompositeModel(root; kind)
-        if prepared
-            adapter = PSE._closed_mtg_object_adapter(model.source_adapter, ObjectId{Int})
-            model = CompositeModel(only(objects_from_mtg(root; kind)); source_adapter=adapter)
-        end
+        prepared && (model = PSE._with_object_id_domain(model, ObjectId{Int}))
         @test_throws "rejected leaf" add_organ!(root, model, :+, :Leaf, 2)
         @test isnothing(MTG.parent(newborn[])) && isempty(MTG.children(newborn[]))
         @test only(MTG.children(root)) === tip[]

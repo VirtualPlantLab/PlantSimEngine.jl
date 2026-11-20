@@ -51,22 +51,6 @@ function PSE.run!(::Probe, status, environment, constants, context)
     return nothing
 end
 
-function close_registry(model::CompositeModel)
-    previous = model.registry
-    objects = PSE._closed_object_family_store(previous.objects)
-    registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
-        previous.by_species, previous.ancestor_ids_by_object)
-    return PSE.CompositeModel(
-        registry, model.applications, model.environment, model.instances,
-        model.source_adapter, model.status_conversion, model.status_conversion_records,
-        model.status_source_owners, model.status_source_identities,
-        model.scenario_plan_cache, model.binding_cache, model.environment_binding_cache,
-        model.bindings_dirty, model.environment_bindings_dirty, model.lifecycle_delta,
-        model.input_default_status_variables, model.runtime_revision, model.revision,
-        model.environment_revision,
-    )
-end
-
 function fixture(closed::Bool; environment_schema=PSE.EnvironmentBindingSchema(), first_id=1)
     backend = Backend(Dict(:a => 10.0f0, :b => 20.0f0), 0, Any[], nothing)
     model = CompositeModel(
@@ -77,7 +61,7 @@ function fixture(closed::Bool; environment_schema=PSE.EnvironmentBindingSchema()
             status=Status(seen=0.0f0, visits=0));
         applications=(ModelSpec(Probe(); name=:probe, on=Many(scale=:Leaf),
             environment=Environment(provider=:identity_probe)),), environment=backend)
-    closed && (model = close_registry(model))
+    closed && (model = PSE._with_object_id_domain(model))
     simulation = PSE._prepare_simulation!(model; steps=1, outputs=:all,
         constants=PSE.Constants(), environment_schema)
     PSE._continue_scene!(simulation, 1)
@@ -127,7 +111,7 @@ function index_discovery_fixture(closed::Bool; extra_applications::Int=0,
         extra_objects...;
         applications=applications,
         environment=backend_a)
-    closed && (model = close_registry(model))
+    closed && (model = PSE._with_object_id_domain(model))
     return (; model, backend_a, backend_b, events)
 end
 
@@ -623,7 +607,6 @@ end
 
 module SwitchingBackendRepro
 using PlantSimEngine, Dates, Test
-import ..EnvironmentIndexIdentityChecks: close_registry
 const PSE = PlantSimEngine
 const EA = PSE.EnvironmentAPI
 
@@ -675,7 +658,7 @@ function fixture(closed::Bool)
         applications=(ModelSpec(Probe(); name=:probe, on=One(id=:root),
             every=Dates.Hour(1), environment=Environment(backend=source)),),
         environment=b)
-    closed && (model = close_registry(model))
+    closed && (model = PSE._with_object_id_domain(model))
     return (; model, source, a, b, events)
 end
 

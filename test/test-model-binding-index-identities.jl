@@ -38,27 +38,9 @@ function PSE.run!(::ManyReader, status, environment, constants, context)
     return nothing
 end
 
-# Close only the actual complete schemas already present in this call fixture.
-# This introduces no scientific object, default evaluation, or type probe.
-function close_registry(model::CompositeModel)
-    previous = model.registry
-    registry = PSE.ObjectRegistry(PSE._closed_object_family_store(previous.objects),
-        previous.by_scale, previous.by_kind, previous.by_species,
-        previous.ancestor_ids_by_object)
-    return PSE.CompositeModel(registry, model.applications, model.environment,
-        model.instances, model.source_adapter, model.status_conversion,
-        model.status_conversion_records, model.status_source_owners,
-        model.status_source_identities, model.scenario_plan_cache,
-        model.binding_cache, model.environment_binding_cache, model.bindings_dirty,
-        model.environment_bindings_dirty, model.lifecycle_delta,
-        model.input_default_status_variables, model.runtime_revision,
-        model.revision, model.environment_revision)
-end
-
-
 @testset "registration admits object and parent identities before status conversion" begin
     root = Object(:root; status=Status(x=1f0))
-    model = close_registry(CompositeModel(root; type_promotion=Dict(Float64 => Float32)))
+    model = PSE._with_object_id_domain(CompositeModel(root; type_promotion=Dict(Float64 => Float32)))
     records = copy(model.status_conversion_records)
     revision = model.revision
     children = copy(root.children)
@@ -116,7 +98,7 @@ end
         end
         model = CompositeModel(Object(:seed; status=Status(x=1.0));
             type_promotion=Dict(Float64 => Float32), status_transform=transform)
-        closed && (model = close_registry(model))
+        closed && (model = PSE._with_object_id_domain(model))
         before = calls[]
         source = Status(x=2.0)
         @test_throws "already contains object id" register_object!(model,
@@ -147,7 +129,7 @@ end
         @test instance.root === (form === :object ? root : root.id)
         items = form === :object ? (branch,) : (root, branch)
         model = CompositeModel(items...; instances=(instance,))
-        closed && (model = close_registry(model))
+        closed && (model = PSE._with_object_id_domain(model))
         @test PSE._instance_root_id(instance) === root.id
         @test PSE._instance_for_object(model, branch.id) === instance
 
@@ -190,7 +172,7 @@ function call_fixture(closed)
                 many=Many(scale=:Leaf, within=Subtree(), application=:leaf))),
             ModelSpec(Leaf(); name=:leaf, on=Many(scale=:Leaf)),
         ))
-    closed && (model = close_registry(model))
+    closed && (model = PSE._with_object_id_domain(model))
     simulation = run!(model; steps=0, outputs=:all)
     target = only(only(only(simulation.execution_plan.groups).batches).targets)
     return (; model, simulation, capture, context=target.context)
@@ -457,7 +439,7 @@ end
     catch error
         sprint(showerror, error)
     end
-    mixed = close_registry(CompositeModel(
+    mixed = PSE._with_object_id_domain(CompositeModel(
         Object(:root; scale=:Scene), Object((:tree, :leaf, 2); scale=:Leaf, parent=:root)))
     I = keytype(mixed.registry.objects)
     for ids in (I[], I[ObjectId(:root)], collect(keys(mixed.registry.objects)))
@@ -563,7 +545,7 @@ end
             Object(1; scale=:Leaf, parent=Symbol("plante α")),
             Object(Symbol("1"); scale=:Leaf, parent=Symbol("plante α")),
             Object(Symbol("feuille α"); scale=:Leaf, parent=Symbol("plante α")))
-        closed && (model = close_registry(model))
+        closed && (model = PSE._with_object_id_domain(model))
         message = try
             resolve_object_ids(model, One(Subtree(); scale=:Leaf);
                 context=Symbol("plante α"))
@@ -642,7 +624,7 @@ end
             Object(:root; scale=:Plant, status=Status(visits=0)),
             Object(1; scale=:Leaf, parent=:root, status=Status(x=3f0));
             applications=())
-        closed && (model = close_registry(model))
+        closed && (model = PSE._with_object_id_domain(model))
         I = keytype(model.registry.objects)
         authored = PSE._compile_model_applications(model, PSE._model_timeline(model))
         prepared = PSE._prepare_scenario_plan(model)
@@ -689,7 +671,7 @@ end
             applications=(ModelSpec(Reader(); name=:reader, on=One(id=:root),
                 inputs=(single=One(id=1, within=Subtree(), var=:x,
                     from_status=true),)),))
-        closed && (model = close_registry(model))
+        closed && (model = PSE._with_object_id_domain(model))
         simulation = run!(model; steps=0, outputs=:none)
         bindings = simulation.compiled.input_bindings
         erased_inputs = PSE.CompiledModelInputBinding[bindings...]
@@ -752,7 +734,7 @@ PSE.EnvironmentAPI.bind_environment(::GeometryOwnerBackend, object::Object, cont
             Object(:blank_branch; scale=:Branch, parent=:no_geometry, status=Status());
             applications=(ModelSpec(Leaf(); name=:leaf, on=Many(scale=:Leaf)),),
             environment=GeometryOwnerBackend())
-        closed && (model = close_registry(model))
+        closed && (model = PSE._with_object_id_domain(model))
         simulation = run!(model; steps=0, outputs=:none)
         leaf = model_object(model, :leaf)
         reference = PSE.refvalue(leaf.status, :x)
@@ -799,7 +781,7 @@ end
             Object(:feuille; scale=:Leaf, parent=:root,
                 status=Status(values=Float64[], total=0.0));
             applications=(ModelSpec(Reader(); name=:reader, on=Many(scale=:Leaf)),))
-        closed && (model = close_registry(model))
+        closed && (model = PSE._with_object_id_domain(model))
         error = try
             run!(model; steps=0, outputs=:none)
             nothing
@@ -825,7 +807,7 @@ end
                 ModelSpec(Reader(); name=:reader, on=One(id=ObjectId(consumer)),
                     inputs=(single=One(id=:source, within=SceneScope(), application=:leaf, var=:x),)),
             ))
-        closed && (model = close_registry(model))
+        closed && (model = PSE._with_object_id_domain(model))
         simulation = run!(model; steps=0, outputs=:none)
         bound = PSE._bound_model_inputs(simulation.compiled.input_bindings, model.registry.objects)
         @test eltype(bound) === Tuple{Symbol,keytype(model.registry.objects),Symbol}
@@ -842,7 +824,7 @@ end
             direct = CompositeModel(Object(:root; scale=:Plant),
                 Object(consumer; scale=:Leaf, parent=:root, status);
                 applications=(ModelSpec(Reader(); name=:reader, on=One(id=ObjectId(consumer))),))
-            closed && (direct = close_registry(direct))
+            closed && (direct = PSE._with_object_id_domain(direct))
             if provided
                 direct_simulation = run!(direct; steps=0, outputs=:none)
                 direct_bound = PSE._bound_model_inputs(direct_simulation.compiled.input_bindings,
