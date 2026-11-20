@@ -306,13 +306,21 @@ const TEST_GROUPS = (
 
 # Prepared execution alone can take over two hours on Julia 1.10. On macOS
 # the reusable scenario tests also need a separate share of the three-hour job budget.
-const CI_TEST_SHARDS = let
+function test_group_indices(index, count)
+    count in (4, 5) || return index:count:length(TEST_GROUPS)
     group_index(name) = only(findall(group -> first(group) == name, TEST_GROUPS))
     prepared = group_index("Prepared execution schemas")
     reusable = group_index("Reusable scenario plans")
     newborn = group_index("Newborn retained manual calls")
     identities = group_index("Identity-aware Many inputs")
     @assert prepared < reusable < newborn < identities
-    (filter(i -> i != prepared && i != reusable, 1:(newborn - 1)), prepared:prepared,
-        newborn:(identities - 1), [reusable; identities:lastindex(TEST_GROUPS)])
+    early = filter(i -> i != prepared && i != reusable, 1:(newborn - 1))
+    other = (prepared:prepared, newborn:(identities - 1), [reusable; identities:lastindex(TEST_GROUPS)])
+    if count == 4
+        return (early, other...)[index]
+    end
+    # The manual-call groups can use a separate macOS runner while keeping
+    # every group's test files in their original order and Julia process.
+    calls = group_index("Accepted call evaluations")
+    return (filter(<(calls), early), other..., filter(>=(calls), early))[index]
 end
