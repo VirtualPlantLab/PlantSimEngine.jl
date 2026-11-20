@@ -36,13 +36,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: VEZY/MultiScaleTreeGraph.jl
-          ref: bcc58a86356d0cbdcafbac721a367e7dcb978fdb
+          ref: b3b39f5d33543fe2775756782ec1c4de33ba5775
           path: public-mtg
           persist-credentials: false
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1.13.3'
-      - name: Compare all four PSE revisions with identical XPalm and MTG sources
+      - name: Compare main, the historical engine and the final candidate on matching inputs
         run: python3 .ci/xpalm-matched/run.py "${{ matrix.scenario }}"
       - uses: actions/upload-artifact@v4
         if: always()

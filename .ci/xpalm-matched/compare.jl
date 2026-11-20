@@ -85,41 +85,35 @@ end
     @test realpath(pkgdir(R.MTG)) == realpath(joinpath(ARMDIR, "..", "MultiScaleTreeGraph"))
     output_dir, role, reference_path = ARGS
     mkpath(output_dir)
-    if role == "reference-main"
-        # A fresh main checkout produces all 4,161 counts directly from its own registry.
-        # Check the same complete state and model RNG after a second, continuous trajectory.
-        daily, counts = trajectory(:daily, nothing)
-        continuous, _ = trajectory(:full, nothing)
-        @test length(counts) == DAYS + 1 && last(counts) == daily.science.objects
-        @test continuous.science == daily.science
-        growth = count(>(0), diff(counts))
-        reference = (; daily.science..., object_counts=counts, growth_days=growth,
-            ordinary_days=DAYS-growth, pse=strip(read(`git -C $(pkgdir(PSE)) rev-parse HEAD`, String)),
-            xpalm=strip(read(`git -C $(pkgdir(R.XPalm)) rev-parse HEAD`, String)),
-            mtg=strip(read(`git -C $(pkgdir(R.MTG)) rev-parse HEAD`, String)),
-            cpu=Sys.CPU_NAME, julia_commit=Base.GIT_VERSION_INFO.commit)
-        write(reference_path, PSE.JSON.json(reference))
-    else
-        reference = PSE.JSON.parsefile(reference_path)
-        rows = []
-        Base.cumulative_compile_timing(true)
-        try
-            for (phase, mode, index) in ((:warm, :full, 0), (:warm, :daily, 0),
-                ((:measure, mode, index) for mode in (:full, :daily) for index in 1:3)...)
-                @info "Starting XPalm trajectory" role phase mode index
-                row, _ = trajectory(mode, reference)
-                push!(rows, (; phase, index, row...))
-                report = (; role, cpu=Sys.CPU_NAME, julia=string(VERSION), julia_commit=Base.GIT_VERSION_INFO.commit,
-                    hostname=get(ENV, "HOSTNAME", ""), rows)
-                write(joinpath(output_dir, role * ".json"), PSE.JSON.json(report))
-                @test row.science == first(rows).science
-                if phase === :measure
-                    @test all(t -> iszero(t.compile_seconds) && iszero(t.recompile_seconds), values(row.times))
-                end
+    reference = PSE.JSON.parsefile(reference_path)
+    rows = []
+    Base.cumulative_compile_timing(true)
+    try
+        for (phase, mode, index) in ((:warm, :full, 0), (:warm, :daily, 0),
+            ((:measure, mode, index) for mode in (:full, :daily) for index in 1:3)...)
+            @info "Starting XPalm trajectory" role phase mode index
+            row, counts = trajectory(mode, reference)
+            push!(rows, (; phase, index, row...))
+            report = (; role, cpu=Sys.CPU_NAME, julia=string(VERSION), julia_commit=Base.GIT_VERSION_INFO.commit,
+                hostname=get(ENV, "HOSTNAME", ""), rows)
+            write(joinpath(output_dir, role * ".json"), PSE.JSON.json(report))
+            @test row.science == first(rows).science
+            if role == "main" && phase === :warm && mode === :daily
+                @test length(rows) == 2 && first(rows).mode === :full
+                @test length(counts) == DAYS + 1 && last(counts) == row.science.objects
+                growth = count(>(0), diff(counts))
+                observed = (; row.science..., object_counts=counts, growth_days=growth,
+                    ordinary_days=DAYS-growth, pse=strip(read(`git -C $(pkgdir(PSE)) rev-parse HEAD`, String)),
+                    xpalm=strip(read(`git -C $(pkgdir(R.XPalm)) rev-parse HEAD`, String)),
+                    mtg=strip(read(`git -C $(pkgdir(R.MTG)) rev-parse HEAD`, String)),
+                    cpu=Sys.CPU_NAME, julia_commit=Base.GIT_VERSION_INFO.commit)
+                write(joinpath(output_dir, "main-linux-reference.json"), PSE.JSON.json(observed))
             end
-        finally
-            Base.cumulative_compile_timing(false)
+            if phase === :measure
+                @test all(t -> iszero(t.compile_seconds) && iszero(t.recompile_seconds), values(row.times))
+            end
         end
+    finally
+        Base.cumulative_compile_timing(false)
     end
 end
-

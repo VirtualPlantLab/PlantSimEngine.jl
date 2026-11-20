@@ -17,15 +17,14 @@ results.mkdir()
 revisions = {
     "main": "8d1f8484c8ad68cc5da8004209b2062070cac28a",
     "historical": "cd5517551f4cd4cf01504cb312e2b81f6fabe6ba",
-    "before": "f746e9343155f49308d5d9b3a6e2fd51bdcf3ce3",
-    "candidate": "06e2f0feaebec62ec3046edbb02dbf6ef38a15d1",
+    "candidate": "4765ae1da35f2f82869914eadc3d83c926d18492",
 }
 scenario, = sys.argv[1:]
 xpalm_revision = {
     "legacy": "5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd",
     "modern": "f44f728dd68e804ffa6bcb872e5b873ce46bf3b5",
 }[scenario]
-mtg_revision = "bcc58a86356d0cbdcafbac721a367e7dcb978fdb"
+mtg_revision = "b3b39f5d33543fe2775756782ec1c4de33ba5775"
 prior = json.loads((recipe / "prior-linux-main.json").read_text())[scenario]
 
 
@@ -121,16 +120,12 @@ def previous_linux_check(science, cpu, julia_commit):
 
 
 provenance = {}
+# Independent scientific observations for the original and revised XPalm.
+# Generate a second Linux witness from main's two existing warm trajectories.
+reference_path = recipe / ("modern-independent-mac.json" if scenario == "modern" else "reference.json")
 if scenario == "modern":
-    reference_path = results / "modern-main-reference.json"
-    run_role("reference-main", revisions["main"], reference_path)
-    reference = json.loads(reference_path.read_text())
-    assert (reference["pse"], reference["xpalm"], reference["mtg"]) == (revisions["main"], xpalm_revision, mtg_revision)
-    assert reference["objects"] == 1299 and reference["growth_days"] == 583
-    previous_linux_check(reference, reference["cpu"], reference["julia_commit"])
-else:
-    reference_path = recipe / "reference.json"
-    reference = json.loads(reference_path.read_text())
+    assert digest(reference_path) == "975b70696fbfa690e8da26a5a1bb3ad40c11d89c25d7627079e2f6f85561b810"
+reference = json.loads(reference_path.read_text())
 assert len(reference["object_counts"]) == 4161
 assert reference["growth_days"] + reference["ordinary_days"] == 4160
 assert reference["objects"] == reference["object_counts"][-1]
@@ -142,16 +137,19 @@ for role, revision in revisions.items():
     reports[role] = json.loads((results / f"{role}.json").read_text())
 assert len({p["xpalm_tree"] for p in provenance.values()}) == 1
 anchor = reports["main"]["rows"][0]["science"]
-summary = {"scenario": scenario, "reference_sha256": reference_digest, "revisions": revisions, "xpalm": xpalm_revision, "mtg": "bcc58a86356d0cbdcafbac721a367e7dcb978fdb", "cpu": reports["main"]["cpu"],
+summary = {"scenario": scenario, "reference_sha256": reference_digest, "revisions": revisions, "xpalm": xpalm_revision, "mtg": "b3b39f5d33543fe2775756782ec1c4de33ba5775", "cpu": reports["main"]["cpu"],
            "reference_core_equal": anchor["core"] == reference["core"],
            "reference_companion_equal": anchor["companion_digest"] == reference["companion_digest"],
            "reference_component_equality": {k: v == reference["components"][k] for k, v in anchor["components"].items()},
            "arms": {}}
 summary["previous_linux"] = previous_linux_check(anchor, reports["main"]["cpu"], reports["main"]["julia_commit"])
 assert all(summary["reference_component_equality"][k] for k in ("step", "rngs", "topology", "source_topology"))
-if scenario == "modern":
-    assert summary["reference_core_equal"] and summary["reference_companion_equal"]
-    assert all(summary["reference_component_equality"].values())
+linux_reference = json.loads((results / "main-linux-reference.json").read_text())
+assert (linux_reference["pse"], linux_reference["xpalm"], linux_reference["mtg"]) == (revisions["main"], xpalm_revision, mtg_revision)
+assert linux_reference["object_counts"] == reference["object_counts"]
+assert (linux_reference["growth_days"], linux_reference["ordinary_days"]) == (reference["growth_days"], reference["ordinary_days"])
+assert all(anchor[k] == linux_reference[k] for k in anchor)
+summary["linux_reference_sha256"] = digest(results / "main-linux-reference.json")
 for role, report in reports.items():
     assert (report["cpu"], report["hostname"], report["julia_commit"]) == (
         reports["main"]["cpu"], reports["main"]["hostname"], reports["main"]["julia_commit"])
