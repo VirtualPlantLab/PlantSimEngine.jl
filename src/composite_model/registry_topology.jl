@@ -1672,11 +1672,13 @@ function add_organ!(
     end
 end
 
-function _remove_child_link!(model::CompositeModel, parent_id, child_id::ObjectId)
-    isnothing(parent_id) && return nothing
-    parent_object = _model_object(model, _index_object_id(model.registry.objects, parent_id))
+function _unlink_from_parent!(model::CompositeModel, object::Object, child_id::ObjectId)
+    parent = object.parent
+    isnothing(parent) && return nothing
+    parent_id = _index_object_id(model.registry.objects, parent)
+    parent_object = _model_object(model, parent_id)
     filter!(!=(child_id), parent_object.children)
-    return nothing
+    return parent_id
 end
 
 function _mutable_subtree_ids(model::CompositeModel, root_id::ObjectId, operation::Symbol)
@@ -1686,7 +1688,7 @@ function _mutable_subtree_ids(model::CompositeModel, root_id::ObjectId, operatio
     instance_roots = similar(descendant_ids, 0)
     for instance in model.instances
         id = _instance_root_id(instance)
-        id in subtree_ids && push!(instance_roots, _index_object_id(model.registry.objects, id))
+        id isa eltype(descendant_ids) && id in subtree_ids && push!(instance_roots, id)
     end
     isempty(instance_roots) && return descendant_ids
     _sort_object_ids!(instance_roots)
@@ -1709,7 +1711,7 @@ function remove_object!(model::CompositeModel, id; recursive::Bool=true)
         _lifecycle_object_snapshot(model, _model_object(model, object_id))
         for object_id in descendant_ids
     ]
-    _remove_child_link!(model, object.parent, root_id)
+    _unlink_from_parent!(model, object, root_id)
     adapter = model.source_adapter
     for object_id in Iterators.reverse(descendant_ids)
         removed = _model_object(model, object_id)
@@ -1742,12 +1744,13 @@ function reparent_object!(model::CompositeModel, id, new_parent)
         )
         parent_id
     end
-    old_parent_id = isnothing(object.parent) ? nothing : _index_object_id(objects, object.parent)
     old_ancestors_by_object = Dict{ObjectId,Tuple}()
     for descendant_id in descendant_ids
-        old_ancestors_by_object[descendant_id] = Tuple(_object_ancestor_ids(model.registry, descendant_id))
+        get!(old_ancestors_by_object, descendant_id) do
+            Tuple(_object_ancestor_ids(model.registry, descendant_id))
+        end
     end
-    _remove_child_link!(model, old_parent_id, root_id)
+    old_parent_id = _unlink_from_parent!(model, object, root_id)
     object.parent = new_parent_id
     if !isnothing(parent)
         root_id in parent.children || push!(parent.children, root_id)
