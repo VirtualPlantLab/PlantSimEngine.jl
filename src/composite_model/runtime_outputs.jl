@@ -5795,11 +5795,11 @@ mutable struct _TargetedApplicationSet{A,B}
     outputs_prepared::Bool
 end
 
-mutable struct _TargetedTopologyRuntime{CS,MA,I,S,O} <:
+mutable struct _TargetedTopologyRuntime{CS,MA,D<:Dict,O} <:
                AbstractTargetedTopologyRuntime
     compiled::CS
     model_revision::Int
-    application_sets::Dict{Tuple{Vararg{I}},S}
+    application_sets::D
     added_applications_by_object::O
     indexed_addition_count::Int
     manual_application_ids::MA
@@ -5828,7 +5828,8 @@ function _targeted_topology_runtime!(
     O = Dict{I,Vector{A}}
     S = _TargetedApplicationSet{Vector{A},_ApplicationsByObjectOverlay{typeof(compiled.applications_by_object),O}}
     manual = compiled.scenario_plan.manual_application_ids
-    Runtime = _TargetedTopologyRuntime{typeof(compiled),typeof(manual),I,S,O}
+    D = Dict{Tuple{Vararg{I}},S}
+    Runtime = _TargetedTopologyRuntime{typeof(compiled),typeof(manual),D,O}
     cached = delta.targeted_topology_runtime
     if cached isa Runtime &&
        cached.compiled === compiled &&
@@ -5838,7 +5839,7 @@ function _targeted_topology_runtime!(
     runtime = Runtime(
         compiled,
         model.revision,
-        Dict{Tuple{Vararg{I}},S}(),
+        D(),
         O(),
         0,
         manual,
@@ -5892,10 +5893,11 @@ function _new_object_applications(
 end
 
 function _targeted_application_set!(
-    runtime::_TargetedTopologyRuntime{CS,MA,I},
+    runtime::_TargetedTopologyRuntime,
     model::CompositeModel,
     requested_ids,
-) where {CS,MA,I}
+)
+    I = keytype(runtime.added_applications_by_object)
     key = Tuple(requested_ids)::Tuple{Vararg{I}}
     application_set = get!(runtime.application_sets, key) do
         output_applications, added_applications_by_object = _new_object_applications(
