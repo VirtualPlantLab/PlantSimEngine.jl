@@ -1,0 +1,44 @@
+{
+  "modern": {
+    "archive_sha256": "1598658ea689ba69f6fcce4fcc2b767d11d6fc5e61fe3764b5753631398043d4",
+    "main_json_sha256": "2df16c2f7753c5d67273d5821ef3130f1cbce2c83965a86e217dc77e8078a89e",
+    "cpu": "znver3",
+    "julia_commit": "67ac47b9cd855e02134d41d5428ac9f2a73f2694",
+    "replays": 8,
+    "science": {
+      "core": "bc4da4c81569163a784257ef7172a0eefecdb094607ba07d7d8c50186477b7d1",
+      "components": {
+        "histories": "c0aed0b882dc1e63d5203e757d87c3974307acd4d55f3273424b643596ca75cc",
+        "rngs": "e0198efcb7748dbdd756bbd068b4f36d9474be94b5748dc5b693046cac852e68",
+        "source_topology": "b6a6df9435f26a29c792b9b20f613c78505d40dc15218dbae59002d938b2403c",
+        "states": "33a51e68f148ffa0755fadba94bcd58f569d1fecca8a9e595344f086d3989082",
+        "step": "2634d6754587ace26865e022ed7f89f553b627d91538c195f74a43d8a7dbe814",
+        "topology": "2936c31beeecffd4d5353c11c2eaed69856188901f8b35cbf38388a784ff0850"
+      },
+      "companion_digest": "d1247ccc00ac29902affbaf6a2cb1b8c53903528b2b22211b054bbfddab240bc",
+      "objects": 1299,
+      "retained_samples": 6064
+    }
+  },
+  "legacy": {
+    "archive_sha256": "6cf00684eb66d64090542279a6a1aa8c719a13bd9fc8e726124e2a6f06c75036",
+    "main_json_sha256": "b5bfecab548708140d256b71f2cef53ebb57e8fb98524c0323521998299e969e",
+    "cpu": "emeraldrapids",
+    "julia_commit": "67ac47b9cd855e02134d41d5428ac9f2a73f2694",
+    "replays": 8,
+    "science": {
+      "core": "dfd8772548ded07b25bd6821e42f5b3649562f8f351c789b5c6f31e6f60d3242",
+      "components": {
+        "histories": "78ed34546f27258948aee25d37f54ac1af0ed5a0bfa6b5c3c3edef557a5bfa9a",
+        "rngs": "81dd6c31f16e193e481ef8bb034a13ef129fc576f267761780e58968a0174cea",
+        "source_topology": "7c72a1a4dea342395adfc8e1d9246f4510d65550b84f32166758ef65f74a0dc7",
+        "states": "1d45d6a08bf3df27c56a31f5a0983b4711a58d3794a055ad9042692faf08ad05",
+        "step": "2634d6754587ace26865e022ed7f89f553b627d91538c195f74a43d8a7dbe814",
+        "topology": "9960fbff86e34e00ef7e24686fc6e042d97c618eaaa4d57722518b09e8155e8e"
+      },
+      "companion_digest": "f5b76d54ad324bfb7a8fc667d6f6c1e6a47c6f20075c0b6834b21f10b189df1a",
+      "objects": 1190,
+      "retained_samples": 4430
+    }
+  }
+}

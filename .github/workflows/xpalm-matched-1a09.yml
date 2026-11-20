@@ -7,6 +7,14 @@ permissions:
   contents: read
 jobs:
   compare:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: legacy
+            xpalm: 5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd
+          - scenario: modern
+            xpalm: f44f728dd68e804ffa6bcb872e5b873ce46bf3b5
     runs-on: ubuntu-24.04
     timeout-minutes: 285
     env:
@@ -22,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: PalmStudio/XPalm.jl
-          ref: f44f728dd68e804ffa6bcb872e5b873ce46bf3b5
+          ref: ${{ matrix.xpalm }}
           path: public-xpalm
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -35,11 +43,11 @@ jobs:
         with:
           version: '1.13.3'
       - name: Compare all four PSE revisions with identical XPalm and MTG sources
-        run: python3 .ci/xpalm-matched/run.py
+        run: python3 .ci/xpalm-matched/run.py "${{ matrix.scenario }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: matched-xpalm-linux
+          name: matched-xpalm-${{ matrix.scenario }}-linux
           path: ${{ runner.temp }}/xpalm-results/*.json
           if-no-files-found: warn
           retention-days: 14

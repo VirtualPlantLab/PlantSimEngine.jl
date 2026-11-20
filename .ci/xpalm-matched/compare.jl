@@ -10,7 +10,6 @@ const R = RegularXPalmExecution
 const S = StrictSnapshotObservations
 const DAYS = 4160
 const ARMDIR = dirname(Base.active_project())
-const REFERENCE = PSE.JSON.parsefile(joinpath(@__DIR__, "reference.json"))
 
 function stepped!(sim, elapsed, counts)
     counts[1] = length(PSE.runtime_model(sim).registry.objects)
@@ -34,7 +33,7 @@ function model_rngs(source)
         for name in fieldnames(typeof(spec.model)) if getfield(spec.model, name) isa R.Random.AbstractRNG]
 end
 
-function trajectory(mode)
+function trajectory(mode, reference)
     GC.gc()
     before = host_counters()
     construction = @timed R._construct()
@@ -61,17 +60,21 @@ function trajectory(mode)
         companion_digest=S.content_sha256(companion), objects=length(state.states),
         retained_samples=sum(length(h.samples) for h in state.histories; init=0))
     @test state.step == DAYS
-    @test science.objects == REFERENCE["objects"] && science.retained_samples == REFERENCE["retained_samples"]
     growth = diff(counts) .> 0
-    if mode === :daily
-        @test counts == REFERENCE["object_counts"]
-        @test count(growth) == REFERENCE["growth_days"]
+    if reference !== nothing
+        @test science.objects == reference["objects"] && science.retained_samples == reference["retained_samples"]
+        if mode === :daily
+            @test counts == reference["object_counts"]
+            @test count(growth) == reference["growth_days"]
+            @test count(!, growth) == reference["ordinary_days"]
+        end
     end
     times = (; construction=R._timing(construction), preparation=R._timing(preparation),
         execution=R._timing(execution))
-    return (; mode, times, science, before, after,
+    row = (; mode, times, science, before, after,
         growth_seconds=mode === :daily ? sum(elapsed[growth]) / 1e9 : nothing,
         ordinary_seconds=mode === :daily ? sum(elapsed[.!growth]) / 1e9 : nothing)
+    return row, counts
 end
 
 @testset "4,160 days, ordinary PSE on the frozen XPalm controls" begin
@@ -80,26 +83,43 @@ end
     @test realpath(pkgdir(PSE)) == realpath(joinpath(ARMDIR, "..", "PlantSimEngine"))
     @test realpath(pkgdir(R.XPalm)) == realpath(joinpath(ARMDIR, "..", "XPalm"))
     @test realpath(pkgdir(R.MTG)) == realpath(joinpath(ARMDIR, "..", "MultiScaleTreeGraph"))
-    output_dir, role = ARGS
+    output_dir, role, reference_path = ARGS
     mkpath(output_dir)
-    rows = []
-    Base.cumulative_compile_timing(true)
-    try
-        for (phase, mode, index) in ((:warm, :full, 0), (:warm, :daily, 0),
-            ((:measure, mode, index) for mode in (:full, :daily) for index in 1:3)...)
-            @info "Starting XPalm trajectory" role phase mode index
-            row = trajectory(mode)
-            push!(rows, (; phase, index, row...))
-            report = (; role, cpu=Sys.CPU_NAME, julia=string(VERSION), julia_commit=Base.GIT_VERSION_INFO.commit,
-                hostname=get(ENV, "HOSTNAME", ""), rows)
-            write(joinpath(output_dir, role * ".json"), PSE.JSON.json(report))
-            @test row.science == first(rows).science
-            if phase === :measure
-                @test all(t -> iszero(t.compile_seconds) && iszero(t.recompile_seconds), values(row.times))
+    if role == "reference-main"
+        # A fresh main checkout produces all 4,161 counts directly from its own registry.
+        # Check the same complete state and model RNG after a second, continuous trajectory.
+        daily, counts = trajectory(:daily, nothing)
+        continuous, _ = trajectory(:full, nothing)
+        @test length(counts) == DAYS + 1 && last(counts) == daily.science.objects
+        @test continuous.science == daily.science
+        growth = count(>(0), diff(counts))
+        reference = (; daily.science..., object_counts=counts, growth_days=growth,
+            ordinary_days=DAYS-growth, pse=strip(read(`git -C $(pkgdir(PSE)) rev-parse HEAD`, String)),
+            xpalm=strip(read(`git -C $(pkgdir(R.XPalm)) rev-parse HEAD`, String)),
+            mtg=strip(read(`git -C $(pkgdir(R.MTG)) rev-parse HEAD`, String)),
+            cpu=Sys.CPU_NAME, julia_commit=Base.GIT_VERSION_INFO.commit)
+        write(reference_path, PSE.JSON.json(reference))
+    else
+        reference = PSE.JSON.parsefile(reference_path)
+        rows = []
+        Base.cumulative_compile_timing(true)
+        try
+            for (phase, mode, index) in ((:warm, :full, 0), (:warm, :daily, 0),
+                ((:measure, mode, index) for mode in (:full, :daily) for index in 1:3)...)
+                @info "Starting XPalm trajectory" role phase mode index
+                row, _ = trajectory(mode, reference)
+                push!(rows, (; phase, index, row...))
+                report = (; role, cpu=Sys.CPU_NAME, julia=string(VERSION), julia_commit=Base.GIT_VERSION_INFO.commit,
+                    hostname=get(ENV, "HOSTNAME", ""), rows)
+                write(joinpath(output_dir, role * ".json"), PSE.JSON.json(report))
+                @test row.science == first(rows).science
+                if phase === :measure
+                    @test all(t -> iszero(t.compile_seconds) && iszero(t.recompile_seconds), values(row.times))
+                end
             end
+        finally
+            Base.cumulative_compile_timing(false)
         end
-    finally
-        Base.cumulative_compile_timing(false)
     end
 end
 
