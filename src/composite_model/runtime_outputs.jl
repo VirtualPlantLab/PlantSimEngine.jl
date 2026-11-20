@@ -5979,17 +5979,9 @@ function _targeted_callee_applications(
     return applications
 end
 
-function _applications_use_only_global_environment(
-    model::CompositeModel,
-    applications,
-)
-    return all(applications) do application
-        backend = _environment_backend_from_config(
-            model,
-            environment_config(application.spec),
-        )
-        return isnothing(backend) || backend isa GlobalConstant
-    end
+function _application_uses_global_environment(application, model)
+    backend = _environment_backend_from_config(model, environment_config(application.spec))
+    return isnothing(backend) || backend isa GlobalConstant
 end
 
 function _targeted_call_environment_bindings(
@@ -5999,8 +5991,11 @@ function _targeted_call_environment_bindings(
     applications,
     applications_by_id,
 )
-    _applications_use_only_global_environment(model, applications) ||
-        return nothing
+    for partial in applications
+        uses_global = Base.@inline _with_model_application(_application_uses_global_environment,
+            applications_by_id, partial, model)
+        uses_global || return nothing
+    end
     partial = _compile_environment_bindings_for_applications(
         model,
         applications,
@@ -6227,10 +6222,9 @@ function _prepare_targeted_newborn_targets(
 
     targets = _targeted_newborn_target_buffer(batch_schema, context)
     for partial_application in callee_applications
-        _append_targeted_newborn_targets!(
-            targets, context, targeted_runtime, partial_application,
-            targeted_input_bindings, environment_bindings, batch_schema,
-        )
+        Base.@inline _with_model_application(_append_targeted_newborn_targets!,
+            compiled.applications_by_id, partial_application, targets, context,
+            targeted_runtime, targeted_input_bindings, environment_bindings, batch_schema)
     end
     if initializer
         length(targets) == 1 || error(
@@ -6242,44 +6236,41 @@ function _prepare_targeted_newborn_targets(
 end
 
 function _append_targeted_newborn_targets!(
-    targets,
+    partial_application::A, targets,
     context::RunContext,
     targeted_runtime::_TargetedTopologyRuntime,
-    partial_application::CompiledModelApplication,
     targeted_input_bindings,
     environment_bindings::CompiledEnvironmentBindings,
     batch_schema::ExecutionBatchSchema,
-)
+) where {A<:CompiledModelApplication}
     compiled = context.compiled
-    # Partial applications share the genuine authored application plan.
-    _compiled_application_by_id(compiled,partial_application.id) do application
-        application_schema = _call_batch_schema_for_application(batch_schema,application)
-        admission = _call_cohort_admission(application_schema,OpenExecutionCohortSchema())
-        for object_id in partial_application.target_ids
-            key = (application.id,object_id)
-            cache = get(targeted_runtime.call_context_caches,key,nothing)::Union{Nothing,CallContextCache}
-            stamp = isnothing(cache) ? Ref(UInt64(0)) :
-                (getfield(cache,:execution_stamp)::Base.RefValue{UInt64})
-            status_view = _compile_model_status_view(runtime_model(context),partial_application,
-                object_id,get(targeted_input_bindings,key,()),compiled.applications_by_id,
-                targeted_runtime.application_positions,compiled.distributed_outputs,
-                stamp, compiled.status_view_schema,
-                compiled.input_bindings)::CompiledModelStatusView
-            output_groups = _runtime_model_output_groups(compiled,application,object_id)
-            environment_binding = _environment_binding_for(environment_bindings,application.id,object_id)
-            call_bindings = () # targeted admission has rejected nested callees
-            model = _application_model(application,object_id)
-            owners = (compiled=compiled,environment_bindings=environment_bindings,
-                temporal_streams=context.temporal_streams,
-                output_retention=context.output_retention,constants=context.constants,
-                environment=context.environment)
-            Base.@inline _with_execution_target_type(admission,application,status_view,object_id,model,
-                output_groups,call_bindings,environment_binding,owners) do target_type,actual_application,actual,owner,call_schema
-                _append_targeted_newborn_target!(target_type,actual_application,actual,owner,
-                    call_schema,targets,context,cache,stamp,targeted_runtime,key)
-            end
+    # The selection owns the requested IDs. Contexts retain the registered application.
+    application = compiled.applications_by_id[partial_application.id]::A
+    application_schema = _call_batch_schema_for_application(batch_schema,application)
+    admission = _call_cohort_admission(application_schema,OpenExecutionCohortSchema())
+    for object_id in partial_application.target_ids
+        key = (application.id,object_id)
+        cache = get(targeted_runtime.call_context_caches,key,nothing)::Union{Nothing,CallContextCache}
+        stamp = isnothing(cache) ? Ref(UInt64(0)) :
+            (getfield(cache,:execution_stamp)::Base.RefValue{UInt64})
+        status_view = _compile_model_status_view_for_application(partial_application, runtime_model(context),
+            object_id,get(targeted_input_bindings,key,()),compiled.applications_by_id,
+            targeted_runtime.application_positions,compiled.distributed_outputs,
+            stamp, compiled.status_view_schema,
+            compiled.input_bindings)::CompiledModelStatusView
+        output_groups = _runtime_model_output_groups(compiled,application,object_id)
+        environment_binding = _environment_binding_for(environment_bindings,application.id,object_id)
+        call_bindings = () # targeted admission has rejected nested callees
+        model = _application_model(application,object_id)
+        owners = (compiled=compiled,environment_bindings=environment_bindings,
+            temporal_streams=context.temporal_streams,
+            output_retention=context.output_retention,constants=context.constants,
+            environment=context.environment)
+        Base.@inline _with_execution_target_type(admission,application,status_view,object_id,model,
+            output_groups,call_bindings,environment_binding,owners) do target_type,actual_application,actual,owner,call_schema
+            _append_targeted_newborn_target!(target_type,actual_application,actual,owner,
+                call_schema,targets,context,cache,stamp,targeted_runtime,key)
         end
-        return nothing
     end
     return targets
 end

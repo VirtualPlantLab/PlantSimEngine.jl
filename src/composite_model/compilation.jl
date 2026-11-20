@@ -3021,7 +3021,7 @@ function _record_consumer_input_bindings!(
             recorder.many_binding_cache, recorder.model, bindings[binding_index],
         )
         bindings[binding_index] = binding
-        push!(new_bindings, binding)
+        push!(new_bindings, bindings[binding_index])
     end
     append!(recorder.changed_bindings, new_bindings)
     recorder.input_bindings_by_target[(application_id, consumer_id)] = new_bindings
@@ -4633,7 +4633,7 @@ function _refresh_scene_call_bindings!(
                 pure_addition &&
                     _index_observed_manual_call_binding_by_callee_target!(
                         observed_manual_call_binding_indices_by_callee_target,
-                        binding,
+                        call_bindings[binding_index],
                         binding_index,
                         applications_by_id,
                     )
@@ -6161,7 +6161,7 @@ function _compile_model_writer_ownership(
     ownership = _object_key_index(Tuple{I,Symbol}, Vector{CompiledWriterOwner})
     for partial in applications
         getfield(getfield(partial, :plan), :id) in manual_application_ids && continue
-        _with_model_application(_record_application_writers!, applications_by_id, partial,
+        Base.@inline _with_model_application(_record_application_writers!, applications_by_id, partial,
             ownership, nothing, partial.target_ids)
     end
     _record_destination_writers!(ownership, nothing, resolved_destinations)
@@ -9019,7 +9019,7 @@ function _compile_model_input_bindings!(bindings, model, applications, manual_ap
 )
     for partial in applications
         isempty(partial.target_ids) && continue
-        _with_model_application(by_id, partial) do application
+        Base.@inline _with_model_application(by_id, partial) do application
             _with_metadata_entry(recipes, application.id) do recipe
                 _compile_application_consumer_bindings!(
                     bindings, model, application, recipe, manual_application_ids,
@@ -9418,7 +9418,7 @@ function _validate_model_required_inputs!(model::CompositeModel, applications, a
     I = keytype(model.registry.objects)
     missing = NamedTuple{(:application_id, :object_id, :input),Tuple{Symbol,I,Symbol}}[]
     for partial in applications
-        _with_model_application(applications_by_id, partial) do application
+        Base.@inline _with_model_application(applications_by_id, partial) do application
             required_names = _required_input_names(_application_ports(application))
             for object_id in application.target_ids
                 for input in required_names
