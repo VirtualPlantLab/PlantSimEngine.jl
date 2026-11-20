@@ -3,10 +3,12 @@ uuid = "3c96ca4e-58bc-4f40-935b-d8fae20d6519"
 version = "0.1.0"
 
 [deps]
+Libiconv_jll = "94ce4f54-9a6c-5748-9c1c-f9c7231a4531"
 PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"
 
 [sources]
 PlantSimEngine = {path = "../../../.."}
 
 [compat]
+Libiconv_jll = "=1.18.0"
 julia = "1.13"
