@@ -315,12 +315,15 @@ function test_group_indices(index, count)
     identities = group_index("Identity-aware Many inputs")
     @assert prepared < reusable < newborn < identities
     early = filter(i -> i != prepared && i != reusable, 1:(newborn - 1))
-    other = (prepared:prepared, newborn:(identities - 1), [reusable; identities:lastindex(TEST_GROUPS)])
+    schemas = prepared:prepared
+    growth = newborn:(identities - 1)
+    remaining = identities:lastindex(TEST_GROUPS)
     if count == 4
-        return (early, other...)[index]
+        return (early, schemas, growth, [reusable; remaining])[index]
     end
-    # The manual-call groups can use a separate macOS runner while keeping
-    # every group's test files in their original order and Julia process.
+    # Plan reuse takes about half an hour on macOS. Run it alongside the
+    # manual-call groups so the last group finishes within the job budget.
     calls = group_index("Accepted call evaluations")
-    return (filter(<(calls), early), other..., filter(>=(calls), early))[index]
+    return (filter(<(calls), early), schemas, growth, remaining,
+        [reusable; filter(>=(calls), early)])[index]
 end
