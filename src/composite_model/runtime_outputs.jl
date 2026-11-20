@@ -1391,7 +1391,8 @@ function _due_application_schedule_entries!(
     step::Int,
 )
     step > schedule.last_step || error(
-        "Application schedule expected a step after $(schedule.last_step), got $(step).",
+        "Application schedule expected a step after " * string(schedule.last_step) *
+        ", got " * string(step) * ".",
     )
     due = schedule.due_entry_indices
     empty!(due)

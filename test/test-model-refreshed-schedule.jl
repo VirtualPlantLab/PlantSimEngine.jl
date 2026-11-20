@@ -96,8 +96,10 @@ end
     step!(copied)
     @test model_status(copied.model, :scene).ticks == 2
     @test model_status(model, :scene).ticks == 1
-    @test schedule.last_step == 2
     @test copied.execution_plan.schedule.last_step == 3
+    rewind_error = ErrorException("Application schedule expected a step after 2, got 1.")
+    @test_throws rewind_error PSE._due_application_schedule_entries!(schedule, definition, 1)
+    @test schedule.last_step == 2
 end
 
 PSE.@process "schedule_force_midstep" verbose=false
