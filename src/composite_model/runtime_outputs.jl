@@ -1554,21 +1554,63 @@ outputs(sim::Simulation) = sim.temporal_streams
 @inline _snapshot_value(value, memo) =
     isbitstype(typeof(value)) ? value : Base.deepcopy_internal(value, memo)::typeof(value)
 
-# Keep the backing store shared between reshaped or offset arrays in one snapshot.
-# Julia's generic Memory deepcopy erases its element type before the copy.
+# Follow the deepcopy memo order while retaining the prepared container types.
+# The array wrapper is recorded before its backing memory, so recursive values
+# and arrays sharing that memory keep their existing alias relationships.
 @static if isdefined(Base, :wrap) && isdefined(Core, :Memory)
-    @inline function _snapshot_value(value::Array{T,N}, memo) where {T,N}
-        isbitstype(T) || return Base.deepcopy_internal(value, memo)::Array{T,N}
+    function _snapshot_memory(value::Memory{T}, memo) where {T}
+        haskey(memo, value) && return memo[value]::Memory{T}
+        if isbitstype(T)
+            result = copy(value)
+            memo[value] = result
+            return result
+        end
+        result = Memory{T}(undef, length(value))
+        memo[value] = result
+        for index in eachindex(value)
+            if isassigned(value, index)
+                result[index] = _snapshot_value(value[index], memo)
+            end
+        end
+        return result
+    end
+
+    function _snapshot_value(value::Array{T,N}, memo) where {T,N}
         haskey(memo, value) && return memo[value]::Array{T,N}
+        result = Array{T,N}(undef, ntuple(Returns(0), Val(N)))
+        memo[value] = result
         source = getfield(value, :ref)
-        memory = get!(() -> copy(source.mem), memo, source.mem)::Memory{T}
+        memory = _snapshot_memory(source.mem, memo)
         offset = Core.memoryrefoffset(source)
         first = Core.memoryref(memory)
         point = isone(offset) ? first : Core.memoryrefnew(first, offset, false)
-        result = Base.wrap(Array, point, size(value))
-        memo[value] = result
+        setfield!(result, :ref, point)
+        setfield!(result, :size, size(value))
         return result
     end
+end
+
+function _snapshot_value(value::Base.RefValue{T}, memo) where {T}
+    haskey(memo, value) && return memo[value]::Base.RefValue{T}
+    result = Base.RefValue{T}()
+    memo[value] = result
+    isassigned(value) && (result[] = _snapshot_value(value[], memo))
+    return result
+end
+
+_snapshot_value(value::RefVector{T}, memo) where {T} =
+    RefVector{T}(_snapshot_value(parent(value), memo))
+
+function _snapshot_value(value::BitArray{N}, memo) where {N}
+    haskey(memo, value) && return memo[value]::BitArray{N}
+    result = BitArray{N}(undef, ntuple(Returns(0), Val(N)))
+    memo[value] = result
+    setfield!(result, :chunks, _snapshot_value(getfield(value, :chunks), memo))
+    setfield!(result, :len, length(value))
+    if isdefined(value, :dims)
+        setfield!(result, :dims, getfield(value, :dims))
+    end
+    return result
 end
 
 function _snapshot_status(status::Status)

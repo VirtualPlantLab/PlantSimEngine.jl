@@ -458,3 +458,40 @@ end
         for membership in target.memberships
     ] == [(0.0, 2.0), (5.0, 6.0)]
 end
+
+@testset "final state preserves shared reference cells and packed array storage" begin
+    leaf = Object(:leaf; status=Status(
+        columns=PlantSimEngine.RefVector{Float64}([Ref(0.0), Ref(0.0)]),
+        cells=Base.RefValue{Float64}[],
+        flags=falses(4),
+        matrix_flags=falses(2, 2),
+        chunks=UInt64[],
+    ))
+    simulation = run!(CompositeModel(leaf); steps=0)
+    live = model_status(simulation, :leaf)
+    cell = Ref(3.5)
+    live.columns = PlantSimEngine.RefVector{Float64}([cell, cell])
+    live.cells = parent(live.columns)
+    live.matrix_flags = reshape(live.flags, 2, 2)
+    live.chunks = getfield(live.flags, :chunks)
+
+    expected = deepcopy(NamedTuple(live))
+    snapshot = final_state(simulation, :leaf)
+    @test typeof(snapshot) === typeof(expected)
+    @test snapshot.columns == expected.columns
+    @test snapshot.flags == expected.flags
+    @test snapshot.matrix_flags == expected.matrix_flags
+    @test parent(snapshot.columns) === snapshot.cells
+    @test snapshot.cells[1] === snapshot.cells[2]
+    @test snapshot.cells[1] !== cell
+    @test getfield(snapshot.flags, :chunks) === snapshot.chunks
+    @test getfield(snapshot.matrix_flags, :chunks) === snapshot.chunks
+    @test snapshot.chunks !== live.chunks
+    snapshot.cells[1][] = 23.0
+    @test snapshot.columns[1] == snapshot.columns[2] == 23.0
+    @test cell[] == 3.5
+    snapshot.matrix_flags[1] = true
+    @test snapshot.flags[1]
+    @test !live.flags[1]
+    @test current_step(simulation) == 0
+end
