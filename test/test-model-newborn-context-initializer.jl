@@ -78,4 +78,39 @@ end
     @test outputs(simulation)[(:leaf,ObjectId(:born),:draw)] == [(3.0,second_draw)]
 end
 
+struct BoundLeaf <: AbstractNewborn_Context_LeafModel end
+PSE.inputs_(::BoundLeaf) = (day=Required(Int),)
+PSE.outputs_(::BoundLeaf) =
+    (calls=0, draw=0.0, seen_time=0.0, seen_T=0f0, allowed=true, seen=0)
+function PSE.run!(::BoundLeaf, status, environment, constants, context)
+    status.calls += 1
+    status.seen = status.day
+    return nothing
+end
+
+@testset "newborn initializer prepares bound inputs with canonical references" begin
+    model = CompositeModel(Object(:owner; scale=:Scene, status=Status(seed=12));
+        applications=(
+            ModelSpec(Creator(); name=:creator, on=One(id=:owner),
+                calls=(initialize=Initializer(One(scale=:Leaf, within=Subtree(),
+                    application=:bound_leaf)),)),
+            ModelSpec(BoundLeaf(); name=:bound_leaf, on=Many(scale=:Leaf),
+                inputs=(day=One(scale=:Scene, within=Ancestor(scale=:Scene),
+                    from_status=true, var=:seed),)),
+        ), environment=(T=3f0,duration=Hour(1)))
+    simulation = run!(model; steps=2, outputs=:all)
+    born = model_status(model,:born)
+    source = PSE.refvalue(model_status(model,:owner),:seed)
+    @test born.calls == 1
+    @test born.seen == 12
+    @test PSE.refvalue(born,:day) === source
+    @test isempty(get(outputs(simulation),(:bound_leaf,ObjectId(:born),:seen),[]))
+    source[] = 13
+    continue!(simulation; steps=1)
+    @test born.calls == 2
+    @test born.seen == 13
+    @test PSE.refvalue(born,:day) === source
+    @test outputs(simulation)[(:bound_leaf,ObjectId(:born),:seen)] == [(3.0,13)]
+end
+
 end

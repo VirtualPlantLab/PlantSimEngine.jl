@@ -244,6 +244,48 @@ function closed_registry_model(model)
         model.revision, model.environment_revision)
 end
 
+@testset "input refresh references use the closed mixed identity domain" begin
+    organ = (:tree, :leaf, 1)
+    model = closed_registry_model(CompositeModel(
+        Object(:source; scale=:Leaf), Object(:reader; scale=:Reader),
+        Object(organ; scale=:Reader);
+        applications=(
+            ModelSpec(Writer(2f0); name=:source, on=One(id=:source)),
+            ModelSpec(PairReader{Float32}(); name=:reader, on=Many(scale=:Reader),
+                inputs=(left=One(SceneScope(); id=:source, var=:x),
+                    right=One(SceneScope(); id=:source, var=:y))),
+        ), environment=(duration=Hour(1),)))
+    simulation = run!(model; steps=0, outputs=:all)
+    bindings = simulation.compiled.input_bindings
+    references = PSE._model_input_status_references(model.registry.objects, bindings)
+    I = keytype(model.registry.objects)
+    @test I === Union{ObjectId{Symbol},ObjectId{Tuple{Symbol,Symbol,Int}}}
+    @test keytype(references) === Tuple{Symbol,I,Symbol}
+    @test length(references) == 4
+    for binding in bindings
+        key = (binding.application_id, binding.consumer_id, binding.input)
+        @test references[key] === input_carrier(binding)
+    end
+    continue!(simulation)
+    @test model_status(model,:reader).total === 6f0
+    @test model_status(model,organ).total === 6f0
+    newborn = (:tree, :leaf, 2)
+    register_object!(model, Object(newborn; scale=:Reader))
+    step!(simulation)
+    @test model_status(model,newborn).total === 6f0
+    @test outputs(simulation)[(:reader,ObjectId(newborn),:total)] == [(2.0,6f0)]
+    for (key, reference) in references
+        @test reference === PSE.refvalue(model_status(model,key[2]),key[3])
+    end
+    refreshed = PSE._model_input_status_references(model.registry.objects,
+        simulation.compiled.input_bindings)
+    @test length(refreshed) == 6
+    for variable in (:left, :right)
+        @test refreshed[(:reader,ObjectId(newborn),variable)] ===
+            PSE.refvalue(model_status(model,newborn),variable)
+    end
+end
+
 @testset "prepared routes retain fresh producer policies and closed identity types" begin
     policy = Ref{PSE.SchedulePolicy}(HoldLast())
     model = pair_model(; policy)

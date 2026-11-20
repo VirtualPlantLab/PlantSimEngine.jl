@@ -3051,6 +3051,16 @@ function _compile_consumer_input_plan!(
     )
 end
 
+function _append_inferred_input_route!(plan, bindings, model, application_id,
+    application_process, consumer_id, sources, applications_by_id,
+)
+    push!(bindings, _materialize_input_route(
+        model, application_id, application_process, consumer_id, plan,
+        sources, applications_by_id,
+    ))
+    return nothing
+end
+
 function _compile_consumer_input_recipe!(
     bindings,
     model,
@@ -3078,11 +3088,10 @@ function _compile_consumer_input_recipe!(
         plan = first(group)
         matches = CompiledModelInputPlan[
             candidate for candidate in group
-            if _application_writes_object_variable(
-                distributed_outputs,
-                applications_by_id[candidate.application],
-                consumer_id,
-                candidate.source_var,
+            if Base.@inline _with_metadata_entry(
+                _application_writes_source_variable, applications_by_id,
+                candidate.application::Symbol, distributed_outputs,
+                consumer_id, candidate.source_var,
             )
         ]
         matches = _final_inferred_output_plans(
@@ -3101,10 +3110,12 @@ function _compile_consumer_input_recipe!(
             _input_binding_source_ids(model.registry.objects, [consumer_id]),
             Symbol[selected.application],
         )
-        push!(bindings, _materialize_input_route(
-            model, application_id, application_process, consumer_id, selected,
-            sources, applications_by_id,
-        ))
+        # Filtering preserves members of the authored tuple; admit that same
+        # selected plan before materialization instead of its abstract vector slot.
+        slot = something(findfirst(candidate -> candidate === selected, group))
+        _with_metadata_entry(_append_inferred_input_route!, group, slot,
+            bindings, model, application_id, application_process, consumer_id,
+            sources, applications_by_id)
     end
     return bindings
 end
@@ -4809,6 +4820,13 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
     return true
 end
 
+Base.@noinline function _lifecycle_target_count_error(application_id::Symbol,
+    target_count::Int, selector::String,
+)
+    throw(ErrorException("Lifecycle refresh left application `" * String(application_id) *
+        "` with " * string(target_count) * " targets for " * selector * " selector."))
+end
+
 function _extend_compiled_scene(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -4865,15 +4883,9 @@ function _extend_compiled_scene(
             if application.id in changed_application_ids_seed
                 target_count = length(application.target_ids)
                 if application.applies_to isa One && target_count != 1
-                    error(
-                        "Lifecycle refresh left application `$(application.id)` with ",
-                        "$(target_count) targets for a `One` selector.",
-                    )
+                    _lifecycle_target_count_error(application.id, target_count, "a `One`")
                 elseif application.applies_to isa OptionalOne && target_count > 1
-                    error(
-                        "Lifecycle refresh left application `$(application.id)` with ",
-                        "$(target_count) targets for an `OptionalOne` selector.",
-                    )
+                    _lifecycle_target_count_error(application.id, target_count, "an `OptionalOne`")
                 end
             end
             return nothing
@@ -5101,7 +5113,8 @@ function _extend_compiled_scene(
         end
         rewired_applications
     end
-    final_input_references = _model_input_status_references(changed_bindings)
+    final_input_references = _model_input_status_references(
+        model.registry.objects, changed_bindings)
     _prepare_model_input_statuses_batched!(
         model,
         affected_input_applications,
@@ -7727,7 +7740,7 @@ function _force_distributed_producer_rebinds!(forced, model, bindings, by_variab
         for (raw_destination, producer) in candidates
             producer in binding.plan.potential_source_application_ids || continue
             destination = _index_object_id(model.registry.objects, raw_destination)
-            _selector_matches_object_id(
+            Base.@inline _selector_matches_object_id(
                 model,
                 binding.matcher,
                 destination,
@@ -7747,14 +7760,15 @@ _model_input_status_reference(binding) =
     binding.carrier isa Ref ?
     binding.carrier : Ref(binding.carrier)
 
-function _model_input_status_references(bindings)
-    references = Dict{Tuple{Symbol,ObjectId,Symbol},Any}()
+function _model_input_status_references(objects::AbstractDict{I}, bindings) where {I<:ObjectId}
+    references = _object_key_index(Tuple{Symbol,I,Symbol}, Any)
     for binding in bindings
         binding.carrier_hint == :temporal_stream && continue
         isnothing(binding.carrier) && continue
+        consumer_id = _index_object_id(objects, binding.consumer_id)
         references[(
             binding.application_id,
-            binding.consumer_id,
+            consumer_id,
             binding.input,
         )] = _model_input_status_reference(binding)
     end
@@ -8340,21 +8354,7 @@ function _application_may_output_variable(
     variable::Symbol,
     source_selector,
     local_output_names,
-    ::NoCompiledDistributedOutputPlans,
-)
-    return variable in local_output_names &&
-           _selector_labels_may_overlap(
-        source_selector,
-        applies_to(application.spec),
-    )
-end
-
-function _application_may_output_variable(
-    application,
-    variable::Symbol,
-    source_selector,
-    local_output_names,
-    plans::CompiledDistributedOutputPlans,
+    plans::Union{NoCompiledDistributedOutputPlans,CompiledDistributedOutputPlans},
 )
     variable in local_output_names &&
         _selector_labels_may_overlap(

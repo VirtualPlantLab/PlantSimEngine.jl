@@ -5776,16 +5776,12 @@ function call_model(context, name::Symbol)
     )
 end
 
-function _call_target_object_id(model::CompositeModel, target)
-    return object_id(model, target)
-end
-
 function _call_target_object_ids(model::CompositeModel, objects)
     requested = objects isa Union{Tuple,AbstractVector,AbstractSet} ?
                 objects : (objects,)
-    ids = ObjectId[_call_target_object_id(model, object) for object in requested]
-    unique!(ids)
-    return _application_target_ids(model, ids)
+    I = keytype(model.registry.objects)
+    ids = I[object_id(model, object)::I for object in requested]
+    return unique!(ids)
 end
 
 struct _ApplicationsByObjectOverlay{B,O}
@@ -5799,18 +5795,15 @@ mutable struct _TargetedApplicationSet{A,B}
     outputs_prepared::Bool
 end
 
-mutable struct _TargetedTopologyRuntime{CS,MA} <:
+mutable struct _TargetedTopologyRuntime{CS,MA,I,S,O} <:
                AbstractTargetedTopologyRuntime
     compiled::CS
     model_revision::Int
     application_sets::Dict{
-        Tuple{Vararg{ObjectId}},
-        Union{Nothing,_TargetedApplicationSet},
+        Tuple{Vararg{I}},
+        Union{Nothing,S},
     }
-    added_applications_by_object::Dict{
-        ObjectId,
-        Vector{CompiledModelApplication},
-    }
+    added_applications_by_object::O
     indexed_addition_count::Int
     manual_application_ids::MA
     application_positions::Dict{Symbol,Int}
@@ -5832,23 +5825,26 @@ function _targeted_topology_runtime!(
     model::CompositeModel,
 )
     delta = lifecycle_delta(model)
+    compiled = context.compiled
+    I = keytype(model.registry.objects)
+    A = eltype(compiled.applications)
+    O = Dict{I,Vector{A}}
+    S = _TargetedApplicationSet{Vector{A},_ApplicationsByObjectOverlay{typeof(compiled.applications_by_object),O}}
+    manual = compiled.scenario_plan.manual_application_ids
+    Runtime = _TargetedTopologyRuntime{typeof(compiled),typeof(manual),I,S,O}
     cached = delta.targeted_topology_runtime
-    if cached isa _TargetedTopologyRuntime &&
-       cached.compiled === context.compiled &&
+    if cached isa Runtime &&
+       cached.compiled === compiled &&
        cached.model_revision == model.revision
         return cached
     end
-    compiled = context.compiled
-    runtime = _TargetedTopologyRuntime(
+    runtime = Runtime(
         compiled,
         model.revision,
-        Dict{
-            Tuple{Vararg{ObjectId}},
-            Union{Nothing,_TargetedApplicationSet},
-        }(),
-        Dict{ObjectId,Vector{CompiledModelApplication}}(),
+        Dict{Tuple{Vararg{I}},Union{Nothing,S}}(),
+        O(),
         0,
-        compiled.scenario_plan.manual_application_ids,
+        manual,
         Dict(
             application_id => index
             for (index, application_id) in pairs(compiled.application_order)
@@ -5864,8 +5860,10 @@ function _new_object_applications(
     compiled::CompiledCompositeModel,
     requested_ids,
 )
-    by_object = Dict{ObjectId,Vector{CompiledModelApplication}}()
-    partial_applications = CompiledModelApplication[]
+    I = keytype(model.registry.objects)
+    A = eltype(compiled.applications)
+    by_object = Dict{I,Vector{A}}()
+    partial_applications = A[]
     new_targets = _new_application_targets(
         model,
         compiled,
@@ -5881,7 +5879,7 @@ function _new_object_applications(
         push!(partial_applications, partial)
         for object_id in target_ids
             applications = get!(by_object, object_id) do
-                CompiledModelApplication[
+                A[
                     application for application in get(
                         compiled.applications_by_object,
                         object_id,
@@ -5897,10 +5895,10 @@ function _new_object_applications(
 end
 
 function _targeted_application_set!(
-    runtime::_TargetedTopologyRuntime,
+    runtime::_TargetedTopologyRuntime{CS,MA,I},
     model::CompositeModel,
     requested_ids,
-)
+) where {CS,MA,I}
     key = Tuple(requested_ids)
     application_set = get!(runtime.application_sets, key) do
         applications = _new_object_applications(
@@ -5915,7 +5913,7 @@ function _targeted_application_set!(
             added_applications_by_object,
         )
         return _TargetedApplicationSet(
-            Tuple(output_applications),
+            output_applications,
             _ApplicationsByObjectOverlay(
                 runtime.compiled.applications_by_object,
                 runtime.added_applications_by_object,
@@ -5934,8 +5932,8 @@ function _targeted_application_set!(
     for index in (runtime.indexed_addition_count + 1):length(added)
         object_id = added[index].id
         haskey(runtime.added_applications_by_object, object_id) && continue
-        isnothing(unindexed_ids) && (unindexed_ids = ObjectId[])
-        push!(unindexed_ids, object_id)
+        isnothing(unindexed_ids) && (unindexed_ids = I[])
+        push!(unindexed_ids, object_id::I)
     end
     if !isnothing(unindexed_ids)
         applications = _new_object_applications(
@@ -5955,8 +5953,8 @@ function _targeted_callee_applications(
     requested_ids,
     partial_applications,
 )
-    applications = CompiledModelApplication[]
-    unresolved_ids = ObjectId[]
+    applications = similar(partial_applications, 0)
+    unresolved_ids = eltype(binding.callee_object_ids)[]
     for object_id in requested_ids
         matched = false
         for application in partial_applications
@@ -5979,7 +5977,7 @@ function _targeted_callee_applications(
         "Hard call `$(binding.call)` from application `$(binding.application_id)` does not ",
         "resolve requested object(s) `$(Tuple(id.value for id in unresolved_ids))`."
     )
-    return Tuple(applications)
+    return applications
 end
 
 function _applications_use_only_global_environment(
@@ -6164,15 +6162,14 @@ function _targeted_new_object_call_targets(
     )
 end
 
-# Application membership is assembled dynamically, but its finite schema is
-# stable for newborns selected by the same application recipe. Keep that tuple
-# concrete across the canonical status and binding preparation below.
+# A newborn selection borrows its application declarations from the compiled
+# model. The number selected depends on the current topology.
 function _prepare_targeted_newborn_targets(
     context::RunContext,
     name::Symbol,
     targeted_runtime::_TargetedTopologyRuntime,
     application_set::_TargetedApplicationSet,
-    callee_applications::Tuple,
+    callee_applications::AbstractVector,
     initializer::Bool,
     batch_schema::ExecutionBatchSchema,
 )
@@ -6196,7 +6193,8 @@ function _prepare_targeted_newborn_targets(
             compiled.applications_by_id, compiled.distributed_outputs,
         )
     end
-    final_input_references = _model_input_status_references(input_bindings)
+    final_input_references = _model_input_status_references(
+        model.registry.objects, input_bindings)
     _prepare_model_input_statuses_batched!(
         model,
         callee_applications,
@@ -6417,19 +6415,38 @@ function _current_topology_call_targets(
         (context.application.id, context.object_id),
         (),
     )
-    binding = findfirst(
-        candidate -> _compiled_call_name(candidate) === name,
-        bindings,
-    )
-    if isnothing(binding)
-        available = Symbol[candidate.call for candidate in bindings]
+    position = findfirst(eachindex(bindings)) do slot
+        binding = bindings[slot]::CompiledModelCallBinding
+        plan = getfield(binding, :plan)::CompiledModelCallPlan
+        return plan.call === name
+    end
+    if isnothing(position)
+        available = Symbol[(item::CompiledModelCallBinding).call for item in bindings]
         error(
             "Application `$(context.application.id)` on object ",
             "`$(_object_id_text(context.object_id))` did not declare call `$(name)`. ",
             "Declared calls: $(available).",
         )
     end
-    resolved_binding = bindings[binding]
+    # The refreshed catalog owns the declaration, including any new potential
+    # callees. Keep its exact plan type when reading the heterogeneous tuple.
+    return Base.@inline _with_metadata_entry(compiled.scenario_plan.call_plans_by_application,
+        context.application.id) do plans
+        Base.@inline _with_metadata_entry(plans, position) do plan
+            B = CompiledModelCallBinding{typeof(plan),typeof(context.object_id),keytype(model.registry.objects)}
+            binding = bindings[position]::B
+            getfield(binding, :plan) === plan || throw(ArgumentError(
+                "The refreshed hard call belongs to a different declaration.",
+            ))
+            _selected_topology_call_targets(binding, cached_targets, context, name, requested_ids,
+                model, compiled, environment_bindings)
+        end
+    end
+end
+
+function _selected_topology_call_targets(resolved_binding, cached_targets, context, name, requested_ids,
+    model, compiled, environment_bindings,
+)
     _compiled_call_mode(resolved_binding) === :manual ||
         _initializer_requires_dedicated_api(context, name)
     resolved_binding.multiplicity != :many && length(requested_ids) > 1 &&
@@ -6438,7 +6455,8 @@ function _current_topology_call_targets(
             "accepts at most one requested object.",
         )
     default_scope = _default_dependency_scope(model, context.object_id)
-    unresolved_ids = ObjectId[]
+    I = keytype(model.registry.objects)
+    unresolved_ids = I[]
     callee_application_ids = Symbol[]
     for object_id in requested_ids
         if !_selector_matches_object_id(
@@ -6495,16 +6513,13 @@ function _current_topology_call_targets(
         # A previous explicit call may already have consumed the structural
         # delta. Independently ensure the selected targets' streams exist;
         # this stays bounded by this call's selection on a clean topology.
-        selected_target_keys = Tuple{Symbol,ObjectId}[]
+        selected_target_keys = Tuple{Symbol,I}[]
         for application_id in callee_application_ids
-            application = _compiled_application_by_id(compiled, application_id)
-            for object_id in requested_ids
-                _call_binding_target_matches(
-                    selected_binding,
-                    application,
-                    object_id,
-                ) || continue
-                push!(selected_target_keys, (application_id, object_id))
+            _compiled_application_by_id(compiled, application_id) do application
+                for object_id in requested_ids
+                    _call_binding_target_matches(selected_binding, application, object_id) || continue
+                    push!(selected_target_keys, (application_id, object_id))
+                end
             end
         end
         _initialize_model_output_streams!(
