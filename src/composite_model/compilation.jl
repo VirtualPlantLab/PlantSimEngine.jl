@@ -5802,8 +5802,10 @@ end
 function _read_application_defaults(model, kind::Val{:outputs}, ports)
     schema = Base.@inline _admit_authored_port_schema(outputs_(model),
         _authored_metadata_value(ports.output_declaration_types), kind)
-    return _local_output_declarations(schema)
+    return NamedTuple{_prepared_local_output_names(ports)}(schema)
 end
+_prepared_local_output_names(ports::AuthoredPortInventory) = ports.outputs.local_names
+_prepared_local_output_names(ports::NamedTuple) = fieldnames(ports.defaults_types.outputs)
 _variant_defaults_type(ports, ::Val{:outputs}) = ports.defaults_types.outputs
 _variant_defaults_type(ports, ::Val{:inputs}) = ports.defaults_types.inputs
 

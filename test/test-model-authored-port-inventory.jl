@@ -142,6 +142,13 @@ PSE.run!(::DeclarationProbe, status, environment, constants, context) = nothing
     @test inventory_is_value_free(variant)
     @test probe.empty == Real[3f0]
     @test probe.mixed == Real[1f0, 2.0, 1//2, 4]
+    for owner in (ports, variant)
+        before = probe.counter[].outputs
+        defaults = @inferred PSE._read_application_defaults(probe, Val(:outputs), owner)
+        @test keys(defaults) === (:direct,)
+        @test defaults.direct === probe.empty
+        @test probe.counter[].outputs == before + 1
+    end
 end
 
 @testset "constructor owns one instance-specific value-free port inventory" begin

@@ -231,7 +231,7 @@ function _assemble_model_status_view(canonical_status, model, application, objec
         NamedTuple()
     else
         defaults = Base.@inline _with_application_variant(application, object_id) do effective_model, ports
-            _local_output_schema(effective_model)
+            _read_application_defaults(effective_model, Val(:outputs), ports)
         end
         for variable in keys(defaults)
             _publish_mode_for_output(application.spec, variable) == :stream_only &&
@@ -248,11 +248,8 @@ function _assemble_model_status_view(canonical_status, model, application, objec
     end
     private_values = Any[]
     for name in private_names
-        initial, _, _ = _materialize_status_value(model, name,
-            getproperty(output_defaults, name); object_id,
-            application_id=application.id, origin=:stream_only_private_default,
-            private_copy=true, reuse=true)
-        push!(private_values, initial)
+        Base.@inline _with_metadata_entry(_append_private_status_default!, output_defaults, name,
+            private_values, model, name, object_id, application.id)
     end
     seen_many = Set{Symbol}()
     for name in many_names
@@ -266,6 +263,13 @@ function _assemble_model_status_view(canonical_status, model, application, objec
         many_names, many_ids, execution_stamp)
     view = _construct_model_status_view(status_view_schema, application.id, parts)
     return Base.@inline _admit_model_status_view!(status_view_schema, application.id, view)
+end
+
+function _append_private_status_default!(value, private_values, model, name, object_id, application)
+    initial, _, _ = _materialize_status_value(model, name, value; object_id,
+        application_id=application, origin=:stream_only_private_default, private_copy=true, reuse=true)
+    push!(private_values, initial)
+    return nothing
 end
 
 # A homogeneous initial snapshot has the same exact schema as before. Matching
