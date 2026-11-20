@@ -96,7 +96,7 @@ entry point. Use the entry point to parse arguments, advance the program,
 and write the result. JuliaC loads the module during the build, so put the
 fixed scenario in `make_model()` and handle runtime data in the entry point.
 
-This compiler admits one ordinary object with at least one scheduled
+`Compilation.prepare` admits one ordinary object with at least one scheduled
 application, and same-object scalar inputs and outputs. All scheduled
 applications run at every base step. Status values must be
 numeric bits values such as `Float32`, `Float64` or `Int`, and model and
@@ -116,6 +116,14 @@ or spatial environments, environment commits, different cadences, temporal
 inputs, hard calls, initializers, distributed or stream-only outputs,
 topology edits, or retained histories can run through the ordinary
 PlantSimEngine API.
+
+`Compilation.compile` takes an **application project**. A multi-object
+application can prepare a PSE `Simulation` at build time and advance it with
+the same `step!` or `continue!` as an ordinary run. For example, a growing
+plant also needs the types of the organs and model calls that can appear
+after the first step. The multi-object growth tests currently supply these
+types using internal preparation functions. Automatic preparation through
+the public API covers the fixed scenario described above.
 
 If preparation rejects a model, read the reported application or feature
 and check it against this list. If JuliaC's safe verifier rejects a call,

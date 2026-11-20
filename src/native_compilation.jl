@@ -134,8 +134,8 @@ PSE.final_state(program::PreparedSimulation) = NamedTuple(program.status)
 
 Build a named Julia application project with an `@main` entry point as a
 JuliaC `safe` executable. Load `JuliaC` and PlantSimEngine in the build
-session. The build requires Julia 1.13 or later and a C toolchain. Use
-[`prepare`](@ref) in the application's source to prepare its scenario.
+session. The build requires Julia 1.13 or later and a C toolchain.
+For a fixed one-object scenario, use [`prepare`](@ref) in the application's source.
 
 `destination` must be a new directory. Return a named tuple containing the
 absolute `directory` and `executable` paths. Keep the full bundle together

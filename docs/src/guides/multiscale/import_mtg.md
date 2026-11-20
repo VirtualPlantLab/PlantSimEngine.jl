@@ -73,14 +73,26 @@ plant_area
 
 ## Keep the link to the MTG when the plant grows
 
-`CompositeModel(root; ...)` keeps the relationship between MTG nodes and
-simulation objects. Use `object_id(model, leaf_1)` to find the object for a
-node. For a new organ, pass its scientific initial values explicitly, for
-example `add_organ!(parent_node, model, :+, :Leaf, 1;
-initial_status=(carbon_biomass=0.0,))`. The import function is not called
-during growth. The new organ uses the numeric conversion and field types
-prepared for its model configuration. MTG attributes remain annotations
-and geometry; use `source_node(model, object)` to retrieve its source node.
+`add_organ!` creates the new node and returns its model status. Give the
+leaf its starting biomass through `initial_status`. Use `attributes` for
+tree data such as a field tag or geometry.
+
+```@example import_mtg
+young = add_organ!(root, model, "/", :Leaf, 1; index=3,
+    initial_status=(carbon_biomass=25.0,), attributes=(tag="leaf 3",))
+continue!(simulation; steps=1)
+node = source_node(model, young)
+@assert node[:tag] == "leaf 3" # hide
+@assert young.surface ≈ 0.5 # hide
+(area=young.surface, tag=node[:tag])
+```
+
+The original import callback runs when you construct the model. During
+growth, each new leaf uses the field types and numerical conversions
+prepared for its models. `source_node(model, young)` returns the live MTG
+node, and `object_id(model, node)` gives its simulation identifier.
+Use a key such as `tag` for field notes. The default MTG adapter uses
+`kind` and `species` to select model objects, and `name` for display.
 See [Growth within a time step](../../tutorials/growing_plant/part1_growth.md).
 
 Use `objects_from_mtg(root; status=initial_status)` when you only want a
