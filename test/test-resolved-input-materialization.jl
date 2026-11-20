@@ -609,6 +609,54 @@ end
     @test_throws "no concrete configured source type" run!(ambiguous; steps=0, outputs=:none)
 end
 
+@testset "a plant's self-scoped leaf input stays empty when a leaf is born" begin
+    function plant_model(selector, objects...)
+        CompositeModel(objects...; applications=(
+            ModelSpec(ManyReader{AbstractVector{<:Real},Float64}(0.0); name=:reader,
+                on=Many(scale=:Plant), inputs=(x=selector,)),),
+            environment=(duration=Hour(1),))
+    end
+    for selector in (Many(scale=:Leaf, var=:area, from_status=true),
+                     Many(Self(); scale=:Leaf, var=:area, from_status=true))
+        model = plant_model(selector, Object(:p; scale=:Plant))
+        simulation = run!(model; steps=1, outputs=:none)
+        status = model_status(model, :p)
+        @test status.x isa AbstractVector{<:Real}
+        @test eltype(status.x) === Union{}
+        @test isempty(status.x) && status.seen == 0.0
+        register_object!(model, Object(:leaf; scale=:Leaf, parent=:p))
+        continue!(simulation; steps=1)
+        @test isempty(status.x) && status.seen == 0.0
+        @test !hasproperty(model_status(model, :leaf), :area)
+    end
+
+    # A scene's unscoped input can select other objects, irrespective of its scale.
+    unscoped = Many(scale=:Leaf, var=:area, from_status=true)
+    scene = plant_model(unscoped, Object(:p; scale=:Plant, kind=:scene))
+    @test_throws "no concrete configured source type" run!(scene; steps=0, outputs=:none)
+    future = plant_model(unscoped, Object(:root; scale=:Scene))
+    @test_throws "no concrete configured source type" run!(future; steps=0, outputs=:none)
+    self = Many(Self(); scale=:Leaf, var=:area, from_status=true)
+    future = plant_model(self, Object(:root; scale=:Scene))
+    simulation = run!(future; steps=0, outputs=:none)
+    register_object!(future, Object(:p; scale=:Plant, parent=:root))
+    continue!(simulation; steps=1)
+    @test isempty(model_status(future, :p).x) && model_status(future, :p).seen == 0.0
+    @test_throws "empty prepared reference family" PSE._input_reference_carrier(
+        Many(), [ObjectId(:leaf)], _ -> Ref(1.0), Tuple{})
+
+    # A known source cell remains eligible for a future scene-wide consumer.
+    model = plant_model(unscoped, Object(:p; scale=:Plant),
+        Object(:leaf; scale=:Leaf, parent=:p, status=Status(area=3f0)))
+    simulation = run!(model; steps=1, outputs=:none)
+    @test isempty(model_status(model, :p).x)
+    register_object!(model, Object(:whole; scale=:Plant, kind=:scene))
+    continue!(simulation; steps=1)
+    @test model_status(model, :whole).seen == 3.0
+    @test eltype(model_status(model, :whole).x) === Float32
+    @test only(parent(model_status(model, :whole).x)) === PSE.refvalue(model_status(model, :leaf), :area)
+end
+
 struct VariantInputDefaults{T} <: AbstractResolved_Endpoint_ReaderModel
     seed::Base.RefValue{Float64}
     input_reads::Base.RefValue{Int}

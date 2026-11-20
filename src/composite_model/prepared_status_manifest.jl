@@ -165,7 +165,6 @@ end
 # constructor. A seed Vector value is not a RefVector carrier.
 function _prepared_status_input_reference(plan)
     refs = fieldtypes(plan.reference_types)
-    isempty(refs) && return Union{}
     if !(plan.selector isa Many)
         return Union{refs...}
     end

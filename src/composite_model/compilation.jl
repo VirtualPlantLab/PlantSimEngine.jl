@@ -6424,7 +6424,7 @@ end
 # Type-only projection shared by the canonical Many constructor and manifest.
 function _many_input_carrier_type(::Type{RT}) where {RT<:Tuple}
     types = fieldtypes(RT)
-    isempty(types) && throw(ArgumentError("A Many input requires a prepared reference family."))
+    isempty(types) && return RefVector{Union{}}
     all(R -> R <: Ref && isconcretetype(R), types) ||
         throw(ArgumentError("A Many input requires exact prepared reference types."))
     R = Union{types...}
@@ -6477,10 +6477,13 @@ end
     ::Many, source_ids, reference_for::F, ::Type{RT},
 ) where {F,RT<:Tuple}
     types = fieldtypes(RT)
-    isempty(types) && return :(throw(ArgumentError("A Many input requires a prepared reference family.")))
     all(R -> R <: Ref && isconcretetype(R), types) ||
         return :(throw(ArgumentError("A Many input requires exact prepared reference types.")))
     C = _many_input_carrier_type(RT)
+    isempty(types) && return quote
+        isempty(source_ids) || throw(ArgumentError("A Many input selected a source outside its empty prepared reference family."))
+        return $C()
+    end
     return quote
         references = _collect_reference_family(source_ids, reference_for, $RT)
         isnothing(references) && return nothing
@@ -8490,6 +8493,18 @@ function _add_status_writer_reference_types!(references, model, selector, variab
     return references
 end
 
+# Self can only select the consumer itself. An unscoped input defaults to Self
+# on ordinary objects, but to SceneScope on scene objects.
+function _disjoint_self_status_input(model, consumer, selector::Many)
+    _selector_from_status(selector) || return false
+    _selector_labels_may_overlap(applies_to(consumer.spec), selector) && return false
+    matcher = _authored_selector_matcher(selector)
+    (matcher.scope isa Self || matcher.relation isa Val{:self}) && return true
+    isnothing(matcher.scope) && isnothing(matcher.relation) || return false
+    targets = _many_current_application_targets(model, consumer)
+    return !isempty(targets) && all(id -> _default_dependency_scope(model, id) isa Self, targets)
+end
+
 function _prepare_input_reference_types(model, consumer, input, selector,
     source_var, producer_ids, applications_by_id, writer_applications, distributed_output_plans)
     references = Any[]
@@ -8559,6 +8574,10 @@ function _prepare_input_reference_types(model, consumer, input, selector,
             # Existing complete references remain valid evidence; no transform
             # is called here to manufacture an additional type witness.
             if isempty(candidates)
+                if selector isa Many && isempty(current) && isempty(references) &&
+                   _disjoint_self_status_input(model, consumer, selector)
+                    return Tuple{}
+                end
                 (current_complete || (isnothing(producer) && !isempty(references)) ||
                     (selector isa OptionalOne && isempty(current))) && continue
             end

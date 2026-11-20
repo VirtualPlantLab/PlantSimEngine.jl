@@ -25,7 +25,8 @@ PSE.inputs_(::LeafAssimilation{T}) where {T} =
 PSE.outputs_(::LeafAssimilation{T}) where {T} =
     (assimilation=zero(T), water_seen=zero(T), previous_seen=zero(T), visits=Int64(0))
 PSE.environment_inputs_(::LeafAssimilation{T}) where {T} = (par=zero(T),)
-PSE.inputs_(::PalmCarbon{T}) where {T} = (leaf_assimilations=PSE.Default(T[]),)
+PSE.inputs_(::PalmCarbon{T}) where {T} = (leaf_assimilations=PSE.Default(T[]),
+    self_leaf_losses=PSE.Required(AbstractVector{<:Real}))
 PSE.outputs_(::PalmCarbon{T}) where {T} =
     (carbon=zero(T), reserve=zero(T), leaf_count=Int64(0))
 
@@ -42,7 +43,8 @@ PSE.variable_contracts_(::LeafAssimilation) =
     (area=AREA, water=WATER, previous_assimilation=LEAF_CARBON,
      assimilation=LEAF_CARBON, water_seen=WATER, previous_seen=LEAF_CARBON)
 PSE.variable_contracts_(::PalmCarbon) =
-    (leaf_assimilations=LEAF_CARBON, carbon=PALM_CARBON, reserve=PALM_CARBON)
+    (leaf_assimilations=LEAF_CARBON, self_leaf_losses=LEAF_CARBON,
+     carbon=PALM_CARBON, reserve=PALM_CARBON)
 
 function PSE.run!(::PalmSupply, status, environment, constants, context)
     status.supply = status.soil_water
@@ -57,7 +59,8 @@ function PSE.run!(model::LeafAssimilation, status, environment, constants, conte
     return nothing
 end
 function PSE.run!(::PalmCarbon, status, environment, constants, context)
-    status.carbon = sum(status.leaf_assimilations; init=zero(status.carbon))
+    status.carbon = sum(status.leaf_assimilations; init=zero(status.carbon)) -
+                    sum(status.self_leaf_losses; init=zero(status.carbon))
     status.reserve += status.carbon
     status.leaf_count = length(status.leaf_assimilations)
     return nothing
@@ -117,7 +120,9 @@ function make_scene(neighbours::Integer; T::Type{<:AbstractFloat}=Float32)
                     application=:leaf_assimilation, var=:assimilation))),
         PSE.ModelSpec(PalmCarbon{T}(); name=:palm_carbon, on=PSE.Many(scale=:Palm),
             inputs=(leaf_assimilations=PSE.Many(within=PSE.Subtree(), scale=:Leaf,
-                application=:leaf_assimilation, var=:assimilation),)),
+                        application=:leaf_assimilation, var=:assimilation),
+                    # The default Self scope keeps this input empty after a leaf is born.
+                    self_leaf_losses=PSE.Many(scale=:Leaf, var=:loss, from_status=true))),
     ), environment=(duration=Day(1), par=T(8)))
     newborn = leaf_cells(T, T(1) / T(4))
     object = PSE.Object(NEW_LEAF; scale=:Leaf, kind=:leaf, species=:Elaeis_guineensis,

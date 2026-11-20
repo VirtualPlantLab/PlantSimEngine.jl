@@ -1697,6 +1697,13 @@ function _prepared_status_route_matches(model, object, parent_id, application,
     id = _index_object_id(model.registry.objects, object.id)
     topology = _prepared_status_topology(model, object, id, parent_id)
     matcher = destination_plan.matcher
+    if topology isa _PreparedStatusObjectTopology
+        return _prepared_status_route_matches_id(model, topology, matcher, id, execution_id)
+    end
+    return _prepared_status_route_matches_id(model, model, matcher, id, execution_id)
+end
+
+function _prepared_status_route_matches_id(model, topology, matcher::CompiledSelectorMatcher, id, execution_id)
     _prepared_status_scope_is_current(model, topology, matcher.scope, execution_id) || return false
     default_scope = isnothing(matcher.scope) && isnothing(matcher.relation) ?
         _default_dependency_scope(topology, execution_id) : nothing
