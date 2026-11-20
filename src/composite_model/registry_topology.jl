@@ -860,15 +860,11 @@ function _prepared_mtg_labels(adapter, edits)
     isempty(edits) && return labels
     adapter.id === MultiScaleTreeGraph.node_id && adapter.scale === MultiScaleTreeGraph.symbol &&
         all(f -> f isa _MTGAttribute, (labels..., adapter.geometry)) || return labels
-    columns = MultiScaleTreeGraph.to_table(adapter.root; vars=(:kind, :species, :name))
-    return map(labels) do accessor
-        _prepared_mtg_label(accessor, columns)
-    end
+    return map(f -> _prepared_mtg_label(f, adapter.root), labels)
 end
 
-function _prepared_mtg_label(::_MTGAttribute{K}, columns) where {K}
-    T = eltype(Tables.getcolumn(columns, K))
-    # Preserve true missing values as well as the default for absent attributes.
+function _prepared_mtg_label(::_MTGAttribute{K}, root) where {K}
+    T = MultiScaleTreeGraph.attribute_type(root, K)
     return _MTGAttribute{K,Union{Nothing,T}}()
 end
 

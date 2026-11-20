@@ -141,6 +141,8 @@ end
         root = MTG.Node(1, MTG.NodeMTG(:/, :Plant, 1, 1), (annotation=:existing,))
         geometry = Float32[1, 2]
         MTG.add_column!(root, :Leaf, :kind, Int; default=3)
+        MTG.add_column!(root, :Flower, :kind, String; default="pistillate")
+        MTG.add_column!(root, :Plant, :quality, Missing; default=missing)
         MTG.add_column!(root, :Leaf, :species, Symbol; default=:guineensis)
         MTG.add_column!(root, :Leaf, :name, String; default="young leaf")
         MTG.add_column!(root, :Leaf, :geometry, typeof(geometry); default=geometry)
@@ -168,6 +170,15 @@ end
         fruit = add_organ!(root, model, :+, :Fruit, 2; attributes=(kind=:green,))
         @test model_object(model, source_node(model, fruit)).kind === :green
         @test !hasproperty(fruit, :kind)
+        flower = add_organ!(root, model, :+, :Flower, 2)
+        @test model_object(model, source_node(model, flower)).kind === :pistillate
+        MTG.add_column!(root, :Seed, :kind, Missing; default=missing)
+        if prepared && isdefined(MTG, :prepare_node_edits)
+            @test_throws "new MTG label type" add_organ!(root, model, :+, :Seed, 2)
+        else
+            seed = add_organ!(root, model, :+, :Seed, 2)
+            @test model_object(model, source_node(model, seed)).kind === Symbol(missing)
+        end
     end
 end
 
