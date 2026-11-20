@@ -361,6 +361,9 @@ end
         @test plan.prepared_source isa PSE.PreparedGlobalEnvironmentRows
         R = remap ? Any : eltype(rows)
         @test plan.sample_schema isa PSE.GlobalEnvironmentSampleSchema{R}
+        control_plan = control.environment_bindings.application_plans_by_id[:probe]
+        @test control_plan.sample_schema isa PSE.GlobalEnvironmentSampleSchema{R}
+        @test control_plan.prepared_source === rows
         @test current_step(simulation) == current_step(control) == 3
         @test final_state(simulation) == final_state(control) == (seen=4f0, visits=3)
         @test outputs(simulation)[(:probe, ObjectId(:a), :seen)] ==

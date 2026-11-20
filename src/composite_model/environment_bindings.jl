@@ -679,8 +679,15 @@ end
 ) = @inbounds prepared.rows[step]
 
 # These are row-type declarations, not calls to sample arbitrary providers.
-_global_environment_raw_sample_type(source) =
-    DataFormat(source) isa SingletonAlike ? typeof(source) : Any
+function _global_environment_raw_sample_type(source)
+    DataFormat(source) isa SingletonAlike && return typeof(source)
+    # A Tables.jl row table is its own row iterator. Its declared element type
+    # also describes a cached row, without reading data during preparation.
+    if Tables.isrowtable(source) && Base.IteratorEltype(typeof(source)) isa Base.HasEltype
+        return eltype(source)
+    end
+    return Any
+end
 _global_environment_raw_sample_type(source::TimeStepTable) = eltype(source)
 _global_environment_raw_sample_type(source::PreparedGlobalEnvironmentRows) = eltype(source.rows)
 
