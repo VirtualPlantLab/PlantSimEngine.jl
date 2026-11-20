@@ -18,7 +18,7 @@ revisions = {
     "main": "8d1f8484c8ad68cc5da8004209b2062070cac28a",
     "historical": "cd5517551f4cd4cf01504cb312e2b81f6fabe6ba",
     "before": "f746e9343155f49308d5d9b3a6e2fd51bdcf3ce3",
-    "candidate": "6d545250492a8bfaf93e02123907db5777d02e4e",
+    "candidate": "06e2f0feaebec62ec3046edbb02dbf6ef38a15d1",
 }
 scenario, = sys.argv[1:]
 xpalm_revision = {
