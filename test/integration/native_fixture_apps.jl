@@ -6,7 +6,7 @@ export stage_native_fixture
 """Stage a self-contained test app from canonical source files.
 
 Project.toml, src and an optional Manifest.toml are copied. Source paths resolve against the original
-project, and PSE is the package actually loaded by this integration test.
+project. Direct PSE and MTG dependencies use the packages loaded by the integration test.
 """
 function stage_native_fixture(template; fixture_sources=())
     template = abspath(template)
@@ -26,7 +26,14 @@ function stage_native_fixture(template; fixture_sources=())
         haskey(source, "path") || continue
         source["path"] = abspath(joinpath(template, source["path"]))
     end
-    sources["PlantSimEngine"] = Dict("path" => realpath(pkgdir(PSE)))
+    checkouts = Dict{String,String}()
+    for package in (PSE, PSE.MultiScaleTreeGraph)
+        name = string(nameof(package))
+        haskey(project["deps"], name) || continue
+        path = realpath(pkgdir(package))
+        sources[name] = Dict("path" => path)
+        checkouts[project["deps"][name]] = path
+    end
     open(joinpath(app, "Project.toml"), "w") do io
         TOML.print(io, project)
     end
@@ -34,8 +41,11 @@ function stage_native_fixture(template; fixture_sources=())
     if isfile(manifest)
         lock = TOML.parsefile(manifest)
         for entries in values(lock["deps"]), entry in entries
-            if entry["uuid"] == project["deps"]["PlantSimEngine"]
-                entry["path"] = realpath(pkgdir(PSE))
+            if haskey(checkouts, entry["uuid"])
+                entry["path"] = checkouts[entry["uuid"]]
+                for key in ("git-tree-sha1", "registries", "repo-url", "repo-rev")
+                    delete!(entry, key)
+                end
             elseif haskey(entry, "path")
                 entry["path"] = entry["uuid"] == project["uuid"] ? app :
                     abspath(joinpath(template, entry["path"]))

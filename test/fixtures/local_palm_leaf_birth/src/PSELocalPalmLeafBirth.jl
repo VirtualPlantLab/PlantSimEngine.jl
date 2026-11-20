@@ -6,6 +6,7 @@ include("prepare.jl")
 using .LocalPalmLeafBirth
 using .LocalPalmLeafBirthPreparation: prepare_native_scene
 import PlantSimEngine as PSE
+include("tree_birth.jl")
 
 # A alone is the only retained payload. The native count is command-line data.
 const STATE = prepare_native_scene()
@@ -90,6 +91,10 @@ end
 
 function (@main)(args)
     length(args)==1 || return 2
+    if only(args) == "tree"
+        isnothing(TREE_BIRTH) && return 2
+        return check_tree_birth!(TREE_BIRTH) ? 0 : 1
+    end
     neighbours=parse(Int,args[1])
     neighbours in (0,100) || return 2
     result=native_run!(STATE,neighbours)

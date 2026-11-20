@@ -58,6 +58,10 @@ end
             palm = Compilation.compile(_palm_growth_app; destination=joinpath(directory, "palm"))
             @test isfile(palm.executable)
             digest = sha256(read(palm.executable))
+            if !isnothing(PSELocalPalmLeafBirth.TREE_BIRTH)
+                @test PSELocalPalmLeafBirth.main(["tree"]) == 0
+                @test success(`$(palm.executable) tree`)
+            end
             zero = _native_palm_growth_report(palm.executable, 0, directory)
             hundred = _native_palm_growth_report(palm.executable, 100, directory)
             @test sha256(read(palm.executable)) == digest
