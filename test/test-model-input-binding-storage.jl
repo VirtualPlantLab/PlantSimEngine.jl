@@ -605,4 +605,25 @@ end
     check_carriers(data, simulation)
 end
 
+@testset "an input reference belongs to the live registry of its simulation" begin
+    model, other = fixture().model, fixture().model
+    simulation = prepare(model)
+    id = ObjectId(:anchor)
+    selector = One(id=:anchor)
+    types = binding(simulation, :a, :single).plan.reference_types
+    carrier(m) = PSE._input_carrier(m, selector, [id], :x, types)
+
+    reference = carrier(model)
+    @test reference === PSE.refvalue(model_status(model, id), :x)
+    @test carrier(other) === PSE.refvalue(model_status(other, id), :x)
+    @test carrier(other) !== reference
+    @test_throws ArgumentError model_status(other, model_object(model, id))
+    @test_throws ArgumentError model_status(other, model_status(model, id))
+
+    remove_object!(model, id)
+    @test_throws "No model object with id `anchor`." model_status(model, id)
+    @test_throws "No model object with id `anchor`." carrier(model)
+    @test reference[] === 3f0
+end
+
 end # module ModelInputBindingStorageChecks

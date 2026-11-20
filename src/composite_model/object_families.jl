@@ -143,6 +143,15 @@ end
 _object_family_status(store::ObjectFamilyStore, id) =
     _object_family_status_at(store.catalog, store.locations[id])
 
+function _require_object_location(store::ObjectFamilyStore, id::ObjectId)
+    location = get(store.locations, id, nothing)
+    isnothing(location) && error("No model object with id `", _object_id_text(id), "`.")
+    return location
+end
+
+_registered_object_status(store::ObjectFamilyStore, id::ObjectId) =
+    _object_family_status_at(store.catalog, _require_object_location(store, id))
+
 function _validate_object_family_status_owner!(store::ObjectFamilyStore, status, id)
     status isa Status || return nothing
     existing = get(store.status_owners, _status_identity(status), nothing)

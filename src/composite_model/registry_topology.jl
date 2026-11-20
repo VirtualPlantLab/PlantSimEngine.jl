@@ -1233,12 +1233,8 @@ function _show_object_id_element(io, value::Tuple)
     return nothing
 end
 
-function _model_object(model::CompositeModel, id)
-    oid = ObjectId(id)
-    object = get(model.registry.objects, oid, nothing)
-    isnothing(object) && error("No model object with id `", _object_id_text(oid), "`.")
-    return object
-end
+_model_object(model::CompositeModel, id) =
+    _require_object_location(model.registry.objects, ObjectId(id)).object
 
 """
     model_object(model::CompositeModel, id) -> Object
@@ -1327,6 +1323,9 @@ model registry and is not stored in MTG attributes.
 """
 model_status(model::CompositeModel, source) =
     _object_family_status(model.registry.objects, object_id(model, source))
+
+model_status(model::CompositeModel, id::ObjectId) =
+    _registered_object_status(model.registry.objects, id)
 
 """
     source_node(model::CompositeModel, source) -> MultiScaleTreeGraph.Node

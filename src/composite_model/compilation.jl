@@ -6492,8 +6492,9 @@ function _input_carrier(
     model::CompositeModel, selector::AbstractObjectMultiplicity,
     source_ids::AbstractVector{<:ObjectId}, source_var, reference_types::Type{<:Tuple},
 )
+    objects = model.registry.objects
     reference_for = source_id ->
-        _status_ref_or_nothing(model_status(model, source_id), source_var)
+        _status_ref_or_nothing(_registered_object_status(objects, source_id), source_var)
     return _input_reference_carrier(selector, source_ids, reference_for, reference_types)
 end
 
