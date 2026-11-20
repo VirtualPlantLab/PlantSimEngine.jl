@@ -5230,14 +5230,16 @@ end
     )
 end
 
-@inline function _selected_call_targets(targets, context::RunContext, name::Symbol, requested_ids)
+@inline function _with_selected_call_targets(
+    targets, context::RunContext, name::Symbol, requested_ids, consume::F, args::Vararg{Any,N},
+) where {F,N}
     if isnothing(requested_ids)
         _compiled_call_mode(targets.binding) === :manual ||
             _initializer_requires_dedicated_api(context, name)
-        return _synchronized_named_call(targets, context, name)
+        return consume(_synchronized_named_call(targets, context, name), args...)
     end
     return _current_topology_call_targets(
-        _synchronized_named_call(targets, context, name), context, name, requested_ids,
+        _synchronized_named_call(targets, context, name), context, name, requested_ids, consume, args...,
     )
 end
 
@@ -5746,7 +5748,7 @@ Base.@constprop :aggressive function call_targets(
 )
     requested_ids = isnothing(objects) ? nothing :
         _call_target_object_ids(runtime_model(context), objects)
-    return _with_named_call(_selected_call_targets, context.calls, name, context, requested_ids)
+    return _with_named_call(_with_selected_call_targets, context.calls, name, context, requested_ids, identity)
 end
 
 @inline function _single_call_model(targets::CallTargets, batches::Tuple{B}) where {B}
@@ -6419,7 +6421,9 @@ function _current_topology_call_targets(
     context::RunContext,
     name::Symbol,
     requested_ids,
-)
+    consume::F,
+    args::Vararg{Any,N},
+) where {F,N}
     model = runtime_model(context)
     targeted = _targeted_new_object_call_targets(
         context,
@@ -6427,7 +6431,7 @@ function _current_topology_call_targets(
         requested_ids,
         cached_targets,
     )
-    isnothing(targeted) || return targeted
+    isnothing(targeted) || return consume(targeted, args...)
     compiled = _refresh_runtime_bindings!(model, context.compiled)
     environment_bindings = _refresh_environment_bindings!(
         model,
@@ -6463,8 +6467,9 @@ function _current_topology_call_targets(
             getfield(binding, :plan) === plan || throw(ArgumentError(
                 "The refreshed hard call belongs to a different declaration.",
             ))
-            _selected_topology_call_targets(binding, cached_targets, context, name, requested_ids,
+            selected = _selected_topology_call_targets(binding, cached_targets, context, name, requested_ids,
                 model, compiled, environment_bindings)
+            consume(selected, args...)
         end
     end
 end
@@ -7196,13 +7201,12 @@ function run_call!(
     end
     requested_ids = isnothing(objects) ? nothing :
         _call_target_object_ids(runtime_model(context), objects)
-    return _with_named_call(_selected_run_call!, context.calls, name, context,
-        requested_ids, publish, sampled_environment, environment)
+    return _with_named_call(_with_selected_call_targets, context.calls, name, context,
+        requested_ids, _run_selected_call_targets!, context, publish, sampled_environment, environment)
 end
 
-@inline function _selected_run_call!(cached_targets, context::RunContext, name::Symbol,
-    requested_ids, publish, sampled_environment, environment)
-    targets = _selected_call_targets(cached_targets, context, name, requested_ids)
+@inline function _run_selected_call_targets!(targets, context::RunContext, publish,
+    sampled_environment, environment)
     selected_environment = environment isa NoEnvironmentOverride ?
                            context.environment : environment
     return _run_call_targets!(targets, publish, sampled_environment, selected_environment)
