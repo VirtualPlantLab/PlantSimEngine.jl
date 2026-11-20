@@ -93,11 +93,15 @@ prepared for its models. `source_node(model, young)` returns the live MTG
 node, and `object_id(model, node)` gives its simulation identifier.
 Use a key such as `tag` for field notes. The default MTG adapter uses
 `kind` and `species` to select model objects, and `name` for display.
-A native application using prepared MTG edits derives the types of its default
-`kind`, `species` and `name` accessors from the tree. Declare a column before
+To grow an MTG in a native application, use a version of MultiScaleTreeGraph
+that provides `prepare_node_edits`. PSE infers the types of the default
+`kind`, `species` and `name` labels from the tree. Declare a column before
 preparation if future organs will inherit its default, for example
 `add_column!(root, :Leaf, :kind, Symbol; default=:expanding)`. An application
-can also supply the label at birth with `attributes=(kind=:expanding,)`.
+can also supply the label at birth with `attributes=(kind=:expanding,)`
+when the prepared tree supports that column type. On a tree with only numeric
+columns, declare the symbol column first. To set only the simulation object's
+label, pass `kind=:expanding` directly to `add_organ!`.
 
 See [Growth within a time step](../../tutorials/growing_plant/part1_growth.md).
 

@@ -27,5 +27,7 @@ function check_tree_birth!(model)
     MTG.parent(new_node) === first_node && MTG.node_id(new_node) == 3 || return false
     PSE.model_object(model, new_node).kind === Symbol(3) || return false
     last_leaf = PSE.add_organ!(root, model, :+, :Leaf, 2)
-    return isnothing(PSE.model_object(model, PSE.source_node(model, last_leaf)).kind)
+    isnothing(PSE.model_object(model, PSE.source_node(model, last_leaf)).kind) || return false
+    labelled_leaf = PSE.add_organ!(root, model, :+, :Leaf, 2; kind=:young)
+    return PSE.model_object(model, PSE.source_node(model, labelled_leaf)).kind === :young
 end
