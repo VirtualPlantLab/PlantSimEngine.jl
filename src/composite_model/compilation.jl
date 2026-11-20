@@ -8274,18 +8274,17 @@ _selector_constraint_values(value) =
 # Object-level multiplicity and writer ambiguity are still validated when
 # concrete targets exist.
 function _selector_labels_may_overlap(left, right)
-    for key in (:scale, :kind, :species, :id)
-        left_values = _selector_constraint_values(
-            _criteria_value(criteria(left), key),
-        )
-        right_values = _selector_constraint_values(
-            _criteria_value(criteria(right), key),
-        )
-        isempty(left_values) && continue
-        isempty(right_values) && continue
-        any(value -> value in right_values, left_values) || return false
-    end
-    return true
+    a, b = criteria(left), criteria(right)
+    return _selector_constraints_overlap(a, b, :scale) &&
+        _selector_constraints_overlap(a, b, :kind) &&
+        _selector_constraints_overlap(a, b, :species) &&
+        _selector_constraints_overlap(a, b, :id)
+end
+
+@inline function _selector_constraints_overlap(left, right, key)
+    a = _selector_constraint_values(_criteria_value(left, key))
+    b = _selector_constraint_values(_criteria_value(right, key))
+    return isempty(a) || isempty(b) || any(in(b), a)
 end
 
 function _potential_input_source_application_ids(
@@ -8379,10 +8378,15 @@ function _application_declares_distributed_output(
     )
 end
 
+@inline _matching_output_destination(plan, variable, selector) =
+    variable in plan.variable_names && _selector_labels_may_overlap(selector, plan.selector)
+
 function _any_matching_output_destination(plans, variable, selector)
-    return any(plans) do plan
-        variable in plan.variable_names && _selector_labels_may_overlap(selector, plan.selector)
+    for index in eachindex(plans)
+        (Base.@inline _with_metadata_entry(_matching_output_destination, plans, index,
+            variable, selector)) && return true
     end
+    return false
 end
 
 Base.@nospecializeinfer function _potential_call_application_ids(
