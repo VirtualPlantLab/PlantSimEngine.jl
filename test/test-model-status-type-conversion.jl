@@ -38,7 +38,15 @@ PlantSimEngine.inputs_(model::OwnedArrayDefaultModel) = (payload=Default(model.d
 PlantSimEngine.outputs_(::OwnedArrayDefaultModel) = NamedTuple()
 PlantSimEngine.run!(::OwnedArrayDefaultModel, status, environment, constants, context) = nothing
 
-@testset "private array defaults retain bits and independent mutable graphs" begin
+mutable struct ModelOwnedDefaultCell
+    value::Int
+end
+
+# A model may define how its non-bits array defaults are privately copied.
+Base.deepcopy_internal(values::Vector{ModelOwnedDefaultCell}, ::IdDict) =
+    [ModelOwnedDefaultCell(cell.value + 1) for cell in values]
+
+@testset "private array defaults retain symbols, bits and independent mutable graphs" begin
     function prepared_defaults(value)
         model = CompositeModel(
             Object(:first; scale=:Scene), Object(:second; scale=:Scene);
@@ -57,6 +65,22 @@ PlantSimEngine.run!(::OwnedArrayDefaultModel, status, environment, constants, co
     @test reinterpret(UInt32, right) == reinterpret(UInt32, source)
     left[3] = 9f0
     @test right[3] === source[3] === 3f0
+
+    states = [:undetermined]
+    first_states, second_states = prepared_defaults(states)
+    first_states[1] = :female
+    @test second_states == states == [:undetermined]
+    @test first_states !== second_states && second_states !== states
+
+    unfilled = Matrix{Symbol}(undef, 1, 2)
+    unfilled[1] = :male
+    copied = PlantSimEngine._private_initial_value(unfilled)
+    @test size(copied) == size(unfilled)
+    @test copied[1] === :male && !isassigned(copied, 2)
+
+    owned = [ModelOwnedDefaultCell(2)]
+    copied_owned = PlantSimEngine._private_initial_value(owned)
+    @test only(copied_owned).value == 3 && only(owned).value == 2
 
     shared = Float32[1, 2]
     nested = [shared, shared]
