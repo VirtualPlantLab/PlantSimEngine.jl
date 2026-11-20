@@ -1,5 +1,6 @@
 module FixedStatusStorageChecks
 using PlantSimEngine, Test
+using Serialization
 const PSE = PlantSimEngine
 const RF32 = Base.RefValue{Float32}
 const RF64 = Base.RefValue{Float64}
@@ -170,6 +171,41 @@ end
     # Allow space for the staging vector, the tuple and its final directory.
     @test bytes <= 64 * length(names) + 4096
     @test PSE.refvalue(state, first(names))[] === 2f0
+end
+
+function restore_watched_status(owners_first, keep_both)
+    original = CompositeModel(Object(:leaf; status=Status(x=1f0)))
+    prepared = PSE._with_object_id_domain(original)
+    status = model_status(prepared, :leaf)
+    owners = keep_both ? (original, prepared) : (prepared,)
+    packet = owners_first ? (; owners, status) : (; status, owners)
+    io = IOBuffer()
+    GC.@preserve original serialize(io, packet)
+    seekstart(io)
+    return deserialize(io)
+end
+
+@testset "restored status references notify only their live registries" begin
+    for owners_first in (false, true), keep_both in (false, true)
+        restored = restore_watched_status(owners_first, keep_both)
+        GC.gc(true)
+        watches = PSE._status_vars(restored.status).watchers
+        @test length(watches) == 2
+        @test count(watch -> isnothing(PSE._watch_ids(watch)), watches) == !keep_both
+        for model in restored.owners
+            store = model.registry.objects
+            @test model_status(model, :leaf) === restored.status
+            watch = only(w for w in watches if w.sink.ids === store.change_sink.ids)
+            @test PSE._watch_ids(watch) === store.changed_status_ids
+            empty!(store.changed_status_ids)
+        end
+        cell = Ref(2f0)
+        PSE._set_status_reference!(restored.status, :x, cell)
+        for model in restored.owners
+            @test PSE.refvalue(model_status(model, :leaf), :x) === cell
+            @test model.registry.objects.changed_status_ids == [ObjectId(:leaf)]
+        end
+    end
 end
 
 @testset "deepcopy preserves internal ref aliases, RefAny and RefReal stay exact" begin
