@@ -183,6 +183,10 @@ end
     original_root = root_target(data.simulation)
     streams = Dict(key => stream for (key, stream) in outputs(data.simulation))
     learned = observed_schemas(data.simulation)
+    # A nested call exercises the generator's view of its schema helpers.
+    cohort = PSE._execution_cohort_schema(learned.schemas.root)
+    @test cohort isa PSE.ClosedExecutionCohortSchema
+    @test only(fieldtypes(only(typeof(cohort).parameters))) === eltype(fieldtype(learned.RootB, :targets))
     @test data.kernels == Dict(:root => 0, :middle => 0, :leaf => 0)
     @test scientific_state(data.model) == before
     @test rng_probe(data.rng) == random_state

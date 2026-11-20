@@ -52,6 +52,12 @@ end
 _prepared_call_mode(::Type{<:CompiledModelCallBinding{P}}) where {P} = _prepared_call_plan_mode(P)
 _prepared_call_plan_mode(::Type{<:CompiledModelCallPlan{NAME,MODE}}) where {NAME,MODE} = MODE
 
+function _prepared_call_batch_storage_type(::Type{B}, ::Type{BT}) where {B, BT}
+    _prepared_call_mode(B) === :initializer && return Tuple{}
+    Selector = fieldtype(fieldtype(B, :plan), :selector)
+    return BT <: Tuple && Selector <: Many ? Union{Nothing, BT} : BT
+end
+
 function _validate_prepared_context_calls(::Type{C}) where {C<:Tuple}
     isconcretetype(C) || throw(ArgumentError("Prepared context calls require a concrete finite tuple."))
     for CT in fieldtypes(C)
@@ -264,11 +270,6 @@ end
 @inline _materialize_call_execution_batches!(::OpenExecutionBatchSchema, targets::CallTargets) =
     _materialize_open_call_execution_batches!(targets)
 
-function _prepared_call_batch_storage_type(::Type{B}, ::Type{BT}) where {B, BT}
-    _prepared_call_mode(B) === :initializer && return Tuple{}
-    Selector = fieldtype(fieldtype(B, :plan), :selector)
-    return BT <: Tuple && Selector <: Many ? Union{Nothing, BT} : BT
-end
 @inline _call_execution_batch_storage_type(::OpenExecutionBatchSchema, binding, batches) = typeof(batches)
 @inline _call_execution_batch_storage_type(::PreparedExecutionBatchSchema{BT}, binding, batches) where {BT} =
     _prepared_call_batch_storage_type(typeof(binding), BT)
