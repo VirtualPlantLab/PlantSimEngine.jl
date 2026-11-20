@@ -304,6 +304,22 @@ function _prepared_status_raw_configured_references(model, object, names, refere
     return configured
 end
 
+function _add_supplied_status_fields!(names, refs, raw)
+    first_supplied = length(names) + 1
+    for family in raw, (name, R) in zip(family.names, family.reference_types)
+        _prepared_status_add_type!(names, refs, name, R)
+    end
+    # Registry iteration can differ between processes. Keep authored ports first
+    # and give extra fields the same slots when an application is restored.
+    supplied = first_supplied:lastindex(names)
+    if !issorted(view(names, supplied))
+        order = sort!(collect(supplied); by=i -> names[i])
+        names[supplied] = names[order]
+        refs[supplied] = refs[order]
+    end
+    return nothing
+end
+
 function _prepare_status_manifest(model, authored, program, raw_basis)
     # Host traversal uses scalar records; freeze exact owner tuples only once
     # the namespace and all RAW permissions have been prepared.
@@ -350,9 +366,7 @@ function _prepare_status_manifest(model, authored, program, raw_basis)
         # new RAW permissions. Preserve the genuine constructor-owned evidence.
         raw_basis
     end
-    for family in raw, (name, R) in zip(family.names, family.reference_types)
-        _prepared_status_add_type!(names, refs, name, R)
-    end
+    _add_supplied_status_fields!(names, refs, raw)
     for permission in permissions
         for variant in permission.variants, (name, R) in variant.canonical
             _prepared_status_add_type!(names, refs, name, R)

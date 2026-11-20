@@ -19,6 +19,27 @@ PSE.inputs_(::Reader) = (x=Default(0f0),)
 PSE.outputs_(::Reader) = (;)
 PSE.run!(::Reader, status, environment, constants, context) = nothing
 
+@testset "independent preparations keep the same slots for supplied fields" begin
+    function prepare_leaves(reverse_order)
+        value = Ref(3f0)
+        data = reverse_order ? (; zeta=Ref(7), alpha=value) : (; alpha=value, zeta=Ref(7))
+        leaf = Object(:leaf; scale=:Leaf, status=Status(data))
+        soil = Object(:soil; scale=:Soil, status=Status(depth=2.0))
+        objects = reverse_order ? (leaf, soil) : (soil, leaf)
+        model = CompositeModel(objects...; applications=(
+            ModelSpec(Source(1f0, 2.0, Ref(0)); name=:source, on=Many(scale=:Leaf)),))
+        return model, value
+    end
+    a, original = prepare_leaves(false)
+    b, other = prepare_leaves(true)
+    schema(m) = PSE._prepared_status_manifest(m).status_type
+    @test schema(a) === schema(b)
+    @test PSE._status_schema_names(schema(a)) == (:x, :y, :alpha, :depth, :zeta)
+    @test PSE.refvalue(model_status(a, :leaf), :alpha) === original
+    @test PSE.refvalue(model_status(b, :leaf), :alpha) === other
+    @test typeof(PSE.refvalue(model_status(b, :leaf), :zeta)) === Base.RefValue{Int}
+end
+
 function _wide_leaf_admission_bytes(model, leaf, status)
     return @allocated PSE._validate_prepared_initial_status(model, leaf, status, leaf.parent)
 end
