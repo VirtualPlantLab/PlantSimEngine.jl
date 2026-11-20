@@ -7718,29 +7718,37 @@ end
 
 function _force_distributed_producer_rebinds!(forced, model, bindings, by_variable)
     for binding in bindings
-        binding.origin === :inferred_same_object && continue
-        (binding.carrier_hint === :temporal_stream ||
-         !isnothing(binding.process) || !isnothing(binding.application)) ||
-            continue
-        candidates = get(by_variable, binding.source_var, ())
-        isempty(candidates) && continue
-        consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
-        default_scope = _default_dependency_scope(model, consumer_id)
-        for (raw_destination, producer) in candidates
-            producer in binding.plan.potential_source_application_ids || continue
-            destination = _index_object_id(model.registry.objects, raw_destination)
-            Base.@inline _selector_matches_object_id(
-                model,
-                binding.matcher,
-                destination,
-                consumer_id,
-                true,
-                default_scope,
-                false,
-            ) || continue
-            push!(forced, (binding.application_id, consumer_id, binding.input))
-            break
-        end
+        Base.@inline _with_model_input_binding(
+            _force_distributed_producer_rebind!, bindings, binding,
+            forced, model, by_variable,
+        )
+    end
+    return nothing
+end
+
+function _force_distributed_producer_rebind!(binding, forced, model, by_variable)
+    binding.origin === :inferred_same_object && return nothing
+    (binding.carrier_hint === :temporal_stream ||
+     !isnothing(binding.process) || !isnothing(binding.application)) ||
+        return nothing
+    candidates = get(by_variable, binding.source_var, ())
+    isempty(candidates) && return nothing
+    consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
+    default_scope = _default_dependency_scope(model, consumer_id)
+    for (raw_destination, producer) in candidates
+        producer in binding.plan.potential_source_application_ids || continue
+        destination = _index_object_id(model.registry.objects, raw_destination)
+        Base.@inline _selector_matches_object_id(
+            model,
+            binding.matcher,
+            destination,
+            consumer_id,
+            true,
+            default_scope,
+            false,
+        ) || continue
+        push!(forced, (binding.application_id, consumer_id, binding.input))
+        break
     end
     return nothing
 end

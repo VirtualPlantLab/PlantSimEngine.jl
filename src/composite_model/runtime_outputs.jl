@@ -1129,7 +1129,7 @@ end
 function _call_bindings_signature(call_bindings)
     signature = hash(length(call_bindings))
     for binding in call_bindings
-        signature = hash(_compiled_call_name(binding), signature)
+        signature = hash(_compiled_call_name(binding)::Symbol, signature)
         # Lifecycle code advances this generation whenever either callee
         # vector changes, so signature refresh remains independent of the
         # number of organs selected by the call.
@@ -5793,7 +5793,8 @@ execution target and remains valid until a lifecycle refresh barrier.
 end
 
 @noinline function _missing_named_call(context, name)
-    available = Symbol[targets.binding.call for targets in context.calls]
+    available = Symbol[_with_metadata_entry(targets -> targets.binding.call, context.calls, slot)
+        for slot in eachindex(context.calls)]
     error(
         "Application `$(context.application.id)` on object ",
         "`$(_object_id_text(context.object_id))` did not declare call `$(name)`. ",
