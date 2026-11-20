@@ -182,6 +182,16 @@ random_state(rng) = rand(copy(rng), UInt64, 8)
         add_leaves!(ordinary)
         owners = refreshed_owners(data)
         @test owners.compiled.status_view_refresh_is_pure_addition
+        if algorithm === :pure_addition
+            bindings = owners.compiled.call_bindings_by_target[(:root, ObjectId(1))]
+            binding = only(b for b in bindings if b.call === :a)
+            closed = PSE.CompiledModelCallBinding(binding.plan, binding.consumer_id,
+                ObjectId{Int}[id for id in binding.callee_object_ids], binding.callee_application_ids)
+            changed, affected = PSE._pure_addition_changed_call_target_ids(closed, owners.compiled)
+            @test eltype(changed) === ObjectId{Int}
+            @test changed == [ObjectId(101)]
+            @test affected == [:leaf_a]
+        end
         before_state = state(data.model)
         @test extend!(algorithm, target, owners, simulation) === true
         @test state(data.model) == before_state

@@ -4367,7 +4367,7 @@ function _pure_addition_changed_call_target_ids(
     compiled::CompiledCompositeModel,
 )
     application_ids = binding.callee_application_ids
-    changed_ids = ObjectId[]
+    changed_ids = similar(binding.callee_object_ids, 0)
     affected_application_ids = Symbol[]
     for (application_id, object_id) in compiled.changed_execution_target_ids
         application_id in application_ids || continue
