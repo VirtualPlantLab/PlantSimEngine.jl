@@ -36,18 +36,7 @@ function fixture(closed)
                 alias=Many(within=Subtree(), scale=:Leaf, application=:leaf))),
             ModelSpec(Leaf(); name=:leaf, on=Many(scale=:Leaf))))
     if closed
-        previous = model.registry
-        objects = PSE._closed_object_family_store(previous.objects)
-        registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
-            previous.by_species, previous.ancestor_ids_by_object)
-        model = PSE.CompositeModel(registry, model.applications, model.environment,
-            model.instances, model.source_adapter, model.status_conversion,
-            model.status_conversion_records, model.status_source_owners,
-            model.status_source_identities, model.scenario_plan_cache, model.binding_cache,
-            model.environment_binding_cache, model.bindings_dirty,
-            model.environment_bindings_dirty, model.lifecycle_delta,
-            model.input_default_status_variables, model.runtime_revision,
-            model.revision, model.environment_revision)
+        model = PSE._with_object_id_domain(model)
     end
     return (;model,capture)
 end

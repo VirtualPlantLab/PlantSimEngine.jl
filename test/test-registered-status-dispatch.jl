@@ -3,17 +3,6 @@ module RegisteredStatusDispatchChecks
 using PlantSimEngine, Test
 const PSE = PlantSimEngine
 
-function with_finite_registry(model)
-    previous = model.registry
-    objects = PSE._closed_object_family_store(previous.objects)
-    registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
-        previous.by_species, previous.ancestor_ids_by_object)
-    fields = map(fieldnames(typeof(model))) do name
-        name === :registry ? registry : getfield(model, name)
-    end
-    return PSE.CompositeModel(fields...)
-end
-
 @testset "erased statuses share one prepared schema and retain their real references" begin
     supplied = [Status(value=Float32(index), payload=ntuple(identity, index)) for index in 1:8]
     model = CompositeModel((Object(index; status=status) for (index,status) in enumerate(supplied))...)
@@ -46,7 +35,7 @@ PSE.outputs_(::Finisher) = (value=0.5, visits=0)
 PSE.run!(::Finisher, status, environment, constants, context) = nothing
 
 @testset "ensuring a required status admits root and registered parent identities" begin
-    model = with_finite_registry(CompositeModel(
+    model = PSE._with_object_id_domain(CompositeModel(
         Object(:root; scale=:Leaf),Object(:child; scale=:Leaf,parent=:root);
         applications=(ModelSpec(Finisher();name=:finish,on=Many(scale=:Leaf)),)))
     I = keytype(model.registry.objects)
@@ -80,7 +69,7 @@ end
         Status((seed=Ref{Real}(3f0), value=Ref(0.5), visits=Ref(0))),
         Status((seed=Ref{Any}(4f0), value=Ref(0.5), visits=Ref(0))),
     )
-    model = with_finite_registry(CompositeModel(
+    model = PSE._with_object_id_domain(CompositeModel(
         Object(:owner; status=Status(count=0)),
         (Object(Symbol(:existing_, index); parent=:owner, scale=:Leaf, status=status)
             for (index,status) in enumerate(existing))...;
@@ -149,7 +138,7 @@ end
     source = CompositeModel(Object(:leaf; status=Status(seed=1.0));
         applications=(ModelSpec(PrivateWriter(); name=:private_writer,
             on=One(id=:leaf), output_routing=(x=:stream_only,)),))
-    model = with_finite_registry(source)
+    model = PSE._with_object_id_domain(source)
     canonical = model_status(model, :leaf)
     @test propertynames(canonical) == (:seed,)
     @test !hasproperty(canonical, :x)
@@ -166,7 +155,7 @@ end
         push!(seen, (name,typeof(value)))
         value
     end
-    model = with_finite_registry(CompositeModel(
+    model = PSE._with_object_id_domain(CompositeModel(
         Object(:owner; status=Status(count=0)),
         Object(:existing; parent=:owner, scale=:Leaf, status=Status(seed=1.0));
         type_promotion=Dict(Float64=>Float32), status_transform=transform))
@@ -189,7 +178,7 @@ end
 
 @testset "incompatible edited references fail before changing live cells" begin
     supplied = Status(seed=2.0)
-    model = with_finite_registry(CompositeModel(Object(:leaf; scale=:Leaf, status=supplied);
+    model = PSE._with_object_id_domain(CompositeModel(Object(:leaf; scale=:Leaf, status=supplied);
         applications=(ModelSpec(Finisher(); name=:finish, on=Many(scale=:Leaf)),)))
     official = model_status(model, :leaf)
     seed_ref = PSE.refvalue(official, :seed)

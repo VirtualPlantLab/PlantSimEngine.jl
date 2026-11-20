@@ -22,12 +22,7 @@ function fixture(second_id=17; finite_ids=false)
         ObjectInstance(:a, template(0f0); root=first, objects=(a,)),
         ObjectInstance(:b, template(0.0); root=second, objects=(b,)))
     if finite_ids
-        previous = model.registry
-        objects = PSE._closed_object_family_store(previous.objects)
-        registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
-            previous.by_species, previous.ancestor_ids_by_object)
-        model = PSE.CompositeModel(registry,
-            (getfield(model, index) for index in 2:fieldcount(typeof(model)))...)
+        model = PSE._with_object_id_domain(model)
     end
     return (; model, first, second, a, b)
 end

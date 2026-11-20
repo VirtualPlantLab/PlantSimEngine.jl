@@ -101,21 +101,6 @@ end
 end
 
 # Close only the actual existing fixture families. No future family is invented.
-function _closed_selector_candidate_fixture(model)
-    previous = model.registry
-    registry = PlantSimEngine.ObjectRegistry(
-        PlantSimEngine._closed_object_family_store(previous.objects),
-        previous.by_scale, previous.by_kind, previous.by_species,
-        previous.ancestor_ids_by_object)
-    fields = map(fieldnames(typeof(model))) do name
-        name === :registry && return registry
-        name in (:scenario_plan_cache, :binding_cache, :environment_binding_cache) && return nothing
-        name in (:bindings_dirty, :environment_bindings_dirty) && return true
-        getfield(model, name)
-    end
-    return CompositeModel(fields...)
-end
-
 @testset "Typed selector buckets preserve numeric and mixed identities" begin
     for ids in ((10, 11, 12, 13), (0, :plant, "axis", 17)), closed in (false, true)
         scene_id, plant_id, axis_id, leaf_id = ids
@@ -126,7 +111,7 @@ end
                 Object(axis_id; scale=:Axis, parent=plant_id),
                 Object(leaf_id; scale=:Leaf, kind, species, parent=axis_id),
             )
-            closed && (model = _closed_selector_candidate_fixture(model))
+            closed && (model = PlantSimEngine._with_object_id_domain(model))
             @test model.registry.objects.catalog isa PlantSimEngine.ClosedObjectFamilyCatalog
             I = keytype(model.registry.objects)
             expected_id_type = closed ? Union{map(id -> typeof(ObjectId(id)), ids)...} : ObjectId

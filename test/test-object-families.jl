@@ -467,10 +467,8 @@ end
     admitted_watchers = snapshot_watchers()
     @test PSE._closed_object_family_store(store, I) === store
     @test snapshot_watchers() == admitted_watchers
-    registry = PSE.ObjectRegistry(store, model.registry.by_scale, model.registry.by_kind,
-        model.registry.by_species, model.registry.ancestor_ids_by_object)
-    closed = PSE.CompositeModel(registry,
-        (getfield(model, index) for index in 2:fieldcount(typeof(model)))...)
+    closed = PSE._model_with_object_store(model, store, model.source_adapter,
+        PSE._scenario_preparation(model))
     @test model_object(closed, :plant) === parent
     @test model_status(closed, :plant) === original
     @test PSE.refvalue(model_status(closed, :plant), :value) === reference

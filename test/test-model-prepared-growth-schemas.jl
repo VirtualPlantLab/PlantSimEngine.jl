@@ -98,17 +98,6 @@ function make_growth(; environment=nothing, fail_initializer=false)
     return (; model, birth_day, seed)
 end
 
-function with_finite_registry(model::PSE.CompositeModel)
-    previous = model.registry
-    objects = PSE._closed_object_family_store(previous.objects)
-    registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
-        previous.by_species, previous.ancestor_ids_by_object)
-    fields = map(fieldnames(typeof(model))) do name
-        name === :registry ? registry : getfield(model, name)
-    end
-    return PSE.CompositeModel(fields...)
-end
-
 function future_leaf_batch_type(simulation)
     compiled = simulation.compiled
     application = compiled.applications_by_id[:leaf]
@@ -144,7 +133,7 @@ end
 
 function prepare_schema_growth(; environment=nothing, fail_initializer=false)
     setup = make_growth(; environment, fail_initializer)
-    model = with_finite_registry(setup.model)
+    model = PSE._with_object_id_domain(setup.model)
     simulation = run!(model;steps=0,outputs=:none)
     controller = only(simulation.execution_plan.groups)
     controller_batch = only(controller.batches)

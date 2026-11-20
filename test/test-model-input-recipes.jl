@@ -229,24 +229,9 @@ function materialize_reader(model, compiled, application, recipe)
     return bindings
 end
 
-function closed_registry_model(model)
-    previous = model.registry
-    registry = PSE.ObjectRegistry(PSE._closed_object_family_store(previous.objects),
-        previous.by_scale, previous.by_kind, previous.by_species,
-        previous.ancestor_ids_by_object)
-    return PSE.CompositeModel(registry, model.applications, model.environment,
-        model.instances, model.source_adapter, model.status_conversion,
-        model.status_conversion_records, model.status_source_owners,
-        model.status_source_identities, model.scenario_plan_cache,
-        model.binding_cache, model.environment_binding_cache, model.bindings_dirty,
-        model.environment_bindings_dirty, model.lifecycle_delta,
-        model.input_default_status_variables, model.runtime_revision,
-        model.revision, model.environment_revision)
-end
-
 @testset "input refresh references use the closed mixed identity domain" begin
     organ = (:tree, :leaf, 1)
-    model = closed_registry_model(CompositeModel(
+    model = PSE._with_object_id_domain(CompositeModel(
         Object(:source; scale=:Leaf), Object(:reader; scale=:Reader),
         Object(organ; scale=:Reader);
         applications=(
@@ -289,6 +274,7 @@ end
 @testset "prepared routes retain fresh producer policies and closed identity types" begin
     policy = Ref{PSE.SchedulePolicy}(HoldLast())
     model = pair_model(; policy)
+    closed = PSE._with_object_id_domain(model)
     simulation = run!(model; outputs=:none)
     compiled = simulation.compiled
     application, recipe = reader_recipe(compiled)
@@ -301,7 +287,6 @@ end
     @test all(binding.policy isa HoldLast for binding in first)
     @test all(input_carrier(old) === input_carrier(new) for (old, new) in zip(first, next))
 
-    closed = closed_registry_model(model)
     bindings = materialize_reader(closed, compiled, application, recipe)
     @test all(binding.source_ids isa Vector{ObjectId{Int}} for binding in bindings)
     @test all(binding.consumer_id isa ObjectId{Int} for binding in bindings)

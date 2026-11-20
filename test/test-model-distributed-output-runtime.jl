@@ -1230,22 +1230,6 @@ end
 
 # Same closure mechanism used by the maintained finite-registry fixtures. Every
 # status family here is an actual fully initialized object in this small scene.
-function _distributed_runtime_closed_destination_registry(model::CompositeModel)
-    PSE = PlantSimEngine
-    previous = model.registry
-    registry = PSE.ObjectRegistry(PSE._closed_object_family_store(previous.objects),
-        previous.by_scale, previous.by_kind, previous.by_species,
-        previous.ancestor_ids_by_object)
-    return PSE.CompositeModel(registry, model.applications, model.environment,
-        model.instances, model.source_adapter, model.status_conversion,
-        model.status_conversion_records, model.status_source_owners,
-        model.status_source_identities, model.scenario_plan_cache,
-        model.binding_cache, model.environment_binding_cache, model.bindings_dirty,
-        model.environment_bindings_dirty, model.lifecycle_delta,
-        model.input_default_status_variables, model.runtime_revision,
-        model.revision, model.environment_revision)
-end
-
 @testset "Closed distributed memberships retain the registry ID domain and live carriers" begin
     PSE = PlantSimEngine
     for (scene, leaves, added) in ((10, (20,), 30),
@@ -1257,7 +1241,7 @@ end
                 name=:closed_destination_writer, on=One(id=scene),
                 outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope()); vars=(:incident_par,)),)),),
             environment=(duration=Hour(1),))
-        model = _distributed_runtime_closed_destination_registry(model)
+        model = PSE._with_object_id_domain(model)
         simulation = run!(model; steps=0, outputs=:all, performance=true)
         I = keytype(model.registry.objects)
         binding = only(simulation.compiled.distributed_outputs.bindings)
@@ -1307,7 +1291,7 @@ end
             applications=(ModelSpec(DistributedRuntimeStatefulWriterModel();
                 name=:closed_context_writer, on=One(id=scene),
                 outputs_to=(OutputTo(selector; vars=(:incident_par,)),)),))
-        model = _distributed_runtime_closed_destination_registry(model)
+        model = PSE._with_object_id_domain(model)
         simulation = run!(model; steps=0, outputs=:all)
         binding = only(simulation.compiled.distributed_outputs.bindings)
         I = keytype(model.registry.objects)
@@ -1331,7 +1315,7 @@ end
         applications=(ModelSpec(DistributedRuntimeStatefulWriterModel();
             name=:closed_empty_writer, on=One(id=1),
             outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope()); vars=(:incident_par,)),)),))
-    empty_model = _distributed_runtime_closed_destination_registry(empty_model)
+    empty_model = PSE._with_object_id_domain(empty_model)
     simulation = run!(empty_model; steps=0, outputs=:all)
     binding = only(simulation.compiled.distributed_outputs.bindings)
     @test isempty(binding.destination_ids)
@@ -1354,7 +1338,7 @@ end
         applications=(ModelSpec(DistributedRuntimeStatefulWriterModel();
             name=:closed_merged_writer, on=Many(scale=:Plant),
             outputs_to=(OutputTo(Many(scale=:Leaf, within=Subtree()); vars=(:incident_par,)),)),))
-    merged_model = _distributed_runtime_closed_destination_registry(merged_model)
+    merged_model = PSE._with_object_id_domain(merged_model)
     simulation = run!(merged_model; steps=0, outputs=:all)
     bindings = simulation.compiled.distributed_outputs.bindings
     combined = simulation.compiled.distributed_outputs.destination_ids_by_application_variable[

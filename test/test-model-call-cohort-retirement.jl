@@ -165,16 +165,6 @@ end
 
 # Freeze only the real identity domain. The canonical Status schema is already
 # prepared at CompositeModel construction, even when no Leaf remains active.
-function with_finite_registry(model)
-    previous = model.registry
-    objects = PSE._closed_object_family_store(previous.objects)
-    registry = PSE.ObjectRegistry(objects, previous.by_scale, previous.by_kind,
-        previous.by_species, previous.ancestor_ids_by_object)
-    fields = map(fieldnames(typeof(model))) do name
-        name === :registry ? registry : getfield(model, name)
-    end
-    return PSE.CompositeModel(fields...)
-end
 current_target(simulation) = only(only(only(simulation.execution_plan.groups).batches).targets)
 view_ids(values) = [target.object_id for target in values]
 
@@ -227,7 +217,7 @@ end
 end
 
 @testset "closed memberships use the global future identity schema" begin
-    data = fixture(; transform=with_finite_registry)
+    data = fixture(; transform=PSE._with_object_id_domain)
     I = Union{ObjectId{Symbol},ObjectId{Int}}
     @test keytype(data.model.registry.objects) === I
     applications = data.simulation.compiled.applications_by_id
@@ -261,8 +251,8 @@ end
 end
 
 @testset "ordinary and prepared public calls retain state histories and membership through birth and removal" begin
-    ordinary = fixture(; transform=with_finite_registry, outputs=:all)
-    prepared = prepared_tree(fixture(; transform=with_finite_registry, outputs=:all))
+    ordinary = fixture(; transform=PSE._with_object_id_domain, outputs=:all)
+    prepared = prepared_tree(fixture(; transform=PSE._with_object_id_domain, outputs=:all))
     fixtures = (ordinary, prepared)
     references = [PSE.refvalue(model_status(data.model, 2), :leaf_visits) for data in fixtures]
     held = [data.left for data in fixtures]
@@ -314,7 +304,7 @@ end
 
 @testset "an initially empty Many retains its prepared Status and real Symbol identity family" begin
     function empty_closed(model)
-        closed = with_finite_registry(model)
+        closed = PSE._with_object_id_domain(model)
         remove_object!(closed, 1)
         remove_object!(closed, 2)
         return closed

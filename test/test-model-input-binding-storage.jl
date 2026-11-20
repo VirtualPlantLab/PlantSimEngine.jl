@@ -461,19 +461,8 @@ end
     expected_index = baseline.compiled.observed_manual_call_binding_indices_by_callee_target
 
     data = fixture(; called=true)
-    prepare(data.model) # Close only the actual complete statuses on these objects.
-    previous = data.model.registry
-    registry = PSE.ObjectRegistry(PSE._closed_object_family_store(previous.objects),
-        previous.by_scale, previous.by_kind, previous.by_species,
-        previous.ancestor_ids_by_object)
     original = data.model
-    model = PSE.CompositeModel(registry, original.applications, original.environment,
-        original.instances, original.source_adapter, original.status_conversion,
-        original.status_conversion_records, original.status_source_owners,
-        original.status_source_identities, nothing, nothing, nothing, true,
-        true, original.lifecycle_delta,
-        original.input_default_status_variables, original.runtime_revision,
-        original.revision, original.environment_revision)
+    model = PSE._with_object_id_domain(original)
     @test all(model_object(model, id) === model_object(original, id)
         for id in (:scene, :anchor, :a, :b))
     closed = merge(data, (; model))
