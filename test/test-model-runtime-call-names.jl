@@ -223,7 +223,18 @@ end
         path = joinpath(directory, "RuntimeNamedInitializers.jl")
         write(path, source)
         generated_module = Module(gensym(:RuntimeNamedInitializers))
-        Base.include(generated_module, path)
+        # Load the generated file as a consumer whose only dependency is PSE.
+        write(joinpath(directory, "Project.toml"),
+            "[deps]\nPlantSimEngine = \"$(Base.PkgId(PSE).uuid)\"\n")
+        saved_load_path = copy(LOAD_PATH)
+        try
+            empty!(LOAD_PATH)
+            append!(LOAD_PATH, (directory, "@stdlib"))
+            Base.include(generated_module, path)
+        finally
+            empty!(LOAD_PATH)
+            append!(LOAD_PATH, saved_load_path)
+        end
         generated_run = Base.invokelatest(getfield, generated_module, :runtime_named_initializers!)
         generated = Base.invokelatest(generated_run, fixture.model; steps=1, outputs=:all)
         @test model_status(runtime_model(generated), :born_a).value === 2f0

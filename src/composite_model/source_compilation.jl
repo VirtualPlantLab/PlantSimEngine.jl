@@ -619,7 +619,7 @@ function _compiled_source_concrete_type_name(model)
 end
 
 function _compiled_source_imports(kernels)
-    imports = String["import PlantSimEngine\n", "import PlantMeteo\n"]
+    imports = String["import PlantSimEngine\n", "import PlantSimEngine: PlantMeteo\n"]
     roots = Set{Module}()
     for kernel in kernels
         root = _compiled_source_root_module(kernel.source_module)
