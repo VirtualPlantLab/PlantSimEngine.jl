@@ -665,8 +665,10 @@ function _validate_model_environment_inputs!(bindings, applications_by_id,
         end
     end
     isempty(missing_details) && return nothing
-    details = join(missing_details, "; ")
-    error("Composite model environment is missing required source inputs: ", details)
+    io = IOBuffer()
+    print(io, "Composite model environment is missing required source inputs: ")
+    join(io, missing_details, "; ")
+    error(String(take!(io)))
 end
 
 struct PreparedGlobalEnvironmentRows{R}

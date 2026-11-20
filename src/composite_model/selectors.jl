@@ -1301,7 +1301,7 @@ function _selector_resolution_error(
     ancestors = Any[]
     print(io, "Expected ", expected, " object for selector `")
     _print_selector_diagnostic(io, selector, ancestors)
-    print(io, "`, got ", length(matched_ids), ". context=")
+    print(io, "`, got ", string(length(matched_ids)), ". context=")
     _print_selector_diagnostic(io, context_id, ancestors)
     print(io, ", matched_ids=")
     _print_selector_diagnostic(io, matched_ids, ancestors)

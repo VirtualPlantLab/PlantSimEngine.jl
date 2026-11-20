@@ -7767,7 +7767,7 @@ function _incremental_output_request_object_ids(delta)
 end
 
 function _continue_scene!(simulation::Simulation, steps::Integer)
-    steps >= 0 || throw(ArgumentError("`steps` must be non-negative, got $(steps)."))
+    steps >= 0 || throw(ArgumentError("`steps` must be non-negative, got $(string(steps))."))
     if iszero(steps)
         _refresh_timeline!(simulation, simulation.execution_plan.topology)
         return simulation

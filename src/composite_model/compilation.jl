@@ -8005,8 +8005,8 @@ function _temporal_source_application(
         return last(sort!(matches; by=application_id -> application_positions[application_id]))
     end
     io = IOBuffer()
-    print(io, "Temporal model input `", binding.input, "` from `",
-        _object_id_text(source_id), '.', binding.source_var,
+    print(io, "Temporal model input `", String(binding.input), "` from `",
+        _object_id_text(source_id), ".", String(binding.source_var),
         "` has ambiguous source applications `")
     _print_selector_diagnostic(io, matches, Any[])
     print(io, "`. Add `application=...` to the `inputs=...` selector.")
