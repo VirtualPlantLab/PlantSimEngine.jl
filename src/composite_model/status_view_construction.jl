@@ -265,7 +265,7 @@ function _assemble_model_status_view(canonical_status, model, application, objec
     parts = (; canonical_status, temporal, private_names, private_values, hot_names,
         many_names, many_ids, execution_stamp)
     view = _construct_model_status_view(status_view_schema, application.id, parts)
-    return _admit_model_status_view!(status_view_schema, application.id, view)
+    return Base.@inline _admit_model_status_view!(status_view_schema, application.id, view)
 end
 
 # A homogeneous initial snapshot has the same exact schema as before. Matching

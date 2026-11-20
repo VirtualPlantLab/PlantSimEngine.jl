@@ -8595,10 +8595,8 @@ function _model_request_matches_distributed_output(application, request, request
     concrete_match = any(id -> id in requested_ids, destination_ids)
     isempty(requested_ids) || return concrete_match
     isnothing(plans_by_application) && return false
-    return any(
-        plan -> request.var in plan.variable_names &&
-                _selector_labels_may_overlap(request.selector, plan.selector),
-        _application_plans(plans_by_application, application.id),
+    return Base.@inline _with_metadata_entry(
+        _any_matching_output_destination, plans_by_application, application.id, request.var, request.selector,
     )
 end
 

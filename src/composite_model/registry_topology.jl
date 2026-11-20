@@ -1663,7 +1663,7 @@ function add_organ!(
         )
         registered = register_object!(model, object)
         adapter.max_node_id[] = max(adapter.max_node_id[], node_id)
-        return registered.status
+        return registered.status::Status
     catch
         _unregister_mtg_object_identity!(adapter, node)
         MultiScaleTreeGraph.delete_node!(node)

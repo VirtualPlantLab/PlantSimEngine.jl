@@ -835,12 +835,18 @@ function _registry_selector_candidates(index, requested)
         bucket = get(index, requested, ())
         return (ids=bucket, estimate=length(bucket))
     end
-    requested_values = requested
     # Unlabelled objects have no index bucket. Another criterion may still
     # provide a complete candidate source; otherwise scan the registry.
-    any(isnothing, requested_values) && return nothing
-    buckets = map(value -> get(index, value, ()), requested_values)
-    return (ids=Iterators.flatten(buckets), estimate=sum(length, buckets; init=0))
+    buckets = valtype(typeof(index))[]
+    estimate = 0
+    for value in requested
+        isnothing(value) && return nothing
+        bucket = get(index, value, nothing)
+        isnothing(bucket) && continue
+        push!(buckets, bucket)
+        estimate += length(bucket)
+    end
+    return (ids=Iterators.flatten(buckets), estimate=estimate)
 end
 
 function _smallest_indexed_candidates(model::CompositeModel; scale=nothing, kind=nothing, species=nothing, id=nothing)

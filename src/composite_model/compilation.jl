@@ -2465,11 +2465,12 @@ function _extend_observed_manual_call_binding_callee_target_index!(
         (previous_object_count + 1):length(binding.callee_object_ids)
     for object_position in new_object_positions
         callee_object_id = binding.callee_object_ids[object_position]
-        for application in get(
+        for entry in get(
             applications_by_object,
             callee_object_id,
             (),
         )
+            application = entry::CompiledModelApplication
             callee_application_id = application.id
             callee_application_id in binding.callee_application_ids ||
                 continue
@@ -2687,10 +2688,12 @@ function _compile_scene(
 )
     timeline = scenario_plan.timeline
     applications_by_id = _applications_by_id(applications)
+    applications_by_object = _applications_by_object(applications, model.registry.objects)
     started_at = _runtime_performance_start(performance)
     call_bindings = _compile_model_call_bindings(
         model,
         applications;
+        by_object=applications_by_object,
         applications_by_id=applications_by_id,
         plans_by_application=scenario_plan.call_plans_by_application,
     )
@@ -2714,6 +2717,8 @@ function _compile_scene(
         scenario_plan.input_recipes_by_application,
         distributed_outputs;
         input_binding_storage,
+        by_object=applications_by_object,
+        by_id=applications_by_id,
     )
     many_input_binding_cache =
         _share_many_input_bindings!(model, input_bindings)
@@ -2762,7 +2767,7 @@ function _compile_scene(
         applications,
         applications_by_id,
         ordered_applications,
-        _applications_by_object(applications, model.registry.objects),
+        applications_by_object,
         input_bindings,
         call_bindings,
         input_bindings_by_target,
@@ -4028,7 +4033,7 @@ function _refresh_model_status_view_for_target!(application, object_id, state)
         applications_by_id,
         positions,
         distributed_outputs,
-        _status_view_execution_stamp(model, key, previous_view, compiled.status_view_schema),
+        Base.@inline(_status_view_execution_stamp(model, key, previous_view, compiled.status_view_schema)),
         compiled.status_view_schema,
         compiled.input_bindings,
     )
@@ -4088,7 +4093,7 @@ function _extend_model_status_views!(
                 key = (application.id, object_id)
                 previous_view = get(views, key, nothing)
                 isnothing(previous_view) && return nothing
-                current = _status_view_key_epoch_is_current(compiled.status_view_schema,
+                current = Base.@inline _status_view_key_epoch_is_current(compiled.status_view_schema,
                     application.id, previous_view, model, key::Key)
                 current || push!(affected_keys, key)
                 return nothing
@@ -4132,7 +4137,8 @@ function _append_added_many_call_targets!(
     previous_object_count = length(binding.callee_object_ids)
     previous_application_count = length(binding.callee_application_ids)
     default_scope = _default_dependency_scope(model, binding.consumer_id)
-    new_target_ids = ObjectId[
+    I = eltype(binding.callee_object_ids)
+    new_target_ids = I[
         object_id for object_id in added_ids
         if _selector_matches_object_id(
             model,
@@ -4525,7 +4531,6 @@ function _refresh_scene_call_bindings!(
                         _compile_model_call_bindings(
         model,
         added_applications,
-        applications,
         ;
         by_object=applications_by_object,
         applications_by_id=applications_by_id,
@@ -4563,8 +4568,7 @@ function _refresh_scene_call_bindings!(
                                 similar(compiled.call_bindings, 0) :
         _compile_model_call_bindings(
             model,
-            affected_call_applications,
-            applications;
+            affected_call_applications;
             by_object=applications_by_object,
             applications_by_id=applications_by_id,
             plans_by_application=compiled.scenario_plan.call_plans_by_application,
@@ -4581,7 +4585,15 @@ function _refresh_scene_call_bindings!(
             "Incremental hard-call refresh changed the number of declared calls ",
             "for application `$(first(key))` on object `$(_object_id_text(last(key)))`.",
         )
-        for binding in existing
+        # Both tuples were indexed against the same ordered declarations by
+        # _index_model_call_bindings_for_application!. Reuse that position.
+        for slot in eachindex(existing)
+            binding = existing[slot]::CompiledModelCallBinding
+            replacement = replacements[slot]::CompiledModelCallBinding
+            getfield(binding, :plan) === getfield(replacement, :plan) || error(
+                "Incremental hard-call refresh changed the declaration at position ",
+                slot, " for application `$(first(key))` on object `$(_object_id_text(last(key)))`.",
+            )
             binding_index = findfirst(
                 candidate -> candidate === binding,
                 call_bindings,
@@ -4590,31 +4602,13 @@ function _refresh_scene_call_bindings!(
                 "Incremental hard-call refresh lost the existing compiled binding ",
                 "for application `$(first(key))` on object `$(_object_id_text(last(key)))`.",
             )
-            replacement_index = findfirst(
-                candidate ->
-                    _compiled_call_name(candidate) ===
-                    _compiled_call_name(binding),
-                replacements,
-            )
-            isnothing(replacement_index) && error(
-                "Incremental hard-call refresh lost declared call ",
-                "`$(_compiled_call_name(binding))` for application ",
-                "`$(first(key))` on object `$(_object_id_text(last(key)))`.",
-            )
-            replacement = replacements[replacement_index]
-            if binding.callee_object_ids != replacement.callee_object_ids ||
-               binding.callee_application_ids !=
-               replacement.callee_application_ids
-                empty!(binding.callee_object_ids)
-                append!(
-                    binding.callee_object_ids,
-                    replacement.callee_object_ids,
-                )
-                empty!(binding.callee_application_ids)
-                append!(
-                    binding.callee_application_ids,
-                    replacement.callee_application_ids,
-                )
+            object_ids = getfield(binding, :callee_object_ids)::Vector{I}
+            updated_ids = getfield(replacement, :callee_object_ids)::Vector{I}
+            application_ids = getfield(binding, :callee_application_ids)
+            updated_applications = getfield(replacement, :callee_application_ids)
+            if object_ids != updated_ids || application_ids != updated_applications
+                append!(empty!(object_ids), updated_ids)
+                append!(empty!(application_ids), updated_applications)
                 _mark_compiled_call_membership_changed!(
                     binding,
                     model.revision,
@@ -8367,11 +8361,7 @@ function _application_may_output_variable(
             source_selector,
             applies_to(application.spec),
         ) && return true
-    return any(
-        plan -> variable in plan.variable_names &&
-                _selector_labels_may_overlap(source_selector, plan.selector),
-        _application_plans(plans.by_application, application.id),
-    )
+    return _application_declares_distributed_output(application, variable, source_selector, plans)
 end
 
 _application_declares_distributed_output(
@@ -8387,11 +8377,15 @@ function _application_declares_distributed_output(
     source_selector,
     plans::CompiledDistributedOutputPlans,
 )
-    return any(
-        plan -> variable in plan.variable_names &&
-                _selector_labels_may_overlap(source_selector, plan.selector),
-        _application_plans(plans.by_application, application.id),
+    return Base.@inline _with_metadata_entry(
+        _any_matching_output_destination, plans.by_application, application.id, variable, source_selector,
     )
+end
+
+function _any_matching_output_destination(plans, variable, selector)
+    return any(plans) do plan
+        variable in plan.variable_names && _selector_labels_may_overlap(selector, plan.selector)
+    end
 end
 
 Base.@nospecializeinfer function _potential_call_application_ids(
@@ -9009,10 +9003,10 @@ function _compile_model_input_bindings(
     input_recipes_by_application,
     distributed_outputs=NoCompiledDistributedOutputs();
     input_binding_storage=nothing,
+    by_object=_applications_by_object(applications, model.registry.objects),
+    by_id=_applications_by_id(applications),
 )
     bindings = _model_input_binding_storage(input_binding_storage)
-    by_object = _applications_by_object(applications, model.registry.objects)
-    by_id = _applications_by_id(applications)
     for application in applications
         isempty(application.target_ids) && continue
         recipe = _application_plans(input_recipes_by_application, application.id)
@@ -9687,7 +9681,7 @@ function _observe_compiled_call_membership!(
 end
 
 function _compile_call_plan_binding!(
-    plan, bindings, model, application_id, consumer_id, application_objects, lookup_applications,
+    plan, bindings, model, application_id, consumer_id, application_objects,
 )
     call_sym = plan.call
     selector = plan.selector
@@ -9703,8 +9697,6 @@ function _compile_call_plan_binding!(
             Symbol[plan.potential_callee_application_ids...],
         )
     else
-        isnothing(application_objects) &&
-            (application_objects = _applications_by_object(lookup_applications, model.registry.objects))
         object_ids = _dependency_object_ids(
             model,
             selector,
@@ -9728,7 +9720,7 @@ function _compile_call_plan_binding!(
     end
     if mode === :manual &&
        isempty(callee_application_ids) && selector isa One
-        matched_objects = join([_object_id_text(id) for id in callee_object_ids], ", ")
+        matched_objects = join(String[_object_id_text(id) for id in callee_object_ids], ", ")
         error(
             "Call `$(call_sym)` on application `$(application_id)` matched objects ",
             "[$(matched_objects)] but no model application",
@@ -9758,47 +9750,39 @@ function _compile_call_plan_binding!(
             callee_application_ids,
         ),
     )
-    return application_objects
+    return nothing
 end
 
 function _compile_application_call_bindings!(
-    plans, bindings, model, application_id, targets, application_objects, lookup_applications,
+    plans, bindings, model, application_id, targets, application_objects,
 )
     for consumer_id in targets, slot in eachindex(plans)
-        application_objects = Base.@inline _with_metadata_entry(
+        Base.@inline _with_metadata_entry(
             _compile_call_plan_binding!, plans, slot, bindings, model, application_id,
-            consumer_id, application_objects, lookup_applications,
+            consumer_id, application_objects,
         )
     end
-    return application_objects
+    return nothing
 end
 
 function _compile_model_call_bindings(
     model::CompositeModel,
-    applications,
-    lookup_applications=applications,
-    ;
-    by_object=nothing,
+    applications;
+    by_object=_applications_by_object(applications, model.registry.objects),
     applications_by_id,
-    plans_by_application=nothing,
+    plans_by_application,
 )
-    if isnothing(plans_by_application)
-        plans_by_application = _plans_by_application(
-            applications,
-            _compile_model_call_plans(model, applications),
-        )
-    end
     bindings = _model_call_binding_storage(
         plans_by_application, keytype(model.registry.objects),
     )
     for partial_application in applications
-        by_object = Base.@inline _with_model_application(
+        Base.@inline _with_model_application(
             applications_by_id, partial_application, by_object, plans_by_application,
         ) do application, application_objects, application_plans
             id = application.id
             return Base.@inline _with_metadata_entry(
                 _compile_application_call_bindings!, application_plans, id,
-                bindings, model, id, application.target_ids, application_objects, lookup_applications,
+                bindings, model, id, application.target_ids, application_objects,
             )
         end
     end
