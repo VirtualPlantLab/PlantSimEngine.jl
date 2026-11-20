@@ -505,4 +505,33 @@ end
     @test rng_probe(current) == before_rng
 end
 
+@testset "initializers sample retained and bounded histories in their prepared type family" begin
+    id = ObjectId(1)
+    H = Union{Vector{Tuple{Float64,Int}},Vector{Tuple{Float64,Float64}},PSE.TemporalDependencyBuffer{Float64}}
+    storage = PSE.RuntimeStorage(Dict{Tuple{Symbol,typeof(id),Symbol},H}())
+    ring = PSE.TemporalDependencyBuffer{Float64}(2)
+    for (t,x) in ((1.0,0.25), (2.0,0.5), (3.0,1.5))
+        push!(ring, (t,x))
+    end
+    storage[(:source,id,:ratio)] = ring
+    storage[(:source,id,:count)] = [(1.0,1), (2.0,2), (3.0,3)]
+    storage[(:source,id,:area)] = [(1.0,0.25), (2.0,0.5), (3.0,1.5)]
+    timeline = (; base_step_seconds=1.0)
+    previous(x,t) = PSE._model_temporal_source_value(storage,:source,id,x,t,PreviousTimeStep(:value),1.0,timeline)
+    @test previous(:ratio,2.0) === nothing
+    @test previous(:missing,4.0) === nothing
+    @test previous(:ratio,3.0) === 0.5
+    @test previous(:count,3.0) === 2
+    @test previous(:area,3.0) === 0.5
+    @test PSE._model_temporal_source_value(storage,:source,id,:missing,3.0,Aggregate(),1.0,timeline) === 0.0
+    @test PSE._model_temporal_source_value(storage,nothing,id,:ratio,3.0,PreviousTimeStep(:value),1.0,timeline) === nothing
+    @test_throws ErrorException PSE._model_temporal_source_value(storage,nothing,id,:ratio,3.0,HoldLast(),1.0,timeline)
+    for (name, history) in ((:ratio,ring), (:count,storage[(:source,id,:count)]), (:area,storage[(:source,id,:area)]))
+        for policy in (PreviousTimeStep(:value),HoldLast(),Interpolate(),Aggregate())
+            @test PSE._model_temporal_source_value(storage,:source,id,name,2.5,policy,2.0,timeline) ===
+                PSE._model_temporal_sample_value(history,2.5,policy,2.0,timeline)
+        end
+    end
+end
+
 end

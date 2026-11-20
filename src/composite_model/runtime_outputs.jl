@@ -2461,13 +2461,33 @@ function _model_temporal_source_value(
     timeline,
 )
     samples = get(streams, _model_stream_key(application_id, source_id, source_var), nothing)
-    return _model_temporal_sample_value(
-        samples,
+    return _sample_model_history(
+        streams, samples,
         time,
         policy,
         t_start,
         timeline,
     )
+end
+
+# An initializer reads its input directly from the simulation history directory.
+# Keep the concrete stream type through sampling, as for a cached runtime input.
+@inline _sample_model_history(streams, samples, time, policy, t_start, timeline) =
+    _model_temporal_sample_value(samples, time, policy, t_start, timeline)
+
+@generated function _sample_model_history(::RuntimeStorage{K,H}, samples, time, policy,
+    t_start, timeline,
+) where {K,H}
+    histories = Base.uniontypes(H)
+    all(isconcretetype, histories) || return :(_model_temporal_sample_value(samples,
+        time, policy, t_start, timeline))
+    branches = [:(samples isa $S && return _model_temporal_sample_value(samples::$S,
+        time, policy, t_start, timeline)) for S in histories]
+    return quote
+        isnothing(samples) && return _model_temporal_sample_value(nothing, time, policy, t_start, timeline)
+        $(branches...)
+        throw(ArgumentError("The sampled history is outside the prepared history family."))
+    end
 end
 
 function _model_temporal_sample_value(
