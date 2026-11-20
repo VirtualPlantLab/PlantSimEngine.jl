@@ -258,6 +258,20 @@ call_key(target) = (target.application.id, target.object_id.value)
                 target.object_id, target.model,
                 PSE._runtime_model_output_groups(target.compiled, target.application, target.object_id),
                 target.execution_target.call_bindings, target.environment_binding, owners)
+
+            # A controller's retained context cannot initialize the new leaf.
+            caches = PSE.lifecycle_delta(simulation.model).targeted_topology_runtime.call_context_caches
+            key = (target.application.id, target.object_id)
+            leaf_cache = caches[key]
+            controller_cache = only(only(controller.batches).targets).call_context_cache
+            caches[key] = controller_cache
+            try
+                @test_throws "A retained newborn context is outside its prepared schema" PSE._targeted_new_object_call_targets(
+                    context, :initialize, [target.object_id], cached; initializer=true)
+                @test caches[key] === controller_cache
+            finally
+                caches[key] = leaf_cache
+            end
             @test canonical.visits == 0 && canonical.value == 0.0
             @test isempty(PSE.lifecycle_delta(simulation.model).initialized_targets)
         end

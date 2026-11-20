@@ -180,21 +180,25 @@ end
 # the same existing finite target schema before assembling the same fields.
 @inline function _with_execution_target_type(f::F, ::OpenExecutionCohortSchema,
     application, status_view::V, object_id, model, output_groups, call_bindings,
-    environment_binding, owners,
+    environment_binding, owners, args...,
 ) where {F,V<:CompiledModelStatusView}
     actual_fields = (object_id=object_id, model=model,
         status_view=status_view, bound_inputs=status_view.bound_inputs,
         output_targets=_runtime_model_output_targets(output_groups), call_bindings=call_bindings,
         environment_binding=environment_binding)
-    return f(Val{nothing}(), application, actual_fields, owners, OpenContextCallSchema())
+    if isempty(args)
+        return f(Val{nothing}(), application, actual_fields, owners, OpenContextCallSchema())
+    end
+    return f(Val{nothing}(), application, actual_fields, owners, OpenContextCallSchema(),
+        args[1], args[2], args[3], args[4], args[5], args[6])
 end
 
 # Incoming metadata can be abstract: callers inline these finite checks before
 # dispatching the typed factory, without a runtime generated-method fallback.
 @generated function _with_execution_target_type(f, ::ClosedExecutionCohortSchema{T},
     application, status_view::CompiledModelStatusView, object_id, model, output_groups,
-    call_bindings, environment_binding, owners,
-) where {T}
+    call_bindings, environment_binding, owners, args::Vararg{Any,N},
+) where {T,N}
     branches = Expr[]
     names = (:object_id, :model, :status_view, :bound_inputs,
         :output_targets, :call_bindings, :environment_binding)
@@ -234,12 +238,19 @@ end
         owner_names = (:compiled, :environment_bindings, :temporal_streams, :output_retention, :constants, :environment)
         owner_values = Expr(:tuple, [:(getproperty(owners, $(QuoteNode(name)))::$(fieldtype(Context,name))) for name in owner_names]...)
         A = fieldtype(Context, :application)
+        # Only newborn targets carry a retained context cache. Check its concrete
+        # type here and emit a direct call with each of the six existing operands.
+        arguments = [:(args[$i]) for i in 1:N]
+        if !isempty(arguments)
+            length(arguments) == 6 || error("Unexpected newborn target factory arguments.")
+            arguments[1] = :(_admit_newborn_context_cache($Target, args[1]))
+        end
         push!(branches, quote
             if $condition
                 actual_fields = NamedTuple{$(QuoteNode(names))}($(Expr(:tuple,values...)))
                 actual_owners = NamedTuple{$(QuoteNode(owner_names))}($owner_values)
                 return f(Val{$Target}(), application::$A, actual_fields, actual_owners,
-                    $CallSchema())
+                    $CallSchema(), $(arguments...))
             end
         end)
     end
@@ -732,7 +743,6 @@ end
     end
 end
 
-@inline _admit_newborn_context_cache(::Nothing,cache) = cache
 @inline function _admit_newborn_context_cache(::Type{T},cache) where {T<:CompiledExecutionTarget}
     isnothing(cache) && return nothing
     Cache = CallContextCache{fieldtype(T,:context)}

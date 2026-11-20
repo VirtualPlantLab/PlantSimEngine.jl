@@ -6297,17 +6297,15 @@ function _append_targeted_newborn_targets!(
             temporal_streams=context.temporal_streams,
             output_retention=context.output_retention,constants=context.constants,
             environment=context.environment)
-        Base.@inline _with_execution_target_type(admission,application,status_view,object_id,model,
-            output_groups,call_bindings,environment_binding,owners) do target_type,actual_application,actual,owner,call_schema
-            _append_targeted_newborn_target!(target_type,actual_application,actual,owner,
-                call_schema,targets,context,cache,stamp,targeted_runtime,key)
-        end
+        Base.@inline _with_execution_target_type(_append_targeted_newborn_target!, admission,
+            application, status_view, object_id, model, output_groups, call_bindings,
+            environment_binding, owners, cache, targets, context, stamp, targeted_runtime, key)
     end
     return targets
 end
 
 function _append_targeted_newborn_target!(::Val{Target}, actual_application, actual, owner,
-    call_schema, targets, context, cache, stamp, targeted_runtime, key,
+    call_schema, prepared_cache, targets, context, stamp, targeted_runtime, key,
 ) where {Target}
     outputs = isnothing(Target) ?
         _runtime_model_output_streams(actual.status_view.status,actual_application,
@@ -6316,9 +6314,6 @@ function _append_targeted_newborn_target!(::Val{Target}, actual_application, act
             actual.status_view,actual.output_targets,actual_application,
             actual.object_id,owner.temporal_streams,
             owner.output_retention,true)
-    # Narrow a retained cache before use; no new owner is published
-    # until all real fields have passed the same target admission.
-    prepared_cache = _admit_newborn_context_cache(Target,cache)
     if isnothing(prepared_cache)
         prepared_cache = _newborn_call_context_cache(context,actual_application,
             actual.object_id,actual.bound_inputs,actual.output_targets,
