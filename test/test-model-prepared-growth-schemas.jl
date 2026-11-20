@@ -240,7 +240,10 @@ call_key(target) = (target.application.id, target.object_id.value)
         @test fieldtype(typeof(context), :environment_bindings) === typeof(current_owner)
         @test fieldtype(typeof(target.context_cache.default), :environment_bindings) ===
             typeof(partial_owner)
-        TrialContext = PSE._call_context_type(target.context_cache.default, (T=9f0,))
+        TrialContext = PSE._cached_call_context_type(target.compiled, partial_owner,
+            target.application, target.object_id, target.bound_inputs, target.output_targets,
+            target.execution_target.call_bindings, target.temporal_streams, target.output_retention,
+            target.constants, (T=9f0,))
         @test fieldtype(TrialContext, :environment_bindings) === typeof(partial_owner)
         @test context.environment_bindings === current_owner
         @test only(partial_owner.bindings).object_id == ObjectId(:leaf)

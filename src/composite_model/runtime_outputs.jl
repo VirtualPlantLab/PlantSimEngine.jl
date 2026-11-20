@@ -6599,14 +6599,6 @@ function commit_environment!(context, state)
     )
 end
 
-# CallTargets store override metadata behind Any; changing the override does
-# not change the concrete child-call tuple. Recover the context type without
-# erasing the normal no-override execution path.
-@inline _call_context_type(
-    ::RunContext{CS,A,CT,BI,OT,TS,OR,C,OldE,I,EB}, ::E,
-) where {CS,A,CT,BI,OT,TS,OR,C,OldE,I,EB,E} = RunContext{CS,A,CT,BI,OT,TS,OR,C,E,I,EB}
-@inline _call_context_type(::Nothing, environment) = RunContext
-
 # Metadata already proved current needs only invocation values synchronized.
 # Keep this small boundary usable when a stale owner's new descendant tuple
 # differs from its original default type, without reboxing all owner metadata.
@@ -6626,7 +6618,7 @@ end
     return _call_context_bindings_match(Base.tail(calls), Base.tail(bindings))
 end
 
-@inline function _call_context_matches(
+@inline function _call_context_is_current(
     context::RunContext, compiled, environment_bindings, application, object_id,
     bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
     environment,
@@ -6638,24 +6630,27 @@ end
            context.temporal_streams === temporal_streams &&
            context.output_retention === output_retention && context.constants === constants &&
            _call_context_bindings_match(context.calls, call_bindings) &&
-           typeof(context.environment) === typeof(environment)
+           typeof(context.environment) === typeof(environment) &&
+           _call_context_preparation_is_current(context.calls, compiled, environment_bindings,
+               temporal_streams, output_retention, constants)
 end
-@inline _call_context_matches(::Nothing, args...) = false
 
-@inline function _call_context_clone_is_current(
-    context::RunContext, compiled, environment_bindings, application, object_id,
-    bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
+@inline function _call_context_clone_is_current(context::RunContext, compiled, environment_bindings,
+    application, object_id, bound_inputs, output_targets, call_bindings, temporal_streams,
+    output_retention, constants,
 )
-    # The context identity guard also protects an empty descendant template:
-    # no per-child stamp exists to prove it still describes another generation.
-    return _call_context_matches(
-        context, compiled, environment_bindings, application, object_id,
+    return _call_context_is_current(context, compiled, environment_bindings, application, object_id,
         bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
-        context.environment,
-    ) && _call_context_preparation_is_current(
-        context.calls, compiled, environment_bindings, temporal_streams,
-        output_retention, constants,
-    )
+        context.environment)
+end
+
+# A cached trial may have a different descendant tuple after growth. Its
+# owners, override and empty-call case are all fixed by the current invocation.
+@inline function _cached_call_context_type(compiled::CS, bindings::EB, application::A, id::I,
+    inputs::BI, targets::OT, calls::Tuple, streams::TS, retention::OR, constants::C, environment::E,
+) where {CS,EB,A,I,BI,OT,TS,OR,C,E}
+    isempty(calls) && return RunContext{CS,A,Tuple{},BI,OT,TS,OR,C,E,I,EB}
+    return RunContext{CS,A,CT,BI,OT,TS,OR,C,E,I,EB} where {CT<:Tuple}
 end
 
 @inline function _prepare_cached_call_context!(
@@ -6663,57 +6658,31 @@ end
     application, object_id, bound_inputs, output_targets, call_bindings::Tuple, temporal_streams,
     output_retention, time, constants, publication_allowed, environment,
 )
-    Context = _call_context_type(cache.default, environment)
-    context = reuse ? cache.default : nothing
-    if !(context isa Context && _call_context_matches(
-        context, compiled, environment_bindings, application, object_id,
-        bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
-        environment,
-    ) && _call_context_preparation_is_current(
-        context.calls, compiled, environment_bindings, temporal_streams,
-        output_retention, constants,
-    ))
-        context = reuse ? cache.transient : nothing
-        if context isa RunContext && !(context isa Context) &&
-           _call_context_matches(
-               context, compiled, environment_bindings, application, object_id,
-               bound_inputs, output_targets, call_bindings, temporal_streams, output_retention,
-               constants, environment,
-           ) && _call_context_clone_is_current(
-               context, compiled, environment_bindings, application, object_id,
-               bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
-           )
-            # A stale OptionalOne can have acquired a different descendant tuple
-            # type. Reuse that current transient rather than forcing the old
-            # default's Context type and rebuilding it on every invocation.
-            return _synchronize_current_call_context!(
-                context, time, publication_allowed, environment,
-            )
+    if reuse
+        context = cache.default
+        if context isa RunContext && _call_context_is_current(context, compiled, environment_bindings,
+            application, object_id, bound_inputs, output_targets, call_bindings, temporal_streams,
+            output_retention, constants, environment)
+            return _synchronize_current_call_context!(context, time, publication_allowed, environment)
         end
-        if !(context isa Context && _call_context_matches(
-            context, compiled, environment_bindings, application, object_id,
-            bound_inputs, output_targets, call_bindings, temporal_streams, output_retention, constants,
-            environment,
-        ) && _call_context_preparation_is_current(
-            context.calls, compiled, environment_bindings, temporal_streams,
-            output_retention, constants,
-        ))
-            # A reentrant call needs its own descendants as well as its shell:
-            # child CallTargets carry mutable time, environment and permission.
-            context = _prepare_model_execution_context!(
-                cache.default, compiled, environment_bindings, application, object_id,
-                bound_inputs, output_targets, call_bindings, temporal_streams, output_retention,
-                time, constants, publication_allowed, environment; fresh=true,
-            )
-            reuse && (cache.transient = context)
-            return context
+        Context = _cached_call_context_type(compiled, environment_bindings, application,
+            object_id, bound_inputs, output_targets, call_bindings, temporal_streams, output_retention,
+            constants, environment)
+        transient = cache.transient
+        if transient isa Context && _call_context_is_current(transient, compiled, environment_bindings,
+            application, object_id, bound_inputs, output_targets, call_bindings, temporal_streams,
+            output_retention, constants, environment)
+            return _synchronize_current_call_context!(transient, time, publication_allowed, environment)
         end
     end
-    return _prepare_model_execution_context!(
-        context::Context, compiled, environment_bindings, application, object_id,
+    # Reentrant calls need their own descendant views as well as their shell.
+    fresh = _prepare_model_execution_context!(
+        cache.default, compiled, environment_bindings, application, object_id,
         bound_inputs, output_targets, call_bindings, temporal_streams, output_retention,
-        time, constants, publication_allowed, environment,
+        time, constants, publication_allowed, environment; fresh=true,
     )
+    reuse && (cache.transient = fresh)
+    return fresh
 end
 
 @inline function _record_call_execution!(cache)
