@@ -3768,8 +3768,8 @@ function _compiled_call_execution_batches(
             application_schema = _call_batch_schema_for_application(batch_schema,application)
             current_ids = [object_id for object_id in binding.callee_object_ids
                 if _call_binding_target_matches(binding,application,object_id)]
-            refreshed = refresh_cohort_membership!(cohorts,application.id,current_ids,
-                nothing;owner,schema=admission) do object_id, previous_target
+            refreshed = Base.@inline refresh_cohort_membership!(cohorts, application.id,
+                current_ids, nothing, nothing, owner, admission) do object_id, previous_target
                 _compiled_model_execution_target_from_previous(previous_target,
                     compiled,env_bindings,application,object_id,temporal_streams,
                     output_retention,constants;target_schema=admission)

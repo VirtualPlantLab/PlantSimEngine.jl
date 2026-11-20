@@ -244,6 +244,13 @@ function refresh_cohort_membership!(
     owner=nothing,
     schema=isnothing(previous) ? OpenExecutionCohortSchema() : previous.schema,
 )
+    return refresh_cohort_membership!(build_target, store, application_id, current_ids,
+        changed_ids, previous, owner, schema)
+end
+
+function refresh_cohort_membership!(build_target::F, store::ExecutionCohortStore,
+    application_id::Symbol, current_ids, changed_ids, previous, owner, schema,
+) where {F}
     owner = _execution_store_owner(store, owner)
     if !isnothing(previous)
         previous.store === store && previous.application_id === application_id &&
