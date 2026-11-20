@@ -107,4 +107,34 @@ end
     end
 end
 
+@testset "Newborn application selections own their ordered cache keys" begin
+    data = fixture(Float64, (:existing,))
+    run!(data.model; steps=1, outputs=:none)
+    first_id, second_id = ObjectId(:new_a), ObjectId(:new_b)
+    for id in (first_id, second_id)
+        register_object!(data.model, Object(id; kind=:identity_leaf, parent=data.owner_id))
+    end
+    runtime = PSE._targeted_topology_runtime!(data.capture[], data.model)
+    selection = [first_id, second_id]
+    ordered = PSE._targeted_application_set!(runtime, data.model, selection)
+    reverse!(selection)
+    reversed = PSE._targeted_application_set!(runtime, data.model, selection)
+    @test reversed !== ordered
+    @test PSE._targeted_application_set!(runtime, data.model, (first_id, second_id)) === ordered
+    @test PSE._targeted_application_set!(runtime, data.model, [second_id, first_id]) === reversed
+end
+
+@testset "Unresolved hard calls preserve the display of user identifiers" begin
+    selections = (
+        [ObjectId(:a)],
+        [ObjectId((:plant, 2)), ObjectId(3)],
+        [ObjectId(Symbol("one leaf")), ObjectId(Symbol("if"))],
+    )
+    for ids in selections
+        values = Tuple(id.value for id in ids)
+        message = "Hard call `leaves` from application `caller` does not resolve requested object(s) `$values`."
+        @test_throws ErrorException(message) PSE._unresolved_call_objects(:leaves, :caller, ids)
+    end
+end
+
 end # module ConcreteRuntimeIdentityChecks

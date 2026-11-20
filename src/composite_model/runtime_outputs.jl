@@ -5797,7 +5797,7 @@ function _targeted_topology_runtime!(
     O = Dict{I,Vector{A}}
     S = _TargetedApplicationSet{Vector{A},_ApplicationsByObjectOverlay{typeof(compiled.applications_by_object),O}}
     manual = compiled.scenario_plan.manual_application_ids
-    D = Dict{Tuple{Vararg{I}},S}
+    D = Dict{Vector{I},S}
     Runtime = _TargetedTopologyRuntime{typeof(compiled),typeof(manual),D,O}
     cached = delta.targeted_topology_runtime
     if cached isa Runtime &&
@@ -5867,7 +5867,9 @@ function _targeted_application_set!(
     requested_ids,
 )
     I = keytype(runtime.added_applications_by_object)
-    key = Tuple(requested_ids)::Tuple{Vararg{I}}
+    # Own the ordered key so later changes to the caller's selection cannot
+    # alter dictionary equality or hashing. Its type is independent of length.
+    key = collect(I, requested_ids)
     application_set = get!(runtime.application_sets, key) do
         output_applications, added_applications_by_object = _new_object_applications(
             model,
@@ -5912,6 +5914,20 @@ function _targeted_application_set!(
     return application_set
 end
 
+@noinline function _unresolved_call_objects(name::Symbol, application_id::Symbol, ids)
+    io = IOBuffer()
+    write(io, "Hard call `", String(name), "` from application `", String(application_id),
+        "` does not resolve requested object(s) `(")
+    context = IOContext(io, :typeinfo => Any)
+    for (index, object_id) in pairs(ids)
+        index == firstindex(ids) || print(io, ", ")
+        _show_object_id_element(context, object_id.value)
+    end
+    length(ids) == 1 && print(io, ',')
+    print(io, ")`.")
+    throw(ErrorException(String(take!(io))))
+end
+
 function _targeted_callee_applications(
     binding::CompiledModelCallBinding,
     requested_ids,
@@ -5937,10 +5953,7 @@ function _targeted_callee_applications(
         end
         matched || push!(unresolved_ids, object_id)
     end
-    isempty(unresolved_ids) || error(
-        "Hard call `$(binding.call)` from application `$(binding.application_id)` does not ",
-        "resolve requested object(s) `$(Tuple(id.value for id in unresolved_ids))`."
-    )
+    isempty(unresolved_ids) || _unresolved_call_objects(binding.call, binding.application_id, unresolved_ids)
     return applications
 end
 
@@ -6053,7 +6066,8 @@ function _targeted_new_object_call_targets(
             "accepts at most one requested object.",
         )
     default_scope = _default_dependency_scope(model, context.object_id)
-    unresolved_ids = ObjectId[
+    I = keytype(model.registry.objects)
+    unresolved_ids = I[
         object_id for object_id in requested_ids
         if !_selector_matches_object_id(
             model,
@@ -6065,10 +6079,7 @@ function _targeted_new_object_call_targets(
             false,
         )
     ]
-    isempty(unresolved_ids) || error(
-        "Hard call `$(name)` from application `$(context.application.id)` does not ",
-        "resolve requested object(s) `$(Tuple(id.value for id in unresolved_ids))`."
-    )
+    isempty(unresolved_ids) || _unresolved_call_objects(name, context.application.id, unresolved_ids)
     if !initializer && binding.multiplicity != :many
         # A targeted newborn does not relax the authored singular selector.
         # Resolve its complete live scope before compiling or preparing any
@@ -6418,10 +6429,7 @@ function _selected_topology_call_targets(resolved_binding, cached_targets, conte
         end
         append!(callee_application_ids, matching_applications)
     end
-    isempty(unresolved_ids) || error(
-        "Hard call `$(name)` from application `$(context.application.id)` does not ",
-        "resolve requested object(s) `$(Tuple(id.value for id in unresolved_ids))`."
-    )
+    isempty(unresolved_ids) || _unresolved_call_objects(name, context.application.id, unresolved_ids)
     unique!(callee_application_ids)
     selected_binding = CompiledModelCallBinding(
         resolved_binding.plan,
