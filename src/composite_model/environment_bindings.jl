@@ -179,7 +179,7 @@ function _update_model_environment_indices_for_objects!(
     seen = Set{UInt}()
     for application_id in application_ids
         plan = cached.application_plans_by_id[application_id]
-        _with_environment_plan(cached.environment_schema, plan) do admitted_plan
+        Base.@inline _with_environment_plan(cached.environment_schema, plan) do admitted_plan
             backend = admitted_plan.backend
             isnothing(backend) && return nothing
             id = objectid(backend)
@@ -191,7 +191,7 @@ function _update_model_environment_indices_for_objects!(
     # Plans are immutable snapshots. Index callbacks may replace the owner's
     # dictionary entries, so consume these selected plans without rereading it.
     return _update_model_environment_indices!(model, plans, dirty_object_ids) do consume, plan
-        _with_environment_plan(cached.environment_schema, plan) do admitted_plan
+        Base.@inline _with_environment_plan(cached.environment_schema, plan) do admitted_plan
             consume(admitted_plan.backend)
         end
     end
@@ -647,7 +647,7 @@ function _validate_model_environment_inputs!(bindings, applications_by_id,
     for binding in bindings
         plan = getfield(binding, :plan)::CompiledEnvironmentApplicationPlan
         object_id = getfield(binding, :object_id)::I
-        _with_environment_plan(environment_schema, plan) do plan
+        Base.@inline _with_environment_plan(environment_schema, plan) do plan
             application_id = getfield(plan, :application_id)
             no_inputs = _with_metadata_entry(applications_by_id, application_id) do application
                 isempty(_model_environment_input_names(application))
@@ -869,7 +869,7 @@ function _reconciled_environment_application_plans(
     compiled::CompiledCompositeModel,
     cached::CompiledEnvironmentBindings,
 )
-    candidates, candidates_by_id = _compile_environment_application_plans(
+    candidates, _ = _compile_environment_application_plans(
         model,
         compiled.applications,
         compiled.applications_by_id;
@@ -880,23 +880,29 @@ function _reconciled_environment_application_plans(
     plans_by_id = Dict{Symbol,CompiledEnvironmentApplicationPlan}()
     environment_schema = cached.environment_schema
     for candidate in candidates
-        application_id = candidate.application_id
-        old = get(cached.application_plans_by_id, application_id, nothing)
-        plan = if isnothing(old)
-            _with_environment_plan(identity, environment_schema, candidates_by_id[application_id])
-        else
-            admitted_old = _with_environment_plan(identity, environment_schema, old)
-            admitted_candidate = _with_environment_plan(identity, environment_schema, candidates_by_id[application_id])
-            _same_environment_plan_configuration(admitted_old, admitted_candidate) ||
-                return nothing
-            _same_environment_application_plan(admitted_old, admitted_candidate) ?
-                admitted_old : _with_environment_plan(identity, environment_schema, candidates_by_id[application_id])
+        accepted = Base.@inline _with_environment_plan(environment_schema, candidate) do admitted_candidate
+            old = get(cached.application_plans_by_id, admitted_candidate.application_id, nothing)
+            if isnothing(old)
+                return _append_reconciled_environment_plan!(admitted_candidate, plans, plans_by_id)
+            end
+            Base.@inline _with_environment_plan(environment_schema, old) do admitted_old
+                _same_environment_plan_configuration(admitted_old, admitted_candidate) ||
+                    return false
+                if _same_environment_application_plan(admitted_old, admitted_candidate)
+                    return _append_reconciled_environment_plan!(admitted_old, plans, plans_by_id)
+                end
+                _append_reconciled_environment_plan!(admitted_candidate, plans, plans_by_id)
+            end
         end
-        isnothing(plan) && return nothing
-        push!(plans, plan)
-        plans_by_id[plan.application_id] = plan
+        accepted || return nothing
     end
     return plans, plans_by_id
+end
+
+function _append_reconciled_environment_plan!(plan, plans, plans_by_id)
+    push!(plans, plan)
+    plans_by_id[plan.application_id] = plan
+    return true
 end
 
 function _reconcile_environment_binding_values(schema, old, old_plan, plan,

@@ -1025,4 +1025,54 @@ end
     end
 end
 
+@testset "metadata reconciliation detects a replacement local provider of the same type" begin
+    observed = prepare_policy(policy_model(); schema=PSE._collecting_environment_binding_schema())
+    fixed = PSE._freeze_environment_binding_schema(observed.environment_bindings.environment_schema)
+    traces = []
+    for policy in (PSE.EnvironmentBindingSchema(), fixed)
+        data = policy_model()
+        simulation = prepare_policy(data; schema=policy)
+        owner = simulation.environment_bindings
+        old_plan = only(owner.application_plans)
+        old_backend = data.backend
+        old_handles = Dict(id => owner.by_target[(:policy_probe, id)].handle
+            for id in (ObjectId(:leaf), ObjectId(1)))
+        replacement = PlanPolicyBackend(old_backend.values, 0, 0)
+        @test typeof(replacement) === typeof(old_backend)
+        @test replacement !== old_backend
+        @test replacement.values == old_backend.values
+        data.source.backend = replacement
+        data.model.applications[1] = policy_spec(:T)
+        alternate = PSE.Advanced.refresh_bindings!(data.model; force=true)
+        @test !PSE.lifecycle_delta(data.model).full_environment
+        @test alternate.applications !== owner.compiled_applications
+        normalizations = data.source.normalizations
+        # This is the metadata path, not the full-dirty shortcut. Candidate
+        # type equality cannot justify preserving a different local backend.
+        @test isnothing(PSE._reconciled_environment_application_plans(data.model, alternate, owner))
+        @test data.model.environment_binding_cache === owner
+        @test replacement.binds == replacement.samples == 0
+        current = PSE.Advanced.refresh_environment_bindings!(data.model, alternate)
+        @test current !== owner
+        @test current.environment_schema === policy
+        @test typeof(only(current.application_plans)) === typeof(old_plan)
+        @test only(current.application_plans).backend === replacement
+        @test replacement.binds == 2
+        @test old_backend.binds == 2
+        for id in (ObjectId(:leaf), ObjectId(1))
+            binding = current.by_target[(:policy_probe, id)]
+            @test binding.backend === replacement
+            @test binding.handle !== old_handles[id]
+        end
+        replacement.values = (T=71f0, U=82f0)
+        step!(simulation)
+        @test model_status(data.model, :leaf).seen === 71f0
+        @test model_status(data.model, 1).seen === 71f0
+        @test old_backend.samples == 0
+        push!(traces, (data.source.normalizations - normalizations,
+            replacement.binds, replacement.samples, old_backend.binds, old_backend.samples))
+    end
+    @test traces[1] == traces[2]
+end
+
 end
