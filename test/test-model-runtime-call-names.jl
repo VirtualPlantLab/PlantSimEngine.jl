@@ -224,7 +224,7 @@ end
         write(path, source)
         generated_module = Module(gensym(:RuntimeNamedInitializers))
         Base.include(generated_module, path)
-        generated_run = getfield(generated_module, :runtime_named_initializers!)
+        generated_run = Base.invokelatest(getfield, generated_module, :runtime_named_initializers!)
         generated = Base.invokelatest(generated_run, fixture.model; steps=1, outputs=:all)
         @test model_status(runtime_model(generated), :born_a).value === 2f0
         @test model_status(runtime_model(generated), :born_b).value === 7.0
