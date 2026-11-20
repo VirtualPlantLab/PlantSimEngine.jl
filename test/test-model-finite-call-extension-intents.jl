@@ -230,6 +230,12 @@ end
         simulation = data.simulation
         target = root_target(simulation)
         materialize_manual_calls!(target)
+        if prepared
+            schema = call_targets(target.context, :a).batch_schema
+            compiled = simulation.compiled
+            @test PSE._call_prefix_application(compiled, :leaf_a, schema) === compiled.applications_by_id[:leaf_a]
+            @test_throws ArgumentError PSE._call_prefix_application(compiled, :root, schema)
+        end
         add_leaves!(data)
         @test extend!(:prefix, target, refreshed_owners(data), simulation) === true
         rows = [only(call_targets(target.context, name).execution_batches).targets

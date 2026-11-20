@@ -4217,6 +4217,41 @@ function _model_execution_batch_accepts_target(
     return isequal(provider, batch.environment_provider)
 end
 
+# Only admission needs the closed batch types. The registered application
+# supplies its current target IDs for the same ordered-prefix check.
+@inline _call_prefix_application(compiled, id, ::OpenExecutionBatchSchema) =
+    _compiled_application_by_id(compiled, id)
+
+@generated function _call_prefix_application(compiled, id, ::PreparedExecutionBatchSchema{BT}) where {BT}
+    owners = unique(fieldtype(batch, :application) for batch in _prepared_execution_batch_types(BT))
+    A = Union{owners...}
+    return quote
+        application = _compiled_application_by_id(compiled, id)
+        application isa $A || throw(ArgumentError("A callee application is outside its prepared batch schema."))
+        return application::$A
+    end
+end
+
+function _stage_call_execution_suffix!(staged, scope, call_targets, binding,
+    destination_batch, admission, application, ids, first_new, compiled, env_bindings,
+    temporal_streams, output_retention, constants)
+    for index in first_new:lastindex(ids)
+        object_id = ids[index]
+        execution_target = _compiled_model_execution_target(
+            compiled, env_bindings, application, object_id,
+            temporal_streams, output_retention, constants;
+            owner=_execution_call_owner(binding), cohort_schema=admission)
+        accepted = _with_execution_cohort_target(admission, execution_target) do actual
+            _model_execution_batch_accepts_target(destination_batch,
+                actual, env_bindings, application) || return false
+            return _stage_execution_append!(staged, scope, call_targets,
+                binding, destination_batch.targets, actual)
+        end
+        accepted || return false
+    end
+    return true
+end
+
 function _extend_execution_target_call_batches_by_prefix!(
     target::CompiledExecutionTarget,
     compiled::CompiledCompositeModel,
@@ -4253,46 +4288,33 @@ function _extend_execution_target_call_batches_by_prefix!(
             _execution_call_batches_match_applications(schema, execution_batches,
                 binding.callee_application_ids) || return false
             for application_id in binding.callee_application_ids
-                matched = _compiled_application_by_id(compiled, application_id) do application
-                    application_schema = _call_batch_schema_for_application(schema, application)
-                    batches = _execution_call_batches_for_application(schema, application_schema,
-                        execution_batches, application_id)
-                    isempty(batches) && return false
-                    current_ids = [object_id for object_id in binding.callee_object_ids
-                        if _call_binding_target_matches(binding, application, object_id)]
-                    # Preserve the existing ordered-prefix algorithm. Only the
-                    # count leaves each admitted concrete batch operation.
-                    existing_count = 0
-                    for raw_batch in batches
-                        next_count = _execution_call_prefix_end(application_schema,
-                            raw_batch, current_ids, existing_count,
-                            compiled.changed_execution_target_ids, application.id)
-                        isnothing(next_count) && return false
-                        existing_count = next_count
-                    end
-                    existing_count == length(current_ids) && return true
-                    # Existing batches own nonempty runs. A singular call can retain
-                    # its one row or rebuild it when the callee changes.
-                    binding.plan.selector isa Union{One,OptionalOne} && return false
-                    admission = _call_cohort_admission(application_schema, OpenExecutionCohortSchema())
-                    first_new_index = existing_count + 1
-                    return _with_execution_batch(application_schema, last(batches)) do destination_batch
-                        for index in first_new_index:lastindex(current_ids)
-                            object_id = current_ids[index]
-                            execution_target = _compiled_model_execution_target(
-                                compiled, env_bindings, application, object_id,
-                                temporal_streams, output_retention, constants;
-                                owner=_execution_call_owner(binding), cohort_schema=admission)
-                            accepted = _with_execution_cohort_target(admission, execution_target) do actual
-                                _model_execution_batch_accepts_target(destination_batch,
-                                    actual, env_bindings, application) || return false
-                                return _stage_execution_append!(staged, scope, call_targets,
-                                    binding, destination_batch.targets, actual)
-                            end
-                            accepted || return false
-                        end
-                        return true
-                    end
+                application = _call_prefix_application(compiled, application_id, schema)
+                application_schema = _call_batch_schema_for_application(schema, application)
+                batches = _execution_call_batches_for_application(schema, application_schema,
+                    execution_batches, application_id)
+                isempty(batches) && return false
+                current_ids = [object_id for object_id in binding.callee_object_ids
+                    if _call_binding_target_matches(binding, application, object_id)]
+                # Preserve the existing ordered-prefix algorithm. Only the
+                # count leaves each admitted concrete batch operation.
+                existing_count = 0
+                for raw_batch in batches
+                    next_count = _execution_call_prefix_end(application_schema,
+                        raw_batch, current_ids, existing_count,
+                        compiled.changed_execution_target_ids, application.id)
+                    isnothing(next_count) && return false
+                    existing_count = next_count
+                end
+                existing_count == length(current_ids) && continue
+                # Existing batches own nonempty runs. A singular call can retain
+                # its one row or rebuild it when the callee changes.
+                binding.plan.selector isa Union{One,OptionalOne} && return false
+                admission = _call_cohort_admission(application_schema, OpenExecutionCohortSchema())
+                first_new_index = existing_count + 1
+                matched = _with_execution_batch(application_schema, last(batches)) do destination_batch
+                    return _stage_call_execution_suffix!(staged, scope, call_targets, binding,
+                        destination_batch, admission, application, current_ids, first_new_index, compiled,
+                        env_bindings, temporal_streams, output_retention, constants)
                 end
                 matched || return false
             end
@@ -4395,20 +4417,9 @@ function _extend_execution_target_call_batches_for_pure_addition!(
                         first(_sorted_object_id_position(application.target_ids, object_id)) || continue
                         first(_sorted_object_id_position(changed_ids, object_id)) || return false
                     end
-                    for object_id in changed_ids
-                        execution_target = _compiled_model_execution_target(
-                            compiled, env_bindings, application, object_id,
-                            temporal_streams, output_retention, constants;
-                            owner=_execution_call_owner(binding), cohort_schema=admission)
-                        accepted = _with_execution_cohort_target(admission, execution_target) do actual
-                            _model_execution_batch_accepts_target(destination_batch,
-                                actual, env_bindings, application) || return false
-                            return _stage_execution_append!(staged, scope, call_targets,
-                                binding, destination_batch.targets, actual)
-                        end
-                        accepted || return false
-                    end
-                    return true
+                    return _stage_call_execution_suffix!(staged, scope, call_targets, binding,
+                        destination_batch, admission, application, changed_ids, firstindex(changed_ids), compiled,
+                        env_bindings, temporal_streams, output_retention, constants)
                 end
             end
         end
