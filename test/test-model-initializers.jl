@@ -911,7 +911,7 @@ end
     ) == [4.0]
 end
 
-@testset "initializer resolves distributed current and prior sources" begin
+@testset "initializer resolves distributed current and prior sources" for replaced_history in (false, true)
     model = CompositeModel(
         Object(:scene; scale=:Scene),
         Object(:plant_a; name=:plant_a, scale=:Plant, parent=:scene),
@@ -989,14 +989,25 @@ end
     @test findfirst(==(:writer_b), compiled.application_order) <
           findfirst(==(:distributed_creator), compiled.application_order)
 
-    run!(model; steps=2, outputs=:all)
+    sim = run!(model; steps=1, outputs=:all)
+    if replaced_history
+        key = (:writer_a, ObjectId(:plant_a), :incident_par)
+        original = outputs(sim)[key]
+        @test original == [(1.0, 10.0)]
+        # The ordinary output directory accepts an independently supplied history.
+        restored = Tuple{Float64,Real}[(1.0, 13.0)]
+        outputs(sim)[key] = restored
+        @test outputs(sim)[key] === restored
+    end
+    continue!(sim; steps=1)
+    lagged_total = replaced_history ? 113.0 : 110.0
     creator = model_status(model, :scene)
     leaf = model_status(model, :distributed_new_leaf)
     @test creator.created
     @test creator.direct_seen == 20.0
-    @test creator.lagged_total == 110.0
+    @test creator.lagged_total == lagged_total
     @test leaf.direct_seen == 20.0
-    @test leaf.lagged_total == 110.0
+    @test leaf.lagged_total == lagged_total
     @test model_status(model, :plant_a).incident_par == 20.0
     @test model_status(model, :plant_b).incident_par == 200.0
 end

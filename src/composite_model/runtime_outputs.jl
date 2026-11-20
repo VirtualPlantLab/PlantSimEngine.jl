@@ -2535,96 +2535,29 @@ function _model_assign_private_temporal_value!(
     return temporal_input
 end
 
-function _materialize_model_temporal_input!(
-    status::Status,
-    temporal_input::CompiledTemporalInput,
-    application::CompiledModelApplication,
-    streams,
-    time::Real,
-    timeline,
-)
-    binding = temporal_input.binding
-    plan = getfield(binding, :plan)
-    source_ids = getfield(binding, :source_ids)
-    policy = getfield(binding, :policy)
-    window_steps = _model_input_window_steps(binding, application, timeline)
-    t_start = float(time) - float(window_steps) + 1.0
-    if plan.multiplicity == :many
-        storage = temporal_input.reference[]
-        storage isa AbstractVector || error(
-            "Temporal `Many` input `$(plan.input)` on application ",
-            "`$(plan.application_id)` has non-vector private storage ",
-            "`$(typeof(storage))`.",
-        )
-        length(storage) == length(source_ids) || error(
-            "Temporal `Many` input `$(plan.input)` on application ",
-            "`$(plan.application_id)` has $(length(storage)) private values for ",
-            "$(length(source_ids)) resolved source objects. Refresh the ",
-            "compiled lifecycle bindings before execution.",
-        )
-        for index in eachindex(source_ids)
-            value = _model_temporal_source_value(
-                streams,
-                temporal_input.source_applications[index],
-                source_ids[index],
-                plan.source_var,
-                time,
-                policy,
-                t_start,
-                timeline,
-            )
-            if isnothing(value)
-                policy isa PreviousTimeStep || error(
-                    "No temporal model value available for input ",
-                    "`$(plan.input)` from ",
-                    "`$(_object_id_text(source_ids[index])).$(plan.source_var)` ",
-                    "at t=$(time).",
-                )
-                value = temporal_input.initial[index]
-            end
-            storage[index] = _private_temporal_value(value)
-        end
-        return status
-    end
-    source_id = only(source_ids)
-    value = _model_temporal_source_value(
-        streams,
-        only(temporal_input.source_applications),
-        source_id,
-        plan.source_var,
-        time,
-        policy,
-        t_start,
-        timeline,
-    )
-    if isnothing(value)
-        policy isa PreviousTimeStep || error(
-            "No temporal model value available for input `$(plan.input)` from ",
-            "`$(_object_id_text(source_id)).$(plan.source_var)` at t=$(time).",
-        )
-        value = temporal_input.initial
-    end
-    _model_assign_private_temporal_value!(temporal_input, value)
-    return status
+@inline _compiled_temporal_input(input::CompiledTemporalInput) = input
+@inline _compiled_temporal_input(input::RuntimeTemporalInput) = input.compiled
+
+@inline function _temporal_input_sample(input::CompiledTemporalInput, sources, index,
+    source_id, plan, time, policy, t_start, timeline)
+    application_id = isnothing(index) ? only(input.source_applications) : input.source_applications[index]
+    return _model_temporal_source_value(sources, application_id, source_id, plan.source_var,
+        time, policy, t_start, timeline)
+end
+
+@inline function _temporal_input_sample(input::RuntimeTemporalInput, sources, index,
+    source_id, plan, time, policy, t_start, timeline)
+    stream = isnothing(index) ? input.source_streams : input.source_streams[index]
+    return _evaluated_temporal_sample_value(stream, time, policy, t_start, timeline)
 end
 
 function _materialize_model_temporal_input!(
-    status::Status,
-    runtime_input::RuntimeTemporalInput,
-    application::CompiledModelApplication,
-    streams,
-    time::Real,
-    timeline,
+    status::Status, input::Union{CompiledTemporalInput,RuntimeTemporalInput},
+    application::CompiledModelApplication, streams, time::Real, timeline,
 )
-    return _materialize_model_temporal_input!(
-        status,
-        runtime_input,
-        application,
-        streams,
-        time,
-        timeline,
-        getfield(runtime_input.compiled.binding, :policy),
-    )
+    policy = getfield(_compiled_temporal_input(input).binding, :policy)
+    return _materialize_model_temporal_input!(status, input, application,
+        streams, time, timeline, policy)
 end
 
 @inline function _previous_time_step_sample(samples, time::Real)
@@ -2710,18 +2643,17 @@ end
 
 function _materialize_model_temporal_input!(
     status::Status,
-    runtime_input::RuntimeTemporalInput,
+    input::Union{CompiledTemporalInput,RuntimeTemporalInput},
     application::CompiledModelApplication,
     streams,
     time::Real,
     timeline,
     policy,
 )
-    temporal_input = runtime_input.compiled
+    temporal_input = _compiled_temporal_input(input)
     binding = temporal_input.binding
     plan = getfield(binding, :plan)
     source_ids = getfield(binding, :source_ids)
-    policy = getfield(binding, :policy)
     window_steps = _model_input_window_steps(binding, application, timeline)
     t_start = float(time) - float(window_steps) + 1.0
     if plan.multiplicity == :many
@@ -2738,13 +2670,8 @@ function _materialize_model_temporal_input!(
             "compiled lifecycle bindings before execution.",
         )
         for index in eachindex(source_ids)
-            value = _evaluated_temporal_sample_value(
-                runtime_input.source_streams[index],
-                time,
-                policy,
-                t_start,
-                timeline,
-            )
+            value = _temporal_input_sample(input, streams, index, source_ids[index], plan,
+                time, policy, t_start, timeline)
             if isnothing(value)
                 policy isa PreviousTimeStep || error(
                     "No temporal model value available for input ",
@@ -2759,13 +2686,8 @@ function _materialize_model_temporal_input!(
         return status
     end
     source_id = only(source_ids)
-    value = _evaluated_temporal_sample_value(
-        runtime_input.source_streams,
-        time,
-        policy,
-        t_start,
-        timeline,
-    )
+    value = _temporal_input_sample(input, streams, nothing, source_id, plan,
+        time, policy, t_start, timeline)
     if isnothing(value)
         policy isa PreviousTimeStep || error(
             "No temporal model value available for input `$(plan.input)` from ",
