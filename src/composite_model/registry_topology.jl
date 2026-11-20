@@ -249,7 +249,7 @@ struct MTGObjectAccessors{I,S,K,SP,N,G,ST}
     status::ST
 end
 
-struct MTGObjectAdapter{R,I,S,K,SP,N,G,ST,FI,RI}
+struct MTGObjectAdapter{R,I,S,K,SP,N,G,ST,FI,RI,E}
     root::R
     id::I
     scale::S
@@ -261,11 +261,19 @@ struct MTGObjectAdapter{R,I,S,K,SP,N,G,ST,FI,RI}
     max_node_id::Base.RefValue{Int}
     object_ids_by_node::FI
     nodes_by_object_id::RI
+    node_edits::E
 end
 
-# Close only identity carrier types, preserving the source tree and every
-# accessor. A closed execution schema can still create arbitrary numbers of
-# nodes and call the same registration/removal operations.
+# An open tree admits new column types. A prepared adapter also retains
+# the edit plan of its source tree when the MTG version supports it.
+function _prepared_mtg_edits(root)
+    if isdefined(MultiScaleTreeGraph, :prepare_node_edits) &&
+       applicable(MultiScaleTreeGraph.prepare_node_edits, root)
+        return (MultiScaleTreeGraph.prepare_node_edits(root),)
+    end
+    return ()
+end
+
 function _closed_mtg_object_adapter(adapter::MTGObjectAdapter, ::Type{I}) where {I<:ObjectId}
     R = typeof(adapter.root)
     return MTGObjectAdapter(
@@ -273,6 +281,7 @@ function _closed_mtg_object_adapter(adapter::MTGObjectAdapter, ::Type{I}) where 
         adapter.name, adapter.geometry, adapter.status, adapter.max_node_id,
         IdDict{R,I}(adapter.object_ids_by_node),
         Dict{I,R}(adapter.nodes_by_object_id),
+        _prepared_mtg_edits(adapter.root),
     )
 end
 
@@ -811,8 +820,21 @@ function CompositeModel(
     )
 end
 
-_mtg_attribute(node, key::Symbol, default=nothing) =
-    get(MultiScaleTreeGraph.node_attributes(node), key, default)
+struct _MTGAttribute
+    key::Symbol
+end
+(accessor::_MTGAttribute)(node) = MultiScaleTreeGraph.attribute(node, accessor.key, nothing)
+
+_mtg_birth_attribute(accessor, node, edits) = accessor(node)
+_mtg_birth_attribute(accessor::_MTGAttribute, node, edits) =
+    MultiScaleTreeGraph.attribute(edits..., node, accessor.key, nothing)
+
+# The open MTG API also accepts dictionary-backed attributes. Its prepared
+# overload takes named rows, whose values retain the caller's objects.
+_mtg_birth_attributes(::Tuple{}, attributes) = attributes
+_mtg_birth_attributes(::Tuple{P}, attributes::NamedTuple) where {P} = attributes
+_mtg_birth_attributes(::Tuple{P}, attributes) where {P} =
+    (; (Symbol(key) => value for (key, value) in pairs(attributes))...)
 
 _no_mtg_status(_) = nothing
 
@@ -832,10 +854,10 @@ function objects_from_mtg(
     root::MultiScaleTreeGraph.Node;
     id=node_id,
     scale=symbol,
-    kind=node -> _mtg_attribute(node, :kind, nothing),
-    species=node -> _mtg_attribute(node, :species, nothing),
-    name=node -> _mtg_attribute(node, :name, nothing),
-    geometry=node -> _mtg_attribute(node, :geometry, nothing),
+    kind=_MTGAttribute(:kind),
+    species=_MTGAttribute(:species),
+    name=_MTGAttribute(:name),
+    geometry=_MTGAttribute(:geometry),
     status=_no_mtg_status,
 )
     accessors = MTGObjectAccessors(
@@ -914,10 +936,10 @@ function CompositeModel(
     environment=nothing,
     id=node_id,
     scale=symbol,
-    kind=node -> _mtg_attribute(node, :kind, nothing),
-    species=node -> _mtg_attribute(node, :species, nothing),
-    name=node -> _mtg_attribute(node, :name, nothing),
-    geometry=node -> _mtg_attribute(node, :geometry, nothing),
+    kind=_MTGAttribute(:kind),
+    species=_MTGAttribute(:species),
+    name=_MTGAttribute(:name),
+    geometry=_MTGAttribute(:geometry),
     status=_no_mtg_status,
     type_promotion=nothing,
     status_transform=nothing,
@@ -934,6 +956,7 @@ function CompositeModel(
         Ref(MultiScaleTreeGraph.new_id(root) - 1),
         IdDict{typeof(root),ObjectId}(),
         Dict{ObjectId,typeof(root)}(),
+        (),
     )
     objects = _objects_from_mtg(root, adapter)
     return CompositeModel(
@@ -1639,27 +1662,20 @@ function add_organ!(
         explicit_id
     end
 
-    node = MultiScaleTreeGraph.Node(
-        node_id,
-        parent_node,
-        MultiScaleTreeGraph.NodeMTG(
-            Symbol(link),
-            Symbol(organ_symbol),
-            Int(index),
-            Int(mtg_scale),
-        ),
-        attributes,
-    )
+    edits = adapter.node_edits
+    encoding = MultiScaleTreeGraph.NodeMTG(Symbol(link), Symbol(organ_symbol), Int(index), Int(mtg_scale))
+    node = MultiScaleTreeGraph.addchild!(edits..., parent_node, node_id, encoding,
+        _mtg_birth_attributes(edits, attributes))
     try
         new_object_id = _register_mtg_object_identity!(adapter, node)
         object = Object(
             new_object_id;
             scale=adapter.scale(node),
-            kind=isnothing(kind) ? adapter.kind(node) : kind,
-            species=isnothing(species) ? adapter.species(node) : species,
-            name=isnothing(name) ? adapter.name(node) : name,
+            kind=isnothing(kind) ? _mtg_birth_attribute(adapter.kind, node, edits) : kind,
+            species=isnothing(species) ? _mtg_birth_attribute(adapter.species, node, edits) : species,
+            name=isnothing(name) ? _mtg_birth_attribute(adapter.name, node, edits) : name,
             parent=parent_id,
-            geometry=adapter.geometry(node),
+            geometry=_mtg_birth_attribute(adapter.geometry, node, edits),
             status=status,
         )
         registered = register_object!(model, object)
@@ -1667,7 +1683,7 @@ function add_organ!(
         return _with_registered_status(identity, model.registry.objects.catalog, registered.status)::Status
     catch
         _unregister_mtg_object_identity!(adapter, node)
-        MultiScaleTreeGraph.delete_node!(node)
+        MultiScaleTreeGraph.delete_node!(edits..., node)
         rethrow()
     end
 end

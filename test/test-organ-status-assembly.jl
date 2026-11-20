@@ -102,26 +102,61 @@ end
     @test PSE.refvalue(newborn, :seed) === PSE.refvalue(given, :seed)
 end
 
-@testset "a failing MTG accessor preserves a descendant it already attached" begin
-    root = MTG.Node(MTG.NodeMTG(:/, :Plant, 1, 1))
-    newborn = Ref{typeof(root)}()
-    tip = Ref{typeof(root)}()
-    function kind(node)
-        MTG.symbol(node) === :Leaf || return :plant
-        @test MTG.parent(node) === root && only(MTG.children(root)) === node
-        newborn[] = node
-        tip[] = MTG.Node(MTG.node_id(node) + 1, node, MTG.NodeMTG(:<, :Tip, 1, 2), (;))
-        throw(ArgumentError("rejected leaf"))
+@testset "a prepared MTG adapter keeps scientific inputs separate from node annotations" begin
+    root = MTG.Node(1, MTG.NodeMTG(:/, :Plant, 1, 1),
+        (kind=:plant, note="plant", seed=0f0, geometry=Float32[]))
+    adapter = PSE._closed_mtg_object_adapter(CompositeModel(root).source_adapter, ObjectId{Int})
+    if isdefined(MTG, :prepare_node_edits)
+        @test length(adapter.node_edits) == 1
     end
-    model = CompositeModel(root; kind)
-    @test_throws "rejected leaf" add_organ!(root, model, :+, :Leaf, 2)
-    @test isnothing(MTG.parent(newborn[])) && isempty(MTG.children(newborn[]))
-    @test only(MTG.children(root)) === tip[]
-    @test MTG.parent(tip[]) === root && MTG.link(tip[]) === :+
-    @test isnothing(MTG.get_node(root, MTG.node_id(newborn[])))
-    @test MTG.get_node(root, MTG.node_id(tip[])) === tip[]
-    @test_throws ArgumentError object_id(model, newborn[])
-    @test object_id(model, root) == ObjectId(MTG.node_id(root))
+    model = CompositeModel(only(objects_from_mtg(root)); source_adapter=adapter,
+        applications=(ModelSpec(Probe(2f0); name=:probe, on=Many(scale=:Leaf)),))
+    simulation = run!(model; steps=0, outputs=:all)
+    geometry = Float32[1, 2]
+    given = Status(seed=3f0, payload=Float32[])
+    leaf = add_organ!(root, simulation, :+, :Leaf, 2;
+        attributes=Dict{Symbol,Any}(:kind=>:expanding, :note=>"first", :geometry=>geometry, :seed=>99f0),
+        initial_status=given)
+    node = source_node(model, leaf)
+    @test only(MTG.children(root)) === node
+    @test model_object(model, node).kind === :expanding
+    @test model_object(model, node).geometry === geometry
+    @test node[:note] == "first" && node[:seed] === 99f0
+    @test !hasproperty(leaf, :geometry) && !hasproperty(leaf, :note)
+    @test PSE.refvalue(leaf, :seed) === PSE.refvalue(given, :seed)
+    bare = add_organ!(root, simulation, :+, :Leaf, 2; initial_status=(seed=4f0,))
+    @test isnothing(model_object(model, source_node(model, bare)).kind)
+    continue!(simulation; steps=1)
+    @test leaf.value === 5f0 && bare.value === 6f0
+    @test only(outputs(simulation)[(:probe, object_id(model, leaf), :value)]) == (1.0, 5f0)
+end
+
+@testset "a failing MTG accessor preserves a descendant it already attached" begin
+    for prepared in (false, true)
+        root = MTG.Node(MTG.NodeMTG(:/, :Plant, 1, 1))
+        newborn = Ref{typeof(root)}()
+        tip = Ref{typeof(root)}()
+        function kind(node)
+            MTG.symbol(node) === :Leaf || return :plant
+            @test MTG.parent(node) === root && only(MTG.children(root)) === node
+            newborn[] = node
+            tip[] = MTG.Node(MTG.node_id(node) + 1, node, MTG.NodeMTG(:<, :Tip, 1, 2), (;))
+            throw(ArgumentError("rejected leaf"))
+        end
+        model = CompositeModel(root; kind)
+        if prepared
+            adapter = PSE._closed_mtg_object_adapter(model.source_adapter, ObjectId{Int})
+            model = CompositeModel(only(objects_from_mtg(root; kind)); source_adapter=adapter)
+        end
+        @test_throws "rejected leaf" add_organ!(root, model, :+, :Leaf, 2)
+        @test isnothing(MTG.parent(newborn[])) && isempty(MTG.children(newborn[]))
+        @test only(MTG.children(root)) === tip[]
+        @test MTG.parent(tip[]) === root && MTG.link(tip[]) === :+
+        @test isnothing(MTG.get_node(root, MTG.node_id(newborn[])))
+        @test MTG.get_node(root, MTG.node_id(tip[])) === tip[]
+        @test_throws ArgumentError object_id(model, newborn[])
+        @test object_id(model, root) == ObjectId(MTG.node_id(root))
+    end
 end
 
 @testset "the initial data grammar has one Status construction path" begin
