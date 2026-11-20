@@ -154,6 +154,17 @@ end
         MTG.add_column!(root, :Tip, :kind, Int; default=7)
         tip = add_organ!(root, model, :+, :Tip, 2)
         @test model_object(model, source_node(model, tip)).kind === Symbol(7)
+        MTG.add_column!(root, :Bud, :kind, Symbol; default=:dormant)
+        if prepared && isdefined(MTG, :prepare_node_edits)
+            @test_throws "new MTG label type" add_organ!(root, model, :+, :Bud, 2)
+            @test isnothing(MTG.get_node(root, 4))
+            bud = add_organ!(root, model, :+, :Bud, 2; attributes=(kind=:dormant,))
+        else
+            bud = add_organ!(root, model, :+, :Bud, 2)
+        end
+        @test MTG.node_id(source_node(model, bud)) == 4
+        @test model_object(model, source_node(model, bud)).kind === :dormant
+
         fruit = add_organ!(root, model, :+, :Fruit, 2; attributes=(kind=:green,))
         @test model_object(model, source_node(model, fruit)).kind === :green
         @test !hasproperty(fruit, :kind)

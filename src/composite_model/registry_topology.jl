@@ -282,12 +282,14 @@ end
 
 function _closed_mtg_object_adapter(adapter::MTGObjectAdapter, ::Type{I}) where {I<:ObjectId}
     R = typeof(adapter.root)
+    edits = _prepared_mtg_edits(adapter.root)
+    kind, species, name = _prepared_mtg_labels(adapter, edits)
     return MTGObjectAdapter(
-        adapter.root, adapter.id, adapter.scale, adapter.kind, adapter.species,
-        adapter.name, adapter.geometry, adapter.status, adapter.max_node_id,
+        adapter.root, adapter.id, adapter.scale, kind, species,
+        name, adapter.geometry, adapter.status, adapter.max_node_id,
         IdDict{R,I}(adapter.object_ids_by_node),
         Dict{I,R}(adapter.nodes_by_object_id),
-        _prepared_mtg_edits(adapter.root),
+        edits,
     )
 end
 
@@ -848,14 +850,38 @@ function CompositeModel(
     )
 end
 
-struct _MTGAttribute
-    key::Symbol
-end
-(accessor::_MTGAttribute)(node) = MultiScaleTreeGraph.attribute(node, accessor.key, nothing)
+struct _MTGAttribute{K,T} end
+_MTGAttribute(key::Symbol) = _MTGAttribute{key,Any}()
+(accessor::_MTGAttribute{K})(node) where {K} = MultiScaleTreeGraph.attribute(node, K, nothing)
 
-_mtg_birth_attribute(accessor, node, edits) = accessor(node)
-_mtg_birth_attribute(accessor::_MTGAttribute, node, edits) =
-    MultiScaleTreeGraph.attribute(edits..., node, accessor.key, nothing)
+function _prepared_mtg_labels(adapter, edits)
+    labels = (adapter.kind, adapter.species, adapter.name)
+    # Custom accessors may change the new node before the next label is read.
+    isempty(edits) && return labels
+    adapter.id === MultiScaleTreeGraph.node_id && adapter.scale === MultiScaleTreeGraph.symbol &&
+        all(f -> f isa _MTGAttribute, (labels..., adapter.geometry)) || return labels
+    columns = MultiScaleTreeGraph.to_table(adapter.root; vars=(:kind, :species, :name))
+    return map(labels) do accessor
+        _prepared_mtg_label(accessor, columns)
+    end
+end
+
+function _prepared_mtg_label(::_MTGAttribute{K}, columns) where {K}
+    T = eltype(Tables.getcolumn(columns, K))
+    # Preserve true missing values as well as the default for absent attributes.
+    return _MTGAttribute{K,Union{Nothing,T}}()
+end
+
+_mtg_birth_attribute(accessor, node, edits, row) = accessor(node)
+_mtg_birth_attribute(::_MTGAttribute{K}, node, edits, row) where {K} =
+    MultiScaleTreeGraph.attribute(edits..., node, K, nothing)
+
+@inline function _mtg_birth_attribute(::_MTGAttribute{K,T}, node, edits::Tuple{P}, row::NamedTuple) where {K,T,P}
+    value = MultiScaleTreeGraph.attribute(only(edits), node, K, nothing)
+    accepted = hasfield(typeof(row), K) ? Union{T,fieldtype(typeof(row), K)} : T
+    value isa accepted && return value
+    throw(ArgumentError("A new MTG label type must be declared before preparing the tree or supplied in the organ attributes."))
+end
 
 # The open MTG API also accepts dictionary-backed attributes. Its prepared
 # overload takes named rows, whose values retain the caller's objects.
@@ -1692,15 +1718,15 @@ function add_organ!(
 
     edits = adapter.node_edits
     encoding = MultiScaleTreeGraph.NodeMTG(Symbol(link), Symbol(organ_symbol), Int(index), Int(mtg_scale))
-    node = MultiScaleTreeGraph.addchild!(edits..., parent_node, node_id, encoding,
-        _mtg_birth_attributes(edits, attributes))
+    row = _mtg_birth_attributes(edits, attributes)
+    node = MultiScaleTreeGraph.addchild!(edits..., parent_node, node_id, encoding, row)
     try
         new_object_id = _register_mtg_object_identity!(adapter, node)
         object = _new_object(new_object_id, adapter.scale(node),
-            isnothing(kind) ? _mtg_birth_attribute(adapter.kind, node, edits) : kind,
-            isnothing(species) ? _mtg_birth_attribute(adapter.species, node, edits) : species,
-            isnothing(name) ? _mtg_birth_attribute(adapter.name, node, edits) : name,
-            parent_id, (), _mtg_birth_attribute(adapter.geometry, node, edits), status, ())
+            isnothing(kind) ? _mtg_birth_attribute(adapter.kind, node, edits, row) : kind,
+            isnothing(species) ? _mtg_birth_attribute(adapter.species, node, edits, row) : species,
+            isnothing(name) ? _mtg_birth_attribute(adapter.name, node, edits, row) : name,
+            parent_id, (), _mtg_birth_attribute(adapter.geometry, node, edits, row), status, ())
         registered = register_object!(model, object)
         adapter.max_node_id[] = max(adapter.max_node_id[], node_id)
         return _with_registered_status(identity, model.registry.objects.catalog, registered.status)::Status

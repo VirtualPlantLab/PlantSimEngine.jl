@@ -4,11 +4,7 @@ const MTG = PSE.MultiScaleTreeGraph
 function prepare_tree_birth()
     root = MTG.Node(1, MTG.NodeMTG(:/, :Plant, 1, 1),
         (age=0, parameters=Dict{String,Any}("leaf" => [1, 2]),))
-    edits = MTG.prepare_node_edits(root)
-    kind(node) = MTG.attribute(edits, node, :kind, nothing)::Union{Int,Nothing}
-    species(node) = MTG.attribute(edits, node, :species, nothing)::Nothing
-    name(node) = MTG.attribute(edits, node, :name, nothing)::Nothing
-    model = PSE.CompositeModel(root; kind, species, name)
+    model = PSE.CompositeModel(root)
     return PSE._with_object_id_domain(model, PSE.ObjectId{Int})
 end
 
