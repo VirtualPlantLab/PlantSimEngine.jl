@@ -8192,7 +8192,8 @@ function _prepare_simulation!(
     environment_schema=_environment_schema(getfield(model, :environment_binding_cache)),
     input_binding_storage=nothing,
     status_view_schema=nothing,
-)
+    output_stream_type::Type{H}=Any,
+) where {H}
     performance_counters = performance ? RuntimePerformanceCounters() : nothing
     initial_composite_started_at =
         _runtime_performance_start(performance_counters)
@@ -8288,7 +8289,8 @@ function _prepare_simulation!(
         :initial_output_retention_compile,
         started_at,
     )
-    temporal_streams = RuntimeStorage(Dict{Tuple{Symbol,ObjectId,Symbol},Any}(), model.registry.objects)
+    # The simulation owns its history directory; ordinary execution keeps Any.
+    temporal_streams = RuntimeStorage(Dict{Tuple{Symbol,ObjectId,Symbol},H}(), model.registry.objects)
     _initialize_model_output_streams!(
         temporal_streams,
         compiled,

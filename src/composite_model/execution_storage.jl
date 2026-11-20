@@ -21,12 +21,18 @@ RuntimeStorage(streams::AbstractDict, registry::ObjectFamilyStore) =
 Base.length(storage::RuntimeStorage) = length(storage.streams)
 Base.iterate(storage::RuntimeStorage, state...) = iterate(storage.streams, state...)
 Base.getindex(storage::RuntimeStorage, key) = storage.streams[key]
-Base.setindex!(storage::RuntimeStorage, value, key) = setindex!(storage.streams, value, key)
+function _runtime_storage_history(storage::RuntimeStorage{K,H}, value) where {K,H}
+    value isa H || throw(ArgumentError("The output stream is outside the prepared history family."))
+    return value::H
+end
+Base.setindex!(storage::RuntimeStorage, value, key) =
+    setindex!(storage.streams, _runtime_storage_history(storage, value), key)
 Base.haskey(storage::RuntimeStorage, key) = haskey(storage.streams, key)
 Base.get(storage::RuntimeStorage, key, default) = get(storage.streams, key, default)
-Base.get!(storage::RuntimeStorage, key, default) = get!(storage.streams, key, default)
+Base.get!(storage::RuntimeStorage, key, default) =
+    get!(() -> _runtime_storage_history(storage, default), storage.streams, key)
 Base.get!(default::Union{Function,Type}, storage::RuntimeStorage, key) =
-    get!(default, storage.streams, key)
+    get!(() -> _runtime_storage_history(storage, default()), storage.streams, key)
 Base.delete!(storage::RuntimeStorage, key) = (delete!(storage.streams, key); storage)
 Base.empty!(storage::RuntimeStorage) = (empty!(storage.streams); storage)
 Base.empty(storage::RuntimeStorage) = RuntimeStorage(empty(storage.streams), typeof(storage.cohorts)())

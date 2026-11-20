@@ -376,4 +376,113 @@ end
     @test reader_runs[] == 2
 end
 
+@testset "simulation history families preserve streams through continuation" begin
+    make_model() = CompositeModel(Object(0; scale=:Leaf);
+        applications=(ModelSpec(Source(Ref(0)); name=:source, on=One(id=0)),))
+    ordinary = run!(make_model(); steps=0, outputs=:all)
+    H = Union{Vector{Tuple{Float64,Real}}, map(typeof, values(outputs(ordinary)))...}
+    finite = PSE._prepare_simulation!(make_model(); steps=0, outputs=:all,
+        constants=PSE.Constants(), output_stream_type=H)
+    @test valtype(typeof(outputs(ordinary))) === Any
+    @test valtype(typeof(outputs(finite))) === H
+    @test outputs(ordinary) !== outputs(finite)
+    @test all(key -> outputs(ordinary)[key] !== outputs(finite)[key], keys(outputs(ordinary)))
+    continue!(ordinary; steps=1)
+    continue!(finite; steps=1)
+    key = (:source, ObjectId(0), :z)
+    restored = map((ordinary, finite)) do simulation
+        history = Tuple{Float64,Real}[(1.0, 13.0)]
+        outputs(simulation)[key] = history
+        @test outputs(simulation)[key] === history
+        history
+    end
+    continue!(ordinary; steps=0)
+    continue!(finite; steps=0)
+    continue!(ordinary; steps=1)
+    continue!(finite; steps=1)
+    @test current_step(ordinary) == current_step(finite) == 2
+    @test histories(ordinary) == histories(finite)
+    @test NamedTuple(model_status(ordinary.model, 0)) == NamedTuple(model_status(finite.model, 0))
+    @test all(pair -> outputs(pair[1])[key] === pair[2], zip((ordinary, finite), restored))
+    @test valtype(typeof(outputs(finite))) === H
+
+    # Exercise both creation sites with a real status/ref and retention plan.
+    # Vector{Tuple{Float64,Float64}} is convertible to this single family, but
+    # conversion would disconnect the stored history from the runtime stream.
+    F = Vector{Tuple{Float64,Float32}}
+    storage = PSE.RuntimeStorage(Dict{Tuple{Symbol,ObjectId,Symbol},F}(), ordinary.model.registry.objects)
+    status = model_status(ordinary.model, 0)
+    a_key = (:source, ObjectId(0), :a)
+    z_key = (:source, ObjectId(0), :z)
+    PSE._initialize_model_output_stream_from_reference!(PSE.refvalue(status, :a), storage,
+        ordinary.output_retention, :source, a_key, :a, 0, 1)
+    original = storage[a_key]
+    before = copy(original)
+    @test_throws ArgumentError PSE._initialize_model_output_stream_from_reference!(
+        PSE.refvalue(status, :z), storage, ordinary.output_retention, :source, z_key, :z, 0, 1)
+    @test !haskey(storage, z_key)
+    @test_throws ArgumentError PSE._initialize_model_output_stream_from_reference!(
+        PSE.refvalue(status, :z), storage, ordinary.output_retention, :source, a_key, :a, 0, 1)
+    @test storage[a_key] === original
+    @test original == before
+    application = only(ordinary.compiled.applications)
+    @test_throws ArgumentError PSE._runtime_model_output_streams(status, application,
+        ObjectId(0), storage, ordinary.output_retention, true)
+    @test !haskey(storage, z_key)
+    @test storage[a_key] === original
+    @test original == before
+
+    target = execution_target(ordinary, :source, 0)
+    a_output = only(output for output in target.output_bindings if PSE._runtime_output_variable(output) === :a)
+    z_output = only(output for output in target.output_bindings if PSE._runtime_output_variable(output) === :z)
+    @test_throws ArgumentError PSE._prepared_local_runtime_output(typeof(z_output),
+        status, application, ObjectId(0), storage, ordinary.output_retention, true)
+    @test !haskey(storage, z_key)
+    accepted = PSE._prepared_local_runtime_output(typeof(a_output),
+        status, application, ObjectId(0), storage, ordinary.output_retention, true)
+    @test accepted.stream === storage[a_key] === original
+    @test accepted.reference === PSE.refvalue(status, :a)
+
+    # Restoration uses the same write boundary, even when Dict could convert.
+    unexpected = Tuple{Float64,Float64}[(3.0, 123.0)]
+    @test unexpected isa Vector{Tuple{Float64,Float64}}
+    @test_throws ArgumentError setindex!(storage, unexpected, a_key)
+    @test storage[a_key] === original
+    @test original == before
+    @test_throws ArgumentError setindex!(storage, unexpected, z_key)
+    @test !haskey(storage, z_key)
+    @test get!(storage, a_key, unexpected) === original
+    @test_throws ArgumentError get!(storage, z_key, unexpected)
+    @test !haskey(storage, z_key)
+
+    calls = Ref(0)
+    bad_default() = (calls[] += 1; unexpected)
+    @test get!(bad_default, storage, a_key) === original
+    @test calls[] == 0
+    @test_throws ArgumentError get!(bad_default, storage, z_key)
+    @test calls[] == 1
+    @test !haskey(storage, z_key)
+    good = F()
+    good_default() = (calls[] += 1; good)
+    @test get!(good_default, storage, z_key) === good
+    @test storage[z_key] === good
+    @test calls[] == 2
+    @test get!(bad_default, storage, z_key) === good
+    @test calls[] == 2
+    delete!(storage, z_key)
+    @test get!(storage, z_key, good) === good
+    @test setindex!(storage, good, z_key) === storage.streams
+    delete!(storage, z_key)
+    from_type = get!(F, storage, z_key)
+    @test from_type isa F
+    @test storage[z_key] === from_type
+
+    # Ordinary H=Any still accepts an independently supplied history by identity.
+    any_storage = ordinary.temporal_streams
+    @test setindex!(any_storage, unexpected, z_key) === any_storage.streams
+    @test outputs(ordinary)[z_key] === unexpected
+    @test storage[a_key] === original
+    @test original == before
+end
+
 end
