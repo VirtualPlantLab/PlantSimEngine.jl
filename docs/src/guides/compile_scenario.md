@@ -48,6 +48,11 @@ julia --project=examples/compiled_scenario -e 'using Pkg; Pkg.instantiate()'
 ```
 
 The app project points to the local PlantSimEngine checkout in `[sources]`.
+The example pins `Libiconv_jll` to 1.18.0 in the app's `Project.toml`.
+With version 1.18.1 on Linux, JuliaC 0.3.12 reports unresolved calls to
+`string` and `convert` in `Libiconv_jll.__init__`. If your build reports
+these errors, use the same dependency and compatibility entries in your app.
+
 Use a separate environment for the build tools. From the repository root,
 start Julia and run:
 
