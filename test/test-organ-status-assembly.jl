@@ -131,6 +131,33 @@ end
     @test only(outputs(simulation)[(:probe, object_id(model, leaf), :value)]) == (1.0, 5f0)
 end
 
+@testset "new organs inherit declared MTG labels and geometry" begin
+    for prepared in (false, true)
+        root = MTG.Node(1, MTG.NodeMTG(:/, :Plant, 1, 1), (annotation=:existing,))
+        geometry = Float32[1, 2]
+        MTG.add_column!(root, :Leaf, :kind, Int; default=3)
+        MTG.add_column!(root, :Leaf, :species, Symbol; default=:guineensis)
+        MTG.add_column!(root, :Leaf, :name, String; default="young leaf")
+        MTG.add_column!(root, :Leaf, :geometry, typeof(geometry); default=geometry)
+        model = CompositeModel(root)
+        if prepared
+            adapter = PSE._closed_mtg_object_adapter(model.source_adapter, ObjectId{Int})
+            model = CompositeModel(only(objects_from_mtg(root)); source_adapter=adapter)
+        end
+        leaf = add_organ!(root, model, :+, :Leaf, 2)
+        object = model_object(model, source_node(model, leaf))
+        @test (object.kind, object.species, object.name) == (Symbol(3), :guineensis, "young leaf")
+        @test object.geometry === geometry
+
+        MTG.add_column!(root, :Tip, :kind, Int; default=7)
+        tip = add_organ!(root, model, :+, :Tip, 2)
+        @test model_object(model, source_node(model, tip)).kind === Symbol(7)
+        fruit = add_organ!(root, model, :+, :Fruit, 2; attributes=(kind=:green,))
+        @test model_object(model, source_node(model, fruit)).kind === :green
+        @test !hasproperty(fruit, :kind)
+    end
+end
+
 @testset "a failing MTG accessor preserves a descendant it already attached" begin
     for prepared in (false, true)
         root = MTG.Node(MTG.NodeMTG(:/, :Plant, 1, 1))

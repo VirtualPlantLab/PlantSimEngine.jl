@@ -205,6 +205,12 @@ function Object(
     status=nothing,
     applications=(),
 )
+    return _new_object(id, scale, kind, species, name, parent, children, geometry, status, applications)
+end
+
+# Each field is converted independently, including when the MTG carries
+# heterogeneous geometry and label columns.
+@inline function _new_object(id, scale, kind, species, name, parent, children, geometry, status, applications)
     return Object(
         ObjectId(id),
         _maybe_symbol(scale),
@@ -1668,16 +1674,11 @@ function add_organ!(
         _mtg_birth_attributes(edits, attributes))
     try
         new_object_id = _register_mtg_object_identity!(adapter, node)
-        object = Object(
-            new_object_id;
-            scale=adapter.scale(node),
-            kind=isnothing(kind) ? _mtg_birth_attribute(adapter.kind, node, edits) : kind,
-            species=isnothing(species) ? _mtg_birth_attribute(adapter.species, node, edits) : species,
-            name=isnothing(name) ? _mtg_birth_attribute(adapter.name, node, edits) : name,
-            parent=parent_id,
-            geometry=_mtg_birth_attribute(adapter.geometry, node, edits),
-            status=status,
-        )
+        object = _new_object(new_object_id, adapter.scale(node),
+            isnothing(kind) ? _mtg_birth_attribute(adapter.kind, node, edits) : kind,
+            isnothing(species) ? _mtg_birth_attribute(adapter.species, node, edits) : species,
+            isnothing(name) ? _mtg_birth_attribute(adapter.name, node, edits) : name,
+            parent_id, (), _mtg_birth_attribute(adapter.geometry, node, edits), status, ())
         registered = register_object!(model, object)
         adapter.max_node_id[] = max(adapter.max_node_id[], node_id)
         return _with_registered_status(identity, model.registry.objects.catalog, registered.status)::Status
