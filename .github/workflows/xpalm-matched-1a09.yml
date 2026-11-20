@@ -7,6 +7,7 @@ permissions:
   contents: read
 jobs:
   compare:
+    if: ${{ !startsWith(github.event.head_commit.message, 'Interleave ' ) }}
     strategy:
       fail-fast: false
       matrix:

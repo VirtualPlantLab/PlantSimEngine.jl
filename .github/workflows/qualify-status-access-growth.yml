@@ -6,6 +6,7 @@ permissions:
   contents: read
 jobs:
   growth:
+    if: ${{ !startsWith(github.event.head_commit.message, 'Interleave ' ) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:

@@ -120,55 +120,62 @@ def previous_linux_check(science, cpu, julia_commit):
 
 
 provenance = {}
-# Independent scientific observations for the original and revised XPalm.
-# Generate a second Linux witness from main's two existing warm trajectories.
-reference_path = recipe / ("modern-independent-mac.json" if scenario == "modern" else "reference.json")
-if scenario == "modern":
-    assert digest(reference_path) == "975b70696fbfa690e8da26a5a1bb3ad40c11d89c25d7627079e2f6f85561b810"
-reference = json.loads(reference_path.read_text())
-assert len(reference["object_counts"]) == 4161
-assert reference["growth_days"] + reference["ordinary_days"] == 4160
-assert reference["objects"] == reference["object_counts"][-1]
-reference_digest = digest(reference_path)
-reports = {}
-for role, revision in revisions.items():
-    run_role(role, revision, reference_path)
-    assert digest(reference_path) == reference_digest
-    reports[role] = json.loads((results / f"{role}.json").read_text())
-assert len({p["xpalm_tree"] for p in provenance.values()}) == 1
-anchor = reports["main"]["rows"][0]["science"]
-summary = {"scenario": scenario, "reference_sha256": reference_digest, "revisions": revisions, "xpalm": xpalm_revision, "mtg": "b3b39f5d33543fe2775756782ec1c4de33ba5775", "cpu": reports["main"]["cpu"],
-           "reference_core_equal": anchor["core"] == reference["core"],
-           "reference_companion_equal": anchor["companion_digest"] == reference["companion_digest"],
-           "reference_component_equality": {k: v == reference["components"][k] for k, v in anchor["components"].items()},
-           "arms": {}}
-summary["previous_linux"] = previous_linux_check(anchor, reports["main"]["cpu"], reports["main"]["julia_commit"])
-assert all(summary["reference_component_equality"][k] for k in ("step", "rngs", "topology", "source_topology"))
-linux_reference = json.loads((results / "main-linux-reference.json").read_text())
-assert (linux_reference["pse"], linux_reference["xpalm"], linux_reference["mtg"]) == (revisions["main"], xpalm_revision, mtg_revision)
-assert linux_reference["object_counts"] == reference["object_counts"]
-assert (linux_reference["growth_days"], linux_reference["ordinary_days"]) == (reference["growth_days"], reference["ordinary_days"])
-assert all(anchor[k] == linux_reference[k] for k in anchor)
-summary["linux_reference_sha256"] = digest(results / "main-linux-reference.json")
-for role, report in reports.items():
-    assert (report["cpu"], report["hostname"], report["julia_commit"]) == (
-        reports["main"]["cpu"], reports["main"]["hostname"], reports["main"]["julia_commit"])
-    assert len(report["rows"]) == 8
-    assert all(row["science"] == anchor for row in report["rows"]), f"State, histories, RNG or sharing differ on {role}"
-    full = [r for r in report["rows"] if r["phase"] == "measure" and r["mode"] == "full"]
-    daily = [r for r in report["rows"] if r["phase"] == "measure" and r["mode"] == "daily"]
-    assert len(full) == len(daily) == 3
-    summary["arms"][role] = {
-        "prepare_s": [r["times"]["preparation"]["seconds"] for r in full],
-        "construct_s": [r["times"]["construction"]["seconds"] for r in full],
-        "continuous_s": [r["times"]["execution"]["seconds"] for r in full],
-        "continuous_bytes": [r["times"]["execution"]["bytes"] for r in full],
-        "growth_s": [r["growth_seconds"] for r in daily],
-        "ordinary_s": [r["ordinary_seconds"] for r in daily],
-        "vm_counter_deltas": [{k: r["after"][k] - r["before"][k] for k in r["after"]} for r in full + daily],
-    }
-    assert all(v["swap_in"] == v["swap_out"] == 0 for v in summary["arms"][role]["vm_counter_deltas"])
-    print(role, {k: median(v) for k, v in summary["arms"][role].items() if k != "vm_counter_deltas"})
-(results / "comparison.json").write_text(json.dumps(summary, indent=2) + "\n")
-print(json.dumps(summary, indent=2))
 
+
+def main():
+    # Independent scientific observations for the original and revised XPalm.
+    # Generate a second Linux witness from main's two existing warm trajectories.
+    reference_path = recipe / ("modern-independent-mac.json" if scenario == "modern" else "reference.json")
+    if scenario == "modern":
+        assert digest(reference_path) == "975b70696fbfa690e8da26a5a1bb3ad40c11d89c25d7627079e2f6f85561b810"
+    reference = json.loads(reference_path.read_text())
+    assert len(reference["object_counts"]) == 4161
+    assert reference["growth_days"] + reference["ordinary_days"] == 4160
+    assert reference["objects"] == reference["object_counts"][-1]
+    reference_digest = digest(reference_path)
+    reports = {}
+    for role, revision in revisions.items():
+        run_role(role, revision, reference_path)
+        assert digest(reference_path) == reference_digest
+        reports[role] = json.loads((results / f"{role}.json").read_text())
+    assert len({p["xpalm_tree"] for p in provenance.values()}) == 1
+    anchor = reports["main"]["rows"][0]["science"]
+    summary = {"scenario": scenario, "reference_sha256": reference_digest, "revisions": revisions, "xpalm": xpalm_revision, "mtg": "b3b39f5d33543fe2775756782ec1c4de33ba5775", "cpu": reports["main"]["cpu"],
+               "reference_core_equal": anchor["core"] == reference["core"],
+               "reference_companion_equal": anchor["companion_digest"] == reference["companion_digest"],
+               "reference_component_equality": {k: v == reference["components"][k] for k, v in anchor["components"].items()},
+               "arms": {}}
+    summary["previous_linux"] = previous_linux_check(anchor, reports["main"]["cpu"], reports["main"]["julia_commit"])
+    assert all(summary["reference_component_equality"][k] for k in ("step", "rngs", "topology", "source_topology"))
+    linux_reference = json.loads((results / "main-linux-reference.json").read_text())
+    assert (linux_reference["pse"], linux_reference["xpalm"], linux_reference["mtg"]) == (revisions["main"], xpalm_revision, mtg_revision)
+    assert linux_reference["object_counts"] == reference["object_counts"]
+    assert (linux_reference["growth_days"], linux_reference["ordinary_days"]) == (reference["growth_days"], reference["ordinary_days"])
+    assert all(anchor[k] == linux_reference[k] for k in anchor)
+    summary["linux_reference_sha256"] = digest(results / "main-linux-reference.json")
+    for role, report in reports.items():
+        assert (report["cpu"], report["hostname"], report["julia_commit"]) == (
+            reports["main"]["cpu"], reports["main"]["hostname"], reports["main"]["julia_commit"])
+        assert len(report["rows"]) == 8
+        assert all(row["science"] == anchor for row in report["rows"]), f"State, histories, RNG or sharing differ on {role}"
+        full = [r for r in report["rows"] if r["phase"] == "measure" and r["mode"] == "full"]
+        daily = [r for r in report["rows"] if r["phase"] == "measure" and r["mode"] == "daily"]
+        assert len(full) == len(daily) == 3
+        summary["arms"][role] = {
+            "prepare_s": [r["times"]["preparation"]["seconds"] for r in full],
+            "construct_s": [r["times"]["construction"]["seconds"] for r in full],
+            "continuous_s": [r["times"]["execution"]["seconds"] for r in full],
+            "continuous_bytes": [r["times"]["execution"]["bytes"] for r in full],
+            "growth_s": [r["growth_seconds"] for r in daily],
+            "ordinary_s": [r["ordinary_seconds"] for r in daily],
+            "vm_counter_deltas": [{k: r["after"][k] - r["before"][k] for k in r["after"]} for r in full + daily],
+        }
+        assert all(v["swap_in"] == v["swap_out"] == 0 for v in summary["arms"][role]["vm_counter_deltas"])
+        print(role, {k: median(v) for k, v in summary["arms"][role].items() if k != "vm_counter_deltas"})
+    (results / "comparison.json").write_text(json.dumps(summary, indent=2) + "\n")
+    print(json.dumps(summary, indent=2))
+
+
+
+if __name__ == "__main__":
+    main()

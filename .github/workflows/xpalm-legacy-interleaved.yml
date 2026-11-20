@@ -1,0 +1,47 @@
+name: Interleaved historic XPalm control on one Linux runner
+on:
+  push:
+    branches: [codex/qualify-inline-kernel-ports]
+    paths:
+      - ".ci/xpalm-interleaved/**"
+      - ".github/workflows/xpalm-legacy-interleaved.yml"
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      OPENBLAS_NUM_THREADS: 1
+      OMP_NUM_THREADS: 1
+      JULIA_PKG_PRECOMPILE_AUTO: 0
+      JULIA_NUM_PRECOMPILE_TASKS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PalmStudio/XPalm.jl
+          ref: 5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd
+          path: public-xpalm
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: VEZY/MultiScaleTreeGraph.jl
+          ref: b3b39f5d33543fe2775756782ec1c4de33ba5775
+          path: public-mtg
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.13.3'
+      - name: Alternate eight warmed repetitions for each execution mode and all four engines
+        run: python3 .ci/xpalm-interleaved/run.py legacy
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: interleaved-xpalm-legacy-linux
+          path: ${{ runner.temp }}/xpalm-results/*.json
+          if-no-files-found: warn
+          retention-days: 14
