@@ -125,6 +125,14 @@ after the first step. The multi-object growth tests currently supply these
 types using internal preparation functions. Automatic preparation through
 the public API covers the fixed scenario described above.
 
+For a multi-object app that reads values from other organs, declare what the
+reader needs. For example, `ages=Required(Vector{Real})` with
+`Many(scale=(:Leaf, :Flower), var=:birth, from_status=true)` lets the reader
+use a leaf's `Float64` value and a flower's `Float32` value. Writing
+`ages=Default(Real[])` also asks PSE to make a private copy of the default.
+With Julia 1.13.3 and JuliaC 0.3.12, the safe verifier reports unresolved
+calls in `deepcopy(::Vector{Real})` even when that array starts empty.
+
 If preparation rejects a model, read the reported application or feature
 and check it against this list. If JuliaC's safe verifier rejects a call,
 start with the first unresolved call in its error output. Check the types
