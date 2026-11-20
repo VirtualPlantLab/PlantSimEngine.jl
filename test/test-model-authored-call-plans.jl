@@ -81,8 +81,7 @@ end
     @test only(runtime_plans[:driver]) === resolved
     binding = only(simulation.compiled.call_bindings)
     @test binding.plan === resolved
-    @test PSE._current_call_binding_for_application(simulation.compiled,
-        simulation.compiled.applications_by_id[:driver], binding) === binding
+    @test PSE._current_call_binding_for_retained_view(simulation.compiled, binding) === binding
 
     # Same type, different resolved scope: only the actual runtime declaration
     # may own a binding, even when the current target set happens to overlap.

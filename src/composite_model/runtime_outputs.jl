@@ -816,11 +816,12 @@ end
 end
 
 function _current_call_binding_for_retained_view(compiled::CompiledCompositeModel,
-    binding::CompiledModelCallBinding,
-)
-    return _compiled_application_by_id(compiled,binding.application_id) do application
-        _current_call_binding_for_application(compiled,application,binding)
-    end
+    binding::B,
+) where {B<:CompiledModelCallBinding}
+    current = _current_named_call_binding(compiled, binding.application_id, binding.consumer_id,
+        binding, eltype(binding.callee_object_ids))
+    current isa B || throw(ArgumentError("A retained call no longer has its prepared declaration."))
+    return current::B
 end
 
 @inline function _environment_bindings_match_compiled(
@@ -6439,17 +6440,10 @@ function _current_topology_call_targets(
         _current_environment_binding_owner(model, context.environment_bindings);
         environment_schema=context.environment_bindings.environment_schema,
     )
-    bindings = get(
-        compiled.call_bindings_by_target,
-        (context.application.id, context.object_id),
-        (),
-    )
-    position = findfirst(eachindex(bindings)) do slot
-        binding = bindings[slot]::CompiledModelCallBinding
-        plan = getfield(binding, :plan)::CompiledModelCallPlan
-        return plan.call === name
-    end
-    if isnothing(position)
+    binding = _current_named_call_binding(compiled, context.application.id, context.object_id,
+        cached_targets.binding, keytype(model.registry.objects))
+    if isnothing(binding)
+        bindings = get(compiled.call_bindings_by_target, (context.application.id, context.object_id), ())
         available = Symbol[(item::CompiledModelCallBinding).call for item in bindings]
         error(
             "Application `$(context.application.id)` on object ",
@@ -6457,21 +6451,9 @@ function _current_topology_call_targets(
             "Declared calls: $(available).",
         )
     end
-    # The refreshed catalog owns the declaration, including any new potential
-    # callees. Keep its exact plan type when reading the heterogeneous tuple.
-    return Base.@inline _with_metadata_entry(compiled.scenario_plan.call_plans_by_application,
-        context.application.id) do plans
-        Base.@inline _with_metadata_entry(plans, position) do plan
-            B = CompiledModelCallBinding{typeof(plan),typeof(context.object_id),keytype(model.registry.objects)}
-            binding = bindings[position]::B
-            getfield(binding, :plan) === plan || throw(ArgumentError(
-                "The refreshed hard call belongs to a different declaration.",
-            ))
-            selected = _selected_topology_call_targets(binding, cached_targets, context, name, requested_ids,
-                model, compiled, environment_bindings)
-            consume(selected, args...)
-        end
-    end
+    selected = _selected_topology_call_targets(binding, cached_targets, context, name,
+        requested_ids, model, compiled, environment_bindings)
+    return consume(selected, args...)
 end
 
 function _selected_topology_call_targets(resolved_binding, cached_targets, context, name, requested_ids,

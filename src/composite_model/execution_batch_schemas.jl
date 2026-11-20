@@ -695,33 +695,39 @@ function _execution_batch_type_with_call_schemas(::Type{B}, schemas::NamedTuple)
         fieldtype(B,:environment_provider),fieldtype(B,:output_publication)}
 end
 
-@generated function _current_call_binding_for_application(compiled::CS,
-    application::CompiledModelApplication, binding::B,
-) where {CS<:CompiledCompositeModel,B<:CompiledModelCallBinding}
-    Owner = fieldtype(fieldtype(CS, :scenario_plan), :call_plans_by_application)
-    Entries = fieldtype(Owner, :entries)
-    Plan = fieldtype(B, :plan)
-    CallerId = fieldtype(B, :consumer_id)
-    CalleeId = eltype(fieldtype(B, :callee_object_ids))
+# Resolve the name against the current owner's declarations. A retained view
+# also checks that the resulting binding still fits its original representation.
+@generated function _current_named_call_binding(compiled::CS, application_id::Symbol,
+    object_id::I, ::B, ::Type{J},
+) where {CS<:CompiledCompositeModel,I<:ObjectId,B<:CompiledModelCallBinding,J<:ObjectId}
+    Table = fieldtype(fieldtype(CS, :scenario_plan), :call_plans_by_application)
+    Entries = fieldtype(Table, :entries)
+    name = _prepared_call_name(B)
     branches = Expr[]
-    for (position, application_id) in enumerate(fieldnames(Entries))
-        Plans = fieldtype(Entries, position)
-        index = findfirst(==(Plan), fieldtypes(Plans))
+    for (slot, id) in enumerate(fieldnames(Entries))
+        Plans = fieldtype(Entries, slot)
+        index = findfirst(P -> _prepared_call_plan_name(P) === name, fieldtypes(Plans))
         isnothing(index) && continue
-        Bindings = Tuple{[CompiledModelCallBinding{T,CallerId,CalleeId} for T in fieldtypes(Plans)]...}
+        Plan = fieldtype(Plans, index)
+        Binding = CompiledModelCallBinding{Plan,I,J}
+        Bindings = Tuple{[CompiledModelCallBinding{P,I,J} for P in fieldtypes(Plans)]...}
         push!(branches, quote
-            if application_id === $(QuoteNode(application_id))
-                bindings = get(compiled.call_bindings_by_target,
-                    (application_id, binding.consumer_id), ())
+            if application_id === $(QuoteNode(id))
+                bindings = get(compiled.call_bindings_by_target, (application_id, object_id), ())
+                isempty(bindings) && return nothing
                 bindings isa $Bindings || _unprepared_runtime_configuration()
-                return getfield(bindings::$Bindings, $index)::$B
+                binding = getfield(bindings::$Bindings, $index)::$Binding
+                plans = getfield(getfield(compiled.scenario_plan.call_plans_by_application, :entries), $slot)
+                getfield(binding, :plan) === getfield(plans, $index) || throw(ArgumentError(
+                    "The refreshed hard call belongs to a different declaration.",
+                ))
+                return binding
             end
         end)
     end
     return quote
-        application_id = getfield(getfield(application, :plan), :id)::Symbol
         $(branches...)
-        throw(ArgumentError("A retained call no longer has its prepared declaration."))
+        return nothing
     end
 end
 

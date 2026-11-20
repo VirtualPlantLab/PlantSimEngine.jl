@@ -22,7 +22,7 @@ end
 PSE.run!(::Leaf, status, environment, constants, context) = (status.leaf_visits += 1; nothing)
 
 # Real authored bindings: the caller has a Symbol identity, its callees Int IDs.
-function fixture(; transform=identity, outputs=:none)
+function fixture(; transform=identity, outputs=:none, left_selector=Many(scale=:Leaf, application=:leaf))
     capture = Ref{Any}(nothing)
     model = CompositeModel(
         Object(:caller; scale=:Scene, status=Status(caller_visits=0)),
@@ -30,8 +30,7 @@ function fixture(; transform=identity, outputs=:none)
         Object(2; scale=:Leaf, parent=:caller, status=Status(leaf_visits=0));
         applications=(
             ModelSpec(Caller(capture); name=:caller, on=One(id=:caller, scale=:Scene),
-                calls=(left=Many(scale=:Leaf, application=:leaf),
-                    right=Many(scale=:Leaf, application=:leaf))),
+                calls=(left=left_selector, right=Many(scale=:Leaf, application=:leaf))),
             ModelSpec(Leaf(); name=:leaf, on=Many(scale=:Leaf)),
         ))
     model = transform(model)
@@ -58,15 +57,13 @@ end
 
 @testset "caller identity remains independent from the callee schema" begin
     data = fixture()
-    application = data.simulation.compiled.applications_by_id[:caller]
     for calls in (data.left, data.right)
         binding = calls.binding
         @test fieldtype(typeof(binding), :consumer_id) === ObjectId{Symbol}
         @test binding.consumer_id === ObjectId(:caller)
         @test eltype(binding.callee_object_ids) === ObjectId
         @test all(id -> id isa ObjectId{Int}, binding.callee_object_ids)
-        @test PSE._current_call_binding_for_application(data.simulation.compiled,
-            application, binding) === binding
+        @test PSE._current_call_binding_for_retained_view(data.simulation.compiled, binding) === binding
         @test PSE._prepared_call_mode(typeof(binding)) === :manual
         @test PSE._prepared_call_name(typeof(binding)) in (:left, :right)
     end
@@ -180,6 +177,7 @@ function with_finite_registry(model)
 end
 current_target(simulation) = only(only(only(simulation.execution_plan.groups).batches).targets)
 view_ids(values) = [target.object_id for target in values]
+
 live_state(model) = Dict(object.id => deepcopy(NamedTuple(object.status)) for object in model_objects(model))
 stream_values(simulation) = Dict(key => collect(stream) for (key, stream) in outputs(simulation))
 
@@ -209,6 +207,25 @@ function publish_current_left!(data)
     return context
 end
 
+@testset "an explicitly selected call follows the current declaration after a forced refresh" begin
+    select_leaf(id) = Many(id=id, within=SceneScope(), application=:leaf)
+    data = fixture(; left_selector=select_leaf(1))
+    context = data.target.context
+    @test view_ids(call_targets(context, :left; objects=(1,))) == [ObjectId(1)]
+
+    specification = data.model.applications[1]
+    data.model.applications[1] = ModelSpec(PSE.model_(specification); name=:caller,
+        on=One(id=:caller, scale=:Scene),
+        calls=(left=select_leaf(2), right=Many(scale=:Leaf, application=:leaf)))
+    current = Advanced.refresh_bindings!(data.model; force=true)
+    @test current !== data.simulation.compiled
+    @test typeof(current) === typeof(data.simulation.compiled)
+    selected = call_targets(context, :left; objects=(2,))
+    @test view_ids(selected) == [ObjectId(2)]
+    @test selected.binding.plan === current.call_bindings_by_target[(:caller, ObjectId(:caller))][1].plan
+    @test_throws "does not resolve requested object" call_targets(context, :left; objects=(1,))
+end
+
 @testset "closed memberships use the global future identity schema" begin
     data = fixture(; transform=with_finite_registry)
     I = Union{ObjectId{Symbol},ObjectId{Int}}
@@ -221,8 +238,7 @@ end
     for calls in (data.left, data.right)
         @test fieldtype(typeof(calls.binding), :consumer_id) === ObjectId{Symbol}
         @test eltype(calls.binding.callee_object_ids) === I
-        @test PSE._current_call_binding_for_application(data.simulation.compiled,
-            applications[:caller], calls.binding) === calls.binding
+        @test PSE._current_call_binding_for_retained_view(data.simulation.compiled, calls.binding) === calls.binding
     end
     partial = PSE._partial_model_application(applications[:leaf], ObjectId{Int}[ObjectId(1)])
     @test eltype(partial.target_ids) === I
