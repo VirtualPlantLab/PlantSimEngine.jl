@@ -17,7 +17,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v7
         with:
-          ref: fc7fdec5e3b1287bcb0d520540381988ed7f915f
+          ref: 3d5a1b68627d95d3860cbd248b17c00ed6398bee
           path: subject
           persist-credentials: false
       - uses: actions/checkout@v7
@@ -42,7 +42,7 @@ jobs:
         working-directory: subject
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "fc7fdec5e3b1287bcb0d520540381988ed7f915f"
+          test "$(git rev-parse HEAD)" = "3d5a1b68627d95d3860cbd248b17c00ed6398bee"
           test "$(git -C ../public-mtg rev-parse HEAD)" = "b3b39f5d33543fe2775756782ec1c4de33ba5775"
           echo "49240a69a8378604ec2b34e8844457c6dcfd120f00991404bff05e87733a9d08  ../.ci/xpalm-mixed-routing/src/XPalmLifecycleApp.jl" | sha256sum --check
           julia -C generic --project="$RUNNER_TEMP/status-growth" --startup-file=no -e '
@@ -57,6 +57,7 @@ jobs:
                 include("test/test-model-status-view-cache-admission.jl")
             end
             include("test/test-organ-status-assembly.jl")
+            include("test/test-model-prepared-growth-schemas.jl")
             include("test/integration/native_growth.jl")
             @test !isnothing(PSELocalPalmLeafBirth.TREE_BIRTH)
             const mixed_app = NativeFixtureApps.stage_native_fixture(abspath("../.ci/xpalm-mixed-routing"))
