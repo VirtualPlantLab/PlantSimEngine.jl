@@ -3098,13 +3098,7 @@ function _compile_consumer_input_recipe!(
             distributed_outputs, consumer_id, plan.source_var, matches,
         )
         isempty(matches) && return nothing
-        if length(matches) > 1
-            error(
-                "Input `$(plan.input)` on application `$(application_id)` for object `$(_object_id_text(consumer_id))` " *
-                "has ambiguous same-object producers: `$([match.application for match in matches])`. " *
-                "Add `inputs=(:$(plan.input) => One(...),)` to disambiguate."
-            )
-        end
+        length(matches) > 1 && _ambiguous_input_producers(plan.input, application_id, consumer_id, matches)
         selected = only(matches)
         sources = ResolvedInputSources(
             _input_binding_source_ids(model.registry.objects, [consumer_id]),
@@ -3126,6 +3120,18 @@ _final_inferred_output_plans(
     variable,
     matches,
 ) = matches
+
+function _ambiguous_input_producers(input::Symbol, application::Symbol, object::ObjectId, matches)
+    io = IOBuffer()
+    print(io, "Input `", String(input), "` on application `", String(application), "` for object `",
+        _object_id_text(object), "` has ambiguous same-object producers: ")
+    for (i, candidate) in enumerate(matches)
+        i == 1 || print(io, ", ")
+        print(io, "`", String(candidate.application::Symbol), "`")
+    end
+    print(io, ". Add `inputs=(:", String(input), " => One(...),)` to disambiguate.")
+    error(String(take!(io)))
+end
 
 function _final_inferred_output_plans(
     distributed_outputs::CompiledDistributedOutputs,
@@ -5951,14 +5957,14 @@ function _validate_model_writer_groups!(writer_groups, applications_by_id)
                         union!(labels, Base.@inline _with_metadata_entry(
                             _application_match_labels, applications_by_id, previous_id))
                     end
-                    previous_labels = join(sort!([String(label) for label in labels]), ", ")
-                    error(
-                        "Ambiguous canonical writers for variable `$(variable)` on object ",
-                        "`$(_object_id_text(object_id))`. ",
-                        "applications. Application `$(application.id)` must declare ",
-                        "`Updates(:$(variable); after=...)` matching one of the previous writers ",
-                        "`$(previous_labels)`."
-                    )
+                    io = IOBuffer()
+                    print(io, "Ambiguous canonical writers for variable `", String(variable),
+                        "` on object `", _object_id_text(object_id), "`. Application `",
+                        String(application.id), "` must declare `Updates(:", String(variable),
+                        "; after=...)` matching one of the previous writers `")
+                    join(io, sort!([String(label) for label in labels]), ", ")
+                    print(io, "`.")
+                    error(String(take!(io)))
                 end
                 if !isempty(previous) &&
                    !_updates_after_previous_writer(application.spec, variable, (last(previous),))
@@ -6754,15 +6760,17 @@ Base.@noinline function _status_reference_directory(::Type{T}, cells::Vector{Uni
     return Base._new_NamedTuple(T, Tuple(cells))
 end
 
+function _invalid_object_status(id::ObjectId, type_name::Symbol)
+    error("Model object `", _object_id_text(id), "` uses model applications but its status has type `",
+        String(type_name), "`. Use `Status(...)` or leave status as `nothing`.")
+end
+
 function _model_object_status_for_preparation(
     model::CompositeModel,
     object_id::ObjectId,
 )
     status = model_status(model, object_id)
-    (isnothing(status) || status isa Status) || error(
-        "Model object `$(_object_id_text(object_id))` uses model applications but its status has type " *
-        "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
-    )
+    (isnothing(status) || status isa Status) || _invalid_object_status(object_id, nameof(typeof(status)))
     return status
 end
 
@@ -6864,10 +6872,7 @@ end
         replacement = Base.@inline _new_prepared_status(S, nothing)
         status = _replace_model_object_status!(model, object, replacement)
     end
-    status isa Status || error(
-        "Model object `$(_object_id_text(object_id))` uses model applications but its status has type ",
-        "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
-    )
+    status isa Status || _invalid_object_status(object_id, nameof(typeof(status)))
     status isa S || throw(ArgumentError(
         "The status schema is outside the prepared object family catalog.",
     ))
@@ -6954,7 +6959,7 @@ function _validate_required_model_output_destinations!(
     model::CompositeModel,
     resolved_destinations,
 )
-    missing = String[]
+    details = nothing
     for resolved in resolved_destinations
         for destination_id in resolved.destination_ids
             for (variable_, declaration) in pairs(resolved.declarations)
@@ -6971,20 +6976,21 @@ function _validate_required_model_output_destinations!(
                     ))
                     continue
                 end
-                push!(missing,
-                    "`$(resolved.plan.application_id).$(resolved.plan.group)` requires " *
-                    "`$(variable)` on destination object `$(_object_id_text(destination_id))`")
+                if isnothing(details)
+                    details = IOBuffer()
+                    print(details, "Missing required distributed-output destination variable(s): ")
+                else
+                    print(details, "; ")
+                end
+                print(details, '`', String(resolved.plan.application_id), '.', String(resolved.plan.group),
+                    "` requires `", String(variable), "` on destination object `", _object_id_text(destination_id), '`')
             end
         end
     end
-    isempty(missing) && return nothing
-    details = join(missing, "; ")
-    error(
-        "Missing required distributed-output destination variable(s): ",
-        details,
-        ". Add the variable to each destination `Status` or declare it with ",
-        "`Distributed(Default(value))` in the model's `outputs_`.",
-    )
+    isnothing(details) && return nothing
+    print(details, ". Add the variable to each destination `Status` or declare it with ",
+        "`Distributed(Default(value))` in the model's `outputs_`.")
+    error(String(take!(details)))
 end
 
 function _validate_model_output_destination_statuses!(
@@ -6995,11 +7001,10 @@ function _validate_model_output_destination_statuses!(
         for destination_id in resolved.destination_ids
             status = _model_object(model, destination_id).status
             (isnothing(status) || status isa Status) && continue
-            error(
-                "Output destination `$(resolved.plan.application_id).$(resolved.plan.group)` " *
-                "selected object `$(_object_id_text(destination_id))` with status type " *
-                "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`.",
-            )
+            error("Output destination `", String(resolved.plan.application_id), ".",
+                String(resolved.plan.group), "` selected object `", _object_id_text(destination_id),
+                "` with status type `", String(nameof(typeof(status))),
+                "`. Use `Status(...)` or leave status as `nothing`.")
         end
     end
     return nothing
@@ -9367,8 +9372,8 @@ function _validate_model_input_source!(
     ]
     isempty(status_source_ids) && return nothing
     io = IOBuffer()
-    print(io, "Input binding `", input_sym, "` on application `", application_id,
-        "` for object `", _object_id_text(consumer_id), "` reads `", source_var, "` from objects `[")
+    print(io, "Input binding `", String(input_sym), "` on application `", String(application_id),
+        "` for object `", _object_id_text(consumer_id), "` reads `", String(source_var), "` from objects `[")
     for (index, source_id) in pairs(status_source_ids)
         index == 1 || print(io, ", ")
         _print_selector_diagnostic(io, source_id.value, Any[])
@@ -9426,19 +9431,16 @@ function _validate_model_required_inputs!(model::CompositeModel, applications, a
         end
     end
     isempty(missing) && return nothing
-    details = join(
-        [
-            "`$(row.application_id)` on object `$(_object_id_text(row.object_id))` requires `$(row.input)`"
-            for row in missing
-        ],
-        "; ",
-    )
-    error(
-        "Missing required composite-model/object input(s): ",
-        details,
-        ". Provide the variable on object `Status`, add a `ModelSpec(...; inputs=...)` binding, ",
-        "or add an unambiguous same-object producer."
-    )
+    io = IOBuffer()
+    print(io, "Missing required composite-model/object input(s): ")
+    for (index, row) in pairs(missing)
+        index == 1 || print(io, "; ")
+        print(io, "`", String(row.application_id), "` on object `", _object_id_text(row.object_id),
+            "` requires `", String(row.input), "`")
+    end
+    print(io, ". Provide the variable on object `Status`, add a `ModelSpec(...; inputs=...)` binding, ",
+        "or add an unambiguous same-object producer.")
+    error(String(take!(io)))
 end
 
 function _applications_by_object(applications, ::ObjectFamilyStore{I}) where {I<:ObjectId}

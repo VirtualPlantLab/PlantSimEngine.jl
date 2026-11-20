@@ -4631,7 +4631,7 @@ _missing_previous_execution_group(f, ::AbstractVector, application) =
 function _missing_previous_execution_group(f, ::Tuple, application)
     throw(ArgumentError(
         "The prepared execution-group schema has no matching application " *
-        "`$(application.id)` at slot $(application.slot). Prepare its group before execution.",
+        "`$(String(application.id))` at slot $(string(application.slot)). Prepare its group before execution.",
     ))
 end
 
