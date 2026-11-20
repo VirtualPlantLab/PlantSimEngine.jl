@@ -70,6 +70,14 @@ function manual_fixture()
     return (; model, capture)
 end
 
+@testset "diagnostics preserve Julia's spelling of declared names" begin
+    for names in (Symbol[], [:first], [:first, :second],
+        [Symbol("a b"), Symbol(":"), Symbol("'"), Symbol("a\"b"), :énergie])
+        @test PSE._diagnostic_symbol_list(names) == string(names)
+        @test PSE._diagnostic_symbol_list(names; as_tuple=true) == string(Tuple(names))
+    end
+end
+
 @testset "runtime Symbol calls keep finite heterogeneous target branches" begin
     @test_throws ArgumentError cli_name(String[])
     @test_throws ArgumentError cli_name(["a", "b"])
@@ -95,7 +103,7 @@ end
     @test outputs(simulation)[(:target_b, ObjectId(:second), :value)] == [(1.0, 7.0)]
     @test isempty(cli_run(context, ["empty"]; publish=true))
     @test_throws ArgumentError cli_model(context, ["empty"])
-    @test_throws ErrorException cli_targets(context, ["missing"])
+    @test_throws "Declared calls: [:a, :b, :empty]." cli_targets(context, ["missing"])
     @test_throws ErrorException cli_model(context, ["missing"])
     @test_throws ErrorException cli_run(context, ["missing"])
     @test_throws ErrorException cli_run(context, a_args; objects=:second)

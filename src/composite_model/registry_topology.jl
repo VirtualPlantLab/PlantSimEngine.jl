@@ -1205,8 +1205,9 @@ _object_id_text(id::ObjectId) = string(id.value)
 _object_id_text(id::ObjectId{<:Tuple}) = sprint(_show_object_id_element, id.value)
 
 _show_object_id_element(io, value) = show(io, value)
+_show_object_id_element(io, value::Symbol) = _show_quoted_symbol(io, value)
 # Preserve Base's quoted-Symbol spelling without its Any-valued Expr branch.
-function _show_object_id_element(io, value::Symbol)
+function _show_quoted_symbol(io, value::Symbol)
     if value in Base.quoted_syms
         print(io, ":(")
         print(io, value)

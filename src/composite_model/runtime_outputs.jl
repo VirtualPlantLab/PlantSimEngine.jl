@@ -5722,10 +5722,27 @@ end
 @noinline function _missing_named_call(context, name)
     available = Symbol[_with_metadata_entry(targets -> targets.binding.call, context.calls, slot)
         for slot in eachindex(context.calls)]
+    return _missing_named_call(context, name, available)
+end
+
+function _diagnostic_symbol_list(names::Vector{Symbol}; as_tuple=false)
+    isempty(names) && return as_tuple ? "()" : "Symbol[]"
+    io = IOBuffer()
+    print(io, as_tuple ? '(' : '[')
+    for (i, name) in pairs(names)
+        i == firstindex(names) || print(io, ", ")
+        _show_quoted_symbol(io, name)
+    end
+    as_tuple && length(names) == 1 && print(io, ',')
+    print(io, as_tuple ? ')' : ']')
+    return String(take!(io))
+end
+
+@noinline function _missing_named_call(context, name, available)
     error(
         "Application `$(context.application.id)` on object ",
         "`$(_object_id_text(context.object_id))` did not declare call `$(name)`. ",
-        "Declared calls: $(available).",
+        "Declared calls: ", _diagnostic_symbol_list(available), ".",
     )
 end
 
@@ -6183,7 +6200,7 @@ function _prepare_targeted_newborn_targets(
     if !isempty(unsupported_temporal_inputs)
         initializer && error(
             "Initializer `$(name)` target requires unsupported temporal input(s) " *
-            "`$(Tuple(unsupported_temporal_inputs))`; only `PreviousTimeStep` has " *
+            "`$(_diagnostic_symbol_list(unsupported_temporal_inputs; as_tuple=true))`; only `PreviousTimeStep` has " *
             "defined newborn initialization semantics.",
         )
         return nothing
@@ -6384,11 +6401,7 @@ function _current_topology_call_targets(
     if isnothing(binding)
         bindings = get(compiled.call_bindings_by_target, (context.application.id, context.object_id), ())
         available = Symbol[(item::CompiledModelCallBinding).call for item in bindings]
-        error(
-            "Application `$(context.application.id)` on object ",
-            "`$(_object_id_text(context.object_id))` did not declare call `$(name)`. ",
-            "Declared calls: $(available).",
-        )
+        _missing_named_call(context, name, available)
     end
     selected = _selected_topology_call_targets(binding, cached_targets, context, name,
         requested_ids, model, compiled, environment_bindings)
