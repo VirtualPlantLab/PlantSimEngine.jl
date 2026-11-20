@@ -102,6 +102,28 @@ end
     @test PSE.refvalue(newborn, :seed) === PSE.refvalue(given, :seed)
 end
 
+@testset "a failing MTG accessor preserves a descendant it already attached" begin
+    root = MTG.Node(MTG.NodeMTG(:/, :Plant, 1, 1))
+    newborn = Ref{typeof(root)}()
+    tip = Ref{typeof(root)}()
+    function kind(node)
+        MTG.symbol(node) === :Leaf || return :plant
+        @test MTG.parent(node) === root && only(MTG.children(root)) === node
+        newborn[] = node
+        tip[] = MTG.Node(MTG.node_id(node) + 1, node, MTG.NodeMTG(:<, :Tip, 1, 2), (;))
+        throw(ArgumentError("rejected leaf"))
+    end
+    model = CompositeModel(root; kind)
+    @test_throws "rejected leaf" add_organ!(root, model, :+, :Leaf, 2)
+    @test isnothing(MTG.parent(newborn[])) && isempty(MTG.children(newborn[]))
+    @test only(MTG.children(root)) === tip[]
+    @test MTG.parent(tip[]) === root && MTG.link(tip[]) === :+
+    @test isnothing(MTG.get_node(root, MTG.node_id(newborn[])))
+    @test MTG.get_node(root, MTG.node_id(tip[])) === tip[]
+    @test_throws ArgumentError object_id(model, newborn[])
+    @test object_id(model, root) == ObjectId(MTG.node_id(root))
+end
+
 @testset "the initial data grammar has one Status construction path" begin
     payload = Float32[1, 2]
     for source in ((value=3f0, payload=payload), Dict(:value=>3f0, :payload=>payload),
