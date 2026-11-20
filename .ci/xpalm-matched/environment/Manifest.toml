@@ -500,8 +500,7 @@ version = "2026.10.20"
 
 [[deps.MultiScaleTreeGraph]]
 deps = ["AbstractTrees", "Dates", "DelimitedFiles", "Graphs", "MetaGraphsNext", "MutableNamedTuples", "OrderedCollections", "PrettyTables", "Printf", "SHA", "Tables", "XLSX"]
-git-tree-sha1 = "e0a59af35ec574c4c0221a29e70d33e051692e12"
-registries = "General"
+path = "../MultiScaleTreeGraph"
 uuid = "dd4a991b-8a45-4075-bede-262ee62d5583"
 version = "0.16.0"
 

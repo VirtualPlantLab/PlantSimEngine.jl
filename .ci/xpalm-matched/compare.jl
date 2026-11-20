@@ -79,6 +79,7 @@ end
     @test Threads.nthreads(:default) == 1 && Threads.ngcthreads() == 1
     @test realpath(pkgdir(PSE)) == realpath(joinpath(ARMDIR, "..", "PlantSimEngine"))
     @test realpath(pkgdir(R.XPalm)) == realpath(joinpath(ARMDIR, "..", "XPalm"))
+    @test realpath(pkgdir(R.MTG)) == realpath(joinpath(ARMDIR, "..", "MultiScaleTreeGraph"))
     output_dir, role = ARGS
     mkpath(output_dir)
     rows = []

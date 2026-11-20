@@ -22,13 +22,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: PalmStudio/XPalm.jl
-          ref: 5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd
+          ref: f44f728dd68e804ffa6bcb872e5b873ce46bf3b5
           path: public-xpalm
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: VEZY/MultiScaleTreeGraph.jl
+          ref: bcc58a86356d0cbdcafbac721a367e7dcb978fdb
+          path: public-mtg
           persist-credentials: false
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1.13.3'
-      - name: Compare main, historical, and the candidate before and after the status change
+      - name: Compare all four PSE revisions with identical XPalm and MTG sources
         run: python3 .ci/xpalm-matched/run.py
       - uses: actions/upload-artifact@v4
         if: always()
@@ -36,22 +42,4 @@ jobs:
           name: matched-xpalm-linux
           path: ${{ runner.temp }}/xpalm-results/*.json
           if-no-files-found: warn
-          retention-days: 14
-      - name: Check out the original cold observer
-        uses: actions/checkout@v4
-        with:
-          ref: d57383775167beb952e0b45bcd1edc25fc85f620
-          path: cold-tools
-          persist-credentials: false
-          sparse-checkout: |
-            .ci/xpalm-profile
-            .ci/xpalm-matched
-      - name: Trace compilation in a fresh process on the measured candidate
-        run: python3 .ci/xpalm-matched/profile-first-use.py
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: xpalm-first-use-by-phase
-          path: ${{ runner.temp }}/xpalm-cold/
-          if-no-files-found: ignore
           retention-days: 14

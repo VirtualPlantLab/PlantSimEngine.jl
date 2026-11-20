@@ -15,10 +15,10 @@ results.mkdir()
 revisions = {
     "main": "8d1f8484c8ad68cc5da8004209b2062070cac28a",
     "historical": "cd5517551f4cd4cf01504cb312e2b81f6fabe6ba",
-    "before": "bda0b81920c7351c3ec25c2b09f45abdd371e347",
-    "candidate": "f746e9343155f49308d5d9b3a6e2fd51bdcf3ce3",
+    "before": "f746e9343155f49308d5d9b3a6e2fd51bdcf3ce3",
+    "candidate": "3b03f0ab82a80e812a19806ecf3fffe86b569197",
 }
-xpalm_revision = "5795bb0984516830c3ffb6fd1d2ca57f54f9e8cd"
+xpalm_revision = "f44f728dd68e804ffa6bcb872e5b873ce46bf3b5"
 
 
 def run(*args, cwd=None):
@@ -49,11 +49,7 @@ for role, revision in revisions.items():
     arm.mkdir()
     checkout(root, arm / "PlantSimEngine", revision)
     checkout(root / "public-xpalm", arm / "XPalm", xpalm_revision)
-    if role in ("before", "candidate"):
-        patch = recipe / "xpalm-743f.diff"
-        assert digest(patch) == "743f931fbb9d6208a6c46b42b11180fba210b5fb09af58912749002ce675a61f"
-        run("git", "apply", "--check", str(patch), cwd=arm / "XPalm")
-        run("git", "apply", str(patch), cwd=arm / "XPalm")
+    checkout(root / "public-mtg", arm / "MultiScaleTreeGraph", "bcc58a86356d0cbdcafbac721a367e7dcb978fdb")
     env = arm / "environment"
     shutil.copytree(recipe / "environment", env)
     pinned = {n: digest(env / n) for n in ("Project.toml", "Manifest.toml")}
@@ -64,11 +60,13 @@ for role, revision in revisions.items():
     print("::endgroup::", flush=True)
     assert all(digest(env / n) == h for n, h in pinned.items())
     assert not git_text(arm / "PlantSimEngine", "status", "--porcelain", "--untracked-files=no")
+    for pkg in ("XPalm", "MultiScaleTreeGraph"):
+        assert not git_text(arm/pkg, "status", "--porcelain", "--untracked-files=no")
     reports[role] = json.loads((results / f"{role}.json").read_text())
 
 reference = json.loads((recipe / "reference.json").read_text())
 anchor = reports["main"]["rows"][0]["science"]
-summary = {"revisions": revisions, "xpalm": xpalm_revision, "cpu": reports["main"]["cpu"],
+summary = {"revisions": revisions, "xpalm": xpalm_revision, "mtg": "bcc58a86356d0cbdcafbac721a367e7dcb978fdb", "cpu": reports["main"]["cpu"],
            "mac_core_equal": anchor["core"] == reference["core"],
            "mac_companion_equal": anchor["companion_digest"] == reference["companion_digest"],
            "mac_component_equality": {k: v == reference["components"][k] for k, v in anchor["components"].items()},

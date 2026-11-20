@@ -9,6 +9,7 @@ PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 
 [sources]
+MultiScaleTreeGraph = {path = "../MultiScaleTreeGraph"}
 XPalm = {path = "../XPalm"}
 PlantSimEngine = {path = "../PlantSimEngine"}
 
