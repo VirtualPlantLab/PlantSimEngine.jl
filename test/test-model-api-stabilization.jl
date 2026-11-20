@@ -831,6 +831,11 @@ end
     )
     Advanced.refresh_environment_bindings!(model)
     revision = Advanced.environment_revision(model)
+    tree = model_object(model, :tree)
+    @test_throws ArgumentError PlantSimEngine._update_object_geometry!(model, tree, copy(original), replacement)
+    @test geometry(tree) === original
+    @test isempty(Advanced.lifecycle_delta(model).moved)
+    @test Advanced.environment_revision(model) == revision
     move_object!(model, :tree, replacement)
     event = only(Advanced.lifecycle_delta(model).moved)
     @test event.affected_object_ids == (ObjectId(:tree), ObjectId(12), ObjectId(:tip))

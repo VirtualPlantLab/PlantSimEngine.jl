@@ -1664,7 +1664,7 @@ function add_organ!(
         )
         registered = register_object!(model, object)
         adapter.max_node_id[] = max(adapter.max_node_id[], node_id)
-        return registered.status::Status
+        return _with_registered_status(identity, model.registry.objects.catalog, registered.status)::Status
     catch
         _unregister_mtg_object_identity!(adapter, node)
         MultiScaleTreeGraph.delete_node!(node)
@@ -1784,10 +1784,16 @@ end
 function update_geometry!(model::CompositeModel, id, geometry_or_position; invalidate_environment::Bool=true)
     object = _model_object(model, id)
     invalidate_environment || return update_geometry!(object, geometry_or_position)
+    return _update_object_geometry!(model, object, object.geometry, geometry_or_position)
+end
+
+# A caller that has already read the old geometry can preserve its concrete
+# type in the event. Always journal the actual geometry of the live object.
+@inline function _update_object_geometry!(model::CompositeModel, object::Object, old_geometry, geometry_or_position)
     root_id = _index_object_id(model.registry.objects, object.id)
     affected_object_ids = keytype(model.registry.objects)[root_id]
     _append_geometry_inheriting_descendants!(affected_object_ids, model, root_id)
-    old_geometry = object.geometry
+    object.geometry === old_geometry || throw(ArgumentError("The object's geometry changed before the update."))
     object.geometry = geometry_or_position
     push!(model.lifecycle_delta.moved, LifecycleMoveEvent(
         root_id, Tuple(affected_object_ids), old_geometry, geometry_or_position,
