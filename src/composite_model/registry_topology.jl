@@ -1419,7 +1419,8 @@ function _refresh_object_ancestor_ids!(
     ancestors = _append_object_ancestor_id(parent_ancestors, object_id)
     model.registry.ancestor_ids_by_object[object_id] = ancestors
     object = _model_object(model, object_id)
-    for child_id in object.children
+    for raw_child_id in object.children
+        child_id = _index_object_id(model.registry.objects, raw_child_id)
         _refresh_object_ancestor_ids!(
             model,
             child_id,
@@ -1673,60 +1674,42 @@ end
 
 function _remove_child_link!(model::CompositeModel, parent_id, child_id::ObjectId)
     isnothing(parent_id) && return nothing
-    parent_object = _model_object(model, parent_id)
+    parent_object = _model_object(model, _index_object_id(model.registry.objects, parent_id))
     filter!(!=(child_id), parent_object.children)
     return nothing
 end
 
-function _instance_roots_in_subtree(
-    model::CompositeModel,
-    root_id::ObjectId,
-    descendant_ids=_descendant_ids(model, root_id),
-)
+function _mutable_subtree_ids(model::CompositeModel, root_id::ObjectId, operation::Symbol)
+    descendant_ids = _descendant_ids(model, root_id)
+    isempty(model.instances) && return descendant_ids
     subtree_ids = Set(descendant_ids)
-    roots = ObjectId[
-        _instance_root_id(instance) for instance in model.instances
-        if _instance_root_id(instance) in subtree_ids
-    ]
-    return _sort_object_ids!(roots)
-end
-
-function _validate_mutable_object_subtree!(
-    model::CompositeModel,
-    object::Object,
-    operation::Symbol,
-    descendant_ids=_descendant_ids(model, object.id),
-)
-    instance_roots = _instance_roots_in_subtree(
-        model,
-        object.id,
-        descendant_ids,
-    )
-    isempty(instance_roots) && return nothing
+    instance_roots = similar(descendant_ids, 0)
+    for instance in model.instances
+        id = _instance_root_id(instance)
+        id in subtree_ids && push!(instance_roots, _index_object_id(model.registry.objects, id))
+    end
+    isempty(instance_roots) && return descendant_ids
+    _sort_object_ids!(instance_roots)
     error(
-        "Cannot $(operation) object `$(_object_id_text(object.id))` because its subtree contains ",
-        "immutable ObjectInstance root(s) `$([id.value for id in instance_roots])`. ",
+        "Cannot $(operation) object `$(_object_id_text(root_id))` because its subtree contains ",
+        "immutable ObjectInstance root(s) `", join((_object_id_text(id) for id in instance_roots), ", "), "`. ",
         "Mutate ordinary instance descendants instead.",
     )
 end
 
 function remove_object!(model::CompositeModel, id; recursive::Bool=true)
     object = _model_object(model, id)
-    descendant_ids = _descendant_ids(model, object.id)
-    _validate_mutable_object_subtree!(
-        model,
-        object,
-        :remove,
-        descendant_ids,
-    )
+    objects = model.registry.objects
+    root_id = _index_object_id(objects, object.id)
+    descendant_ids = _mutable_subtree_ids(model, root_id, :remove)
     if !recursive && !isempty(object.children)
-        error("Cannot remove object `$(_object_id_text(object.id))` with children unless `recursive=true`.")
+        error("Cannot remove object `$(_object_id_text(root_id))` with children unless `recursive=true`.")
     end
     snapshots = LifecycleObjectSnapshot[
         _lifecycle_object_snapshot(model, _model_object(model, object_id))
         for object_id in descendant_ids
     ]
-    _remove_child_link!(model, object.parent, object.id)
+    _remove_child_link!(model, object.parent, root_id)
     adapter = model.source_adapter
     for object_id in Iterators.reverse(descendant_ids)
         removed = _model_object(model, object_id)
@@ -1745,48 +1728,42 @@ end
 
 function reparent_object!(model::CompositeModel, id, new_parent)
     object = _model_object(model, id)
-    descendant_ids = _descendant_ids(model, object.id)
-    _validate_mutable_object_subtree!(
-        model,
-        object,
-        :reparent,
-        descendant_ids,
-    )
-    new_parent_id = isnothing(new_parent) ? nothing : ObjectId(new_parent)
-    if !isnothing(new_parent_id)
-        haskey(model.registry.objects, new_parent_id) || error("No model object with id `$(_object_id_text(new_parent_id))`.")
-        new_parent_id == object.id && error(
-            "Cannot reparent object `$(_object_id_text(object.id))` to itself.",
+    objects = model.registry.objects
+    root_id = _index_object_id(objects, object.id)
+    descendant_ids = _mutable_subtree_ids(model, root_id, :reparent)
+    parent = isnothing(new_parent) ? nothing : _model_object(model, new_parent)
+    new_parent_id = if !isnothing(parent)
+        parent_id = _index_object_id(objects, parent.id)
+        parent_id == root_id && error(
+            "Cannot reparent object `$(_object_id_text(root_id))` to itself.",
         )
-        new_parent_id in descendant_ids && error(
-            "Cannot reparent object `$(_object_id_text(object.id))` below its descendant `$(_object_id_text(new_parent_id))`.",
+        parent_id in descendant_ids && error(
+            "Cannot reparent object `$(_object_id_text(root_id))` below its descendant `$(_object_id_text(parent_id))`.",
         )
+        parent_id
     end
-    old_parent_id = object.parent
-    old_ancestors_by_object = Dict{ObjectId,Tuple}(
-        descendant_id => Tuple(
-            _object_ancestor_ids(model.registry, descendant_id),
-        )
-        for descendant_id in descendant_ids
-    )
-    _remove_child_link!(model, old_parent_id, object.id)
+    old_parent_id = isnothing(object.parent) ? nothing : _index_object_id(objects, object.parent)
+    old_ancestors_by_object = Dict{ObjectId,Tuple}()
+    for descendant_id in descendant_ids
+        old_ancestors_by_object[descendant_id] = Tuple(_object_ancestor_ids(model.registry, descendant_id))
+    end
+    _remove_child_link!(model, old_parent_id, root_id)
     object.parent = new_parent_id
-    if !isnothing(new_parent_id)
-        parent_object = _model_object(model, new_parent_id)
-        object.id in parent_object.children || push!(parent_object.children, object.id)
+    if !isnothing(parent)
+        root_id in parent.children || push!(parent.children, root_id)
     end
     parent_ancestors = isnothing(new_parent_id) ?
                        ObjectId[] :
                        _object_ancestor_ids(model.registry, new_parent_id)
     _refresh_object_ancestor_ids!(
         model,
-        object.id,
+        root_id,
         parent_ancestors,
     )
     push!(
         model.lifecycle_delta.reparented,
         LifecycleReparentEvent(
-            object.id,
+            root_id,
             Tuple(descendant_ids),
             old_parent_id,
             new_parent_id,
@@ -1803,25 +1780,16 @@ end
 
 function update_geometry!(model::CompositeModel, id, geometry_or_position; invalidate_environment::Bool=true)
     object = _model_object(model, id)
+    invalidate_environment || return update_geometry!(object, geometry_or_position)
+    root_id = _index_object_id(model.registry.objects, object.id)
+    affected_object_ids = keytype(model.registry.objects)[root_id]
+    _append_geometry_inheriting_descendants!(affected_object_ids, model, root_id)
     old_geometry = object.geometry
-    affected_object_ids = ObjectId[object.id]
-    invalidate_environment && append!(
-        affected_object_ids,
-        _geometry_inheriting_descendants(model, object.id),
-    )
     object.geometry = geometry_or_position
-    if invalidate_environment
-        push!(
-            model.lifecycle_delta.moved,
-            LifecycleMoveEvent(
-                object.id,
-                Tuple(affected_object_ids),
-                old_geometry,
-                geometry_or_position,
-            ),
-        )
-        _mark_environment_bindings_dirty!(model, affected_object_ids)
-    end
+    push!(model.lifecycle_delta.moved, LifecycleMoveEvent(
+        root_id, Tuple(affected_object_ids), old_geometry, geometry_or_position,
+    ))
+    _mark_environment_bindings_dirty!(model, affected_object_ids)
     return object
 end
 
@@ -1853,13 +1821,13 @@ _geometry_bounds(_) = nothing
 bounds(object::Object) = _geometry_bounds(geometry(object))
 bounds(status::Status) = _geometry_bounds(geometry(status))
 
-function _geometry_inheriting_descendants(model::CompositeModel, root_id::ObjectId)
-    ids = ObjectId[]
-    for child_id in _model_object(model, root_id).children
+function _append_geometry_inheriting_descendants!(ids, model::CompositeModel, root_id::ObjectId)
+    for raw_child_id in _model_object(model, root_id).children
+        child_id = _index_object_id(model.registry.objects, raw_child_id)
         child = _model_object(model, child_id)
         isnothing(geometry(child)) || continue
         push!(ids, child_id)
-        append!(ids, _geometry_inheriting_descendants(model, child_id))
+        _append_geometry_inheriting_descendants!(ids, model, child_id)
     end
     return ids
 end

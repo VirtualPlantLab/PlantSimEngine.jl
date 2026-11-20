@@ -819,6 +819,43 @@ end
     @test Advanced.compiled_bindings(model).scenario_plan === scenario_plan
 end
 
+@testset "moves journal the shared geometry of a mixed-id subtree" begin
+    original = [1.0]
+    replacement = [2.0]
+    model = CompositeModel(
+        Object(:tree; geometry=original),
+        Object(12; parent=:tree),
+        Object(:tip; parent=12),
+        Object(13; parent=:tree, geometry=(x=0,)),
+        Object(:other_tip; parent=13),
+    )
+    Advanced.refresh_environment_bindings!(model)
+    revision = Advanced.environment_revision(model)
+    move_object!(model, :tree, replacement)
+    event = only(Advanced.lifecycle_delta(model).moved)
+    @test event.affected_object_ids == (ObjectId(:tree), ObjectId(12), ObjectId(:tip))
+    @test event.old_geometry === original
+    @test event.new_geometry === replacement
+    @test Advanced.environment_revision(model) == revision + 1
+
+    moved = update_geometry!(model, 12, original; invalidate_environment=false)
+    @test moved.geometry === original
+    @test only(Advanced.lifecycle_delta(model).moved) === event
+    @test Advanced.environment_revision(model) == revision + 1
+
+    reparent_object!(model, 12, 13)
+    reparented = only(Advanced.lifecycle_delta(model).reparented)
+    @test reparented.old_ancestors_by_object[ObjectId(:tip)] ==
+          (ObjectId(:tree), ObjectId(12), ObjectId(:tip))
+    @test reparented.new_parent == ObjectId(13)
+    remove_object!(model, 12)
+    removed = Advanced.lifecycle_delta(model).removed
+    @test Tuple(snapshot.id for snapshot in removed) == (ObjectId(12), ObjectId(:tip))
+    @test first(removed).geometry === original
+    @test last(removed).ancestors ==
+          (ObjectId(:tree), ObjectId(13), ObjectId(12), ObjectId(:tip))
+end
+
 @testset "lifecycle delta supports partial cache consumption" begin
     model = CompositeModel(
         Object(:scene; scale=:Scene);
