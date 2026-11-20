@@ -37,4 +37,21 @@ jobs:
           path: ${{ runner.temp }}/xpalm-results/*.json
           if-no-files-found: warn
           retention-days: 14
-
+      - name: Check out the original cold observer
+        uses: actions/checkout@v4
+        with:
+          ref: d57383775167beb952e0b45bcd1edc25fc85f620
+          path: cold-tools
+          persist-credentials: false
+          sparse-checkout: |
+            .ci/xpalm-profile
+            .ci/xpalm-matched
+      - name: Trace compilation in a fresh process on the measured candidate
+        run: python3 .ci/xpalm-matched/profile-first-use.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xpalm-first-use-by-phase
+          path: ${{ runner.temp }}/xpalm-cold/
+          if-no-files-found: ignore
+          retention-days: 14
