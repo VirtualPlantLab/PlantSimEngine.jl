@@ -41,6 +41,14 @@ struct TestWindow <: PlantMeteo.AbstractSamplingWindow end
     @test spec.calls.start === initializer
     @test spec.input_origins === (value=:model_default,)
     @test spec.call_origins === (leaf=:model_default, start=:model_default)
+    update = only(PSE.updates(spec))
+    @test (@inferred PSE._update_variables(update)) === (:trace,)
+    @test (@inferred PSE._update_after(update)) === (:producer,)
+    @test PSE._updates_after_previous_writer(spec, :trace, (:other, :producer))
+    @test !PSE._updates_after_previous_writer(spec, :value, (:producer,))
+    stored = Updates(["trace", "value"], ["producer"])
+    @test PSE._update_variables(stored) == (:trace, :value)
+    @test PSE._update_after(stored) == (:producer,)
 
     # Environment resolution has no authority to reconstruct already-authored
     # dependencies, replace model defaults, or change their origin.

@@ -5889,17 +5889,13 @@ end
 _update_matches_application(label::Symbol, application) =
     label == application.id
 
-function _update_variables(update)
-    return Tuple(Symbol(variable) for variable in getproperty(update, :variables))
-end
+_update_symbols(values::Tuple{Vararg{Symbol}}) = values
+_update_symbols(values) = Tuple(Symbol(value) for value in values)
+_update_variables(update) = _update_symbols(update.variables)
+_update_after(update) = _update_symbols(update.after)
 
-function _update_after(update)
-    return Tuple(Symbol(label) for label in getproperty(update, :after))
-end
-
-function _matching_updates(spec, variable::Symbol)
-    return [update for update in updates(spec) if variable in _update_variables(update)]
-end
+_matching_updates(spec, variable::Symbol) =
+    Iterators.filter(update -> variable in _update_variables(update), updates(spec))
 
 function _update_after_labels(spec, variable::Symbol)
     labels = Symbol[]
@@ -5911,11 +5907,8 @@ function _update_after_labels(spec, variable::Symbol)
 end
 
 function _updates_after_previous_writer(spec, variable::Symbol, previous_application_ids)
-    matching = _matching_updates(spec, variable)
-    isempty(matching) && return false
-    for update in matching
+    for update in _matching_updates(spec, variable)
         after = _update_after(update)
-        isempty(after) && continue
         any(label -> label in previous_application_ids, after) && return true
     end
     return false
