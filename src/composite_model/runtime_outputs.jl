@@ -4251,6 +4251,9 @@ function _extend_execution_target_call_batches_by_prefix!(
                         existing_count = next_count
                     end
                     existing_count == length(current_ids) && return true
+                    # Existing batches own nonempty runs. A singular call can retain
+                    # its one row or rebuild it when the callee changes.
+                    binding.plan.selector isa Union{One,OptionalOne} && return false
                     admission = _call_cohort_admission(application_schema, OpenExecutionCohortSchema())
                     first_new_index = existing_count + 1
                     return _with_execution_batch(application_schema, last(batches)) do destination_batch
@@ -4353,6 +4356,8 @@ function _extend_execution_target_call_batches_for_pure_addition!(
             isempty(changed_ids) && return true
             length(affected_application_ids) == 1 || return nothing
             length(binding.callee_application_ids) == 1 || return nothing
+            # No singular membership contains both the old boundary and a later ID.
+            binding.plan.selector isa Union{One,OptionalOne} && return false
             application_id = only(affected_application_ids)
             return _compiled_application_by_id(compiled, application_id) do application
                 application_schema = _call_batch_schema_for_application(schema, application)
