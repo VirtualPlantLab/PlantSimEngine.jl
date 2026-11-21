@@ -2369,11 +2369,7 @@ function _index_dynamic_input_binding!(
     many_binding_cache,
 )
     binding.origin == :inferred_same_object && return index
-    if _dynamic_input_binding_shares_canonical_sources(
-        model,
-        binding,
-        many_binding_cache,
-    )
+    if _input_binding_shares_canonical_sources(binding, model, many_binding_cache)
         return index
     end
     _index_selector_candidate!(
@@ -3502,6 +3498,12 @@ function _seed_many_input_binding_cache!(binding, cache, model)
         cache.bindings, cache.by_query[key], cache, model)
 end
 
+function _shares_input_source_storage(binding, canonical)
+    return binding.source_ids === canonical.source_ids &&
+           binding.source_application_ids === canonical.source_application_ids &&
+           binding.carrier === canonical.carrier
+end
+
 function _shared_same_rate_many_storage(
     binding::CompiledModelInputBinding,
     canonical::CompiledModelInputBinding,
@@ -3510,33 +3512,19 @@ function _shared_same_rate_many_storage(
     binding.carrier_hint === :ref_vector || return false
     canonical.multiplicity == :many || return false
     canonical.carrier_hint === :ref_vector || return false
-    return binding.source_ids === canonical.source_ids &&
-           binding.source_application_ids ===
-           canonical.source_application_ids &&
-           binding.carrier === canonical.carrier
+    return _shares_input_source_storage(binding, canonical)
 end
 
-@inline function _dynamic_input_binding_shares_canonical_sources(
-    model::CompositeModel, binding, cache::_ManyInputBindingCache,
-)
-    return Base.@inline _with_model_input_binding(_input_binding_shares_many_cache!,
-        cache.bindings, binding, model, cache)
-end
-
-function _input_binding_shares_many_cache!(binding, model, cache)
+function _input_binding_shares_canonical_sources(binding, model, cache)
     binding.multiplicity == :many || return false
     binding.carrier_hint === :ref_vector || return false
     key = _many_binding_share_key(cache, model, binding)
     isnothing(key) && return false
     canonical = get(cache.by_query, key, nothing)
     isnothing(canonical) && return false
-    return Base.@inline _with_model_input_binding(_input_binding_shares_many_sources,
-        cache.bindings, canonical, binding)
-end
-
-function _input_binding_shares_many_sources(canonical, binding)
-    _shared_same_rate_many_storage(binding, canonical) || return false
-    return binding.slot != canonical.slot || binding.consumer_id != canonical.consumer_id
+    _with_model_input_binding(Returns(nothing), cache.bindings, canonical)
+    return _shares_input_source_storage(binding, canonical) &&
+           (binding.slot != canonical.slot || binding.consumer_id != canonical.consumer_id)
 end
 
 function _shared_same_rate_many_binding_indices(bindings, binding)
