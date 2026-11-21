@@ -233,8 +233,9 @@ end
         if prepared
             schema = call_targets(target.context, :a).batch_schema
             compiled = simulation.compiled
-            @test PSE._call_prefix_application(compiled, :leaf_a, schema) === compiled.applications_by_id[:leaf_a]
-            @test_throws ArgumentError PSE._call_prefix_application(compiled, :root, schema)
+            leaf = PSE._with_call_batch_application(identity, compiled, :leaf_a, schema)
+            @test leaf === compiled.applications_by_id[:leaf_a]
+            @test_throws ArgumentError PSE._with_call_batch_application(identity, compiled, :root, schema)
         end
         add_leaves!(data)
         @test extend!(:prefix, target, refreshed_owners(data), simulation) === true
