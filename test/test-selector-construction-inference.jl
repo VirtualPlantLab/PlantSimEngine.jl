@@ -24,3 +24,24 @@ end
     @test scoped.relation === nothing
     @test resolve_object_ids(model, One(id=:leaf)) == [ObjectId(:leaf)]
 end
+
+@testset "Scene-wide and relative dependency selectors share the object's ID type" begin
+    model = PlantSimEngine._with_object_id_domain(CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:east; scale=:Crown, kind=:crown, parent=:scene),
+        Object(:west; scale=:Crown, kind=:crown, parent=:scene),
+    ), ObjectId{Symbol})
+    crowns = Many(scale=:Crown, kind=:crown, id=(:east, :west),
+        within=SceneScope(), process=:light)
+    relative = Many()
+    crown_matcher = PlantSimEngine._compile_selector_matcher(model, crowns)
+    relative_matcher = PlantSimEngine._compile_selector_matcher(model, relative)
+    for context in (ObjectId(:scene), ObjectId(:west))
+        ids = @inferred PlantSimEngine._dependency_object_ids(model, crowns, crown_matcher, context)
+        @test ids == [ObjectId(:east), ObjectId(:west)]
+        own = @inferred PlantSimEngine._dependency_object_ids(model, relative, relative_matcher, context)
+        @test own == [context]
+    end
+    @test_throws "No model object with id" PlantSimEngine._dependency_object_ids(
+        model, crowns, crown_matcher, ObjectId(:absent))
+end

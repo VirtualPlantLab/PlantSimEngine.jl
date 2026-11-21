@@ -6357,10 +6357,10 @@ function _dependency_object_ids(
     return _resolve_object_ids(
         model,
         selector,
-        matcher;
-        context=context,
-        default_to_context=true,
-        default_scope=_default_dependency_scope(model, context),
+        matcher,
+        context,
+        true,
+        _default_dependency_scope(model, context),
     )
 end
 

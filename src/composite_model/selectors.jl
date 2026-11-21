@@ -1457,6 +1457,17 @@ function _resolve_object_ids(
     default_to_context::Bool=false,
     default_scope=nothing,
 )
+    return _resolve_object_ids(model, selector, matcher, context, default_to_context, default_scope)
+end
+
+function _resolve_object_ids(
+    model::CompositeModel,
+    selector::AbstractObjectMultiplicity,
+    matcher::CompiledSelectorMatcher,
+    context,
+    default_to_context::Bool,
+    default_scope,
+)
     relation = isnothing(matcher.relation) ?
                nothing : _compiled_relation_symbol(matcher.relation)
 
@@ -1472,11 +1483,13 @@ function _resolve_object_ids(
     kind = matcher.kind
     species = matcher.species
     requested_id = matcher.id
+    I = keytype(model.registry.objects)
 
     if default_to_context &&
        matcher.defaults_to_context &&
        !isnothing(context)
-        return ObjectId[_object_id_from_context(context)]
+        id = _object_id_from_context(context)
+        return id isa I ? I[id] : ObjectId[id]
     end
 
     indexed = _smallest_indexed_candidates(
@@ -1498,7 +1511,6 @@ function _resolve_object_ids(
     else
         nothing
     end
-    I = keytype(model.registry.objects)
     local_ids = if !isnothing(subtree_root)
         if !(subtree_root isa I) || !haskey(model.registry.objects, subtree_root::I)
             I[]
