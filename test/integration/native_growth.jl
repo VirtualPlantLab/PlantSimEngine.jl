@@ -88,12 +88,14 @@ end
             @test PSEThirtyProducerControl.checkpoint(PSEThirtyProducerControl.STATE, 0)
             @test PSEThirtyProducerControl.main(String[]) == 0
             @test PSEThirtyProducerControl.main(["recover"]) == 0
+            @test PSEThirtyProducerControl.main(["first-leaf"]) == 0
             producer = Compilation.compile(_producer_growth_app;
                 destination=joinpath(directory, "producer"))
             @test isfile(producer.executable)
             # main checks every destination, every sample, and the same cells/streams.
             @test success(`$(producer.executable)`)
             @test success(`$(producer.executable) recover`)
+            @test success(`$(producer.executable) first-leaf`)
         end
     end
 end

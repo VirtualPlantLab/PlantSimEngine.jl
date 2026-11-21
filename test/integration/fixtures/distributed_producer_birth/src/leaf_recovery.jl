@@ -1,7 +1,7 @@
 module LeafRecovery
 import PlantSimEngine as PSE
 using PlantSimEngine: Default, bound_input
-using ..NativePreparation: close_registry, RuntimeTypes, InputTrace, remember!, batch_schema
+using ..NativePreparation: prepare_growth_fixture
 include("raw_status_readers.jl")
 const IDS = (:tag, :sum)
 
@@ -61,34 +61,11 @@ end
 
 ignore(sim) = nothing
 
-function prepare()
-    control = PSE.run!(scene(); steps=0, outputs=:all)
-    result = exercise!(control, ignore)
-    iszero(result) || error("ordinary retry failed at checkpoint $result")
-    observed = RuntimeTypes()
-    trace = InputTrace(observed)
-    env = PSE._collecting_environment_binding_schema()
-    recording = PSE._prepare_simulation!(close_registry(scene()); steps=0, outputs=:all,
-        constants=PSE.Constants(), environment_schema=env, input_binding_storage=trace, status_view_schema=observed)
-    result = exercise!(recording, ignore)
-    iszero(result) || error("recorded retry failed at checkpoint $result")
-    inputs = Vector{Union{observed.inputs...}}()
-    views = PSE.CompiledMetadataTable(NamedTuple{IDS}(map(id -> Vector{Union{observed.views[id]...}}(), IDS)))
-    environment = PSE._freeze_environment_binding_schema(env)
-    fresh() = PSE._prepare_simulation!(close_registry(scene()); steps=0, outputs=:all,
-        constants=PSE.Constants(), environment_schema=environment, input_binding_storage=inputs, status_view_schema=views)
-    batches = Dict(id => DataType[] for id in IDS)
-    function observe(sim)
-        for group in sim.execution_plan.groups, batch in group.batches
-            remember!(batches[batch.application.id], typeof(batch))
-        end
-    end
-    result = exercise!(fresh(), observe)
-    iszero(result) || error("finite retry failed at checkpoint $result")
-    schemas = NamedTuple{IDS}(map(id -> batch_schema(batches[id]), IDS))
-    return PSE._prepare_execution_batch_schemas(fresh(), schemas)
+function check_recovery!(sim, observe)
+    result = exercise!(sim, observe)
+    iszero(result) || error("Leaf recovery failed at checkpoint $result.")
 end
 
-const SIM = prepare()
+const SIM = prepare_growth_fixture(scene, IDS, (check_recovery!,))
 qualify() = Cint(exercise!(SIM, ignore))
 end

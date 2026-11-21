@@ -72,4 +72,49 @@ function batch_schema(types)
     return PSE.PreparedExecutionBatchSchema{Vector{Union{types...}}}()
 end
 
+# Each trajectory starts on a fresh scene. The returned program starts at step
+# zero and admits the input, view and batch types seen along those trajectories.
+function prepare_growth_fixture(make_model, ids, trajectories)
+    ignore(sim) = nothing
+    for advance! in trajectories
+        advance!(PSE.run!(make_model(); steps=0, outputs=:all), ignore)
+    end
+
+    observed = RuntimeTypes()
+    trace = InputTrace(observed)
+    collecting = PSE._collecting_environment_binding_schema()
+    function prepare(environment_schema, input_binding_storage, status_view_schema)
+        return PSE._prepare_simulation!(close_registry(make_model()); steps=0, outputs=:all,
+            constants=PSE.Constants(), environment_schema, input_binding_storage, status_view_schema)
+    end
+    for advance! in trajectories
+        advance!(prepare(collecting, trace, observed), ignore)
+    end
+    isempty(trace) || error("Input prototype was mutated.")
+    all(T -> isconcretetype(T) && T <: PSE.CompiledModelInputBinding, observed.inputs) ||
+        error("Expected concrete input bindings.")
+    inputs = Vector{Union{observed.inputs...}}()
+    views = PSE.CompiledMetadataTable(NamedTuple{ids}(map(ids) do id
+        types = observed.views[id]
+        all(T -> isconcretetype(T) && T <: PSE.CompiledModelStatusView, types) ||
+            error("Expected concrete status views for application $id.")
+        Vector{Union{types...}}()
+    end))
+    environment = PSE._freeze_environment_binding_schema(collecting)
+    fresh() = prepare(environment, inputs, views)
+    batches = Dict(id => DataType[] for id in ids)
+    function observe(sim)
+        sim.compiled.input_bindings isa Vector{eltype(inputs)} || error("Lost finite input owner.")
+        sim.compiled.status_view_schema === views || error("Lost finite view owner.")
+        for group in sim.execution_plan.groups, batch in group.batches
+            remember!(batches[batch.application.id], typeof(batch))
+        end
+    end
+    for advance! in trajectories
+        advance!(fresh(), observe)
+    end
+    schemas = NamedTuple{ids}(map(id -> batch_schema(batches[id]), ids))
+    return PSE._prepare_execution_batch_schemas(fresh(), schemas)
+end
+
 end # module

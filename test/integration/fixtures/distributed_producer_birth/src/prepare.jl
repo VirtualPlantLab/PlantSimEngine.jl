@@ -91,42 +91,9 @@ function advance_host!(state; observe=(_ -> nothing))
 end
 
 function prepare_control()
-    # The public ordinary maintained test is independently executed by the host gate.
-    baseline = state_for(PSE.run!(make_native_producer_model();
-        steps=0, outputs=:all))
-    advance_host!(baseline)
-    observed = RuntimeTypes()
-    input_trace = InputTrace(observed)
-    environment = PSE._collecting_environment_binding_schema()
-    recording = PSE._prepare_simulation!(close_registry(make_native_producer_model());
-        steps=0, outputs=:all, constants=PSE.Constants(), environment_schema=environment,
-        input_binding_storage=input_trace, status_view_schema=observed)
-    advance_host!(state_for(recording))
-    isempty(input_trace) || error("Input prototype was mutated.")
-    all(T -> isconcretetype(T) && T <: PSE.CompiledModelInputBinding, observed.inputs) || error("Invalid actual input evidence.")
-    prototype = Vector{Union{observed.inputs...}}()
-    schema = PSE.CompiledMetadataTable(NamedTuple{APPLICATION_IDS}(map(APPLICATION_IDS) do id
-        types = observed.views[id]
-        all(T -> isconcretetype(T) && T <: PSE.CompiledModelStatusView, types) || error("Invalid actual view evidence.")
-        Vector{Union{types...}}()
-    end))
-    environment = PSE._freeze_environment_binding_schema(environment)
-    prepare() = PSE._prepare_simulation!(close_registry(make_native_producer_model());
-        steps=0, outputs=:all, constants=PSE.Constants(), environment_schema=environment,
-        input_binding_storage=prototype, status_view_schema=schema)
-    finite = prepare()
-    batches = Dict(id => DataType[] for id in APPLICATION_IDS)
-    function observe_batches(sim)
-        sim.compiled.input_bindings isa Vector{eltype(prototype)} || error("Lost finite input owner.")
-        sim.compiled.status_view_schema === schema || error("Lost finite view owner.")
-        for group in sim.execution_plan.groups, batch in group.batches
-            types = batches[batch.application.id]
-            remember!(types, typeof(batch))
-        end
-    end
-    advance_host!(state_for(finite); observe=observe_batches)
-    schemas = NamedTuple{APPLICATION_IDS}(map(id -> batch_schema(batches[id]), APPLICATION_IDS))
-    simulation = PSE._prepare_execution_batch_schemas(prepare(), schemas)
+    advance_producer!(sim, observe) = advance_host!(state_for(sim); observe)
+    simulation = prepare_growth_fixture(make_native_producer_model, APPLICATION_IDS,
+        (advance_producer!, advance_first_destination!))
     state = state_for(simulation)
     checkpoint(state, 0) || error("Final native scene was advanced or changed.")
     return state
