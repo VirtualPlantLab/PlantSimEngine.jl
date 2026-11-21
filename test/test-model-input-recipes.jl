@@ -6,8 +6,7 @@ const PSE = PlantSimEngine
 
 PSE.@process "input_recipe_writer" verbose=false
 PSE.@process "input_recipe_pair_reader" verbose=false
-PSE.@process "input_recipe_aggregate" verbose=false
-PSE.@process "input_recipe_empty" verbose=false
+include("fixtures/raw_status_readers.jl")
 
 struct Writer{T,P} <: AbstractInput_Recipe_WriterModel
     value::T
@@ -39,19 +38,6 @@ function PSE.run!(::InferredReader, status, environment, constants, context)
     status.total = status.x + status.y
     return nothing
 end
-
-struct AggregateReader <: AbstractInput_Recipe_AggregateModel end
-PSE.inputs_(::AggregateReader) = (values=Default(Float64[]),)
-PSE.outputs_(::AggregateReader) = (total=0.0,)
-function PSE.run!(::AggregateReader, status, environment, constants, context)
-    status.total = sum(bound_input(context, :values); init=0.0)
-    return nothing
-end
-
-struct EmptyModel <: AbstractInput_Recipe_EmptyModel end
-PSE.inputs_(::EmptyModel) = NamedTuple()
-PSE.outputs_(::EmptyModel) = NamedTuple()
-PSE.run!(::EmptyModel, status, environment, constants, context) = nothing
 
 function pair_model(; policy=nothing)
     return CompositeModel(Object(0; scale=:Scene), Object(1; scale=:Leaf),
@@ -297,6 +283,216 @@ end
     end
     @test_throws ArgumentError PSE._input_binding_source_ids(closed.registry.objects,
         [ObjectId(:unadmitted_identity_type)])
+end
+
+@testset "Retry a pending leaf after its required writer appears" begin
+    model = CompositeModel(Object(1; scale=:Scene); applications=(
+        ModelSpec(Writer(2f0); name=:source, on=One(id=1)),
+        ModelSpec(Writer(4f0); name=:later, on=Many(scale=:Extra)),
+        ModelSpec(PairReader{Float32}(); name=:reader, on=Many(scale=:Leaf),
+            inputs=(left=One(SceneScope(); id=1, var=:x, application=:source),
+                right=One(SceneScope(); scale=:Extra, var=:y, application=:later))),
+    ))
+    simulation = run!(model; steps=0, outputs=:all)
+    compiled = simulation.compiled
+    reader = compiled.applications_by_id[:reader]
+    root = model_status(model, 1)
+    source = PSE.refvalue(root, :x)
+    leaf = ObjectId(2)
+    register_object!(model, Object(leaf; scale=:Leaf, parent=1))
+    initial_leaf = model_status(model, leaf)
+    for attempt in 1:2
+        @test_throws "Expected exactly one object" PSE.continue!(simulation; steps=1)
+        @test current_step(simulation) == 0
+        @test simulation.compiled === compiled
+        @test isempty(reader.target_ids)
+        @test isempty(get(compiled.applications_by_object, leaf, ()))
+        @test isempty(compiled.input_bindings)
+        @test !haskey(compiled.input_bindings_by_target, (:reader, leaf))
+        @test !haskey(compiled.status_views_by_target, (:reader, leaf))
+        @test model_status(model, leaf) === initial_leaf
+        @test PSE.refvalue(model_status(model, 1), :x) === source
+    end
+    register_object!(model, Object(3; scale=:Extra, parent=1))
+    step!(simulation)
+    @test current_step(simulation) == 1
+    @test reader.target_ids == [leaf]
+    @test only(simulation.compiled.applications_by_object[leaf]).id === :reader
+    current = simulation.compiled
+    bindings = current.input_bindings_by_target[(:reader, leaf)]
+    @test getproperty.(bindings, :input) == [:left, :right]
+    @test all(i -> current.input_bindings[i] === bindings[i], eachindex(bindings))
+    @test bindings[1].carrier === source
+    @test bindings[2].carrier === PSE.refvalue(model_status(model, 3), :y)
+    @test PSE.refvalue(current.status_views_by_target[(:reader, leaf)].status, :left) === source
+    @test model_status(model, leaf).total === 10f0
+end
+
+@testset "A refused carrier leaves no writer or binding to the new leaf" begin
+    function make_scene(populated)
+        objects = Object[Object(1; scale=:Scene)]
+        populated && push!(objects, Object(2; scale=:Leaf, parent=1))
+        return CompositeModel(objects...; applications=(
+            ModelSpec(Writer(2f0); name=:source, on=One(id=1)),
+            ModelSpec(PairReader{Float32}(); name=:reader, on=Many(scale=:Leaf),
+                inputs=(left=One(SceneScope(); id=1, var=:x),
+                    right=One(SceneScope(); id=1, var=:y))),
+        ))
+    end
+    reference = run!(make_scene(true); steps=0, outputs=:none)
+    left = only(b for b in reference.compiled.input_bindings if b.input === :left)
+    model = make_scene(false)
+    sim = PSE._prepare_simulation!(model; steps=0, outputs=:none, constants=PSE.Constants(),
+        input_binding_storage=Vector{typeof(left)}())
+    register_object!(model, Object(2; scale=:Leaf, parent=1))
+    for attempt in 1:2
+        @test_throws MethodError PSE.continue!(sim; steps=0)
+        @test current_step(sim) == 0
+        @test isempty(sim.compiled.input_bindings)
+        @test isempty(sim.compiled.applications_by_id[:reader].target_ids)
+        @test !haskey(sim.compiled.applications_by_object, ObjectId(2))
+        @test !haskey(sim.compiled.status_views_by_target, (:reader, ObjectId(2)))
+        @test isnothing(model_status(model, 2))
+    end
+end
+
+@testset "Healing a valid selection with a missing writer" begin
+    model = CompositeModel(Object(1; scale=:Scene), Object(3; scale=:Extra, kind=:wrong, parent=1);
+        applications=(
+            ModelSpec(Writer(2f0); name=:source, on=One(id=1)),
+            ModelSpec(Writer(4f0); name=:later, on=Many(scale=:Extra, kind=:green)),
+            ModelSpec(PairReader{Float32}(); name=:reader, on=Many(scale=:Leaf),
+                inputs=(left=One(SceneScope(); id=1, var=:x, application=:source),
+                    right=One(SceneScope(); scale=:Extra, var=:y, application=:later))),
+        ))
+    sim = run!(model; steps=0, outputs=:none)
+    register_object!(model, Object(2; scale=:Leaf, parent=1))
+    previous = nothing
+    for attempt in 1:2
+        caught = try
+            PSE.continue!(sim; steps=1)
+            nothing
+        catch err
+            sprint(showerror, err)
+        end
+        @test caught isa String
+        @test !occursin("Ambiguous canonical writers", something(caught, ""))
+        isnothing(previous) || @test caught == previous
+        previous = caught
+        @test isempty(sim.compiled.input_bindings)
+        @test isempty(sim.compiled.applications_by_id[:reader].target_ids)
+        @test !haskey(sim.compiled.applications_by_object, ObjectId(2))
+        @test isnothing(model_status(model, 2))
+        @test current_step(sim) == 0
+    end
+    remove_object!(model, 3)
+    register_object!(model, Object(4; scale=:Extra, kind=:green, parent=1))
+    step!(sim)
+    @test current_step(sim) == 1
+    @test model_status(model, 2).total === 10f0
+    @test length(sim.compiled.input_bindings) == 2
+    @test only(sim.compiled.applications_by_object[ObjectId(2)]).id === :reader
+end
+
+@testset "A refused leaf preserves the existing Many carrier and publication history" begin
+    model = CompositeModel(Object(1; scale=:Scene); applications=(
+        ModelSpec(Writer(2.0); name=:source, on=One(id=1)),
+        ModelSpec(Writer(4.0); name=:later, on=Many(scale=:Extra)),
+        ModelSpec(PairReader{Float64}(); name=:reader, on=Many(scale=:Leaf),
+            inputs=(left=One(SceneScope(); id=1, var=:x, application=:source),
+                right=One(SceneScope(); scale=:Extra, var=:y, application=:later))),
+        ModelSpec(AggregateReader(); name=:sum, on=One(id=1),
+            inputs=(values=Many(scale=:Leaf, within=SceneScope(), application=:reader, var=:total),)),
+    ))
+    sim = run!(model; steps=1, outputs=:all)
+    original = only(sim.compiled.input_bindings)
+    carrier = original.carrier
+    samples = copy(outputs(sim)[(:sum, ObjectId(1), :total)])
+    register_object!(model, Object(2; scale=:Leaf, parent=1))
+    for attempt in 1:2
+        @test_throws "Expected exactly one object" PSE.continue!(sim; steps=1)
+        @test current_step(sim) == 1
+        @test only(sim.compiled.input_bindings) === original
+        @test isempty(original.source_ids)
+        @test isempty(carrier)
+        @test outputs(sim)[(:sum, ObjectId(1), :total)] == samples
+        @test isempty(sim.compiled.applications_by_id[:reader].target_ids)
+        @test isnothing(model_status(model, 2))
+    end
+    register_object!(model, Object(3; scale=:Extra, parent=1))
+    step!(sim)
+    @test current_step(sim) == 2
+    @test original.carrier === carrier
+    @test only(parent(carrier)) === PSE.refvalue(model_status(model, 2), :total)
+    @test original.source_ids == [ObjectId(2)]
+    @test model_status(model, 2).total === 10.0
+    @test model_status(model, 1).total === 10.0
+    @test outputs(sim)[(:sum, ObjectId(1), :total)] == [samples; [(2.0,10.0)]]
+end
+
+
+@testset "Existing raw-status input rejects a new leaf without publishing its membership" begin
+    model = CompositeModel(Object(1; scale=:Scene),
+        Object(2; scale=:Leaf, parent=1, status=Status(x=2.0)); applications=(
+            ModelSpec(EmptyModel(); name=:tag, on=Many(scale=:Leaf)),
+            ModelSpec(AggregateReader(); name=:sum, on=One(id=1),
+                inputs=(values=Many(scale=:Leaf, within=SceneScope(), from_status=true, var=:x),)),
+        ))
+    sim = run!(model; steps=1, outputs=:all)
+    original = only(sim.compiled.input_bindings)
+    old_cell = only(parent(original.carrier))
+    samples = copy(outputs(sim)[(:sum, ObjectId(1), :total)])
+    register_object!(model, Object(3; scale=:Leaf, parent=1, status=Status()))
+    for attempt in 1:2
+        @test_throws "no source `Status` reference is available" PSE.continue!(sim; steps=1)
+        @test current_step(sim) == 1
+        @test sim.compiled.applications_by_id[:tag].target_ids == [ObjectId(2)]
+        @test !haskey(sim.compiled.applications_by_object, ObjectId(3))
+        @test only(sim.compiled.input_bindings) === original
+        @test only(parent(original.carrier)) === old_cell
+        @test original.source_ids == [ObjectId(2)]
+        @test outputs(sim)[(:sum, ObjectId(1), :total)] == samples
+    end
+    remove_object!(model, 3)
+    register_object!(model, Object(4; scale=:Leaf, parent=1, status=Status(x=4.0)))
+    step!(sim)
+    @test current_step(sim) == 2
+    @test model_status(model, 1).total === 6.0
+    @test outputs(sim)[(:sum, ObjectId(1), :total)] == [samples; [(2.0, 6.0)]]
+    new = only(sim.compiled.input_bindings)
+    @test new.source_ids == ObjectId.([2, 4])
+    @test parent(new.carrier)[1] === old_cell
+    @test parent(new.carrier)[2] === PSE.refvalue(model_status(model, 4), :x)
+end
+
+
+@testset "A refused reader keeps conversions pending until its inputs are admitted" begin
+    model = CompositeModel(Object(1; scale=:Scene);
+        type_promotion=Dict(Float64 => Float32), applications=(
+            ModelSpec(Writer(2.0); name=:source, on=One(id=1), output_routing=(x=:stream_only,)),
+            ModelSpec(Writer(4.0); name=:later, on=Many(scale=:Extra)),
+            ModelSpec(PairReader{Float64}(); name=:reader, on=Many(scale=:Leaf),
+                inputs=(left=One(SceneScope(); id=1, var=:x, application=:source),
+                    right=One(SceneScope(); scale=:Extra, var=:y, application=:later))),
+        ))
+    sim = run!(model; steps=0, outputs=:all)
+    register_object!(model, Object(2; scale=:Leaf, parent=1))
+    before = copy(model.status_conversion_records)
+    key = (:stream_only_source_default, :source, ObjectId(1), :x)
+    @test !haskey(before, key)
+    for attempt in 1:2
+        @test_throws "Expected exactly one object" PSE.continue!(sim; steps=1)
+        @test model.status_conversion_records == before
+        @test isempty(sim.compiled.input_bindings)
+        @test isnothing(model_status(model, 2))
+        @test current_step(sim) == 0
+    end
+    register_object!(model, Object(3; scale=:Extra, parent=1))
+    step!(sim)
+    @test current_step(sim) == 1
+    @test model.status_conversion_records[key].effective_type === Float32
+    @test haskey(model.status_conversion_records, (:model_output_default, :reader, ObjectId(2), :total))
+    @test model_status(model, 2).total === 10f0
 end
 
 end

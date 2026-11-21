@@ -167,8 +167,8 @@ end
     register_object!(data.model,Object(:second;scale=:Leaf,parent=:scene))
     @test model_status(data.model,:second) === nothing
     # A valid first reference followed by genuine absence must not append either.
-    @test !PSE._append_stable_many_source_references!(data.model, current,
-        ObjectId[ObjectId(:first), ObjectId(:second)], nothing)
+    @test isnothing(PSE._prepare_stable_many_source_references(data.model, current,
+        ObjectId[ObjectId(:first), ObjectId(:second)], nothing))
     @test parent(current.carrier) === references
     @test current.source_ids === source_ids
     @test isempty(references) && isempty(source_ids)

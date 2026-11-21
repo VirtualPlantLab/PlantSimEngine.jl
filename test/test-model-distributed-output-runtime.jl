@@ -1483,3 +1483,103 @@ end
         end
     end
 end
+
+struct DistributedRuntimeRealWriter <: AbstractDistributed_Runtime_Stateful_WriterModel end
+PlantSimEngine.inputs_(::DistributedRuntimeRealWriter) = NamedTuple()
+PlantSimEngine.outputs_(::DistributedRuntimeRealWriter) = (incident_par=Distributed(Required(Real)),)
+function PlantSimEngine.run!(::DistributedRuntimeRealWriter, status, environment, constants, context)
+    column = output_targets(context, (:incident_par,)).columns.incident_par
+    for index in eachindex(column)
+        column[index] = 100.0 + context.time
+    end
+    return nothing
+end
+
+@testset "The first destination and a widened column retain the actual leaf cells" begin
+    PSE = PlantSimEngine
+    events = DistributedRuntimeEvent[]
+    model = CompositeModel(Object(:scene; scale=:Scene);
+        applications=_distributed_runtime_applications(events),
+        environment=(duration=Hour(1),))
+    sim = run!(model; steps=0, outputs=:all)
+    @test isempty(only(sim.compiled.distributed_outputs.bindings).destination_ids)
+
+    register_object!(model, Object(:leaf_a; scale=:Leaf, parent=:scene))
+    step!(sim)
+    binding = only(sim.compiled.distributed_outputs.bindings)
+    column = binding.columns.incident_par
+    leaf = model_status(model, :leaf_a)
+    @test binding.destination_ids == [ObjectId(:leaf_a)]
+    @test only(parent(column)) === PSE.refvalue(leaf, :incident_par)
+    @test leaf.seen === 10.0
+    @test length(sim.compiled.input_bindings) == 1
+
+    register_object!(model, Object(:leaf_z; scale=:Leaf, parent=:scene))
+    step!(sim)
+    @test binding.columns.incident_par === column
+    @test last(parent(column)) === PSE.refvalue(model_status(model, :leaf_z), :incident_par)
+    @test model_status(model, :leaf_z).seen === 60.0
+    @test outputs(sim)[(:distributed_runtime_writer, ObjectId(:leaf_a), :incident_par)] ==
+        [(1.0, 10.0), (2.0, 20.0)]
+
+    # The canonical manifest admits both precisions. A new Float32 destination
+    # widens the previous homogeneous column while preserving its Float64 cell.
+    supplied = Status(incident_par=0.0)
+    mixed = CompositeModel(Object(:scene; scale=:Scene),
+        Object(:leaf_a; scale=:Leaf, parent=:scene, status=supplied),
+        Object(:sample; scale=:Leaf, parent=:scene, status=Status(incident_par=0f0));
+        applications=(ModelSpec(DistributedRuntimeRealWriter(); name=:writer,
+            on=One(id=:scene), outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope());
+                vars=(:incident_par,)),)),))
+    mixed_sim = run!(mixed; steps=0, outputs=:all)
+    remove_object!(mixed, :sample)
+    step!(mixed_sim)
+    homogeneous = only(mixed_sim.compiled.distributed_outputs.bindings)
+    @test homogeneous.columns.incident_par isa PSE.RefVector{Float64}
+    before = PSE.refvalue(supplied, :incident_par)
+    added = Status(incident_par=0f0)
+    register_object!(mixed, Object(:leaf_z; scale=:Leaf, parent=:scene, status=added))
+    step!(mixed_sim)
+    after = PSE.refvalue(added, :incident_par)
+    group = only(mixed_sim.compiled.distributed_outputs.bindings)
+    @test group.destination_ids == ObjectId.([:leaf_a, :leaf_z])
+    @test parent(group.columns.incident_par)[1] === before
+    @test parent(group.columns.incident_par)[2] === after
+    @test before[] === 102.0 && after[] === 102f0
+    @test only(outputs(mixed_sim)[(:writer, ObjectId(:leaf_z), :incident_par)]) == (2.0, 102f0)
+end
+
+@testset "A rejected first destination can be retried after its reader acquires a source" begin
+    model = CompositeModel(Object(:scene; scale=:Scene),
+        Object(:sample; scale=:Gate, parent=:scene, status=Status(permit=[0.0]));
+        applications=(
+            ModelSpec(DistributedRuntimeStatefulWriterModel(); name=:writer, on=One(id=:scene),
+                outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope()); vars=(:incident_par,)),)),
+            ModelSpec(DistributedRuntimePlantIntegratorModel(); name=:reader, on=Many(scale=:Leaf),
+                inputs=(integrated_incident_par=One(SceneScope(); scale=:Gate, from_status=true, var=:permit),)),
+        ))
+    remove_object!(model, :sample)
+    sim = run!(model; steps=0, outputs=:all)
+    leaf_id = ObjectId(:leaf_a)
+    group = only(sim.compiled.distributed_outputs.bindings)
+    register_object!(model, Object(leaf_id; scale=:Leaf, parent=:scene))
+    initial = model_status(model, leaf_id)
+    for attempt in 1:2
+        @test_throws "Expected exactly one object" step!(sim)
+        @test current_step(sim) == 0
+        @test model_status(model, leaf_id) === initial
+        @test isempty(group.destination_ids)
+        @test isempty(group.columns.incident_par)
+        @test isempty(sim.compiled.input_bindings)
+        @test !haskey(sim.compiled.distributed_outputs.writer_ownership, (leaf_id, :incident_par))
+        @test !haskey(outputs(sim), (:writer, leaf_id, :incident_par))
+    end
+    register_object!(model, Object(:gate; scale=:Gate, parent=:scene, status=Status(permit=[7.0])))
+    step!(sim)
+    @test current_step(sim) == 1
+    @test group.destination_ids == [leaf_id]
+    @test only(parent(group.columns.incident_par)) === PlantSimEngine.refvalue(model_status(model, leaf_id), :incident_par)
+    @test only(sim.compiled.input_bindings).carrier === PlantSimEngine.refvalue(model_status(model, :gate), :permit)
+    @test model_status(model, leaf_id).integrated_total === 7.0
+    @test outputs(sim)[(:writer, leaf_id, :incident_par)] == [(1.0, 101.0)]
+end

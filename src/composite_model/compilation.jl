@@ -3002,6 +3002,27 @@ end
 
 _record_consumer_input_bindings!(::Nothing, args...) = nothing
 
+# Read a proposal over an existing index without touching the committed
+# entries. Used for application membership, source writers and conversions.
+struct _LookupOverlay{B,O}
+    base::B
+    overlay::O
+end
+
+@inline function Base.get(
+    table::_LookupOverlay,
+    key,
+    default,
+)
+    overlay = get(table.overlay, key, nothing)
+    isnothing(overlay) || return overlay
+    return get(table.base, key, default)
+end
+
+@inline Base.setindex!(table::_LookupOverlay, value, key) = setindex!(table.overlay, value, key)
+
+include("lifecycle_input_changes.jl")
+
 struct _AddedConsumerInputBindings{M,C,B,I}
     model::M
     many_binding_cache::C
@@ -3039,7 +3060,7 @@ function _compile_consumer_input_plan!(
             many_binding_cache, model, plan, consumer_id,
         )
         if !isnothing(shared_binding)
-            push!(bindings, shared_binding)
+            _push_shared_many_input!(bindings, shared_binding)
             _runtime_performance_count!(performance, :many_input_binding_precompile_reuses)
             return nothing
         end
@@ -3056,7 +3077,7 @@ function _append_inferred_input_route!(plan, bindings, model, application_id,
 )
     push!(bindings, _materialize_input_route(
         model, application_id, application_process, consumer_id, plan,
-        sources, applications_by_id,
+        sources, applications_by_id, _route_cells(bindings),
     ))
     return nothing
 end
@@ -3451,42 +3472,39 @@ end
     end
 end
 
-function _append_stable_many_source_references!(
+@inline function _staged_stable_source_reference(::Nothing, model, id, variable, ::Type{R}) where {R}
+    return _registered_source_reference(model.registry.objects.catalog, _model_object(model, id).status, variable, R)
+end
+@inline function _staged_stable_source_reference(statuses, model, id, variable, ::Type{R}) where {R}
+    reference = _input_source_cell(statuses, model.registry.objects, id, variable)
+    return reference isa R ? reference::R : nothing
+end
+
+function _prepare_stable_many_source_references(
     model::CompositeModel,
     binding::CompiledModelInputBinding,
     new_source_ids,
-    performance,
+    statuses,
 )
-    _can_append_stable_many_sources(binding) || return false
+    _can_append_stable_many_sources(binding) || return nothing
     existing_references = parent(binding.carrier)
     added_references = eltype(existing_references)[]
     sizehint!(added_references, length(new_source_ids))
     for object_id in new_source_ids
-        reference = _registered_source_reference(
-            model.registry.objects.catalog, _model_object(model, object_id).status,
-            _input_route_source(binding.plan.route), eltype(existing_references),
-        )
-        isnothing(reference) && return false
+        reference = _staged_stable_source_reference(statuses, model, object_id,
+            _input_route_source(binding.plan.route), eltype(existing_references))
+        isnothing(reference) && return nothing
         push!(added_references, reference)
     end
 
-    # Resolve every fallible reference before mutating the vectors shared by
-    # all consumers in this same-rate `Many(...)` group.
-    append!(existing_references, added_references)
-    append!(binding.source_ids, new_source_ids)
-    _runtime_performance_count!(
-        performance,
-        :lifecycle_many_input_binding_direct_appends,
-    )
-    _runtime_performance_count!(
-        performance,
-        :lifecycle_many_input_binding_direct_sources_appended,
-        length(new_source_ids),
-    )
-    return true
+    return CompiledModelInputBinding(binding.plan, binding.consumer_id, new_source_ids,
+        binding.source_application_ids, binding.policy, binding.carrier_hint,
+        typeof(binding.carrier)(added_references))
 end
 
-function _append_added_many_sources!(
+struct _UnchangedManyInput end
+
+function _prepare_added_many_sources(
     model::CompositeModel,
     binding::CompiledModelInputBinding,
     added_ids,
@@ -3494,9 +3512,9 @@ function _append_added_many_sources!(
     applications_by_id,
     distributed_outputs,
     ;
-    performance=nothing,
+    statuses=nothing,
 )
-    binding.multiplicity == :many || return false
+    binding.multiplicity == :many || return nothing
     default_scope = _default_dependency_scope(model, binding.consumer_id)
     matcher = binding.matcher
     matching_matcher = matcher
@@ -3522,7 +3540,7 @@ function _append_added_many_sources!(
         first(_sorted_object_id_position(source_ids, object_id)) ||
             push!(new_source_ids, object_id)
     end
-    isempty(new_source_ids) && return true
+    isempty(new_source_ids) && return _UnchangedManyInput()
     _sort_object_ids!(new_source_ids)
     _filter_many_input_sources_by_writer!(
         new_source_ids,
@@ -3534,28 +3552,24 @@ function _append_added_many_sources!(
         distributed_outputs,
         applications_by_object,
     )
-    isempty(new_source_ids) && return true
+    isempty(new_source_ids) && return _UnchangedManyInput()
 
     # The growth path allocates monotonically increasing IDs. Appending preserves the
     # selector's stable order and, critically, keeps the carrier already installed in
     # the consumer status. Non-monotonic explicit IDs use the general rebuild path.
     if !isempty(binding.source_ids) &&
        !_object_id_isless(last(binding.source_ids), first(new_source_ids))
-        return false
+        return nothing
     end
 
-    _append_stable_many_source_references!(
-        model,
-        binding,
-        new_source_ids,
-        performance,
-    ) && return true
+    direct = _prepare_stable_many_source_references(model, binding, new_source_ids, statuses)
+    isnothing(direct) || return direct
 
-    new_carrier = _input_carrier(model, binding.selector, new_source_ids, _input_route_source(binding.plan.route), binding.plan.reference_types)
-    isnothing(new_carrier) && return false
+    new_carrier = _input_carrier(model, binding.selector, new_source_ids, _input_route_source(binding.plan.route), binding.plan.reference_types, statuses)
+    isnothing(new_carrier) && return nothing
     existing_refs = parent(binding.carrier)
     new_refs = parent(new_carrier)
-    eltype(new_refs) <: eltype(existing_refs) || return false
+    eltype(new_refs) <: eltype(existing_refs) || return nothing
 
     source_application_ids = if _selector_from_status(binding.selector)
         Symbol[]
@@ -3604,13 +3618,29 @@ function _append_added_many_sources!(
         end
     end
 
-    # Resolve every fallible piece before mutating the shared carrier/binding.
-    # Several consumers may share these vectors through `many_binding_cache`.
-    append!(existing_refs, new_refs)
-    append!(binding.source_ids, new_source_ids)
-    empty!(binding.source_application_ids)
-    append!(binding.source_application_ids, source_application_ids)
+    return CompiledModelInputBinding(binding.plan, binding.consumer_id, new_source_ids,
+        source_application_ids, binding.policy, binding.carrier_hint, new_carrier)
+end
+
+function _apply_added_many_sources!(binding, delta, performance)
+    append!(parent(binding.carrier), parent(delta.carrier))
+    append!(binding.source_ids, delta.source_ids)
+    if delta.source_application_ids === binding.source_application_ids
+        _runtime_performance_count!(performance, :lifecycle_many_input_binding_direct_appends)
+        _runtime_performance_count!(performance, :lifecycle_many_input_binding_direct_sources_appended,
+            length(delta.source_ids))
+    else
+        empty!(binding.source_application_ids)
+        append!(binding.source_application_ids, delta.source_application_ids)
+    end
     return true
+end
+
+function _append_added_many_sources!(model, binding, added, by_object, by_id, outputs; performance=nothing)
+    delta = _prepare_added_many_sources(model, binding, added, by_object, by_id, outputs)
+    isnothing(delta) && return false
+    delta isa _UnchangedManyInput && return true
+    return _apply_added_many_sources!(binding, delta, performance)
 end
 
 function _update_structural_many_sources!(
@@ -4682,7 +4712,7 @@ Base.@noinline function _store_rebuilt_input_binding!(
 end
 
 # One existing-binding lifecycle operation; admission precedes this worker.
-function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S) where {B<:CompiledModelInputBinding,S}
+function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S, admissions) where {B<:CompiledModelInputBinding,S}
     (;
         model, input_bindings, input_bindings_by_target, many_binding_cache,
         changed_bindings, rewired_consumer_ids, affected_temporal_keys, previous_temporal_sources,
@@ -4741,7 +4771,13 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
             default_scope,
         ) || return false
     end
-    appended_sources = if force_rebuild
+    prepared = _pending_input_update(admissions, index)
+    appended_sources = if !isnothing(prepared) && first(prepared) === :append && !force_rebuild
+        delta = admissions.bindings[last(prepared)]
+        _apply_added_many_sources!(binding, delta, performance)
+    elseif !isnothing(prepared) && first(prepared) === :unchanged && !force_rebuild
+        true
+    elseif !isnothing(prepared) || force_rebuild
         false
     else
         _append_added_many_sources!(
@@ -4783,18 +4819,22 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
     end
     application = applications_by_id[binding.application_id]
     replacement = similar(input_bindings, 0)
-    _resolve_materialize_input_route!(
-        replacement,
-        model,
-        application.id,
-        application.process,
-        consumer_id,
-        binding.plan,
-        applications_by_object,
-        applications_by_id,
-        nothing,
-        distributed_outputs,
-    )
+    if !isnothing(prepared) && first(prepared) === :replace
+        push!(replacement, admissions.bindings[last(prepared)])
+    else
+        _resolve_materialize_input_route!(
+            replacement,
+            model,
+            application.id,
+            application.process,
+            consumer_id,
+            binding.plan,
+            applications_by_object,
+            applications_by_id,
+            nothing,
+            distributed_outputs,
+        )
+    end
     old_cache_key = _many_binding_share_key(many_binding_cache, model, binding)
     if !isnothing(old_cache_key) &&
        get(many_binding_cache.by_query, old_cache_key, nothing) === binding
@@ -4906,8 +4946,31 @@ function _extend_compiled_scene(
             return nothing
         end
     end
+    added_applications = CompiledModelApplication[]
+    for application_id in new_target_application_ids
+        Base.@inline _with_metadata_entry(applications_by_id, application_id) do application
+            push!(added_applications,
+                _partial_model_application(application, new_targets[application.id]))
+            return nothing
+        end
+    end
+    candidate_binding_indices = Set{Int}()
+    for target_id in added_ids
+        object_id = _index_object_id(model.registry.objects, target_id)
+        _union_selector_candidates!(
+            candidate_binding_indices,
+            compiled.dynamic_input_binding_indices,
+            model,
+            object_id,
+        )
+    end
+    staged = _new_consumer_input_storage(compiled, model, added_applications, added_ids, pure_addition, candidate_binding_indices)
+    before_publish!(outputs, destinations, output_applications=added_applications) =
+        _stage_added_scene_inputs!(compiled, model, added_applications, output_applications,
+            outputs, destinations, staged, performance)
     manual_application_ids = compiled.scenario_plan.manual_application_ids
-    distributed_outputs, changed_distributed_output_target_ids, changed_writers_by_variable =
+    distributed_outputs, changed_distributed_output_target_ids, changed_writers_by_variable = try
+        _validate_model_writers_for_objects!(compiled, added_ids)
         _refresh_model_distributed_outputs(
             model,
             compiled.distributed_outputs,
@@ -4917,8 +4980,12 @@ function _extend_compiled_scene(
             compiled.scenario_plan.distributed_output_plans,
             added_ids,
             new_targets,
-            pure_addition,
+            pure_addition, before_publish!,
         )
+    catch
+        _discard_added_memberships!(compiled, new_targets)
+        rethrow()
+    end
     for (application_id, raw_id) in changed_distributed_output_target_ids
         object_id = _index_object_id(model.registry.objects, raw_id)
         push!(changed_target_ids_seed, (application_id, object_id))
@@ -4931,14 +4998,6 @@ function _extend_compiled_scene(
     )
 
     started_at = _runtime_performance_start(performance)
-    added_applications = CompiledModelApplication[]
-    for application_id in new_target_application_ids
-        Base.@inline _with_metadata_entry(applications_by_id, application_id) do application
-            push!(added_applications,
-                _partial_model_application(application, new_targets[application.id]))
-            return nothing
-        end
-    end
     new_call_bindings, changed_call_target_keys, observed_manual_call_binding_indices_by_callee_target =
         _refresh_scene_call_bindings!(
             model,
@@ -4951,13 +5010,6 @@ function _extend_compiled_scene(
         )
     call_bindings = compiled.call_bindings
     dynamic_call_binding_indices = compiled.dynamic_call_binding_indices
-    _validate_model_writers_for_objects!(compiled, added_ids)
-    _prepare_model_output_statuses!(
-        model,
-        added_applications,
-        applications_by_id;
-        performance=performance,
-    )
     _runtime_performance_finish!(
         performance,
         :call_binding_refresh,
@@ -4977,7 +5029,6 @@ function _extend_compiled_scene(
     processed_many_sources = IdDict{Any,Nothing}()
     previous_shared_many_sources = IdDict{Any,Vector{I}}()
     rebuild_dynamic_input_index = !pure_addition
-    candidate_binding_indices = Set{Int}()
     # Keep one key schema; the inactive alias is never queried as writer evidence.
     writer_rebind_keys = forced_input_binding_keys
     has_writer_rebinds = false
@@ -5003,15 +5054,6 @@ function _extend_compiled_scene(
                 push!(candidate_binding_indices, binding_index)
         end
     end
-    for target_id in added_ids
-        object_id = _index_object_id(model.registry.objects, target_id)
-        _union_selector_candidates!(
-            candidate_binding_indices,
-            compiled.dynamic_input_binding_indices,
-            model,
-            object_id,
-        )
-    end
     _runtime_performance_count!(
         performance,
         :selector_input_binding_candidates,
@@ -5020,6 +5062,7 @@ function _extend_compiled_scene(
     queued_binding_indices = copy(candidate_binding_indices)
     pending_binding_indices = sort!(collect(candidate_binding_indices))
     pending_binding_position = 1
+    admissions = isnothing(staged) ? nothing : staged.existing
     binding_refresh = (;
         model, input_bindings, input_bindings_by_target, many_binding_cache,
         changed_bindings, rewired_consumer_ids, affected_temporal_keys, previous_temporal_sources,
@@ -5034,7 +5077,7 @@ function _extend_compiled_scene(
         raw_binding = input_bindings[index]
         rebuilt = Base.@inline _with_model_input_binding(
             _refresh_existing_scene_input_binding!, input_bindings,
-            raw_binding, index, binding_refresh,
+            raw_binding, index, binding_refresh, admissions,
         )
         rebuild_dynamic_input_index |= rebuilt
     end
@@ -5042,11 +5085,8 @@ function _extend_compiled_scene(
     recorder = _AddedConsumerInputBindings(
         model, many_binding_cache, changed_bindings, input_bindings_by_target,
     )
-    _compile_model_input_bindings!(
-        input_bindings, model, added_applications, manual_application_ids,
-        compiled.scenario_plan.input_recipes_by_application, distributed_outputs,
-        applications_by_object, applications_by_id, many_binding_cache, performance, recorder,
-    )
+    _publish_added_consumer_bindings!(recorder, input_bindings, staged, model,
+        many_binding_cache, previous_binding_count)
     dynamic_input_binding_indices = if rebuild_dynamic_input_index
         many_binding_cache =
             _many_input_binding_cache(model, input_bindings)
@@ -6491,13 +6531,25 @@ end
     end
 end
 
+_route_cells(::Any) = nothing
+_route_cells(bindings::_StagedConsumerBindings) = bindings.statuses
+
+_input_source_cell(::Nothing, objects, id, variable) =
+    _status_ref_or_nothing(_registered_object_status(objects, id), variable)
+function _input_source_cell(statuses, objects, id, variable)
+    recipe = get(statuses.recipes, id, nothing)
+    isnothing(recipe) && return _input_source_cell(nothing, objects, id, variable)
+    name = _input_reference_name(variable)
+    return _status_recipe_has_variable(recipe, name) ? _status_recipe_reference(recipe, name) : nothing
+end
+
 function _input_carrier(
     model::CompositeModel, selector::AbstractObjectMultiplicity,
-    source_ids::AbstractVector{<:ObjectId}, source_var, reference_types::Type{<:Tuple},
+    source_ids::AbstractVector{<:ObjectId}, source_var, reference_types::Type{<:Tuple}, statuses=nothing,
 )
     objects = model.registry.objects
     reference_for = source_id ->
-        _status_ref_or_nothing(_registered_object_status(objects, source_id), source_var)
+        _input_source_cell(statuses, objects, source_id, source_var)
     return _input_reference_carrier(selector, source_ids, reference_for, reference_types)
 end
 
@@ -6522,7 +6574,7 @@ function _stream_only_initial_reference(
     application::CompiledModelApplication,
     model::CompositeModel,
     source_id::ObjectId,
-    source_var::Symbol,
+    source_var::Symbol, conversions=model.status_conversion_records,
 )
     _has_stream_only_output(application, source_var) || return nothing
     return Base.@inline _with_application_variant(application, source_id) do effective_model, ports
@@ -6534,7 +6586,7 @@ function _stream_only_initial_reference(
             application_id=application.id,
             origin=:stream_only_source_default,
             private_copy=true,
-            reuse=true,
+            reuse=true, conversion_records=conversions,
         )
         return Ref(initial)
     end
@@ -6545,7 +6597,7 @@ function _stream_only_initial_reference(
     source_id::ObjectId,
     source_application_ids,
     source_var::Symbol,
-    applications_by_id,
+    applications_by_id, statuses=nothing,
 )
     matching_application_ids = Symbol[
         application_id for application_id in source_application_ids
@@ -6554,13 +6606,11 @@ function _stream_only_initial_reference(
     ]
     if length(matching_application_ids) == 1
         reference = Base.@inline _with_metadata_entry(_stream_only_initial_reference,
-            applications_by_id, only(matching_application_ids), model, source_id, source_var)
+            applications_by_id, only(matching_application_ids), model, source_id, source_var,
+            isnothing(statuses) ? model.status_conversion_records : statuses.conversion_records)
         isnothing(reference) || return reference
     end
-    return _status_ref_or_nothing(
-        _model_object(model, source_id).status,
-        source_var,
-    )
+    return _input_source_cell(statuses, model.registry.objects, source_id, source_var)
 end
 
 function _stream_only_initial_carrier(
@@ -6570,10 +6620,10 @@ function _stream_only_initial_carrier(
     source_application_ids,
     source_var::Symbol,
     applications_by_id,
-    reference_types::Type{<:Tuple},
+    reference_types::Type{<:Tuple}, statuses=nothing,
 )
     reference_for = source_id -> _stream_only_initial_reference(
-        model, source_id, source_application_ids, source_var, applications_by_id,
+        model, source_id, source_application_ids, source_var, applications_by_id, statuses,
     )
     return _input_reference_carrier(selector, source_ids, reference_for, reference_types)
 end
@@ -6904,18 +6954,16 @@ Base.@noinline function _stage_model_output_default!(value, recipe, variable, co
     return nothing
 end
 
-function _prepare_model_output_statuses!(
-    model::CompositeModel,
-    applications,
-    applications_by_id;
-    performance=nothing,
-)
-    isempty(applications) && return model
+function _output_status_preparation(model)
     I = keytype(model.registry.objects)
     recipes = _canonical_status_recipe_storage(model, I)
-    recipe_order = I[]
-    record_conversions = !_no_status_conversion(model.status_conversion)
-    conversion_records = record_conversions ? Dict{Any,Any}() : model.status_conversion_records
+    records = _no_status_conversion(model.status_conversion) ? model.status_conversion_records :
+              _LookupOverlay(model.status_conversion_records, empty(model.status_conversion_records))
+    return (; recipes, recipe_order=I[], conversion_records=records)
+end
+
+function _stage_model_output_statuses!(statuses, model, applications, applications_by_id)
+    (; recipes, recipe_order, conversion_records) = statuses
     for partial in applications
         Base.@inline _with_model_application(applications_by_id, partial) do application
             schemas = _application_default_schemas(application, Val(:outputs))
@@ -6942,16 +6990,21 @@ function _prepare_model_output_statuses!(
             end
         end
     end
-    # Publish each final canonical Status and its conversion records after the
-    # ordered defaults have all been staged, in every lifecycle mode.
-    result = _apply_status_recipes!(
-        model,
-        recipes,
-        recipe_order;
-        performance=performance,
-    )
-    record_conversions && merge!(model.status_conversion_records, conversion_records)
-    return result
+    return statuses
+end
+
+function _commit_model_output_statuses!(model, statuses; performance=nothing)
+    _apply_status_recipes!(model, statuses.recipes, statuses.recipe_order; performance)
+    records = statuses.conversion_records
+    _no_status_conversion(model.status_conversion) || merge!(model.status_conversion_records, records.overlay)
+    return model
+end
+
+function _prepare_model_output_statuses!(model::CompositeModel, applications, applications_by_id; performance=nothing)
+    isempty(applications) && return model
+    statuses = _output_status_preparation(model)
+    _stage_model_output_statuses!(statuses, model, applications, applications_by_id)
+    return _commit_model_output_statuses!(model, statuses; performance)
 end
 
 function _validate_required_model_output_destinations!(
@@ -7009,7 +7062,7 @@ function _validate_model_output_destination_statuses!(
     return nothing
 end
 
-function _stage_model_output_destination_statuses!(model, record, recipes, recipe_order)
+function _stage_model_output_destination_statuses!(model, record, recipes, recipe_order, conversion_records=model.status_conversion_records)
     for destination_id in record.destination_ids
         preparation = _status_preparation_for_object!(
             recipes,
@@ -7036,7 +7089,7 @@ function _stage_model_output_destination_statuses!(model, record, recipes, recip
                 variable,
                 _input_default(declaration);
                 application_id=record.plan.application_id,
-                origin=:distributed_output_default,
+                origin=:distributed_output_default, conversion_records,
             )
         end
     end
@@ -7304,7 +7357,7 @@ function _compile_model_distributed_outputs(
     applications,
     applications_by_id,
     manual_application_ids,
-    plans::CompiledDistributedOutputPlans,
+    plans::CompiledDistributedOutputPlans, before_publish! = nothing,
 )
     resolved = _resolve_model_output_destinations(
         model,
@@ -7323,8 +7376,14 @@ function _compile_model_distributed_outputs(
     # destination state behind.
     _validate_model_output_destination_statuses!(model, resolved)
     _validate_required_model_output_destinations!(model, resolved)
-    _prepare_model_output_statuses!(model, applications, applications_by_id)
-    _prepare_model_output_destination_statuses!(model, resolved)
+    if isnothing(before_publish!)
+        _prepare_model_output_statuses!(model, applications, applications_by_id)
+        _prepare_model_output_destination_statuses!(model, resolved)
+    else
+        # Input source resolution consults only the ordered writer ownership.
+        prospective = CompiledDistributedOutputs((), nothing, ownership, nothing)
+        before_publish!(prospective, resolved, applications)
+    end
     bindings, by_execution_target =
         _compile_model_output_destination_bindings(model, resolved, plans)
     return CompiledDistributedOutputs(
@@ -7371,8 +7430,9 @@ function _refresh_model_distributed_outputs(
     plans,
     added_ids,
     new_targets,
-    pure_addition,
+    pure_addition, before_publish!,
 )
+    before_publish!(previous, ())
     return previous, _object_key_set(Tuple{Symbol,keytype(model.registry.objects)}), nothing
 end
 
@@ -7411,7 +7471,7 @@ end
     for binding in Base.uniontypes(B)
         C = fieldtype(binding, :columns)
         IDs = fieldtype(binding, :destination_ids)
-        records = Union{records,NamedTuple{(:binding, :destination_ids, :columns),Tuple{binding,IDs,C}}}
+        records = Union{records,NamedTuple{(:binding, :destination_ids, :columns, :replace_columns),Tuple{binding,IDs,C,Bool}}}
     end
     return :(Vector{$records}())
 end
@@ -7419,7 +7479,7 @@ end
 # The binding and its columns are one correlated alternative from the existing
 # staging vector. Admit them together before constructing that exact record.
 @generated function _append_model_output_column_addition!(
-    additions::Vector{A}, binding, destination_ids, columns,
+    additions::Vector{A}, binding, destination_ids, columns, replace_columns::Bool,
 ) where {A}
     branches = Expr[]
     for record in Base.uniontypes(A)
@@ -7427,7 +7487,7 @@ end
             fieldtype(record, :columns)
         push!(branches, quote
             if binding isa $B && destination_ids isa $IDs && columns isa $C
-                push!(additions, $record((binding::$B, destination_ids::$IDs, columns::$C)))
+                push!(additions, $record((binding::$B, destination_ids::$IDs, columns::$C, replace_columns)))
                 return nothing
             end
         end)
@@ -7438,6 +7498,15 @@ end
     end
 end
 
+function _can_append_model_output_columns(existing, additions)
+    for name in keys(existing)
+        references = parent(getproperty(additions, name))
+        R = eltype(parent(getproperty(existing, name)))
+        eltype(references) <: R || all(ref -> ref isa R, references) || return false
+    end
+    return true
+end
+
 function _incremental_distributed_output_addition!(
     model::CompositeModel,
     previous::CompiledDistributedOutputs,
@@ -7446,7 +7515,7 @@ function _incremental_distributed_output_addition!(
     manual_application_ids,
     plans::CompiledDistributedOutputPlans,
     added_ids,
-    new_targets,
+    new_targets, before_publish!,
 )
     for (application_id, object_ids) in new_targets
         isempty(object_ids) && continue
@@ -7475,7 +7544,10 @@ function _incremental_distributed_output_addition!(
     end
     _record_destination_writers!(staged_ownership, previous, resolved_additions)
     _validate_compiled_writer_ownership!(staged_ownership, applications_by_id)
-    _prepare_model_output_destination_statuses!(model, resolved_additions)
+    prospective = CompiledDistributedOutputs(previous.bindings, previous.by_execution_target,
+        _LookupOverlay(previous.writer_ownership, staged_ownership),
+        previous.destination_ids_by_application_variable)
+    before_publish!(prospective, resolved_additions)
 
     column_additions = _model_output_column_additions(previous.bindings)
     for resolved in resolved_additions
@@ -7485,15 +7557,14 @@ function _incremental_distributed_output_addition!(
         columns = _model_output_destination_columns(
             model, resolved.plan, resolved.destination_ids,
         )
-        for variable in binding.plan.variable_names
-            existing_references = parent(getproperty(binding.columns, variable))
-            added_references = parent(getproperty(columns, variable))
-            eltype(added_references) <: eltype(existing_references) ||
-                all(reference -> reference isa eltype(existing_references), added_references) ||
-                return nothing
+        replace_columns = !_can_append_model_output_columns(binding.columns, columns)
+        if replace_columns && !isempty(binding.destination_ids)
+            # Widen this group with the same status cells used at preparation.
+            columns = _model_output_destination_columns(model, resolved.plan,
+                [binding.destination_ids; resolved.destination_ids])
         end
         _append_model_output_column_addition!(column_additions, binding,
-            resolved.destination_ids, columns)
+            resolved.destination_ids, columns, replace_columns)
     end
 
     for (key, owners) in staged_ownership
@@ -7502,12 +7573,13 @@ function _incremental_distributed_output_addition!(
     for addition in column_additions
         binding = addition.binding
         destination_ids = addition.destination_ids
+        addition.replace_columns && setfield!(binding, :columns, addition.columns)
         for variable_ in binding.plan.variable_names
             variable = Symbol(variable_)
-            append!(
-                parent(getproperty(binding.columns, variable)),
-                parent(getproperty(addition.columns, variable)),
-            )
+            if !addition.replace_columns
+                append!(parent(getproperty(binding.columns, variable)),
+                    parent(getproperty(addition.columns, variable)))
+            end
             indexed_ids = previous.destination_ids_by_application_variable[
                 (binding.application_id, variable)
             ]
@@ -7537,7 +7609,7 @@ function _refresh_model_distributed_outputs(
     plans::CompiledDistributedOutputPlans,
     added_ids,
     new_targets,
-    pure_addition,
+    pure_addition, before_publish!,
 )
     if pure_addition
         incremental = _incremental_distributed_output_addition!(
@@ -7548,7 +7620,7 @@ function _refresh_model_distributed_outputs(
             manual_application_ids,
             plans,
             added_ids,
-            new_targets,
+            new_targets, before_publish!,
         )
         isnothing(incremental) || return incremental
     end
@@ -7557,7 +7629,7 @@ function _refresh_model_distributed_outputs(
         applications,
         applications_by_id,
         manual_application_ids,
-        plans,
+        plans, before_publish!,
     )
     changed_targets = _changed_distributed_output_target_ids(previous, current)
     changed_writers_by_variable = if pure_addition
@@ -9162,7 +9234,7 @@ function _materialize_input_route(
     consumer_id::ObjectId,
     plan::CompiledModelInputPlan,
     sources::ResolvedInputSources,
-    applications_by_id,
+    applications_by_id, statuses=nothing,
 )
     input_sym = _input_route_input(plan.route)
     selector = plan.selector
@@ -9198,10 +9270,10 @@ function _materialize_input_route(
             source_application_ids,
             source_var,
             applications_by_id,
-            plan.reference_types,
+            plan.reference_types, statuses,
         )
     else
-        _input_carrier(model, selector, source_ids, source_var_tag, plan.reference_types)
+        _input_carrier(model, selector, source_ids, source_var_tag, plan.reference_types, statuses)
     end
     carrier_hint = if isempty(source_ids) && selector isa OptionalOne
         :optional_default
@@ -9218,7 +9290,7 @@ function _materialize_input_route(
         source_var,
         source_ids,
         carrier,
-        carrier_hint,
+        carrier_hint, statuses,
     )
     return CompiledModelInputBinding(
         plan, consumer_id, source_ids, source_application_ids,
@@ -9246,7 +9318,7 @@ function _resolve_materialize_input_route!(
     )
     push!(bindings, _materialize_input_route(
         model, application_id, application_process, consumer_id, plan,
-        sources, applications_by_id,
+        sources, applications_by_id, _route_cells(bindings),
     ))
     return bindings
 end
@@ -9390,12 +9462,13 @@ function _validate_model_input_source!(
     source_var::Symbol,
     source_ids::AbstractVector{I},
     carrier,
-    carrier_hint::Symbol,
+    carrier_hint::Symbol, statuses=nothing,
 ) where {I<:ObjectId}
     !isnothing(carrier) && return nothing
     status_source_ids = I[
         source_id for source_id in source_ids
-        if _model_object(model, source_id).status isa Status
+        if _model_object(model, source_id).status isa Status ||
+           (!isnothing(statuses) && haskey(statuses.recipes, source_id))
     ]
     isempty(status_source_ids) && return nothing
     io = IOBuffer()

@@ -5819,11 +5819,6 @@ function _call_target_object_ids(model::CompositeModel, objects)
     return unique!(ids)
 end
 
-struct _ApplicationsByObjectOverlay{B,O}
-    base::B
-    overlay::O
-end
-
 mutable struct _TargetedApplicationSet{A,B}
     applications::A
     applications_by_object::B
@@ -5842,16 +5837,6 @@ mutable struct _TargetedTopologyRuntime{CS,MA,D<:Dict,O} <:
     call_context_caches::Dict{Tuple{Symbol,ObjectId},CallContextCache}
 end
 
-@inline function Base.get(
-    applications::_ApplicationsByObjectOverlay,
-    object_id,
-    default,
-)
-    overlay = get(applications.overlay, object_id, nothing)
-    isnothing(overlay) || return overlay
-    return get(applications.base, object_id, default)
-end
-
 function _targeted_topology_runtime!(
     context::RunContext,
     model::CompositeModel,
@@ -5861,7 +5846,7 @@ function _targeted_topology_runtime!(
     I = keytype(model.registry.objects)
     A = eltype(compiled.applications)
     O = Dict{I,Vector{A}}
-    S = _TargetedApplicationSet{Vector{A},_ApplicationsByObjectOverlay{typeof(compiled.applications_by_object),O}}
+    S = _TargetedApplicationSet{Vector{A},_LookupOverlay{typeof(compiled.applications_by_object),O}}
     manual = compiled.scenario_plan.manual_application_ids
     D = Dict{Vector{I},S}
     Runtime = _TargetedTopologyRuntime{typeof(compiled),typeof(manual),D,O}
@@ -5948,7 +5933,7 @@ function _targeted_application_set!(
         )
         return _TargetedApplicationSet(
             output_applications,
-            _ApplicationsByObjectOverlay(
+            _LookupOverlay(
                 runtime.compiled.applications_by_object,
                 runtime.added_applications_by_object,
             ),

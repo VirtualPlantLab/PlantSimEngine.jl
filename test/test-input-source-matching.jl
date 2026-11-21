@@ -105,7 +105,7 @@ end
         compiled.applications_by_id[:a].spec.applies_to)
     partial = PSE._partial_model_application(compiled.applications_by_id[:a],
         ObjectId[ObjectId(7)])
-    overlay = PSE._ApplicationsByObjectOverlay(compiled.applications_by_object,
+    overlay = PSE._LookupOverlay(compiled.applications_by_object,
         Dict(ObjectId(7) => PSE.CompiledModelApplication[partial]))
     @test !(ObjectId(7) in compiled.applications_by_id[:a].target_ids)
     @test PSE._matching_input_source_applications(overlay, ObjectId[ObjectId(7)],
@@ -158,7 +158,7 @@ end
     newborn = register_object!(model, Object(5; kind=:local, status=Status(x=5f0)))
     reference = PSE.refvalue(newborn.status, :x)
     partial = PSE._partial_model_application(shared, ObjectId[ObjectId(5)])
-    overlay = PSE._ApplicationsByObjectOverlay(compiled.applications_by_object,
+    overlay = PSE._LookupOverlay(compiled.applications_by_object,
         Dict(ObjectId(5) => PSE.CompiledModelApplication[partial]))
     @test PSE._matching_input_source_applications(overlay, ObjectId.([5, 2, 1, 3]),
         :x, nothing, nothing, distributed;
