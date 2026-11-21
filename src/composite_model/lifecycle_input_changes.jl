@@ -139,10 +139,15 @@ end
 
 _publish_added_consumer_bindings!(recorder, input_bindings, ::Nothing, args...) = nothing
 
-function _publish_shared_consumer_input!(binding, destination, cache, model, consumer)
-    _try_push_shared_many_input!(destination, cache, model, binding.plan, consumer) ||
-        push!(destination, binding)
-    return nothing
+_shared_consumer_plan_key(binding, model, consumer) =
+    _many_binding_plan_share_key(model, binding.plan, consumer)
+
+function _republish_cached_many_input!(canonical, destination, previous::_UnadmittedInputBinding, model, consumer)
+    plan = getfield(previous.binding, :plan)
+    # The slot identifies one immutable plan in the prepared scenario. Its
+    # carrier may change during refresh, while the consumer keeps that plan.
+    plan isa typeof(canonical.plan) || return false
+    return _push_admitted_shared_many_input!(canonical, destination, model, plan, consumer, nothing)
 end
 
 function _publish_added_consumer_bindings!(recorder, input_bindings, staged::_StagedConsumerBindings,
@@ -151,11 +156,16 @@ function _publish_added_consumer_bindings!(recorder, input_bindings, staged::_St
         for index in range
             binding = staged.entries[index]
             if index in staged.reused
-                _with_model_input_binding(_publish_shared_consumer_input!, staged.entries,
-                    binding, input_bindings, many_binding_cache, model, consumer)
-            else
-                push!(input_bindings, binding)
+                key = _with_model_input_binding(_shared_consumer_plan_key, staged.entries,
+                    binding, model, consumer)
+                canonical = isnothing(key) ? nothing : get(many_binding_cache.by_plan, key, nothing)
+                if !isnothing(canonical) &&
+                   _with_model_input_binding(_republish_cached_many_input!, many_binding_cache.bindings,
+                        canonical, input_bindings, _UnadmittedInputBinding(binding), model, consumer)
+                    continue
+                end
             end
+            push!(input_bindings, binding)
         end
         _record_consumer_input_bindings!(recorder, input_bindings, id, consumer,
             previous_binding_count + first(range), previous_binding_count + last(range))

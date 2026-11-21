@@ -185,6 +185,66 @@ end
     @test PSE.model_status(data.model, :a).total == 10.0
 end
 
+@testset "Publishing a staged Many uses the current shared source or its admitted row" begin
+    data = fixture()
+    ordinary = prepare(data.model)
+    rows = ordinary.compiled.input_bindings
+    prototype = PSE._prepared_input_bindings(length(ordinary.compiled.scenario_plan.input_plans),
+        [(row.plan.slot, typeof(row)) for row in rows])
+    data = fixture()
+    simulation = prepare(data.model, prototype)
+    leaf = birth!(data.model, :leaf_first, 7.0)
+    step!(simulation)
+    reader = ObjectId(:b)
+    previous = binding(simulation, :b, :values)
+    @test only(parent(previous.carrier)) === leaf
+    destination = similar(simulation.compiled.input_bindings, 0)
+    entries = similar(destination, 0)
+    cache = simulation.compiled.many_input_binding_cache
+    local_cache = PSE._empty_many_input_binding_cache(keytype(data.model.registry.objects), entries)
+    statuses = PSE._output_status_preparation(data.model)
+    staged_cache = PSE._StagedManyInputCache(local_cache, cache, [ObjectId(:leaf_first)], statuses, true)
+    staged = PSE._StagedConsumerBindings(entries, statuses, [(:reader, reader, 1:2)], staged_cache,
+        data.model, nothing, true)
+    @test PSE._try_push_shared_many_input!(staged, staged_cache, data.model, previous.plan, reader)
+    @test only(staged.reused) == 1
+    @test only(entries).carrier === previous.carrier
+    prefix = binding(simulation, :a, :single)
+    tail = binding(simulation, :b, :single)
+    push!(entries, tail)
+    push!(destination, prefix)
+
+    # A refresh can assign new storage while keeping the same leaf references.
+    canonical = PSE.CompiledModelInputBinding(previous.plan, ObjectId(:a), copy(previous.source_ids),
+        copy(previous.source_application_ids), previous.policy, previous.carrier_hint,
+        PSE.RefVector(copy(parent(previous.carrier))))
+    key = PSE._many_binding_plan_share_key(data.model, previous.plan, reader)
+    cache.by_plan[key] = canonical
+    PSE._publish_added_consumer_bindings!(nothing, destination, staged, data.model, cache, 0)
+    @test length(destination) == 3
+    @test first(destination) === prefix
+    @test last(destination) === tail
+    published = destination[2]
+    @test published.consumer_id == reader
+    @test published.plan === previous.plan
+    @test published.carrier === canonical.carrier
+    @test published.source_ids === canonical.source_ids
+    @test published.source_application_ids === canonical.source_application_ids
+    @test published.carrier !== previous.carrier
+    @test only(parent(published.carrier)) === leaf
+
+    delete!(cache.by_plan, key)
+    empty!(destination)
+    push!(destination, prefix)
+    PSE._publish_added_consumer_bindings!(nothing, destination, staged, data.model, cache, 0)
+    @test length(destination) == 3
+    @test first(destination) === prefix
+    @test last(destination) === tail
+    @test destination[2] === first(entries)
+    @test destination[2].source_ids === previous.source_ids
+    @test destination[2].consumer_id == reader
+end
+
 @testset "direct Many extension stages every admitted reference before committing" begin
     data = fixture()
     simulation = prepare(data.model)
