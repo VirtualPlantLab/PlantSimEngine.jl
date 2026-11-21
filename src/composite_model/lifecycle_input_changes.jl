@@ -136,16 +136,23 @@ end
 
 _publish_added_consumer_bindings!(recorder, input_bindings, ::Nothing, args...) = nothing
 
+function _publish_shared_consumer_input!(binding, destination, cache, model, consumer)
+    shared = _shared_many_input_binding(cache, model, binding.plan, consumer)
+    push!(destination, isnothing(shared) ? binding : shared)
+    return nothing
+end
+
 function _publish_added_consumer_bindings!(recorder, input_bindings, staged::_StagedConsumerBindings,
     model, many_binding_cache, previous_binding_count)
     for (id, consumer, range) in staged.ranges
         for index in range
             binding = staged.entries[index]
             if index in staged.reused
-                shared = _shared_many_input_binding(many_binding_cache, model, binding.plan, consumer)
-                isnothing(shared) || (binding = shared)
+                _with_model_input_binding(_publish_shared_consumer_input!, staged.entries,
+                    binding, input_bindings, many_binding_cache, model, consumer)
+            else
+                push!(input_bindings, binding)
             end
-            push!(input_bindings, binding)
         end
         _record_consumer_input_bindings!(recorder, input_bindings, id, consumer,
             previous_binding_count + first(range), previous_binding_count + last(range))
