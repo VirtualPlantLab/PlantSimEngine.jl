@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   compare:
-    if: ${{ !startsWith(github.event.head_commit.message, 'Interleave ' ) }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'Interleave ' ) && !startsWith(github.event.head_commit.message, 'Exercise native growth only') }}
     strategy:
       fail-fast: false
       matrix:
