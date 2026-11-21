@@ -50,6 +50,11 @@ struct _StagedConsumerBindings{B,S,R,C,M,A}
     model::M
     existing::Union{Nothing,_PendingStatusInputChanges{B,A}}
     reused::BitSet
+
+    function _StagedConsumerBindings(entries, statuses, ranges, cache, model, existing, has_routes::Bool)
+        return new{typeof(entries),typeof(statuses),typeof(ranges),typeof(cache),typeof(model),typeof(cache.added)}(
+            entries, statuses, ranges, has_routes ? cache : nothing, model, existing, BitSet())
+    end
 end
 Base.length(bindings::_StagedConsumerBindings) = length(bindings.entries)
 Base.push!(bindings::_StagedConsumerBindings, binding) = push!(bindings.entries, binding)
@@ -98,9 +103,7 @@ function _new_consumer_input_storage(compiled, model, applications, added, pure_
     cache = _StagedManyInputCache(local_cache,
         compiled.many_input_binding_cache, added, statuses, pure_addition)
     ranges = Tuple{Symbol,I,UnitRange{Int}}[]
-    return _StagedConsumerBindings{typeof(entries),typeof(statuses),typeof(ranges),
-        typeof(cache),typeof(model),typeof(added)}(entries, statuses, ranges,
-        any_routes ? cache : nothing, model, existing, BitSet())
+    return _StagedConsumerBindings(entries, statuses, ranges, cache, model, existing, any_routes)
 end
 
 function _stage_added_scene_inputs!(compiled, model, applications, output_applications,
