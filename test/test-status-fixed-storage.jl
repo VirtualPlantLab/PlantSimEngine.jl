@@ -132,11 +132,15 @@ end
     recipe = PSE._CanonicalStatusRecipe(state, true)
     epoch = PSE._status_reference_epoch(state)
     shared = Ref(4f0)
+    @test NamedTuple(state) === NamedTuple()
     for name in (last(names), first(names), names[80])
         PSE._status_recipe_set_reference!(recipe, name, shared)
     end
     @test PSE._finish_canonical_status_recipe!(recipe) === state
     @test keys(state) == (first(names), names[80], last(names))
+    @test Tuple(state) === (4f0, 4f0, 4f0)
+    @test NamedTuple(state) === NamedTuple{(names[1], names[80], names[160])}((4f0, 4f0, 4f0))
+    @test PSE.refvalues(state) === (shared, shared, shared)
     @test all(name -> PSE.refvalue(state, name) === shared, keys(state))
     @test PSE._status_reference_epoch(state) == epoch + 1
     PSE._finish_canonical_status_recipe!(recipe)

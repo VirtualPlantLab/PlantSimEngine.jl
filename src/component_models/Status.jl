@@ -248,31 +248,63 @@ function Status(nt::NamedTuple{names}) where {names}
 end
 
 _status_vars(status) = getfield(status, :vars)
-# Read or transform each concrete reference before selecting the currently
-# present fields. A present reference may itself contain nothing.
-# Preserve each slot type for wide prepared layouts without tuple-map widening.
+# A standalone status owns a dense, statically named tuple of references.
 _map_status_slots(::typeof(identity), slots::NamedTuple) = slots
 @generated function _map_status_slots(f::F, slots::NamedTuple{names}) where {F,names}
-    fields = [:(let slot = getfield(slots, $i)
-        isnothing(slot) ? nothing : f(slot)
-    end) for i in 1:length(names)]
-    data = Expr(:tuple, fields...)
-    return :(NamedTuple{$(QuoteNode(names))}($data))
+    fields = Expr(:tuple, [:(f(getfield(slots, $i))) for i in eachindex(names)]...)
+    return :(NamedTuple{$(QuoteNode(names))}($fields))
+end
+
+# A prepared namespace may be wide and sparsely populated. Compile the operation
+# for each distinct reference type and read the occupied positions in field order.
+@generated function _status_cell_families(::Type{S}) where {S<:NamedTuple}
+    types = unique(T for slot in fieldtypes(S) for T in Base.uniontypes(slot) if T !== Nothing)
+    return :(Tuple{$(types...)})
+end
+
+# Box the directory once so the compiler can call the same traversal for status
+# layouts with hundreds of different names and the same reference types.
+struct _StatusReferenceDirectory
+    slots::NamedTuple
+end
+
+@generated function _append_status_cell!(
+    items::Vector{Any}, f::F, directory::_StatusReferenceDirectory, index::Int, ::Type{R},
+) where {F,R<:Tuple}
+    branches = [:(if reference isa $T
+        push!(items, f(reference::$T))
+        return true
+    end) for T in fieldtypes(R)]
+    return quote
+        reference = getfield(directory.slots, index)
+        isnothing(reference) && return false
+        $(branches...)
+        throw(ArgumentError("Invalid prepared status reference."))
+    end
+end
+
+function _map_present_status_fields(
+    f::F, ::Type{T}, directory::_StatusReferenceDirectory, namespace::NTuple{N,Symbol}, ::Type{R},
+) where {F,T,N,R<:Tuple}
+    names = Symbol[]
+    items = Any[]
+    for index in eachindex(namespace)
+        present = _append_status_cell!(items, f, directory, index, R)
+        present && T === NamedTuple && push!(names, namespace[index])
+    end
+    data = Tuple(items)
+    return T === Tuple ? data : NamedTuple{Tuple(names)}(data)
 end
 
 function _map_status_fields(f::F, ::Type{T}, status::Status) where {F,T}
-    fields = _map_status_slots(f, _status_reference_slots(status))
-    names = keys(status)
-    if names === keys(fields)
+    storage = _status_vars(status)
+    if storage isa NamedTuple
+        fields = _map_status_slots(f, storage)
         return T === Tuple ? Tuple(fields) : fields
     end
-    selected = Vector{Any}(undef, length(names))
-    for i in eachindex(names)
-        selected[i] = getfield(fields, names[i])
-    end
-    data = Tuple(selected)
-    T === Tuple && return data
-    return Base.@inline NamedTuple{names}(data)
+    slots = _status_reference_slots(storage)
+    return _map_present_status_fields(f, T, _StatusReferenceDirectory(slots), keys(slots),
+        _status_cell_families(typeof(slots)))
 end
 
 _status_namedtuple(status) = _map_status_fields(getindex, NamedTuple, status)
