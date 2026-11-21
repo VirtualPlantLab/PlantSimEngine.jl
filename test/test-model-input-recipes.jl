@@ -495,4 +495,74 @@ end
     @test model_status(model, 2).total === 10f0
 end
 
+@testset "Input binding families follow the prepared plan slot through growth" begin
+    function make_scene(T, populated)
+        objects = Object[Object(1; scale=:Scene)]
+        populated && push!(objects, Object(2; scale=:Leaf, parent=1))
+        return CompositeModel(objects...; applications=(
+            ModelSpec(Writer(T(2)); name=:source, on=One(id=1)),
+            ModelSpec(PairReader{T}(); name=:reader, on=Many(scale=:Leaf),
+                inputs=(left=One(SceneScope(); id=1, var=:x),
+                    right=One(SceneScope(); id=1, var=:y))),
+        ))
+    end
+    # These real applications exercise the same two slots under both numeric
+    # families. The scene being prepared below has no reader at its T0.
+    examples = map((Float32, Float64)) do T
+        sim = run!(make_scene(T, true); steps=0, outputs=:none)
+        return sort(collect(sim.compiled.input_bindings); by=b -> b.slot)
+    end
+    single, double = examples
+    @test getproperty.(single, :slot) == getproperty.(double, :slot) == [1, 2]
+    @test all(typeof(a) !== typeof(b) for (a,b) in zip(single, double))
+    observed = [(b.slot, typeof(b)) for row in examples for b in row]
+    prototype = PSE._prepared_input_bindings(2, observed)
+    for row in examples, b in row
+        @test PSE._with_model_input_binding(identity, prototype, b) === b
+        @test (@inferred PSE._with_model_input_binding(x -> x.slot, prototype, b)) == b.slot
+    end
+    partial = PSE._prepared_input_bindings(2, [(1, typeof(first(single)))])
+    @test length(partial.family_by_slot) == 2
+    @test iszero(partial.family_by_slot[2])
+    @test_throws ArgumentError push!(partial, last(single))
+    @test_throws ArgumentError push!(partial, first(double))
+    @test_throws BoundsError PSE._prepared_input_bindings(0, [(1, typeof(first(single)))])
+    @test_throws ArgumentError PSE._prepared_input_bindings(1, [(1, PSE.CompiledModelInputBinding)])
+    @test isempty(PSE._prepared_input_bindings(0, ()))
+    both = similar(prototype, 0)
+    push!(both, first(single), first(double))
+    @test_throws ArgumentError append!(partial, both)
+    @test isempty(partial)
+    repeated = PSE._prepared_input_bindings(3, [(3, typeof(first(single))),
+        (1, typeof(first(single))), (3, typeof(first(single)))])
+    @test repeated.family_by_slot == [1, 0, 1]
+    incomplete_scene = make_scene(Float32, false)
+    incomplete = PSE._prepare_simulation!(incomplete_scene; steps=0, outputs=:none,
+        constants=PSE.Constants(), input_binding_storage=partial)
+    register_object!(incomplete_scene, Object(2; scale=:Leaf, parent=1))
+    @test_throws "No input binding family was prepared" PSE.continue!(incomplete; steps=0)
+    @test isempty(incomplete.compiled.input_bindings)
+    @test current_step(incomplete) == 0
+    for T in (Float32, Float64)
+        scene = make_scene(T, false)
+        sim = PSE._prepare_simulation!(scene; steps=0, outputs=:none,
+            constants=PSE.Constants(), input_binding_storage=prototype)
+        @test isempty(sim.compiled.input_bindings)
+        @test length(sim.compiled.scenario_plan.input_plans) == length(prototype.family_by_slot)
+        source = PSE.refvalue(model_status(scene, 1), :x)
+        register_object!(scene, Object(2; scale=:Leaf, parent=1))
+        step!(sim)
+        @test current_step(sim) == 1
+        @test model_status(scene, 2).total === T(6)
+        left = only(b for b in sim.compiled.input_bindings if b.input === :left)
+        view = sim.compiled.status_views_by_target[(:reader, ObjectId(2))]
+        @test left.carrier === source
+        @test PSE.refvalue(view.status, :left) === source
+        source[] = T(11)
+        @test view.status.left === T(11)
+        @test sim.compiled.input_bindings.family_by_slot === prototype.family_by_slot
+        @test isempty(prototype)
+    end
+end
+
 end

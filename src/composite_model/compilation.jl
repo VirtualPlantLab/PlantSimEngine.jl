@@ -1765,14 +1765,22 @@ function _model_input_binding_storage(prototype::AbstractVector)
     return similar(prototype, 0)
 end
 
-@inline function _with_model_input_binding(f::F,
-    ::AbstractVector{CompiledModelInputBinding}, binding, args::Vararg{Any,N},
-) where {F,N}
-    return f(binding, args...)
-end
-@generated function _with_model_input_binding(f::F, ::AbstractVector{B}, binding,
+@inline function _with_model_input_binding(f::F, ::AbstractVector{B}, binding,
     args::Vararg{Any,N},
 ) where {F,B,N}
+    B === CompiledModelInputBinding && return f(binding, args...)
+    return _apply_input_binding_family(f, Val(B), binding, args)
+end
+
+# Fixed schemas can carry either one concrete type or several possible
+# types for the same plan slot. Establish membership before calling a worker.
+@inline function _apply_input_binding_family(f::F, family::Val{B}, binding, args::Tuple) where {F,B}
+    binding isa B || throw(ArgumentError("The input binding is outside its prepared storage family."))
+    isconcretetype(B) && return f(binding::B, args...)
+    return _with_input_binding_union(f, family, binding::B, args)
+end
+
+@generated function _with_input_binding_union(f::F, ::Val{B}, binding, args::Tuple) where {F,B}
     families = _model_input_binding_family_types(B)
     branches = [:(binding isa $T && return f(binding::$T, args...)) for T in families]
     return quote
@@ -1780,6 +1788,99 @@ end
         throw(ArgumentError("The input binding is outside its prepared storage family."))
     end
 end
+
+# A closed program admits each slot's witnessed binding types. Training may
+# supply a future consumer's types even if it has no target at the initial step.
+struct PreparedInputBindings{B,F<:Tuple} <: AbstractVector{B}
+    entries::Vector{B}
+    family_by_slot::Vector{Int}
+    families::F
+end
+
+const _INPUT_BINDING_FAMILY_WIDTH = 16
+
+function _prepared_input_bindings(slot_count::Int, observed)
+    types = Type[Union{} for _ in 1:slot_count]
+    for (slot, B) in observed
+        B isa Type && isconcretetype(B) && B <: CompiledModelInputBinding ||
+            throw(ArgumentError("A plan slot requires concrete input binding types."))
+        types[slot] = Union{types[slot], B}
+    end
+    family_by_slot = zeros(Int, slot_count)
+    family_ids = Dict{Type,Int}()
+    families = Any[]
+    for (slot, B) in pairs(types)
+        B === Union{} && continue
+        family_by_slot[slot] = get!(family_ids, B) do
+            push!(families, Val(B))
+            length(families)
+        end
+    end
+    # Chunk the unique families so a callback need not inline a linear chain
+    # over hundreds of them. Slots with the same types share one admission.
+    chunks = Tuple(Tuple(chunk) for chunk in Iterators.partition(families, _INPUT_BINDING_FAMILY_WIDTH))
+    B = isempty(family_ids) ? Union{} :
+        length(family_ids) == 1 ? only(keys(family_ids)) : CompiledModelInputBinding
+    return PreparedInputBindings(B[], family_by_slot, chunks)
+end
+
+# Carry the open binding value across admission by a single known call shape.
+struct _UnadmittedInputBinding
+    binding::CompiledModelInputBinding
+end
+
+@inline function _visit_input_family(family::Val, f::F, raw::_UnadmittedInputBinding, args::Tuple) where {F}
+    return _apply_input_binding_family(f, family, getfield(raw, :binding), args)
+end
+
+@noinline function _visit_input_family_chunk(chunk::Tuple, index::Int,
+    f::F, raw::_UnadmittedInputBinding, args::Tuple,
+) where {F}
+    return _with_metadata_entry(_visit_input_family, chunk, index, f, raw, args)
+end
+
+@inline function _with_model_input_binding(f::F, values::PreparedInputBindings{B},
+    binding, args::Vararg{Any,N},
+) where {F,B,N}
+    b = binding::CompiledModelInputBinding
+    family = values.family_by_slot[b.slot]
+    iszero(family) && throw(ArgumentError("No input binding family was prepared for this slot."))
+    # Every occupied slot uses B when the storage has a single family.
+    B !== CompiledModelInputBinding && return _apply_input_binding_family(f, Val(B), b, args)
+    chunk, index = divrem(family - 1, _INPUT_BINDING_FAMILY_WIDTH)
+    return _with_metadata_entry(_visit_input_family_chunk, values.families,
+        chunk + 1, index + 1, f, _UnadmittedInputBinding(b), args)
+end
+
+Base.IndexStyle(::Type{<:PreparedInputBindings}) = IndexLinear()
+Base.size(values::PreparedInputBindings) = size(values.entries)
+Base.getindex(values::PreparedInputBindings, i::Int) = values.entries[i]
+Base.@nospecializeinfer function Base.setindex!(values::PreparedInputBindings{B}, @nospecialize(binding::CompiledModelInputBinding), i::Int) where {B}
+    _with_model_input_binding(Returns(nothing), values, binding)
+    values.entries[i] = binding::B
+    return values
+end
+Base.@nospecializeinfer function Base.push!(values::PreparedInputBindings{B}, @nospecialize(binding::CompiledModelInputBinding)) where {B}
+    _with_model_input_binding(Returns(nothing), values, binding)
+    push!(values.entries, binding::B)
+    return values
+end
+function Base.append!(values::PreparedInputBindings, other::PreparedInputBindings)
+    if !(values.family_by_slot === other.family_by_slot && values.families === other.families)
+        for binding in other
+            _with_model_input_binding(identity, values, binding)
+        end
+    end
+    append!(values.entries, other.entries)
+    return values
+end
+function Base.similar(values::PreparedInputBindings{B}, ::Type{B}, dims::Dims{1}) where {B}
+    return PreparedInputBindings(similar(values.entries, dims), values.family_by_slot, values.families)
+end
+Base.resize!(values::PreparedInputBindings, n::Integer) = (resize!(values.entries, n); values)
+Base.empty!(values::PreparedInputBindings) = (empty!(values.entries); values)
+Base.sizehint!(values::PreparedInputBindings, n::Integer) = (sizehint!(values.entries, n); values)
+Base.deleteat!(values::PreparedInputBindings, indices) = (deleteat!(values.entries, indices); values)
 
 struct CompiledTemporalInput{B,S,I,R}
     binding::B
@@ -2261,9 +2362,9 @@ function _refresh_owned_runtime_bindings!(
 end
 
 function _index_dynamic_input_binding!(
+    binding::CompiledModelInputBinding,
     index::SelectorCandidateIndex,
     model::CompositeModel,
-    binding::CompiledModelInputBinding,
     binding_index::Int,
     many_binding_cache,
 )
@@ -2296,11 +2397,8 @@ function _index_dynamic_input_bindings(
 )
     index = _selector_candidate_index(model, nothing)
     for (binding_index, binding) in pairs(bindings)
-        _index_dynamic_input_binding!(
-            index,
-            model,
-            binding,
-            binding_index,
+        _with_model_input_binding(
+            _index_dynamic_input_binding!, bindings, binding, index, model, binding_index,
             many_binding_cache,
         )
     end
@@ -5098,11 +5196,9 @@ function _extend_compiled_scene(
     else
         index = compiled.dynamic_input_binding_indices
         for binding_index in (previous_binding_count + 1):length(input_bindings)
-            _index_dynamic_input_binding!(
-                index,
-                model,
-                input_bindings[binding_index],
-                binding_index,
+            _with_model_input_binding(
+                _index_dynamic_input_binding!, input_bindings, input_bindings[binding_index],
+                index, model, binding_index,
                 many_binding_cache,
             )
         end

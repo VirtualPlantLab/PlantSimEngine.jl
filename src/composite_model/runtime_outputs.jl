@@ -4845,18 +4845,21 @@ function _with_model_temporal_retention(f::F, compiled::CompiledCompositeModel,
         compiled.scenario_plan.input_plans, compiled.scenario_plan.timeline, binding)
 end
 
-Base.@noinline function _with_model_temporal_retention(f::F,
+@inline function _with_model_temporal_retention(f::F,
     applications_by_id::CompiledMetadataTable, input_plans, timeline,
     binding::CompiledModelInputBinding,
 ) where {F}
-    input_plan = getfield(binding, :plan)
-    application_id, plan_slot = input_plan.application_id, input_plan.slot
-    input_name = input_plan.input
-    source_var = input_plan.source_var
-    source_application_ids = getfield(binding, :source_application_ids)
-    policy = getfield(binding, :policy)
-    integrates = policy isa Union{Integrate,Aggregate}
-    interpolates = policy isa Union{Interpolate,PreviousTimeStep}
+    plan = binding.plan
+    return _with_model_temporal_retention(f, applications_by_id, input_plans, timeline,
+        plan.slot, plan.application_id, plan.input, plan.source_var, binding.source_application_ids,
+        binding.policy isa Union{Integrate,Aggregate}, binding.policy isa Union{Interpolate,PreviousTimeStep})
+end
+
+Base.@noinline function _with_model_temporal_retention(f::F,
+    applications_by_id::CompiledMetadataTable, input_plans, timeline,
+    plan_slot::Int, application_id::Symbol, input_name::Symbol, source_var::Symbol,
+    source_application_ids::Vector{Symbol}, integrates::Bool, interpolates::Bool,
+) where {F}
     consumer_dt = _compiled_application_by_id(applications_by_id, application_id) do consumer
         consumer.clock.dt
     end
