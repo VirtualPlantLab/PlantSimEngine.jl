@@ -904,6 +904,23 @@ end
     @test restored_closure_status.special isa Float16
     @test isnothing(restored_closure.status_conversion.transform)
 
+    # The serialized per-object supplied-data record already carries the
+    # original Float64 configuration. Its restored policy prepares future32
+    # alongside the preserved effective16, without widening other label scopes.
+    closure_record = restored_closure.status_conversion_records[
+        (:supplied_status, nothing, ObjectId(:closure_leaf), :special)]
+    @test closure_record.original_type === Float64
+    @test closure_record.effective_type === Float16
+    retained_special = PlantSimEngine.refvalue(restored_closure_status, :special)
+    records_before_rejection = copy(restored_closure.status_conversion_records)
+    wrong_scope = Object(:wrong_closure_scope; scale=:Other,
+        status=Status(ordinary=7.0, special=8.0))
+    @test_throws ArgumentError register_object!(restored_closure, wrong_scope)
+    @test !haskey(restored_closure.registry.objects, wrong_scope.id)
+    @test restored_closure.status_conversion_records == records_before_rejection
+    @test PlantSimEngine.refvalue(model_status(restored_closure, :closure_leaf), :special) ===
+          retained_special
+
     registered_closure = register_object!(
         restored_closure,
         Object(

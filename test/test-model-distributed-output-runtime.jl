@@ -1226,3 +1226,360 @@ end
           [:distributed_runtime_policy_updater]
     @test binding.policy isa Aggregate
 end
+
+
+# Same closure mechanism used by the maintained finite-registry fixtures. Every
+# status family here is an actual fully initialized object in this small scene.
+@testset "Closed distributed memberships retain the registry ID domain and live carriers" begin
+    PSE = PlantSimEngine
+    for (scene, leaves, added) in ((10, (20,), 30),
+        (:scene, (:leaf_a,), :leaf_z), (:scene, (20, :leaf_a), :leaf_z))
+        model = CompositeModel(
+            Object(scene; scale=:Scene, status=Status(private_runs=0)),
+            (Object(id; scale=:Leaf, parent=scene, status=Status(incident_par=0.0)) for id in leaves)...;
+            applications=(ModelSpec(DistributedRuntimeStatefulWriterModel();
+                name=:closed_destination_writer, on=One(id=scene),
+                outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope()); vars=(:incident_par,)),)),),
+            environment=(duration=Hour(1),))
+        model = PSE._with_object_id_domain(model)
+        simulation = run!(model; steps=0, outputs=:all, performance=true)
+        I = keytype(model.registry.objects)
+        binding = only(simulation.compiled.distributed_outputs.bindings)
+        ids = binding.destination_ids
+        index = simulation.compiled.distributed_outputs.destination_ids_by_application_variable
+        @test ids isa Vector{I}
+        @test fieldtype(typeof(binding), :destination_ids) === typeof(ids)
+        @test keytype(binding.destination_index) === I
+        @test index[(:closed_destination_writer, :incident_par)] === ids
+        @test object_ids(PSE.OutputTargets(binding, 1)).ids === ids
+        application = simulation.compiled.applications_by_id[:closed_destination_writer]
+        declarations = PSE._with_application_variant(PSE._read_model_output_destination_declarations,
+            application, binding.execution_object_id, binding.plan)
+        resolved = PSE.ResolvedModelOutputDestination(binding.plan, declarations, binding.execution_object_id, ids)
+        @test resolved.destination_ids === ids
+        @test fieldtype(typeof(resolved), :destination_ids) === typeof(ids)
+        carrier = binding.columns.incident_par
+        references = parent(carrier)
+        old_references = Tuple(references)
+        continue!(simulation)
+        register_object!(model, Object(added; scale=:Leaf, status=Status(incident_par=0.0)); parent=scene)
+        continue!(simulation)
+        current = only(simulation.compiled.distributed_outputs.bindings)
+        @test current === binding
+        @test current.destination_ids === ids
+        @test current.columns.incident_par === carrier
+        @test parent(carrier) === references
+        @test all(references[i] === old_references[i] for i in eachindex(old_references))
+        @test simulation.compiled.distributed_outputs.destination_ids_by_application_variable[
+            (:closed_destination_writer, :incident_par)] === ids
+        @test eltype(ids) === I
+        @test ids == PSE._sort_object_ids!(ObjectId.([leaves..., added]))
+        @test all(references[i] === PSE.refvalue(model_status(model, ids[i]), :incident_par) for i in eachindex(ids))
+        @test all(model_status(model, id).incident_par == 102.0 for id in ids)
+        @test outputs(simulation)[(:closed_destination_writer, ObjectId(first(leaves)), :incident_par)] == [(1.0, 101.0), (2.0, 102.0)]
+        @test outputs(simulation)[(:closed_destination_writer, ObjectId(added), :incident_par)] == [(2.0, 102.0)]
+    end
+end
+
+@testset "Closed distributed context and Self destinations share their normalized IDs" begin
+    PSE = PlantSimEngine
+    for (scene, other) in ((1, 2), (:scene, :other), (1, :other)),
+        selector in (Many(), Many(within=Self()))
+        model = CompositeModel(
+            Object(scene; scale=:Scene, status=Status(private_runs=0, incident_par=0.0)),
+            Object(other; scale=:Other, status=Status(private_runs=0, incident_par=0.0));
+            applications=(ModelSpec(DistributedRuntimeStatefulWriterModel();
+                name=:closed_context_writer, on=One(id=scene),
+                outputs_to=(OutputTo(selector; vars=(:incident_par,)),)),))
+        model = PSE._with_object_id_domain(model)
+        simulation = run!(model; steps=0, outputs=:all)
+        binding = only(simulation.compiled.distributed_outputs.bindings)
+        I = keytype(model.registry.objects)
+        @test eltype(binding.destination_ids) === I
+        @test keytype(binding.destination_index) === I
+        @test binding.destination_ids == ObjectId[ObjectId(scene)]
+        @test simulation.compiled.distributed_outputs.destination_ids_by_application_variable[
+            (:closed_context_writer, :incident_par)] === binding.destination_ids
+        continue!(simulation)
+        @test model_status(model, scene).incident_par == 101.0
+        @test model_status(model, other).incident_par == 0.0
+    end
+end
+
+@testset "Closed empty and merged distributed indices preserve membership ownership" begin
+    PSE = PlantSimEngine
+    # The spare object declares the real leaf status family without selecting it.
+    empty_model = CompositeModel(
+        Object(1; scale=:Scene, status=Status(private_runs=0)),
+        Object(2; scale=:Spare, status=Status(incident_par=0.0));
+        applications=(ModelSpec(DistributedRuntimeStatefulWriterModel();
+            name=:closed_empty_writer, on=One(id=1),
+            outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope()); vars=(:incident_par,)),)),))
+    empty_model = PSE._with_object_id_domain(empty_model)
+    simulation = run!(empty_model; steps=0, outputs=:all)
+    binding = only(simulation.compiled.distributed_outputs.bindings)
+    @test isempty(binding.destination_ids)
+    @test eltype(binding.destination_ids) === keytype(empty_model.registry.objects)
+    @test simulation.compiled.distributed_outputs.destination_ids_by_application_variable[
+        (:closed_empty_writer, :incident_par)] === binding.destination_ids
+    register_object!(empty_model, Object(3; scale=:Leaf, status=Status(incident_par=0.0)); parent=1)
+    continue!(simulation)
+    binding = only(simulation.compiled.distributed_outputs.bindings)
+    @test binding.destination_ids == ObjectId[ObjectId(3)]
+    @test simulation.compiled.distributed_outputs.destination_ids_by_application_variable[
+        (:closed_empty_writer, :incident_par)] === binding.destination_ids
+    @test outputs(simulation)[(:closed_empty_writer, ObjectId(3), :incident_par)] == [(1.0, 101.0)]
+
+    merged_model = CompositeModel(
+        Object(1; scale=:Plant, status=Status(private_runs=0)),
+        Object(2; scale=:Plant, status=Status(private_runs=0)),
+        Object(10; scale=:Leaf, parent=1, status=Status(incident_par=0.0)),
+        Object(20; scale=:Leaf, parent=2, status=Status(incident_par=0.0));
+        applications=(ModelSpec(DistributedRuntimeStatefulWriterModel();
+            name=:closed_merged_writer, on=Many(scale=:Plant),
+            outputs_to=(OutputTo(Many(scale=:Leaf, within=Subtree()); vars=(:incident_par,)),)),))
+    merged_model = PSE._with_object_id_domain(merged_model)
+    simulation = run!(merged_model; steps=0, outputs=:all)
+    bindings = simulation.compiled.distributed_outputs.bindings
+    combined = simulation.compiled.distributed_outputs.destination_ids_by_application_variable[
+        (:closed_merged_writer, :incident_par)]
+    @test length(bindings) == 2
+    @test combined == ObjectId.(Int[10, 20])
+    @test all(combined !== binding.destination_ids for binding in bindings)
+    @test [copy(binding.destination_ids) for binding in bindings] == [ObjectId.([10]), ObjectId.([20])]
+    register_object!(merged_model, Object(30; scale=:Leaf, status=Status(incident_par=0.0)); parent=2)
+    continue!(simulation)
+    @test combined == ObjectId.(Int[10, 20, 30])
+    @test all(combined !== binding.destination_ids for binding in bindings)
+    @test model_status(merged_model, 30).incident_par == 101.0
+end
+
+
+include("fixtures/distributed_growth.jl")
+
+@testset "same-step leaf and producer growth preserves weather, lagged Many and history" begin
+    # Growth, leaf sources and the newborn producer run hourly. The other
+    # producer and reader can run every two hours across the birth at tick 2.
+    # PreviousTimeStep uses global t-1, not the reader's preceding invocation.
+    for cadence in (Hour(1), Hour(2))
+        model = DistributedGrowthFixture.make_model(; reader_every=cadence, distributor_every=cadence)
+        simulation = run!(model; steps=0, outputs=:all)
+        lag_key = (:reader, ObjectId(:root), :lagtotal)
+        lag_stream = outputs(simulation)[lag_key]
+        @test isempty(lag_stream)
+        @test Set(object_ids(model)) == Set(ObjectId.((:root, :leaf_a)))
+
+        expected_lag = cadence == Hour(1) ?
+            [(1.0, 1f0), (2.0, 12f0), (3.0, 14f0), (4.0, 16f0)] :
+            [(1.0, 1f0), (3.0, 14f0)]
+        expected_delivery = cadence == Hour(1) ?
+            [(1.0, 10f0), (2.0, 20f0), (3.0, 30f0), (4.0, 40f0)] :
+            [(1.0, 10f0), (3.0, (20f0 + 30f0) / 2)]
+        for hour in 1:4
+            step!(simulation)
+            streams = outputs(simulation)
+            @test current_step(simulation) == hour
+            @test streams[lag_key] === lag_stream
+            @test lag_stream == filter(sample -> first(sample) <= hour, expected_lag)
+            @test final_state(simulation, :root).lagtotal === last(last(lag_stream))
+            @test streams[(:grower, ObjectId(:root), :seen)] ==
+                [(Float64(t), (10.0, 20.0, 30.0, 40.0)[t]) for t in 1:hour]
+            @test streams[(:grower, ObjectId(:root), :dose)] ==
+                [(Float64(t), (10.0, 30.0, 60.0, 100.0)[t]) for t in 1:hour]
+            @test streams[(:source, ObjectId(:leaf_a), :x)] ==
+                [(Float64(t), Float32(t + 1)) for t in 1:hour]
+            @test streams[(:distributed, ObjectId(:leaf_a), :delivered)] ==
+                filter(sample -> first(sample) <= hour, expected_delivery)
+            if hour < 2
+                @test Set(object_ids(model)) == Set(ObjectId.((:root, :leaf_a)))
+                @test !haskey(streams, (:prospective_distributor, ObjectId(:leaf_a), :prospective))
+            else
+                @test Set(object_ids(model)) == Set(ObjectId.((:root, :leaf_a, :leaf_b, :emitter)))
+                # B and its previously absent producer BOTH execute on birth tick 2.
+                @test streams[(:source, ObjectId(:leaf_b), :x)] ==
+                    [(Float64(t), Float32(t + 9)) for t in 2:hour]
+                @test get(streams, (:distributed, ObjectId(:leaf_b), :delivered),
+                    Tuple{Float64,Float32}[]) ==
+                    filter(sample -> 2 <= first(sample) <= hour, expected_delivery)
+                if cadence == Hour(2) && hour == 2
+                    # The old producer is not due: supplied data survives until
+                    # its next tick, which averages temperature over hours 2 and 3.
+                    @test final_state(simulation, :leaf_b).delivered === -7f0
+                end
+                for leaf in (:leaf_a, :leaf_b)
+                    @test streams[(:prospective_distributor, ObjectId(leaf), :prospective)] ==
+                        [(Float64(t), 20f0 * t) for t in 2:hour]
+                end
+            end
+        end
+        # At global tick 3 the reader uses the actual tick-2 source publications:
+        # A=3 and newborn B=11. Both are newer than the reader's preceding tick 1.
+        @test outputs(simulation)[(:source, ObjectId(:leaf_a), :x)][2] == (2.0, 3f0)
+        @test first(outputs(simulation)[(:source, ObjectId(:leaf_b), :x)]) == (2.0, 11f0)
+        @test only(sample for sample in lag_stream if first(sample) == 3.0) == (3.0, 14f0)
+    end
+end
+
+
+@testset "existing distributed producers acquire a new destination together" begin
+    model = DistributedGrowthFixture.make_model()
+    simulation = run!(model; steps=2, outputs=:all)
+    retained = outputs(simulation)[(:distributed, ObjectId(:leaf_a), :delivered)]
+    supplied = Status(x=20f0, tick=0, delivered=-7f0, prospective=-11f0)
+    delivered = PlantSimEngine.refvalue(supplied, :delivered)
+    prospective = PlantSimEngine.refvalue(supplied, :prospective)
+    # Both producers already exist; only a monotonic new destination is added.
+    register_object!(model, Object(:leaf_c; scale=:Leaf, parent=:root, status=supplied))
+    step!(simulation)
+    @test outputs(simulation)[(:distributed, ObjectId(:leaf_a), :delivered)] === retained
+    @test retained == [(1.0, 10f0), (2.0, 20f0), (3.0, 30f0)]
+    @test PlantSimEngine.refvalue(model_status(model, :leaf_c), :delivered) === delivered
+    @test PlantSimEngine.refvalue(model_status(model, :leaf_c), :prospective) === prospective
+    @test delivered[] === 30f0
+    @test prospective[] === 60f0
+    @test final_state(simulation, :leaf_c).x === 21f0
+    # PreviousTimeStep reads A=3, B=11 published at2, and C's initial20.
+    @test final_state(simulation, :root).lagtotal === 34f0
+    @test outputs(simulation)[(:distributed, ObjectId(:leaf_c), :delivered)] == [(3.0, 30f0)]
+    @test outputs(simulation)[(:prospective_distributor, ObjectId(:leaf_c), :prospective)] == [(3.0, 60f0)]
+end
+
+
+@testset "a newborn producer publishes to all thirty existing leaves on its birth step" begin
+    model = DistributedGrowthFixture.make_producer_birth_model()
+    ids = DistributedGrowthFixture.producer_birth_leaf_ids()
+    leaves = [model_object(model, id) for id in ids]
+    ordinal_refs = [PlantSimEngine.refvalue(model_status(model, id), :ordinal) for id in ids]
+    simulation = run!(model; steps=0, outputs=:all)
+    @test length(model_objects(model; scale=:Leaf)) == 30
+    @test !haskey(model.registry.objects, ObjectId(:emitter))
+    for day in 0:1
+        day == 1 && step!(simulation)
+        @test current_step(simulation) == day
+        for (index, id) in enumerate(ids)
+            @test model_object(model, id) === leaves[index]
+            @test !hasproperty(model_status(model, id), :signal)
+            @test isempty(get(outputs(simulation), (:producer, id, :signal), Tuple{Float64,Float32}[]))
+        end
+    end
+    step!(simulation)
+    @test current_step(simulation) == 2
+    @test haskey(model.registry.objects, ObjectId(:emitter))
+    @test length(model_objects(model; scale=:Leaf)) == 30
+    signal_refs = [PlantSimEngine.refvalue(model_status(model, id), :signal) for id in ids]
+    streams = [outputs(simulation)[(:producer, id, :signal)] for id in ids]
+    for day in 2:3
+        day == 3 && step!(simulation)
+        @test current_step(simulation) == day
+        for (index, id) in enumerate(ids)
+            status = model_status(model, id)
+            @test model_object(model, id) === leaves[index]
+            @test PlantSimEngine.refvalue(status, :ordinal) === ordinal_refs[index]
+            @test status.ordinal == index
+            @test PlantSimEngine.refvalue(status, :signal) === signal_refs[index]
+            @test status.signal === Float32(20day)
+            @test outputs(simulation)[(:producer, id, :signal)] === streams[index]
+            @test streams[index] == [(Float64(tick), Float32(20tick)) for tick in 2:day]
+        end
+    end
+end
+
+struct DistributedRuntimeRealWriter <: AbstractDistributed_Runtime_Stateful_WriterModel end
+PlantSimEngine.inputs_(::DistributedRuntimeRealWriter) = NamedTuple()
+PlantSimEngine.outputs_(::DistributedRuntimeRealWriter) = (incident_par=Distributed(Required(Real)),)
+function PlantSimEngine.run!(::DistributedRuntimeRealWriter, status, environment, constants, context)
+    column = output_targets(context, (:incident_par,)).columns.incident_par
+    for index in eachindex(column)
+        column[index] = 100.0 + context.time
+    end
+    return nothing
+end
+
+@testset "The first destination and a widened column retain the actual leaf cells" begin
+    PSE = PlantSimEngine
+    events = DistributedRuntimeEvent[]
+    model = CompositeModel(Object(:scene; scale=:Scene);
+        applications=_distributed_runtime_applications(events),
+        environment=(duration=Hour(1),))
+    sim = run!(model; steps=0, outputs=:all)
+    @test isempty(only(sim.compiled.distributed_outputs.bindings).destination_ids)
+
+    register_object!(model, Object(:leaf_a; scale=:Leaf, parent=:scene))
+    step!(sim)
+    binding = only(sim.compiled.distributed_outputs.bindings)
+    column = binding.columns.incident_par
+    leaf = model_status(model, :leaf_a)
+    @test binding.destination_ids == [ObjectId(:leaf_a)]
+    @test only(parent(column)) === PSE.refvalue(leaf, :incident_par)
+    @test leaf.seen === 10.0
+    @test length(sim.compiled.input_bindings) == 1
+
+    register_object!(model, Object(:leaf_z; scale=:Leaf, parent=:scene))
+    step!(sim)
+    @test binding.columns.incident_par === column
+    @test last(parent(column)) === PSE.refvalue(model_status(model, :leaf_z), :incident_par)
+    @test model_status(model, :leaf_z).seen === 60.0
+    @test outputs(sim)[(:distributed_runtime_writer, ObjectId(:leaf_a), :incident_par)] ==
+        [(1.0, 10.0), (2.0, 20.0)]
+
+    # The canonical manifest admits both precisions. A new Float32 destination
+    # widens the previous homogeneous column while preserving its Float64 cell.
+    supplied = Status(incident_par=0.0)
+    mixed = CompositeModel(Object(:scene; scale=:Scene),
+        Object(:leaf_a; scale=:Leaf, parent=:scene, status=supplied),
+        Object(:sample; scale=:Leaf, parent=:scene, status=Status(incident_par=0f0));
+        applications=(ModelSpec(DistributedRuntimeRealWriter(); name=:writer,
+            on=One(id=:scene), outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope());
+                vars=(:incident_par,)),)),))
+    mixed_sim = run!(mixed; steps=0, outputs=:all)
+    remove_object!(mixed, :sample)
+    step!(mixed_sim)
+    homogeneous = only(mixed_sim.compiled.distributed_outputs.bindings)
+    @test homogeneous.columns.incident_par isa PSE.RefVector{Float64}
+    before = PSE.refvalue(supplied, :incident_par)
+    added = Status(incident_par=0f0)
+    register_object!(mixed, Object(:leaf_z; scale=:Leaf, parent=:scene, status=added))
+    step!(mixed_sim)
+    after = PSE.refvalue(added, :incident_par)
+    group = only(mixed_sim.compiled.distributed_outputs.bindings)
+    @test group.destination_ids == ObjectId.([:leaf_a, :leaf_z])
+    @test parent(group.columns.incident_par)[1] === before
+    @test parent(group.columns.incident_par)[2] === after
+    @test before[] === 102.0 && after[] === 102f0
+    @test only(outputs(mixed_sim)[(:writer, ObjectId(:leaf_z), :incident_par)]) == (2.0, 102f0)
+end
+
+@testset "A rejected first destination can be retried after its reader acquires a source" begin
+    model = CompositeModel(Object(:scene; scale=:Scene),
+        Object(:sample; scale=:Gate, parent=:scene, status=Status(permit=[0.0]));
+        applications=(
+            ModelSpec(DistributedRuntimeStatefulWriterModel(); name=:writer, on=One(id=:scene),
+                outputs_to=(OutputTo(Many(scale=:Leaf, within=SceneScope()); vars=(:incident_par,)),)),
+            ModelSpec(DistributedRuntimePlantIntegratorModel(); name=:reader, on=Many(scale=:Leaf),
+                inputs=(integrated_incident_par=One(SceneScope(); scale=:Gate, from_status=true, var=:permit),)),
+        ))
+    remove_object!(model, :sample)
+    sim = run!(model; steps=0, outputs=:all)
+    leaf_id = ObjectId(:leaf_a)
+    group = only(sim.compiled.distributed_outputs.bindings)
+    register_object!(model, Object(leaf_id; scale=:Leaf, parent=:scene))
+    initial = model_status(model, leaf_id)
+    for attempt in 1:2
+        @test_throws "Expected exactly one object" step!(sim)
+        @test current_step(sim) == 0
+        @test model_status(model, leaf_id) === initial
+        @test isempty(group.destination_ids)
+        @test isempty(group.columns.incident_par)
+        @test isempty(sim.compiled.input_bindings)
+        @test !haskey(sim.compiled.distributed_outputs.writer_ownership, (leaf_id, :incident_par))
+        @test !haskey(outputs(sim), (:writer, leaf_id, :incident_par))
+    end
+    register_object!(model, Object(:gate; scale=:Gate, parent=:scene, status=Status(permit=[7.0])))
+    step!(sim)
+    @test current_step(sim) == 1
+    @test group.destination_ids == [leaf_id]
+    @test only(parent(group.columns.incident_par)) === PlantSimEngine.refvalue(model_status(model, leaf_id), :incident_par)
+    @test only(sim.compiled.input_bindings).carrier === PlantSimEngine.refvalue(model_status(model, :gate), :permit)
+    @test model_status(model, leaf_id).integrated_total === 7.0
+    @test outputs(sim)[(:writer, leaf_id, :incident_par)] == [(1.0, 101.0)]
+end

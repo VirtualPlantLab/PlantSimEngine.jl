@@ -11,6 +11,8 @@ function setup_status_registry_benchmark(nobjects::Int)
         ) for index in 1:nobjects
     ]
     model = PlantSimEngine.CompositeModel(objects...)
+    # Registry lookups use the official headers, which retain the raw cells.
+    statuses = [PlantSimEngine.model_status(model, index) for index in 1:nobjects]
     lookup_index = cld(nobjects, 2)
     return (
         model=model,

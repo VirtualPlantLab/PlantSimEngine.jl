@@ -47,6 +47,7 @@ explains the functions and their requirements in detail.
   `assign_outputs!`. Access each variable's destination values through
   `targets.columns.<variable>` and their object identifiers, in the same
   order, through `object_ids(targets)`.
+- Declare status fields for future MTG organs with `PlantSimEngine.birth_status_types`.
 - Adding, removing, or moving objects: `register_object!`, `add_organ!`, `remove_object!`,
   `reparent_object!`, `move_object!`, `update_geometry!`,
   `mark_environment_binding_dirty!`, `objects_from_mtg`.

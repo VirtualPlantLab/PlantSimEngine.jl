@@ -374,9 +374,9 @@ to migrate mapping code to the newer API.
   `Integrate()` and `Aggregate()` behavior.
 - A dedicated benchmark suite for the multi-rate implementation.
 - A new multi-rate documentation track:
-  [introduction](/Users/rvezy/Documents/dev/PlantSimEngine/docs/src/multirate/introduction.md),
-  [step-by-step tutorial](/Users/rvezy/Documents/dev/PlantSimEngine/docs/src/multirate/multirate_tutorial.md),
-  and [advanced configuration](/Users/rvezy/Documents/dev/PlantSimEngine/docs/src/multirate/advanced_configuration.md).
+  [introduction](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/v0.14.0/docs/src/multirate/introduction.md),
+  [step-by-step tutorial](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/v0.14.0/docs/src/multirate/multirate_tutorial.md),
+  and [advanced configuration](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/v0.14.0/docs/src/multirate/advanced_configuration.md).
 
 ### Changed
 

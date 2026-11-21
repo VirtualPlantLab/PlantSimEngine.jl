@@ -118,6 +118,22 @@ const AUTHORING_TEMPERATURE = VariableContract(
     extent=:intensive,
 )
 
+struct AuthoringRequiredInspectionCounter <: AbstractAuthoringLinearModel
+    input_reads::Base.RefValue{Int}
+    output_reads::Base.RefValue{Int}
+end
+function PlantSimEngine.inputs_(model::AuthoringRequiredInspectionCounter)
+    model.input_reads[] += 1
+    return (x=Required(Float64),)
+end
+function PlantSimEngine.outputs_(model::AuthoringRequiredInspectionCounter)
+    model.output_reads[] += 1
+    return (y=0.0,)
+end
+PlantSimEngine.variable_contracts_(::AuthoringRequiredInspectionCounter) =
+    (x=AUTHORING_DIMENSIONLESS, y=AUTHORING_DIMENSIONLESS)
+PlantSimEngine.run!(::AuthoringRequiredInspectionCounter, status, environment, constants, context) = nothing
+
 @testset "Distributed model outputs are inspectable without a scenario" begin
     declarations = (
         total=Float32[0, 1],
@@ -694,21 +710,76 @@ end
     @test !isnothing(valid_report.compilation.compiled)
     @test JSON.parse(to_json(valid_report))["summary"]["compiled"]
 
+    # A missing VALUE still admits a complete physical schema when its type
+    # is configured. The underdetermined Required(Real) case is separate below.
     unresolved_scenario = CompositeModel(
         Object(:leaf; scale=:Leaf);
         applications=(
-            ModelSpec(model; name=:linear, on=One(scale=:Leaf)),
+            ModelSpec(AuthoringNarrowInputModel(model.gain, model.offset);
+                name=:linear, on=One(scale=:Leaf)),
         ),
         environment=(T=25.0, duration=3600.0),
     )
     unresolved_report = validate_scenario(unresolved_scenario)
     @test !unresolved_report.valid
-    @test unresolved_report.summary.compiled
+    @test !unresolved_report.summary.compiled
     @test any(
         diagnostic -> diagnostic.code == :unresolved_required_input &&
                       diagnostic.context["variable"] == "x",
         unresolved_report.diagnostics,
     )
+    missing_diagnostic = only(unresolved_report.diagnostics)
+    @test missing_diagnostic.code === :unresolved_required_input
+    @test missing_diagnostic.context["applicationIds"] == ["linear"]
+    @test missing_diagnostic.context["objectIds"] == ["leaf"]
+    @test !occursin("model_bundles", missing_diagnostic.message)
+    @test model_status(unresolved_scenario, :leaf) === nothing
+    missing_rows = explain_initialization(unresolved_scenario)
+    missing_x = only(row for row in missing_rows if row.role === :input)
+    @test missing_x.variable === :x
+    @test missing_x.application_id === :linear
+    @test missing_x.object_id === :leaf
+    @test missing_x.disposition === :required
+    @test missing_x.expected_type === Float64
+    @test model_status(unresolved_scenario, :leaf) === nothing
+
+    abstract_scenario = CompositeModel(
+        Object(:leaf; scale=:Leaf);
+        applications=(ModelSpec(model; name=:linear, on=One(scale=:Leaf)),),
+        environment=(T=25.0, duration=3600.0),
+    )
+    captured = abstract_scenario.scenario_plan_cache
+    failure = captured.status_manifest
+    @test failure isa PlantSimEngine.ScenarioPreparationFailure
+    @test failure.phase === :status_manifest
+    abstract_report = PlantSimEngine.compile_model_report(abstract_scenario)
+    @test isnothing(abstract_report.compiled)
+    @test length(abstract_report.applications) == 1
+    @test only(abstract_report.applications).id === :linear
+    @test length(abstract_report.diagnostics) == 1
+    @test only(abstract_report.diagnostics).phase === :status_manifest
+    @test only(abstract_report.diagnostics).message == sprint(showerror, failure.error)
+    @test !occursin("MethodError", only(abstract_report.diagnostics).message)
+    @test abstract_scenario.scenario_plan_cache === captured
+    @test captured.status_manifest === failure
+    @test_throws "Input field `x` has no exact" run!(abstract_scenario; steps=0)
+
+    counted = AuthoringRequiredInspectionCounter(Ref(0), Ref(0))
+    counted_scene = CompositeModel(Object(:counted); applications=(
+        ModelSpec(counted; name=:counted, on=One(id=:counted)),))
+    @test (counted.input_reads[], counted.output_reads[]) == (1, 1)
+    counted_report = PlantSimEngine.compile_model_report(counted_scene)
+    owned_model = PlantSimEngine._application_default_model(only(counted_report.applications))
+    @test (owned_model.input_reads[], owned_model.output_reads[]) == (2, 2)
+    @test (counted.input_reads[], counted.output_reads[]) == (1, 1)
+    @test only(counted_report.diagnostics).code === :unresolved_required_input
+    @test !hasproperty(model_status(counted_report.model, :counted), :x)
+    @test model_status(counted_scene, :counted) === nothing
+    PlantSimEngine._explain_initialization(counted_report.model,
+        counted_report.applications, counted_report.input_bindings,
+        Dict{Tuple{Symbol,ObjectId},Any}(), counted_report.initial_status_variables,
+        counted_report.environment_bindings; required_only=true)
+    @test (owned_model.input_reads[], owned_model.output_reads[]) == (2, 2)
 
     invalid_selector = CompositeModel(
         Object(:leaf; scale=:Leaf, status=Status(x=1.0));
@@ -751,7 +822,7 @@ end
 
         unresolved_display = repr(MIME"text/plain"(), unresolved_report)
         @test occursin(r"\binvalid\b", lowercase(unresolved_display))
-        @test occursin("Compilation: complete; cycles: 0", unresolved_display)
+        @test occursin("Compilation: incomplete; cycles: 0", unresolved_display)
         @test occursin("unresolved_required_input", unresolved_display)
         @test occursin("linear", unresolved_display)
         @test occursin("leaf", unresolved_display)

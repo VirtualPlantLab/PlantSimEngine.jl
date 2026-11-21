@@ -271,6 +271,13 @@ keep those new values consistent with the rest of the simulation:
   object's output. The initializer itself can still use a `PreviousTimeStep`
   input.
 
+The MTG initializer can declare fields supplied later through `initial_status`.
+See [Importing an MTG](../guides/multiscale/import_mtg.md) for a flower example.
+
+```@docs
+PlantSimEngine.birth_status_types
+```
+
 ### Explanations
 
 Use the `Diagnostics` namespace instead of inspecting internals:
@@ -437,8 +444,13 @@ ordinary simulations, use `Diagnostics.explain_*` with a `CompositeModel`
 to inspect the setup.
 
 Examples include `Advanced.compile_composite_model`, `Advanced.refresh_bindings!`, and
-the `Advanced.CompiledCompositeModel` family. These qualified APIs may evolve more
-quickly than the default modeling interface.
+the `Advanced.CompiledCompositeModel` family. Configure applications and their
+connections in the `CompositeModel` constructor, then call
+`Advanced.compile_composite_model(model)` or `Advanced.refresh_bindings!(model)`.
+`force=true` refreshes declarations of the configuration already held by the
+model, subject to its prepared Status schema. Construct another `CompositeModel`
+for a different prepared schema. These qualified APIs may evolve more quickly
+than the default modeling interface.
 
 ## Index
 

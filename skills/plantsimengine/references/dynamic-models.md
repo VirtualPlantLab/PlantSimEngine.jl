@@ -48,9 +48,11 @@ new_leaf_status = add_organ!(
 )
 ```
 
-`add_organ!` creates the node, reuses the model's MTG status policy, applies
-initial values, attaches the status, and registers the runtime object. Do not
-separately register the returned status/object.
+`add_organ!` creates the node and registers explicit `initial_status` values.
+The initial-tree `status(node)` import callback is not replayed during growth.
+Annotations and geometry stay in MTG attributes; use `source_node` instead of
+expecting a `node` status field. Do not separately register the returned
+status/object.
 
 Keep initial values generic and scientifically explicit. Do not seed a
 newborn with arbitrary nonzero values merely to satisfy a downstream type.

@@ -21,30 +21,31 @@ PlantSimEngine.outputs_(m::ToyInternodeCrazyEmergence) = (TT_cu_emergence=0.0,)
 function PlantSimEngine.run!(m::ToyInternodeCrazyEmergence, status, environment, constants=nothing, context=nothing)
 
     model = runtime_model(context)
+    node = source_node(context)
 
-    #root = get_root(status.node)
+    #root = get_root(source_node(context))
 
     #if nleaves(root) > 10000
     #    return nothing
     #end
 
-    if length(MultiScaleTreeGraph.children(status.node)) == 1 && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
+    if length(MultiScaleTreeGraph.children(node)) == 1 && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
 
-        status_new_internode = add_organ!(status.node, model, "<", :Internode, 2; index=1, initial_status=(carbon_biomass=1.0, TT_cu_emergence=0.0))
-        add_organ!(status_new_internode.node, model, "+", :Leaf, 2; index=1, initial_status=(carbon_biomass=1.0,))
+        status_new_internode = add_organ!(node, model, "<", :Internode, 2; index=1, initial_status=(carbon_biomass=1.0, TT_cu_emergence=0.0))
+        add_organ!(source_node(model, status_new_internode), model, "+", :Leaf, 2; index=1, initial_status=(carbon_biomass=1.0,))
         status_new_internode.TT_cu_emergence = status.TT_cu
-    elseif (length(MultiScaleTreeGraph.children(status.node)) >= 2 && length(MultiScaleTreeGraph.children(status.node)) < 7) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
-        status_new_internode = add_organ!(status.node, model, "<", :Internode, 2; index=1, initial_status=(carbon_biomass=1.0, TT_cu_emergence=0.0))
-        add_organ!(status.node, model, "+", :Leaf, 2; index=4, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, model, "+", :Leaf, 2; index=5, initial_status=(carbon_biomass=1.0,))
+    elseif (length(MultiScaleTreeGraph.children(node)) >= 2 && length(MultiScaleTreeGraph.children(node)) < 7) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
+        status_new_internode = add_organ!(node, model, "<", :Internode, 2; index=1, initial_status=(carbon_biomass=1.0, TT_cu_emergence=0.0))
+        add_organ!(node, model, "+", :Leaf, 2; index=4, initial_status=(carbon_biomass=1.0,))
+        add_organ!(node, model, "+", :Leaf, 2; index=5, initial_status=(carbon_biomass=1.0,))
         status_new_internode.TT_cu_emergence = status.TT_cu
-    elseif (length(MultiScaleTreeGraph.children(status.node)) >= 7 && length(MultiScaleTreeGraph.children(status.node)) < 30) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
-        add_organ!(status.node, model, "+", :Leaf, 2; index=6, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, model, "+", :Leaf, 2; index=7, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, model, "+", :Leaf, 2; index=8, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, model, "+", :Leaf, 2; index=9, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, model, "+", :Leaf, 2; index=10, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, model, "+", :Leaf, 2; index=11, initial_status=(carbon_biomass=1.0,))
+    elseif (length(MultiScaleTreeGraph.children(node)) >= 7 && length(MultiScaleTreeGraph.children(node)) < 30) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
+        add_organ!(node, model, "+", :Leaf, 2; index=6, initial_status=(carbon_biomass=1.0,))
+        add_organ!(node, model, "+", :Leaf, 2; index=7, initial_status=(carbon_biomass=1.0,))
+        add_organ!(node, model, "+", :Leaf, 2; index=8, initial_status=(carbon_biomass=1.0,))
+        add_organ!(node, model, "+", :Leaf, 2; index=9, initial_status=(carbon_biomass=1.0,))
+        add_organ!(node, model, "+", :Leaf, 2; index=10, initial_status=(carbon_biomass=1.0,))
+        add_organ!(node, model, "+", :Leaf, 2; index=11, initial_status=(carbon_biomass=1.0,))
 
     end
 
@@ -53,7 +54,7 @@ end
 
 
 function _benchmark_mtg_status(node)
-    data = Dict{Symbol,Any}(:node => node)
+    data = Dict{Symbol,Any}()
     scale = MultiScaleTreeGraph.symbol(node)
     scale in (:Leaf, :Internode) && (data[:carbon_biomass] = 1.0)
     scale == :Plant && (data[:carbon_allocation] = zeros(4))

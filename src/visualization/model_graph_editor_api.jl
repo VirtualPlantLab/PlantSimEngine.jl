@@ -288,9 +288,10 @@ RemoveModelObjectOverride(
 Apply one declarative graph edit transactionally. The input model is not
 modified; a deep-copied, cache-invalidated CompositeModel is returned. Configuration
 that is temporarily incomplete or cyclic is retained so the editor can display
-and repair it. Structural edit errors leave the original model unchanged. Values
-listed in `preserve` retain their identity inside the copy; editor sessions use
-this for server-side template and environment catalogs.
+and repair it. Structural edit errors leave the original model unchanged. Mutable values
+listed in `preserve` retain their identity inside the copy. For an immutable
+container, list its mutable fields explicitly. Editor sessions use this for
+server-side template and environment catalogs.
 """
 function _model_graph_deepcopy(model::CompositeModel, preserve=())
     stack = IdDict{Any,Any}()
@@ -306,9 +307,19 @@ function apply_model_graph_edit(
     preserve=(),
 )
     candidate = _model_graph_deepcopy(model, preserve)
+    preparation = candidate.scenario_plan_cache
     candidate = _apply_model_graph_edit!(candidate, edit)
     _mark_bindings_dirty!(candidate)
-    return candidate
+    final_preparation = if !isnothing(preparation) && _authored_specs_match(preparation, candidate)
+        # The copied state is initial data for this new model. Reuse captured
+        # declarations, then recompute routes and the namespace without hooks.
+        _finalize_authored_scenario(candidate, collect(Any, preparation.source_specs),
+            collect(Any, preparation.authored), nothing)
+    else
+        _prepare_authored_scenario(candidate; raw_families=nothing)
+    end
+    candidate.scenario_plan_cache = final_preparation
+    return _install_prepared_canonical_registry(candidate, final_preparation)
 end
 
 function _model_edit_application_id(spec)
@@ -719,7 +730,7 @@ end
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelOutputDestinations)
     spec = _model_edit_spec(model, edit.application)
     replacement = _replace_model_spec(spec; outputs_to=edit.destinations)
-    _resolved_output_destinations(replacement)
+    _output_destination_layout(replacement, _distributed_output_names(replacement))
     return _replace_model_edit_spec!(model, edit.application, replacement)
 end
 
@@ -845,14 +856,16 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::BreakModelCycle)
     isempty(applications) && error(
         "Application `$(edit.application.application_id)` could not be resolved after breaking its cycle.",
     )
+    missing = ObjectId[]
     for application in applications
         for object_id in application.target_ids
             object = _model_object(model, object_id)
-            supplied = object.status isa Status && edit.input in Symbol.(propertynames(object.status))
-            supplied || _set_model_object_status!(model, object_id, edit.input, edit.initial_value)
+            supplied = object.status isa Status && hasproperty(object.status, edit.input)
+            supplied || object_id in missing || push!(missing, object_id)
         end
     end
-    return model
+    return isempty(missing) ? model :
+        _set_model_object_statuses!(model, missing, edit.input, edit.initial_value)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::AddModelObject)
@@ -889,44 +902,53 @@ function _model_edit_status_values(status)
     ]
 end
 
-function _set_model_object_status!(model, object_id, variable, value)
-    object = _model_object(model, object_id)
-    effective, _, _ = _materialize_status_value(
-        model,
-        Symbol(variable),
-        value;
-        object_id=object.id,
-        origin=:graph_edit_status,
-    )
-    values = _model_edit_status_values(object.status)
-    index = findfirst(pair -> first(pair) == variable, values)
-    if isnothing(index)
-        push!(values, variable => effective)
-    else
-        values[index] = variable => effective
+function _set_model_object_statuses!(model, object_ids, variable, value)
+    isempty(object_ids) && error("SetModelObjectStatuses requires at least one object id.")
+    # Resolve every identity before converting any value. These are facades in
+    # the transaction's private copy, not objects in the caller's live registry.
+    selected = [_model_object(model, object_id) for object_id in object_ids]
+    updates = Dict{ObjectId,Status}()
+    for object in selected
+        effective, _, _ = _materialize_status_value(model, variable, value;
+            object_id=object.id, origin=:graph_edit_status)
+        references = object.status isa Status ? Pair{Symbol,Any}[
+            name => refvalue(object.status, name) for name in propertynames(object.status)
+        ] : Pair{Symbol,Any}[]
+        index = findfirst(pair -> first(pair) === variable, references)
+        reference = variable => Ref(effective)
+        isnothing(index) ? push!(references, reference) : (references[index] = reference)
+        updates[object.id] = Status((; references...))
     end
-    _replace_model_object_status!(model, object, Status((; values...)))
-    delete!(
-        get!(
-            model.input_default_status_variables,
-            object_id,
-            Set{Symbol}(),
-        ),
-        variable,
-    )
-    return model
+    defaults = Dict{ObjectId,Set{Symbol}}(
+        id => copy(names) for (id, names) in model.input_default_status_variables)
+    for (id, status) in updates
+        setfield!(_model_object(model, id), :status, status)
+        delete!(get!(defaults, id, Set{Symbol}()), variable)
+    end
+    # Assemble the real edited initial data before preparing its canonical S.
+    # Specs are already mounted; retain the same instance facades and adapter
+    # maps below instead of mounting templates or converting status values twice.
+    assembled = _assemble_composite_model(model_objects(model)...;
+        applications=model.applications, environment=model.environment,
+        source_adapter=model.source_adapter, _status_conversion=model.status_conversion,
+        _status_values_materialized=true,
+        _status_conversion_records=model.status_conversion_records)
+    fields = map(fieldnames(typeof(model))) do name
+        name in (:registry, :status_source_owners, :status_source_identities,
+            :status_conversion_records) && return getfield(assembled, name)
+        name in (:scenario_plan_cache, :binding_cache, :environment_binding_cache) && return nothing
+        name === :input_default_status_variables && return defaults
+        return getfield(model, name)
+    end
+    return CompositeModel(fields...)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectStatus)
-    return _set_model_object_status!(model, edit.object_id, edit.variable, edit.value)
+    return _set_model_object_statuses!(model, (edit.object_id,), edit.variable, edit.value)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectStatuses)
-    isempty(edit.object_ids) && error("SetModelObjectStatuses requires at least one object id.")
-    for object_id in edit.object_ids
-        _set_model_object_status!(model, object_id, edit.variable, edit.value)
-    end
-    return model
+    return _set_model_object_statuses!(model, edit.object_ids, edit.variable, edit.value)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelObjectStatus)
@@ -956,6 +978,8 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectMet
     allowed = Set((:scale, :kind, :species, :name, :geometry, :parent))
     unknown = setdiff(Set(Symbol.(keys(edit.configuration))), allowed)
     isempty(unknown) || error("Unsupported object metadata fields: $(sort!(collect(unknown); by=string)).")
+    id = _index_object_id(model.registry.objects, object.id)
+    _validate_object_family_status_owner!(model.registry.objects, object.status, id)
     _deindex_object!(model.registry, object)
     for (key_, value) in pairs(edit.configuration)
         key = Symbol(key_)
@@ -969,7 +993,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectMet
             setfield!(object, key, isnothing(value) ? nothing : Symbol(value))
         end
     end
-    _index_object!(model.registry, object)
+    _index_object_labels!(model.registry, object, id)
     if haskey(edit.configuration, :parent)
         before = _object_instance_name(model, object.id)
         reparent_object!(model, object.id, edit.configuration.parent)
@@ -1052,7 +1076,7 @@ function _model_edit_rebuild_instances(
         for application in model.applications
         if _model_edit_application_id(application) in mounted_ids
     )
-    rebuilt = CompositeModel(
+    rebuilt = _assemble_composite_model(
         (deepcopy(object) for object in model_objects(model))...;
         applications=global_applications,
         instances=instances,
@@ -1157,7 +1181,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetCompositeModel
         application for application in model.applications
         if _model_edit_application_id(application) ∉ mounted_ids
     )
-    return CompositeModel(
+    return _assemble_composite_model(
         (deepcopy(object) for object in model_objects(model))...;
         applications=global_applications,
         instances=Tuple(_model_edit_normalize_instance(instance) for instance in model.instances),

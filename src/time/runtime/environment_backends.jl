@@ -18,6 +18,10 @@ Immutable model-target metadata passed to [`bind_environment`](@ref). Backends
 return an opaque handle from that method and use the handle for all subsequent
 sampling and commits. Runtime status and geometry are intentionally absent:
 object-to-environment routing belongs to the compiled handle.
+
+For `CompositeModel` bindings, the compiler constructs this context with an
+`ObjectId` value from its prepared identity family. Providers customize the
+returned handle, while this metadata remains owned by the compiler.
 """
 struct EnvironmentContext{O}
     application::Symbol
@@ -98,7 +102,11 @@ end
 function _available_environment_variables(source)
     row = _first_environment_row(source)
     isnothing(row) && return nothing
-    return Set(Symbol.(propertynames(row)))
+    variables = Set{Symbol}()
+    for name in propertynames(row)
+        push!(variables, Symbol(name))
+    end
+    return variables
 end
 
 """
@@ -199,6 +207,14 @@ Sample one environmental variable through an opaque compiled backend `handle`.
 The four-argument method reads the backend's committed state. The five-argument
 method reads a transient backend-specific `state` supplied through
 `run_call!(context, name; environment=state)`.
+
+`time` is an index on the simulation's base-step clock. Per-target backend
+sampling uses `float(step)` consistently, independently of output retention and
+performance instrumentation. Global forcing rows retain their scheduler-step
+lookup. Backends should accept an appropriate `Real` clock. The ordinary
+scheduler normalizes integer steps to `Float64`; already floating per-target
+clocks retain their representation. Hard calls use the `Float64` clock captured
+by their runtime context.
 """
 function sample(backend::AbstractEnvironmentBackend, handle, variable::Symbol, time)
     error(
@@ -348,12 +364,14 @@ function sample_environment(backend::GlobalConstant, handle, state, time, variab
     return _environment_row_at_step(state, Int(round(time)))
 end
 
-function _environment_sampling_rules(model_spec::ModelSpec)
+function _environment_sampling_configuration(model_spec::ModelSpec)
     bindings = environment_bindings(model_spec)
     bindings = bindings isa NamedTuple ? bindings : NamedTuple()
-    environment_sources = _environment_source_overrides(model_spec)
-    rules = Pair{Symbol,Symbol}[]
-    for target in keys(environment_inputs_(model_spec))
+    return bindings, _environment_source_overrides(model_spec)
+end
+
+function _environment_sampling_rules(bindings, environment_sources, input_names)
+    return map(input_names) do target
         source = target
         if haskey(bindings, target)
             rule = bindings[target]
@@ -362,9 +380,8 @@ function _environment_sampling_rules(model_spec::ModelSpec)
         if haskey(environment_sources, target)
             source = Symbol(environment_sources[target])
         end
-        push!(rules, target => source)
+        return convert(Pair{Symbol,Symbol}, target => source)
     end
-    return rules
 end
 
 function _environment_source_overrides(model_spec::ModelSpec)
@@ -382,12 +399,12 @@ function _environment_source_overrides(model_spec::ModelSpec)
 end
 
 function PreparedEnvironmentInputs(model_spec::ModelSpec)
-    rules = _environment_sampling_rules(model_spec)
+    bindings, environment_sources = _environment_sampling_configuration(model_spec)
+    input_names = _environment_variable_names(environment_inputs_(model_spec))
+    rules = _environment_sampling_rules(bindings, environment_sources, input_names)
     targets = Tuple(first(rule) for rule in rules)
     sources = Tuple(last(rule) for rule in rules)
-    bindings = environment_bindings(model_spec)
-    raw_global_source = !(bindings isa NamedTuple && !isempty(keys(bindings))) &&
-                        isempty(keys(_environment_source_overrides(model_spec)))
+    raw_global_source = isempty(keys(bindings)) && isempty(keys(environment_sources))
     return PreparedEnvironmentInputs(targets, sources; raw_global_source)
 end
 

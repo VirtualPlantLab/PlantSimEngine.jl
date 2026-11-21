@@ -44,7 +44,7 @@ initial_preparation_status(model, id) = only(
     object.status for object in model_objects(model) if object.id == ObjectId(id)
 )
 
-@testset "complete initial statuses retain identity and arbitrary Ref aliases" begin
+@testset "official initial statuses retain arbitrary Ref aliases" begin
     storage = [7.5, 2.25]
     supplied_reference = Ref(storage, 1)
     result_reference = Ref(storage, 2)
@@ -70,16 +70,24 @@ initial_preparation_status(model, id) = only(
         ),
     )
     compiled = Advanced.refresh_bindings!(model)
-    @test initial_preparation_status(model, :leaf) === original
+    official = model_status(model,:leaf)
+    @test initial_preparation_status(model,:leaf) === official
+    @test official !== original
+    @test_throws ArgumentError object_id(model,original)
+    @test object_id(model,official) === ObjectId(:leaf)
+    @test propertynames(official) == (:result,:supplied,:offset,:alias)
     @test propertynames(original) == (:supplied, :alias, :result, :offset)
+    @test all(PlantSimEngine.refvalue(official,name) === PlantSimEngine.refvalue(original,name)
+        for name in propertynames(original))
     @test original.offset == 3.0
     @test PlantSimEngine.refvalue(original, :supplied) === supplied_reference
     @test PlantSimEngine.refvalue(original, :alias) === supplied_reference
     @test PlantSimEngine.refvalue(original, :result) === result_reference
     for application_id in (:first, :second)
         view = compiled.status_views_by_target[(application_id, ObjectId(:leaf))]
-        @test view.status === original
-        @test view.canonical_status === original
+        @test view.canonical_status === official
+        @test all(PlantSimEngine.refvalue(view.status,name) ===
+            PlantSimEngine.refvalue(official,name) for name in propertynames(official))
         @test isempty(view.temporal_inputs)
         @test isempty(view.private_outputs)
     end
@@ -90,7 +98,7 @@ initial_preparation_status(model, id) = only(
     original.result = 4.5
     @test storage[2] == 4.5
     simulation = run!(model; steps=1, outputs=:none)
-    @test initial_preparation_status(model, :leaf) === original
+    @test initial_preparation_status(model,:leaf) === official
     @test final_state(simulation).supplied == 9.25
     @test storage == [9.25, 4.5]
 end
@@ -105,25 +113,27 @@ end
         applications=(ModelSpec(probe; name=:empty, on=Many(scale=:Leaf)),),
     )
     compiled = Advanced.refresh_bindings!(model)
-    @test initial_preparation_status(model, :supplied) === supplied
+    official = model_status(model,:supplied)
+    @test initial_preparation_status(model,:supplied) === official
+    @test official !== supplied
+    @test_throws ArgumentError object_id(model,supplied)
     for object in model_objects(model)
         @test object.status isa Status
         @test isempty(propertynames(object.status))
         @test object_id(model, object.status) == object.id
         view = compiled.status_views_by_target[(:empty, object.id)]
-        @test view.status === object.status
         @test view.canonical_status === object.status
+        @test isempty(view.status)
     end
     @test initial_preparation_status(model, :missing_a) !==
           initial_preparation_status(model, :missing_b)
 
     invalid_status = (sentinel=7.0,)
-    invalid = CompositeModel(
+    @test_throws ArgumentError("Initial object status must be a Status or nothing.") CompositeModel(
         Object(:invalid; scale=:Leaf, status=invalid_status);
         applications=(ModelSpec(probe; name=:empty, on=One(scale=:Leaf)),),
     )
-    @test_throws "Model object `invalid` uses model applications but its status has type" Advanced.refresh_bindings!(invalid)
-    @test initial_preparation_status(invalid, :invalid) === invalid_status
+    @test invalid_status === (sentinel=7.0,)
 end
 
 @testset "initial preparation preserves existing references and first defaults" begin
@@ -160,7 +170,7 @@ end
     @test existing.offset == missing.offset == 2.0
     @test existing.extra == missing.extra == 4.0
     @test propertynames(existing) ==
-          (:signal, :untouched, :output_buffer, :extra, :offset, :input_buffer)
+          (:signal, :output_buffer, :extra, :offset, :input_buffer, :untouched)
     @test propertynames(missing) ==
           (:signal, :output_buffer, :extra, :offset, :input_buffer)
 
@@ -256,8 +266,9 @@ end
     @test row.status_transform_applied
     @test row.status_transform_changed
     view = compiled.status_views_by_target[(:reader, ObjectId(:leaf))]
-    @test view.status === reader
     @test view.canonical_status === reader
+    @test PlantSimEngine.refvalue(view.status,:bound) ===
+          PlantSimEngine.refvalue(reader,:bound)
 end
 
 @testset "initial defaults preserve numeric conversion diagnostics" begin
@@ -331,7 +342,7 @@ end
 end
 
 @testset "distributed destination validation precedes initial default preparation" begin
-    function destination_model(leaf_status)
+    function destination_model(leaf_status; required_type)
         return CompositeModel(
             Object(:scene; scale=:Scene),
             Object(:leaf; scale=:Leaf, parent=:scene, status=leaf_status);
@@ -340,7 +351,7 @@ end
                     InitialStatusPreparationProbe(NamedTuple(), (
                         local_default=1.0,
                         distributed_buffer=Distributed(Default([1.0])),
-                        required_value=Distributed(Required(Real)),
+                        required_value=Distributed(Required(required_type)),
                     ));
                     name=:distributor, on=One(scale=:Scene),
                     outputs_to=(
@@ -353,16 +364,22 @@ end
     end
     original = Status(sentinel=7.0)
     sentinel_reference = PlantSimEngine.refvalue(original, :sentinel)
-    missing = destination_model(original)
+    # This case tests missing VALUES before defaults, with a concrete declared
+    # storage type. Underdetermined Required(Real) is a separate type diagnostic.
+    missing = destination_model(original; required_type=Float64)
+    missing_official = model_status(missing,:leaf)
+    @test missing_official !== original
     @test_throws "Missing required distributed-output destination" Advanced.refresh_bindings!(missing)
     @test isnothing(initial_preparation_status(missing, :scene))
-    @test initial_preparation_status(missing, :leaf) === original
+    @test initial_preparation_status(missing,:leaf) === missing_official
+    @test propertynames(missing_official) == (:sentinel,)
+    @test PlantSimEngine.refvalue(missing_official,:sentinel) === sentinel_reference
     @test propertynames(original) == (:sentinel,)
     @test PlantSimEngine.refvalue(original, :sentinel) === sentinel_reference
 
     supplied = Status(required_value=4.0)
     required_reference = PlantSimEngine.refvalue(supplied, :required_value)
-    valid = destination_model(supplied)
+    valid = destination_model(supplied; required_type=Real)
     Advanced.refresh_bindings!(valid)
     leaf_status = initial_preparation_status(valid, :leaf)
     @test PlantSimEngine.refvalue(leaf_status, :required_value) === required_reference
@@ -373,11 +390,16 @@ end
 
 @testset "runtime output assembly preserves ordered stream and status references" begin
     object_id = ObjectId(:target)
-    status = Status(first=7.0, second=Float32[2, 3])
-    application = (
-        id=:probe,
-        spec=ModelSpec(InitialStatusPreparationProbe(NamedTuple(), (first=0.0, second=Float32[]))),
-    )
+    supplied = Status(first=7.0, second=Float32[2, 3])
+    model = CompositeModel(Object(object_id; status=supplied); applications=(
+        ModelSpec(InitialStatusPreparationProbe(NamedTuple(), (first=0.0, second=Float32[]));
+            name=:probe, on=One(id=object_id)),
+    ))
+    application = only(Advanced.refresh_bindings!(model).applications)
+    status = model_status(model,object_id)
+    @test status !== supplied
+    @test all(PlantSimEngine.refvalue(status,name) === PlantSimEngine.refvalue(supplied,name)
+        for name in (:first,:second))
     retention = PlantSimEngine.OutputRetentionPlan(
         false,
         Set([(:probe, :second)]),

@@ -170,7 +170,8 @@ if benchmark_test_enabled("organ lifecycle benchmark API smoke")
         added_id = PlantSimEngine.ObjectId(data.next_node_id)
         @test PlantSimEngine.object_id(data.model, status) == added_id
         @test PlantSimEngine.model_status(data.model, added_id) === status
-        @test PlantSimEngine.source_node(data.model, status) === status.node
+        @test PlantSimEngine.source_node(data.model, status) ===
+              MultiScaleTreeGraph.get_node(data.root, data.next_node_id)
         @test status.signal == 1.0
         @test data.model.bindings_dirty
         nodes = Any[]
@@ -1133,22 +1134,43 @@ if benchmark_test_enabled("XPalm reference oracle smoke")
         )
 
         mktempdir() do fixture_root
-            for relative_path in (
-                joinpath("0-data", "meteo.csv"),
-                joinpath(reference_relpath, "metadata.toml"),
-                joinpath(reference_relpath, "summary.csv"),
-            )
-                target = joinpath(fixture_root, relative_path)
-                mkpath(dirname(target))
-                cp(joinpath(xpalm_root, relative_path), target)
+            mkpath(joinpath(fixture_root, "0-data"))
+            cp(joinpath(xpalm_root, "0-data", "meteo.csv"),
+                joinpath(fixture_root, "0-data", "meteo.csv"))
+            for baseline in ("v0.7.0", "v0.7.0-catchup-dev")
+                relative = joinpath("test", "references", "regression", baseline)
+                isdir(joinpath(xpalm_root, relative)) || continue
+                mkpath(joinpath(fixture_root, relative))
+                for file in ("metadata.toml", "summary.csv", "trajectory_checkpoints.csv", "harvest_events.csv")
+                    cp(joinpath(xpalm_root, relative, file), joinpath(fixture_root, relative, file))
+                end
             end
+            @test _xpalm_reference_baseline(fixture_root) == XPALM_REFERENCE_BASELINE
             @test xpalm_reference_full_cycle_expected_state(; xpalm_root=fixture_root) == expected
+            historical = xpalm_reference_full_cycle_expected_state(;
+                xpalm_root=fixture_root, baseline="v0.7.0")
+            @test historical.current_step == expected.current_step == 4160
+            @test_throws ErrorException xpalm_reference_full_cycle_expected_state(;
+                xpalm_root=fixture_root, baseline="unreviewed")
+            candidate_dir = joinpath(fixture_root, "test", "references", "regression", "v0.7.0-catchup-dev")
+            if isdir(candidate_dir)
+                @test !xpalm_reference_state_matches(historical, expected)
+                # Simulate an older checkout containing only the published data.
+                inactive = joinpath(fixture_root, "inactive-reference")
+                mv(candidate_dir, inactive)
+                @test _xpalm_reference_baseline(fixture_root) == "v0.7.0"
+                @test xpalm_reference_full_cycle_expected_state(; xpalm_root=fixture_root) == historical
+                mv(inactive, candidate_dir)
+            end
             metadata_path = joinpath(fixture_root, reference_relpath, "metadata.toml")
             metadata = TOML.parsefile(metadata_path)
             for (section, key, wrong_value) in (
                 ("source", "baseline_id", "v0.6.1"),
                 ("source", "xpalm_commit", "unknown"),
                 ("source", "parameter_source", "historical_parameters()"),
+                ("source", "scientific_change_id", "unreviewed-change"),
+                ("source", "predecessor_baseline", "unreviewed-predecessor"),
+                ("stochastic_configuration", "sex_determination_seed", 2),
                 ("inputs", "nsteps", 1000),
                 ("inputs", "meteo_sha256", repeat("0", 64)),
             )
@@ -1163,6 +1185,15 @@ if benchmark_test_enabled("XPalm reference oracle smoke")
             end
             open(metadata_path, "w") do io
                 TOML.print(io, metadata)
+            end
+            for file in ("trajectory_checkpoints.csv", "harvest_events.csv", "summary.csv")
+                path = joinpath(fixture_root, reference_relpath, file)
+                original = read(path)
+                write(path, [original; UInt8(0x0a)])
+                @test_throws ErrorException xpalm_reference_full_cycle_expected_state(;
+                    xpalm_root=fixture_root,
+                )
+                write(path, original)
             end
             summary_path = joinpath(fixture_root, reference_relpath, "summary.csv")
             changed_summary = CSV.read(summary_path, DataFrame)

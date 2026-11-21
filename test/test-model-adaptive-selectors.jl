@@ -626,23 +626,29 @@ end
         # The cache is deliberately scoped to one consumer assembly. A cached
         # unfiltered result must remain owned separately from every returned
         # vector, because writer filtering mutates those returned vectors.
-        cache = Dict{Any,Vector{ObjectId}}()
-        selectors = (bindings[:active_values].selector, bindings[:dormant_values].selector,
-            bindings[:supplied_values].selector)
+        application = simulation.compiled.applications_by_id[:partition]
+        recipe = PlantSimEngine._application_plans(
+            simulation.compiled.scenario_plan.input_recipes_by_application, application.id)
+        cache = PlantSimEngine._input_query_cache(model.registry.objects, recipe.query_count)
+        routes = Dict(plan.input => (plan, slot) for (plan, slot) in
+            zip(recipe.explicit, recipe.query_slots))
         expected = adaptive_reference_ids(model; root=:plant, scale=:Leaf)
-        first_ids = PlantSimEngine._cached_dependency_object_ids(cache, model,
-            selectors[1], PlantSimEngine._compile_selector_matcher(model, selectors[1]), ObjectId(:plant))
+        first_plan, first_slot = routes[:active_values]
+        first_ids = PlantSimEngine._input_route_source_ids(cache, first_slot,
+            model, first_plan, ObjectId(:plant))
         @test first_ids == expected
         empty!(first_ids)
-        second_ids = PlantSimEngine._cached_dependency_object_ids(cache, model,
-            selectors[2], PlantSimEngine._compile_selector_matcher(model, selectors[2]), ObjectId(:plant))
+        second_plan, second_slot = routes[:dormant_values]
+        second_ids = PlantSimEngine._input_route_source_ids(cache, second_slot,
+            model, second_plan, ObjectId(:plant))
         @test second_ids == expected
         pop!(second_ids)
-        third_ids = PlantSimEngine._cached_dependency_object_ids(cache, model,
-            selectors[3], PlantSimEngine._compile_selector_matcher(model, selectors[3]), ObjectId(:plant))
+        third_plan, third_slot = routes[:supplied_values]
+        third_ids = PlantSimEngine._input_route_source_ids(cache, third_slot,
+            model, third_plan, ObjectId(:plant))
         @test third_ids == expected
         @test length(cache) == 1
-        @test only(values(cache)) == expected
-        @test only(values(cache)) !== third_ids
+        @test only(cache) == expected
+        @test only(cache) !== third_ids
     end
 end

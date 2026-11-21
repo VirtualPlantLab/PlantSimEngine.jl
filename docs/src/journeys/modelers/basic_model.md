@@ -53,6 +53,12 @@ Main.DocsSources.section(
 )
 ```
 
+PlantSimEngine can read these declarations while constructing or inspecting a
+simulation. They should describe the model without drawing random numbers or
+changing its scientific state. Put those calculations in `run!` or an explicit
+initializer. A fresh vector used as a default is fine: each object receives
+private initial storage.
+
 A `VariableContract` describes a variable's units and meaning. It records,
 for example, whether a value is per plant or per square metre, and whether it
 is a rate or a daily total. This helps check that two connected models

@@ -460,9 +460,11 @@ move_object!(model, :leaf_3, new_geometry)
 ```
 
 For MTG-backed growth, prefer `add_organ!`: it creates the MTG node and its
-model object together and, by default, reuses the status initialization policy from
-`CompositeModel(mtg; status=...)`. Use `register_object!` when adapting another topology
-backend or when a complete `Object` already exists.
+model object together. Pass scientific initial values through `initial_status`;
+the `status` function used for the initial MTG import is not called again.
+The model's numeric conversion and prepared field types apply to these values.
+Use `register_object!` when adapting another topology backend or when a
+complete `Object` already exists.
 
 After the application that adds or removes objects finishes, PlantSimEngine
 updates which models run, where they get their inputs, and which other models

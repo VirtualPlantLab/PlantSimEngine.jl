@@ -159,7 +159,7 @@ end
 
 @testset "new consumers expand wrapped temporal buffers without replacing them" begin
     totals = Float64[]
-    for retention in (:none, :all)
+    for retention in (:none, :all), prepared in (false, true)
         short_history, long_history = Float64[], Float64[]
         consumer_spec(name, scale, window, history) = ModelSpec(
             TemporalRetentionProbeModel(history); name=name, on=Many(scale=scale),
@@ -179,7 +179,28 @@ end
                 consumer_spec(:long, :Long, 5.0, long_history),
             ),
         )
-        simulation = run!(model; steps=5, outputs=retention)
+        simulation = if prepared
+            # Observe real future-target types from this same fresh scenario.
+            witnessed_model = deepcopy(model)
+            register_object!(witnessed_model, Object(:long; scale=:Long))
+            witnessed = run!(witnessed_model; steps=0, outputs=retention)
+            names = (:source, :short, :long)
+            schemas = NamedTuple{names}(map(names) do name
+                group = only(group for group in witnessed.execution_plan.groups
+                    if group.application.id === name)
+                B = typeof(only(group.batches))
+                PlantSimEngine.PreparedExecutionBatchSchema{Vector{B}}()
+            end)
+            initial = run!(model; steps=0, outputs=retention)
+            closed = PlantSimEngine._prepare_execution_batch_schemas(initial, schemas)
+            @test all(group -> group.membership.schema isa PlantSimEngine.ClosedExecutionCohortSchema,
+                closed.execution_plan.groups)
+            @test isempty(only(group for group in closed.execution_plan.groups
+                if group.application.id === :long).batches)
+            continue!(closed; steps=5)
+        else
+            run!(model; steps=5, outputs=retention)
+        end
         key = (:source, ObjectId(:source), :signal)
         stream = outputs(simulation)[key]
         if retention === :none
@@ -202,7 +223,7 @@ end
             @test length(stream.times) == 5
         end
     end
-    @test totals == [40.0, 40.0]
+    @test totals == fill(40.0, 4)
 end
 
 @testset "48-hour hourly/daily stack and plant isolation" begin

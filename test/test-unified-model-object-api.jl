@@ -932,11 +932,28 @@ function PlantSimEngine.EnvironmentAPI.commit_environment!(
     return nothing
 end
 
+function _model_object_input_materialization_allocations(
+    compiled,
+    application,
+    object_id,
+    streams,
+    time,
+)
+    # Measure the typed operation outside the enclosing testset's local scope.
+    return @allocated PlantSimEngine._materialize_model_inputs!(
+        compiled,
+        application,
+        object_id,
+        streams,
+        time,
+    )
+end
+
 @testset "Unified model/object API" begin
     mtg_root = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
     mtg_plant = Node(mtg_root, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
     mtg_leaf = Node(mtg_plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
-    mtg_leaf_status = Status(signal=2.0)
+    mtg_leaf_status = Status(signal=2.0, age=0)
     mtg_status = node -> node === mtg_leaf ? mtg_leaf_status : nothing
     mtg_object_id = node -> Symbol(lowercase(string(symbol(node))), "_", node_id(node))
     @test all(object -> isnothing(object.status), objects_from_mtg(mtg_root))
@@ -964,7 +981,8 @@ end
         ),
     )
     @test only(model_objects(mtg_scene; scale=:Leaf)).parent == ObjectId(:plant_2)
-    @test only(model_objects(mtg_scene; scale=:Leaf)).status === mtg_leaf_status
+    @test PlantSimEngine.refvalue(only(model_objects(mtg_scene; scale=:Leaf)).status, :signal) ===
+          PlantSimEngine.refvalue(mtg_leaf_status, :signal)
     @test position(only(model_objects(mtg_scene; scale=:Leaf))) == (x=1.0, y=2.0)
     run!(mtg_scene)
     @test only(model_objects(mtg_scene; scale=:Leaf)).status.signal == 3.0
@@ -981,11 +999,12 @@ end
         initial_status=(signal=5.0, age=1),
         kind=:plant,
     )
-    @test !haskey(node_attributes(new_leaf_status.node), :plantsimengine_status)
-    @test model_status(mtg_scene, new_leaf_status.node) === new_leaf_status
-    @test source_node(mtg_scene, new_leaf_status) === new_leaf_status.node
+    @test !haskey(node_attributes(source_node(mtg_scene, new_leaf_status)), :plantsimengine_status)
+    @test model_status(mtg_scene, source_node(mtg_scene, new_leaf_status)) === new_leaf_status
+    @test source_node(mtg_scene, new_leaf_status) === source_node(mtg_scene, new_leaf_status)
     @test new_leaf_status.signal == 5.0
-    @test new_leaf_status.color == :green
+    @test !hasproperty(new_leaf_status, :color)
+    @test source_node(mtg_scene, new_leaf_status)[:color] === :green
     @test new_leaf_status.age == 1
     new_leaf_object = only(
         object for object in model_objects(mtg_scene; scale=:Leaf)
@@ -995,7 +1014,7 @@ end
     @test new_leaf_object.parent == ObjectId(:plant_2)
     @test model_object(mtg_scene, :leaf_4) === new_leaf_object
     @test model_object(mtg_scene, ObjectId(:leaf_4)) === new_leaf_object
-    @test model_object(mtg_scene, new_leaf_status.node) === new_leaf_object
+    @test model_object(mtg_scene, source_node(mtg_scene, new_leaf_status)) === new_leaf_object
     @test model_object(mtg_scene, new_leaf_status) === new_leaf_object
     @test_throws ErrorException model_object(mtg_scene, :absent_leaf)
     @test Advanced.bindings_dirty(mtg_scene)
@@ -1020,197 +1039,47 @@ end
         2;
         index=3,
     )
-    @test node_id(auto_id_leaf_status.node) == 5
+    @test node_id(source_node(mtg_scene, auto_id_leaf_status)) == 5
     @test !haskey(
-        node_attributes(auto_id_leaf_status.node),
+        node_attributes(source_node(mtg_scene, auto_id_leaf_status)),
         :plantsimengine_status,
     )
-    @test model_status(mtg_scene, auto_id_leaf_status.node) ===
+    @test model_status(mtg_scene, source_node(mtg_scene, auto_id_leaf_status)) ===
           auto_id_leaf_status
 
-    @testset "MTG organ status adapter policy" begin
+    @testset "MTG scientific import is initial-only and growth data are explicit" begin
         status_adapter_calls = Ref(0)
-        latest_adapter_status = Ref{Any}(nothing)
         status_adapter = node -> begin
             status_adapter_calls[] += 1
             node[:status_adapter_mutation] = status_adapter_calls[]
-            adapted_source_status = Status(
-                node=:adapter_node_must_be_replaced,
-                signal=6.0,
-                adapter_only=:present,
-            )
-            latest_adapter_status[] = adapted_source_status
-            return adapted_source_status
+            symbol(node) === :Leaf ? Status(signal=node[:signal], age=node[:age]) : nothing
         end
-
-        adapter_root =
-            Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
-        adapter_plant = Node(
-            adapter_root,
-            MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1),
-        )
-        status_adapter_scene =
-            CompositeModel(adapter_root; status=status_adapter)
-        calls_after_adaptation = status_adapter_calls[]
-        bypassed_initial_status = Status(
-            signal=5.0,
-            age=1,
-            node=:initial_node_must_be_replaced,
-        )
-
-        children_before_rejected_status = length(children(adapter_plant))
-        @test_throws ErrorException add_organ!(
-            adapter_plant,
-            status_adapter_scene,
-            :+,
-            :Leaf,
-            2;
-            index=99,
-            attributes=(plantsimengine_status=Status(signal=99.0),),
-            use_status_adapter=false,
-        )
-        @test length(children(adapter_plant)) == children_before_rejected_status
-
-        bypassed_status = add_organ!(
-            adapter_plant,
-            status_adapter_scene,
-            :+,
-            :Leaf,
-            2;
-            index=1,
-            id=3,
-            attributes=(
-                signal=4.0,
-                color=:green,
-                node=:attribute_node_must_be_replaced,
-            ),
-            initial_status=bypassed_initial_status,
-            use_status_adapter=false,
-        )
-
-        bypassed_reference = Dict{Symbol,Any}()
-        PlantSimEngine._status_data!(
-            bypassed_reference,
-            node_attributes(bypassed_status.node),
-        )
-        bypassed_reference[:node] = bypassed_status.node
-        PlantSimEngine._status_data!(
-            bypassed_reference,
-            bypassed_initial_status,
-        )
-        bypassed_reference[:node] = bypassed_status.node
-        bypassed_reference_names = Tuple(keys(bypassed_reference))
-        bypassed_reference_values = Tuple(values(bypassed_reference))
-
-        @test status_adapter_calls[] == calls_after_adaptation
-        @test propertynames(bypassed_status) == bypassed_reference_names
-        @test Tuple(bypassed_status) == bypassed_reference_values
-        @test bypassed_status.signal == 5.0
-        @test bypassed_status.color === :green
-        @test bypassed_status.age == 1
-        @test bypassed_status.node ===
-              MultiScaleTreeGraph.get_node(adapter_root, 3)
-        @test bypassed_initial_status.node ===
-              :initial_node_must_be_replaced
-        @test bypassed_status.node[:node] ===
-              :attribute_node_must_be_replaced
-        @test bypassed_status.node[:signal] == 4.0
-        @test !hasproperty(bypassed_status, :adapter_only)
-        @test !hasproperty(bypassed_status, :status_adapter_mutation)
-        @test !haskey(
-            node_attributes(bypassed_status.node),
-            :status_adapter_mutation,
-        )
-        @test PlantSimEngine.refvalue(bypassed_status, :signal) !==
-              PlantSimEngine.refvalue(bypassed_initial_status, :signal)
-        @test PlantSimEngine.refvalue(bypassed_status, :age) !==
-              PlantSimEngine.refvalue(bypassed_initial_status, :age)
-        @test !haskey(
-            node_attributes(bypassed_status.node),
-            :plantsimengine_status,
-        )
-        @test model_status(status_adapter_scene, bypassed_status.node) ===
-              bypassed_status
-        bypassed_initial_status.age = 99
-        @test bypassed_status.age == 1
-
-        adapted_initial_status = Status(
-            signal=5.0,
-            age=2,
-            node=:initial_node_must_be_replaced,
-        )
-
-        adapted_status = add_organ!(
-            adapter_plant,
-            status_adapter_scene,
-            :+,
-            :Leaf,
-            2;
-            index=2,
-            id=4,
-            attributes=(
-                signal=4.0,
-                color=:blue,
-                node=:attribute_node_must_be_replaced,
-            ),
-            initial_status=adapted_initial_status,
-        )
-
-        adapted_source_status = latest_adapter_status[]
-        adapted_reference = Dict{Symbol,Any}()
-        PlantSimEngine._status_data!(
-            adapted_reference,
-            node_attributes(adapted_status.node),
-        )
-        PlantSimEngine._status_data!(
-            adapted_reference,
-            adapted_source_status,
-        )
-        adapted_reference[:node] = adapted_status.node
-        PlantSimEngine._status_data!(
-            adapted_reference,
-            adapted_initial_status,
-        )
-        adapted_reference[:node] = adapted_status.node
-        adapted_reference_names = Tuple(keys(adapted_reference))
-        adapted_reference_values = Tuple(values(adapted_reference))
-
-        @test status_adapter_calls[] == calls_after_adaptation + 1
-        @test adapted_source_status isa Status
-        @test propertynames(adapted_status) == adapted_reference_names
-        @test Tuple(adapted_status) == adapted_reference_values
-        @test adapted_source_status.node ===
-              :adapter_node_must_be_replaced
-        @test adapted_initial_status.node ===
-              :initial_node_must_be_replaced
-        @test adapted_status.node[:signal] == 4.0
-        @test adapted_source_status.signal == 6.0
-        @test adapted_status.signal == 5.0
-        @test adapted_status.color === :blue
-        @test adapted_status.age == 2
-        @test adapted_status.adapter_only === :present
-        @test adapted_status.node ===
-              MultiScaleTreeGraph.get_node(adapter_root, 4)
-        @test adapted_status.node[:node] ===
-              :attribute_node_must_be_replaced
-        @test adapted_status.status_adapter_mutation ==
-              calls_after_adaptation + 1
-        @test adapted_status.node[:status_adapter_mutation] ==
-              calls_after_adaptation + 1
-        @test PlantSimEngine.refvalue(adapted_status, :adapter_only) !==
-              PlantSimEngine.refvalue(adapted_source_status, :adapter_only)
-        @test PlantSimEngine.refvalue(adapted_status, :age) !==
-              PlantSimEngine.refvalue(adapted_initial_status, :age)
-        @test !haskey(
-            node_attributes(adapted_status.node),
-            :plantsimengine_status,
-        )
-        @test model_status(status_adapter_scene, adapted_status.node) ===
-              adapted_status
-        adapted_source_status.adapter_only = :mutated_after_add
-        adapted_initial_status.age = 99
-        @test adapted_status.adapter_only === :present
-        @test adapted_status.age == 2
+        adapter_root = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+        adapter_plant = Node(adapter_root, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+        Node(adapter_plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2),
+            (signal=6.0, age=0, annotation="initial"))
+        scene = CompositeModel(adapter_root; status=status_adapter)
+        calls_after_import = status_adapter_calls[]
+        given = Status(signal=5.0, age=1)
+        before = length(children(adapter_plant))
+        @test_throws ErrorException add_organ!(adapter_plant, scene, :+, :Leaf, 2;
+            attributes=(plantsimengine_status=nothing,), initial_status=given)
+        @test length(children(adapter_plant)) == before
+        grown = add_organ!(adapter_plant, scene, :+, :Leaf, 2;
+            attributes=(signal=4.0, color=:green), initial_status=given)
+        grown_node = source_node(scene, grown)
+        @test status_adapter_calls[] == calls_after_import
+        @test grown.signal === 5.0 && grown.age == 1
+        @test !hasproperty(grown, :node) && !hasproperty(grown, :color)
+        @test !hasproperty(grown, :status_adapter_mutation)
+        @test grown_node[:signal] === 4.0 && grown_node[:color] === :green
+        @test get(node_attributes(grown_node), :status_adapter_mutation, nothing) === nothing
+        @test model_status(scene, grown_node) === grown
+        @test PlantSimEngine.refvalue(grown, :signal) === PlantSimEngine.refvalue(given, :signal)
+        @test PlantSimEngine.refvalue(grown, :age) === PlantSimEngine.refvalue(given, :age)
+        @test_throws ArgumentError object_id(scene, given)
+        given.age = 99
+        @test grown.age == 99
     end
 
     temporal_mtg_root =
@@ -1320,7 +1189,7 @@ end
     @test any(row -> row.id == :leaf_1 && row.has_geometry, object_rows)
     @test any(row -> row.id == :plant_1 && row.children == [ObjectId(:leaf_1).value], object_rows)
 
-    selector_scene = CompositeModel(
+    make_selector_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, species=:oil_palm, name=:palm_1, parent=:scene),
         Object(:axis_1; scale=:Axis, kind=:plant, species=:oil_palm, parent=:plant_1),
@@ -1328,8 +1197,10 @@ end
         Object(:leaf_2; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:axis_1, status=Status(leaf_area=2.0)),
         Object(:plant_2; scale=:Plant, kind=:plant, species=:oil_palm, name=:palm_2, parent=:scene),
         Object(:leaf_3; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_2, status=Status(leaf_area=3.0)),
-        Object(:soil; scale=:Soil, kind=:soil, parent=:scene),
+        Object(:soil; scale=:Soil, kind=:soil, parent=:scene);
+        applications=applications,
     )
+    selector_scene = make_selector_scene(())
 
     scope_rows = explain_scopes(selector_scene)
     scene_scope = only(row for row in scope_rows if row.scope_type == :scene)
@@ -1394,16 +1265,16 @@ end
     catch error
         sprint(showerror, error)
     end
-    @test contains(typo_selector_error, "requested=(scale=Leef")
-    @test contains(typo_selector_error, "available=(scales = [:Axis, :Leaf, :Plant, :Scene, :Soil]")
-    @test contains(typo_selector_error, "suggestions=(scale = [:Leaf]")
+    @test contains(typo_selector_error, "requested=(scale=Symbol(\"Leef\")")
+    @test contains(typo_selector_error, "available=(scales=[Symbol(\"Axis\"), Symbol(\"Leaf\"), Symbol(\"Plant\"), Symbol(\"Scene\"), Symbol(\"Soil\")]")
+    @test contains(typo_selector_error, "suggestions=(scale=[Symbol(\"Leaf\")]")
     ambiguous_selector_error = try
         resolve_object_ids(selector_scene, One(scale=:Leaf))
         nothing
     catch error
         sprint(showerror, error)
     end
-    @test contains(ambiguous_selector_error, "matched_ids=[:leaf_1, :leaf_2, :leaf_3]")
+    @test contains(ambiguous_selector_error, "matched_ids=[ObjectId(Symbol(\"leaf_1\")), ObjectId(Symbol(\"leaf_2\")), ObjectId(Symbol(\"leaf_3\"))]")
     @test_throws "Unsupported object selector keyword" One(sacle=:Leaf)
     @test_throws "object-query" resolve_object_ids(
         selector_scene,
@@ -1839,7 +1710,7 @@ end
     @test PlantSimEngine.input_origins(override_input_spec).leaf_carbon ==
           :model_spec
 
-    default_input_origin_scene = CompositeModel(
+    make_default_input_origin_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene),
         Object(
@@ -1848,22 +1719,18 @@ end
             kind=:plant,
             parent=:plant_1,
             status=Status(leaf_carbon=2.0, carbon_override=3.0),
-        ),
+        );
+        applications=applications,
     )
-    default_input_origin_compiled = Advanced.compile_composite_model(
-        default_input_origin_scene,
-        (
+    default_input_origin_compiled = Advanced.compile_composite_model(make_default_input_origin_scene((
             ModelSpec(
                 ModelObjectDefaultInputConsumerModel();
                 on=One(scale=:Plant),
             ),
-        ),
-    )
+        )))
     @test only(explain_bindings(default_input_origin_compiled)).origin ==
           :model_default
-    override_input_origin_compiled = Advanced.compile_composite_model(
-        default_input_origin_scene,
-        (
+    override_input_origin_compiled = Advanced.compile_composite_model(make_default_input_origin_scene((
             ModelSpec(
                 ModelObjectDefaultInputConsumerModel();
                 on=One(scale=:Plant),
@@ -1872,8 +1739,7 @@ end
                         Many(scale=:Leaf, var=:carbon_override),
                 ),
             ),
-        ),
-    )
+        )))
     @test only(explain_bindings(override_input_origin_compiled)).origin ==
           :model_spec
 
@@ -1932,7 +1798,8 @@ end
         ModelSpec(ModelObjectStomataModel(); name=:stomata, on=Many(scale=:Leaf)),
         ModelSpec(ModelObjectLeafEnergyModel(); name=:leaf_energy, on=Many(scale=:Leaf), inputs=(:leaf_areas => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_area, policy=Integrate(), window=Day(1)))),
     )
-    compiled = Advanced.compile_composite_model(selector_scene, compiled_specs)
+    compiled_selector_scene = make_selector_scene(compiled_specs)
+    compiled = Advanced.compile_composite_model(compiled_selector_scene)
     application_rows = explain_applications(compiled)
     @test length(application_rows) == 2
     @test only(row for row in application_rows if row.application_id == :stomata).target_ids ==
@@ -1965,7 +1832,7 @@ end
     @test !leaf_2_call.default_publish
     @test leaf_2_call.accepted_publish
 
-    compiled_environment = Advanced.compile_environment_bindings(selector_scene, compiled)
+    compiled_environment = Advanced.compile_environment_bindings(compiled_selector_scene, compiled)
     execution_plan =
         PlantSimEngine.compile_model_execution_plan(compiled, compiled_environment)
     execution_rows = explain_execution_plan(execution_plan)
@@ -2107,14 +1974,14 @@ end
         ModelSpec(ModelObjectStomataModel(); name=:shaded_stomata, on=Many(scale=:Leaf)),
         ModelSpec(ModelObjectLeafEnergyModel(); name=:leaf_energy, on=Many(scale=:Leaf)),
     )
-    @test_throws ErrorException Advanced.compile_composite_model(selector_scene, ambiguous_call_specs)
+    @test_throws ErrorException Advanced.compile_composite_model(make_selector_scene(ambiguous_call_specs))
 
     disambiguated_call_specs = (
         ModelSpec(ModelObjectStomataModel(); name=:sunlit_stomata, on=Many(scale=:Leaf)),
         ModelSpec(ModelObjectStomataModel(); name=:shaded_stomata, on=Many(scale=:Leaf), updates=Updates(:gs; after=:sunlit_stomata)),
         ModelSpec(ModelObjectLeafEnergyModel(); name=:leaf_energy, on=Many(scale=:Leaf), inputs=(:leaf_areas => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_area)), calls=(:stomata => One(application=:sunlit_stomata))),
     )
-    disambiguated = Advanced.compile_composite_model(selector_scene, disambiguated_call_specs)
+    disambiguated = Advanced.compile_composite_model(make_selector_scene(disambiguated_call_specs))
     disambiguated_call = only(row for row in explain_calls(disambiguated) if row.consumer_id == :leaf_2)
     @test disambiguated_call.origin == :model_spec
     @test disambiguated_call.callee_application_ids == [:sunlit_stomata]
@@ -2197,41 +2064,38 @@ end
     run!(renamed_input_scene)
     @test renamed_status.observed_renamed_signal == 12.5
 
-    default_scope_scene = CompositeModel(
+    make_default_scope_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
         Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(leaf_area=1.0)),
         Object(:leaf_2; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(leaf_area=2.0)),
         Object(:plant_2; scale=:Plant, kind=:plant, parent=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
-        Object(:leaf_3; scale=:Leaf, kind=:plant, parent=:plant_2, status=Status(leaf_area=3.0)),
+        Object(:leaf_3; scale=:Leaf, kind=:plant, parent=:plant_2, status=Status(leaf_area=3.0));
+        applications=applications,
     )
-    plant_default_scope = Advanced.compile_composite_model(
-        default_scope_scene,
-        (
+    plant_default_scope = Advanced.compile_composite_model(make_default_scope_scene((
             ModelSpec(ModelObjectTemporalSumModel(); name=:plant_leaf_sum, on=Many(scale=:Plant), inputs=(:signal_sum => Many(scale=:Leaf, within=Subtree(), var=:leaf_area))),
-        ),
-    )
+        )))
     @test only(row for row in explain_bindings(plant_default_scope) if row.consumer_id == :plant_1).source_ids ==
           [:leaf_1, :leaf_2]
     @test only(row for row in explain_bindings(plant_default_scope) if row.consumer_id == :plant_2).source_ids ==
           [:leaf_3]
-    scene_default_scope = Advanced.compile_composite_model(
-        default_scope_scene,
-        (
+    scene_default_scope = Advanced.compile_composite_model(make_default_scope_scene((
             ModelSpec(ModelObjectTemporalSumModel(); name=:scene_leaf_sum, on=One(scale=:Scene), inputs=(:signal_sum => Many(scale=:Leaf, var=:leaf_area))),
-        ),
-    )
+        )))
     @test only(explain_bindings(scene_default_scope)).source_ids == [:leaf_1, :leaf_2, :leaf_3]
 
-    inferred_input_scene = CompositeModel(
+    make_inferred_input_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
-        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0, observed_signal=0.0)),
+        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0, observed_signal=0.0));
+        applications=applications,
     )
     inferred_input_specs = (
         ModelSpec(ModelObjectSignalSourceModel(); name=:signal_source, on=One(scale=:Leaf)),
         ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf)),
     )
-    inferred_compiled = Advanced.compile_composite_model(inferred_input_scene, inferred_input_specs)
+    inferred_input_scene = make_inferred_input_scene(inferred_input_specs)
+    inferred_compiled = Advanced.compile_composite_model(inferred_input_scene)
     inferred_binding = only(explain_bindings(inferred_compiled))
     @test inferred_binding.application_id == :signal_consumer
     @test inferred_binding.input == :signal
@@ -2321,16 +2185,14 @@ end
     @test previous_value_status.observed_signal == 2.0
     @test previous_value_status.signal == 3.0
 
-    @test_throws ErrorException Advanced.compile_composite_model(
-        CompositeModel(
+    @test_throws ErrorException Advanced.compile_composite_model(CompositeModel(
             Object(:scene; scale=:Scene, kind=:scene),
-            Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(cycle_a=0.0, cycle_b=0.0)),
-        ),
-        (
+            Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(cycle_a=0.0, cycle_b=0.0));
+            applications=(
             ModelSpec(ModelObjectCycleAModel(); name=:cycle_a, on=One(scale=:Leaf)),
             ModelSpec(ModelObjectCycleBModel(); name=:cycle_b, on=One(scale=:Leaf)),
         ),
-    )
+        ))
 
     zero_target_cycle_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene);
@@ -2459,68 +2321,56 @@ end
     )
     @test_throws "PreviousTimeStep marker for input `cycle_b`" Advanced.refresh_bindings!(mismatched_lag_scene)
 
-    @test_throws ErrorException Advanced.compile_composite_model(
-        CompositeModel(
+    @test_throws ErrorException Advanced.compile_composite_model(CompositeModel(
             Object(:scene; scale=:Scene, kind=:scene),
-            Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene),
-        ),
-        (
+            Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene);
+            applications=(
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf)),
         ),
-    )
-    @test_throws ErrorException Advanced.compile_composite_model(
-        inferred_input_scene,
-        (
+        ))
+    @test_throws ErrorException Advanced.compile_composite_model(make_inferred_input_scene((
             ModelSpec(ModelObjectSignalSourceModel(); name=:sunlit_signal, on=One(scale=:Leaf)),
             ModelSpec(ModelObjectSignalSourceModel(); name=:shaded_signal, on=One(scale=:Leaf), updates=Updates(:signal; after=:sunlit_signal)),
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf)),
-        ),
-    )
+        )))
 
     filtered_input_specs = (
         ModelSpec(ModelObjectSignalSourceModel(); name=:signal_source, on=One(scale=:Leaf)),
         ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf), inputs=(:signal => One(scale=:Leaf, var=:signal, application=:signal_source))),
     )
-    filtered_binding = only(explain_bindings(Advanced.compile_composite_model(inferred_input_scene, filtered_input_specs)))
+    filtered_binding = only(explain_bindings(Advanced.compile_composite_model(make_inferred_input_scene(filtered_input_specs))))
     @test filtered_binding.origin == :model_spec
     @test filtered_binding.source_application_ids == [:signal_source]
     @test isnothing(filtered_binding.process)
     @test filtered_binding.application == :signal_source
-    @test_throws ErrorException Advanced.compile_composite_model(
-        inferred_input_scene,
-        (
+    @test_throws ErrorException Advanced.compile_composite_model(make_inferred_input_scene((
             filtered_input_specs[1],
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf), inputs=(:signal => One(scale=:Leaf, var=:signal, application=:missing_source))),
-        ),
-    )
-    @test_throws ErrorException Advanced.compile_composite_model(
-        inferred_input_scene,
-        (
+        )))
+    @test_throws ErrorException Advanced.compile_composite_model(make_inferred_input_scene((
             filtered_input_specs[1],
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf), inputs=(:siggnal => One(scale=:Leaf, var=:signal, application=:signal_source))),
-        ),
-    )
-    @test_throws ErrorException Advanced.compile_composite_model(
-        inferred_input_scene,
-        (
+        )))
+    @test_throws ErrorException Advanced.compile_composite_model(make_inferred_input_scene((
             filtered_input_specs[1],
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf), inputs=(:signal => One(scale=:Leaf, var=:missing_signal))),
-        ),
-    )
+        )))
 
-    carrier_scene = CompositeModel(
+    make_carrier_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, species=:oil_palm, parent=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1, status=Status(leaf_area=1.0, leaf_token=ModelObjectTaggedValue(1), aPPFD=100.0)),
         Object(:leaf_2; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1, status=Status(leaf_area=2.0, leaf_token=2, aPPFD=100.0)),
-        Object(:soil; scale=:Soil, kind=:soil, parent=:scene, status=Status(soil_water_content=0.31)),
+        Object(:soil; scale=:Soil, kind=:soil, parent=:scene, status=Status(soil_water_content=0.31));
+        applications=applications,
     )
     carrier_specs = (
         ModelSpec(ModelObjectCarrierConsumerModel(); name=:carrier_consumer, on=Many(scale=:Leaf), inputs=(:leaf_areas => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_area),
             :leaf_tokens => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_token),)),
         ModelSpec(ToyAssimModel(); name=:assim, on=Many(scale=:Leaf), inputs=(:soil_water_content => One(scale=:Soil, within=SceneScope(), var=:soil_water_content))),
     )
-    carrier_compiled = Advanced.compile_composite_model(carrier_scene, carrier_specs)
+    carrier_scene = make_carrier_scene(carrier_specs)
+    carrier_compiled = Advanced.compile_composite_model(carrier_scene)
     carrier_rows = explain_bindings(carrier_compiled)
     leaf_1_carrier_bindings = carrier_compiled.input_bindings_by_target[(:carrier_consumer, ObjectId(:leaf_1))]
     @test length(leaf_1_carrier_bindings) == 2
@@ -3008,12 +2858,12 @@ end
     @test length(contract_backend.binds) == 1
     @test length(contract_backend.index_updates) == 1
 
-    revised_contract_compiled = Advanced.compile_composite_model(
-        contract_scene,
-        (
-            ModelSpec(ModelObjectTemperatureOnlyProbeModel(); name=:probe, on=One(scale=:Leaf), environment=Environment(provider=:grid)),
-        ),
+    contract_scene.applications[1] = ModelSpec(
+        ModelObjectTemperatureOnlyProbeModel(); name=:probe, on=One(scale=:Leaf),
+        environment=Environment(provider=:grid),
     )
+    revised_contract_compiled =
+        Advanced.refresh_bindings!(contract_scene; force=true)
     revised_contract_bindings =
         Advanced.refresh_environment_bindings!(contract_scene, revised_contract_compiled)
     revised_contract_binding =
@@ -3216,14 +3066,12 @@ end
     )
     runtime_leaf_2.status.leaf_area = 7.0
     @test runtime_status.leaf_areas[2] == 7.0
-    @test @allocated(
-        PlantSimEngine._materialize_model_inputs!(
-            runtime_compiled,
-            runtime_application,
-            runtime_object_id,
-            nothing,
-            1,
-        )
+    @test _model_object_input_materialization_allocations(
+        runtime_compiled,
+        runtime_application,
+        runtime_object_id,
+        nothing,
+        1,
     ) == 0
 
     unrelated_call_counter = Ref(0)
@@ -4079,19 +3927,18 @@ end
         process=:model_object_signal_source,
     )
 
-    writer_scene = CompositeModel(
+    make_writer_scene(applications) = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
-        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(biomass=-1.0)),
+        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(biomass=-1.0));
+        applications=applications,
     )
     biomass_source =
         ModelSpec(ModelObjectBiomassSourceModel(); name=:carbon_allocation, on=One(scale=:Leaf))
     biomass_pruner =
         ModelSpec(ModelObjectBiomassPrunerModel(); name=:leaf_pruning, on=One(scale=:Leaf))
 
-    @test_throws ErrorException Advanced.compile_composite_model(writer_scene, (biomass_source, biomass_pruner))
-    @test_throws ErrorException Advanced.compile_composite_model(
-        writer_scene,
-        (
+    @test_throws ErrorException Advanced.compile_composite_model(make_writer_scene((biomass_source, biomass_pruner)))
+    @test_throws ErrorException Advanced.compile_composite_model(make_writer_scene((
             biomass_source,
             ModelSpec(
                 ModelObjectBiomassPrunerModel();
@@ -4099,11 +3946,8 @@ end
                 on=One(scale=:Leaf),
                 updates=Updates(:biomass; after=:water_status),
             ),
-        ),
-    )
-    @test_throws ErrorException Advanced.compile_composite_model(
-        writer_scene,
-        (
+        )))
+    @test_throws ErrorException Advanced.compile_composite_model(make_writer_scene((
             biomass_source,
             ModelSpec(
                 ModelObjectBiomassPrunerModel();
@@ -4111,11 +3955,8 @@ end
                 on=One(scale=:Leaf),
                 updates=Updates(:biomass; after=:model_object_biomass_source),
             ),
-        ),
-    )
-    @test_throws ErrorException Advanced.compile_composite_model(
-        writer_scene,
-        (
+        )))
+    @test_throws ErrorException Advanced.compile_composite_model(make_writer_scene((
             ModelSpec(
                 ModelObjectBiomassPrunerModel();
                 name=:leaf_pruning,
@@ -4123,8 +3964,7 @@ end
                 updates=Updates(:biomass; after=:carbon_allocation),
             ),
             biomass_source,
-        ),
-    )
+        )))
 
     ordered_pruner = ModelSpec(
         ModelObjectBiomassPrunerModel();
@@ -4132,7 +3972,7 @@ end
         on=One(scale=:Leaf),
         updates=Updates(:biomass; after=:carbon_allocation),
     )
-    writer_compiled = Advanced.compile_composite_model(writer_scene, (biomass_source, ordered_pruner))
+    writer_compiled = Advanced.compile_composite_model(make_writer_scene((biomass_source, ordered_pruner)))
     writer_row = only(row for row in explain_writers(writer_compiled) if row.variable == :biomass)
     @test writer_row.object_id == :leaf_1
     @test writer_row.duplicate
@@ -4303,7 +4143,7 @@ end
     @test initializing_growth_plan.manual_application_ids ==
           (:dynamic_initializer,)
     @test only(
-        initializing_growth_plan.call_plans_by_application.initializing_growth,
+        initializing_growth_plan.call_plans_by_application[:initializing_growth],
     ).potential_callee_application_ids == (:dynamic_initializer,)
     initializing_schedule = Dict(
         row.application_id => row
@@ -4640,4 +4480,68 @@ end
     @test only(explain_schedule(Advanced.refresh_bindings!(strict_hint_override_scene))).dt_steps == 1.0
     run!(strict_hint_override_scene; steps=2)
     @test only(model_objects(strict_hint_override_scene; scale=:Leaf)).status.signal == 2.0
+end
+
+@testset "model_objects returns registered objects in selection order" begin
+    organ = (:leaf, :a, 1)
+    scene = CompositeModel(
+        Object(:root; scale=:Scene, kind=:root),
+        Object(:z; scale=:Leaf, kind=:shoot, species=:alpha, parent=:root, status=Status(x=1.0)),
+        Object(42; scale=:Leaf, kind=:shoot, species=:beta, parent=:root, status=Status(x=2.0)),
+        Object(organ; scale=:Leaf, kind=:shoot, species=:alpha, parent=:root, status=Status(x=3.0)),
+        Object(:a; scale=:Axis, kind=:shoot, species=:alpha, parent=:root, status=Status(x=4.0)),
+    )
+    cases = (
+        (NamedTuple(), (organ, 42, :a, :root, :z)),
+        ((; scale=:Leaf), (organ, 42, :z)),
+        ((; kind=:shoot, species=:alpha), (organ, :a, :z)),
+        ((; scale=(:Leaf, :Axis)), (organ, 42, :a, :z)),
+        ((; id=ObjectId(organ)), (organ,)),
+        ((; scale=:Missing), ()),
+        ((; species=:Missing), ()),
+    )
+    for (criteria, expected) in cases
+        objects = model_objects(scene; criteria...)
+        ids = object_ids(scene; criteria...)
+        @test objects isa Vector{Object}
+        @test Tuple(ids) == map(ObjectId, expected)
+        @test getfield.(objects, :id) == ids
+        @test all(i -> objects[i] === model_object(scene, ids[i]), eachindex(ids))
+    end
+    axis = only(model_objects(scene; id=:a))
+    @test axis.status === model_status(scene, :a)
+    axis.geometry = (x=2.0, y=3.0)
+    @test geometry(model_object(scene, :a)) == axis.geometry
+    @test model_objects(CompositeModel()) isa Vector{Object}
+    @test isempty(model_objects(CompositeModel()))
+    @test_throws MethodError model_objects(scene; unknown_criterion=true)
+end
+
+@testset "ObjectId tuple sort text uses Julia's Symbol spelling" begin
+    spellings = ["leaf", "a b", "+", ":", "::", ":=", "=", "==", "===", "=>",
+        "'", "", "\n", "a\"b", "α₁", "⊗"]
+    for spelling in spellings
+        symbol = Symbol(spelling)
+        for value in ((symbol,), (symbol, :nested, 7), ((symbol,), "text", 'x'))
+            @test PlantSimEngine._object_id_text(ObjectId(value)) == string(value)
+        end
+    end
+end
+
+struct ModelObjectsDisplayKey
+    value::Int
+end
+Base.show(io::IO, key::ModelObjectsDisplayKey) = print(io, "collection-key-", key.value)
+
+@testset "sorting preserves arbitrary identities and custom display" begin
+    ids = ObjectId[ObjectId(ModelObjectsDisplayKey(7)), ObjectId('c'), ObjectId(:c),
+        ObjectId((:nested, ModelObjectsDisplayKey(3))), ObjectId(0.25)]
+    before = copy(ids)
+    expected = sort(ids; by=id -> string(id.value))
+    actual = ids[PlantSimEngine._object_id_sort_order(ids)]
+    @test actual == expected
+    @test hash.(actual) == hash.(expected)
+    @test all(i -> actual[i] === expected[i], eachindex(ids))
+    @test ids == before
+    @test PlantSimEngine._object_id_text(first(ids)) == string(ModelObjectsDisplayKey(7))
 end
