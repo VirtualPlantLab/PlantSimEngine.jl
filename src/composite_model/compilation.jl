@@ -3077,13 +3077,13 @@ end
 # real consumers. Initial binding, normal growth and targeted newborns share
 # this loop and the same per-consumer resolver/materializer below.
 function _compile_application_consumer_bindings!(
-    bindings, model, application, recipe::CompiledApplicationInputRecipe,
+    bindings, model, application_id::Symbol, application_process::Symbol, target_ids,
+    recipe::CompiledApplicationInputRecipe,
     manual_application_ids, applications_by_object, applications_by_id,
     distributed_outputs=NoCompiledDistributedOutputs(), many_binding_cache=nothing,
     performance=nothing, recorder=nothing,
 )
-    application_id, application_process = application.id, application.process
-    for consumer_id in application.target_ids
+    for consumer_id in target_ids
         first_new_binding = length(bindings) + 1
         _compile_consumer_input_recipe!(
             bindings, model, application_id, application_process, consumer_id, recipe,
@@ -9219,13 +9219,15 @@ function _compile_model_input_bindings!(bindings, model, applications, manual_ap
 )
     for partial in applications
         isempty(partial.target_ids) && continue
-        Base.@inline _with_model_application(by_id, partial) do application
-            _with_metadata_entry(recipes, application.id) do recipe
-                _compile_application_consumer_bindings!(
-                    bindings, model, application, recipe, manual_application_ids,
-                    by_object, by_id, distributed_outputs, many_binding_cache, performance, recorder,
-                )
-            end
+        # Capturing the whole application would specialize the recipe lookup for every model type.
+        application_id, process, target_ids = Base.@inline _with_model_application(by_id, partial) do application
+            (application.id, application.process, application.target_ids)
+        end
+        _with_metadata_entry(recipes, application_id) do recipe
+            _compile_application_consumer_bindings!(
+                bindings, model, application_id, process, target_ids, recipe, manual_application_ids,
+                by_object, by_id, distributed_outputs, many_binding_cache, performance, recorder,
+            )
         end
     end
     return bindings

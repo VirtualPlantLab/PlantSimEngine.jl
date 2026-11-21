@@ -638,6 +638,19 @@ end
         visits[] += 1
     end
     @test visits[] == 0
+
+    function resolve_inputs(application)
+        compiled = simulation.compiled
+        scenario = compiled.scenario_plan
+        return PSE._compile_model_input_bindings(data.model, (application,),
+            scenario.manual_application_ids, scenario.input_recipes_by_application,
+            compiled.distributed_outputs; by_object=compiled.applications_by_object, by_id=owner)
+    end
+    resolved = resolve_inputs(partial)
+    @test length(resolved) == 2
+    @test all(binding -> binding.consumer_id == ObjectId(:a), resolved)
+    @test Set(binding.input for binding in resolved) == Set((:single, :values))
+    @test_throws "outside its compiled metadata owner" resolve_inputs(foreign)
     @test partial.target_ids === targets
     check_carriers(data, simulation)
 end
