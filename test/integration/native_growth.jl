@@ -9,7 +9,10 @@ const _palm_growth_app = stage_native_fixture(joinpath(_growth_root,
     "test", "fixtures", "local_palm_leaf_birth"))
 const _producer_growth_app = stage_native_fixture(joinpath(_growth_root,
     "test", "integration", "fixtures", "distributed_producer_birth");
-    fixture_sources=(joinpath(_growth_root, "test", "fixtures", "distributed_growth.jl") => "distributed_growth.jl",))
+    fixture_sources=(
+        joinpath(_growth_root, "test", "fixtures", "distributed_growth.jl") => "distributed_growth.jl",
+        joinpath(_growth_root, "test", "fixtures", "raw_status_readers.jl") => "raw_status_readers.jl",
+    ))
 # App modules and all preparation methods exist before entering the testset.
 Base.include(@__MODULE__, joinpath(_palm_growth_app, "src", "PSELocalPalmLeafBirth.jl"))
 Base.include(@__MODULE__, joinpath(_producer_growth_app, "src", "PSEThirtyProducerControl.jl"))
@@ -84,11 +87,13 @@ end
         mktempdir() do directory
             @test PSEThirtyProducerControl.checkpoint(PSEThirtyProducerControl.STATE, 0)
             @test PSEThirtyProducerControl.main(String[]) == 0
+            @test PSEThirtyProducerControl.main(["recover"]) == 0
             producer = Compilation.compile(_producer_growth_app;
                 destination=joinpath(directory, "producer"))
             @test isfile(producer.executable)
             # main checks every destination, every sample, and the same cells/streams.
             @test success(`$(producer.executable)`)
+            @test success(`$(producer.executable) recover`)
         end
     end
 end
