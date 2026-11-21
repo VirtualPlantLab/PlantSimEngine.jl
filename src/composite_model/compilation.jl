@@ -3148,15 +3148,10 @@ function _compile_consumer_input_plan!(
     consumer_id, applications_by_object, applications_by_id, distributed_outputs,
     many_binding_cache, performance, query_cache,
 )
-    if !isnothing(many_binding_cache)
-        shared_binding = _shared_many_input_binding(
-            many_binding_cache, model, plan, consumer_id,
-        )
-        if !isnothing(shared_binding)
-            _push_shared_many_input!(bindings, shared_binding)
-            _runtime_performance_count!(performance, :many_input_binding_precompile_reuses)
-            return nothing
-        end
+    if !isnothing(many_binding_cache) &&
+       _try_push_shared_many_input!(bindings, many_binding_cache, model, plan, consumer_id)
+        _runtime_performance_count!(performance, :many_input_binding_precompile_reuses)
+        return nothing
     end
     _resolve_materialize_input_route!(
         bindings, model, application_id, application_process, consumer_id, plan,
@@ -3408,24 +3403,27 @@ function _binding_with_shared_many_sources(
         binding.carrier_hint, canonical.carrier)
 end
 
-function _shared_many_input_binding(cache::_ManyInputBindingCache,
-    model::CompositeModel, plan::CompiledModelInputPlan, consumer_id::ObjectId,
+function _try_push_shared_many_input!(destination, cache::_ManyInputBindingCache,
+    model::CompositeModel, plan::CompiledModelInputPlan, consumer_id::ObjectId, additions=nothing,
 )
     key = _many_binding_plan_share_key(model, plan, consumer_id)
-    isnothing(key) && return nothing
+    isnothing(key) && return false
     canonical = get(cache.by_plan, key, nothing)
-    isnothing(canonical) && return nothing
-    return Base.@inline _with_model_input_binding(_shared_many_binding_for_plan,
-        cache.bindings, canonical, plan, consumer_id)
+    isnothing(canonical) && return false
+    return Base.@inline _with_model_input_binding(_push_admitted_shared_many_input!,
+        cache.bindings, canonical, destination, model, plan, consumer_id, additions)
 end
 
-function _shared_many_binding_for_plan(canonical, plan, consumer_id)
-    canonical.plan.slot == plan.slot || return nothing
-    canonical.multiplicity == :many || return nothing
-    isnothing(canonical.carrier) && return nothing
-    return CompiledModelInputBinding(plan, consumer_id, canonical.source_ids,
+function _push_admitted_shared_many_input!(canonical, destination, model, plan, consumer_id, additions)
+    canonical.plan.slot == plan.slot || return false
+    canonical.multiplicity == :many || return false
+    isnothing(canonical.carrier) && return false
+    _accept_shared_many_sources(additions, canonical, model, plan, consumer_id) || return false
+    shared = CompiledModelInputBinding(plan, consumer_id, canonical.source_ids,
         canonical.source_application_ids, canonical.policy, canonical.carrier_hint,
         canonical.carrier)
+    _push_shared_many_input!(destination, shared)
+    return true
 end
 
 function _cache_many_binding_plan!(binding, cache::_ManyInputBindingCache,

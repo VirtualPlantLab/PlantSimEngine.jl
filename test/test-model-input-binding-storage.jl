@@ -152,6 +152,39 @@ end
         identity, incomplete, control.future)
 end
 
+@testset "First leaf carries a different reference from the published empty Many" begin
+    data = fixture()
+    simulation = prepare(data.model)
+    id = PSE.ObjectId(:leaf_first)
+    leaf = birth!(data.model, :leaf_first, 7.0)
+    reader = PSE.ObjectId(:a)
+    live = binding(simulation, :a, :values)
+    @test isempty(live.source_ids) && isempty(parent(live.carrier))
+    @test eltype(parent(live.carrier)) === Base.RefValue{Float64}
+    # The two statuses supply real fixed storage with different numerical families.
+    # Feed each proposed first column through the same cache query and scope.
+    statuses = PSE._output_status_preparation(data.model)
+    existing = simulation.compiled.many_input_binding_cache
+    destinations = similar(simulation.compiled.input_bindings, 0)
+    scratch = PSE._empty_many_input_binding_cache(keytype(data.model.registry.objects), destinations)
+    staged = PSE._StagedManyInputCache(scratch, existing, [id], statuses, true)
+    statuses.recipes[id] = PSE._CanonicalStatusRecipe(PSE.model_status(data.model, :anchor), false)
+    @test PSE._input_source_cell(statuses, data.model.registry.objects, id, :x) isa Base.RefValue{Float32}
+    @test !PSE._try_push_shared_many_input!(destinations, staged, data.model, live.plan, reader)
+    @test isempty(destinations) && isempty(live.source_ids) && isempty(parent(live.carrier))
+    @test isempty(staged.local_cache.by_plan)
+    statuses.recipes[id] = PSE._CanonicalStatusRecipe(PSE.model_status(data.model, id), false)
+    @test PSE._input_source_cell(statuses, data.model.registry.objects, id, :x) === leaf
+    @test PSE._try_push_shared_many_input!(destinations, staged, data.model, live.plan, reader)
+    reused = only(destinations)
+    @test reused.carrier === live.carrier
+    @test reused.source_ids === live.source_ids
+    @test reused.source_application_ids === live.source_application_ids
+    step!(simulation)
+    @test only(parent(binding(simulation, :a, :values).carrier)) === leaf
+    @test PSE.model_status(data.model, :a).total == 10.0
+end
+
 @testset "direct Many extension stages every admitted reference before committing" begin
     data = fixture()
     simulation = prepare(data.model)

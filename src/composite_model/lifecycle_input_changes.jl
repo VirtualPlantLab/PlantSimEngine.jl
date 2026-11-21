@@ -10,29 +10,29 @@ struct _StagedManyInputCache{L,P,I,S}
     pure_addition::Bool
 end
 
-function _shared_many_input_binding(staged::_StagedManyInputCache, model, plan, consumer)
-    shared = _shared_many_input_binding(staged.local_cache, model, plan, consumer)
-    isnothing(shared) || return shared
+function _try_push_shared_many_input!(destination, staged::_StagedManyInputCache, model, plan, consumer)
+    _try_push_shared_many_input!(destination, staged.local_cache, model, plan, consumer) && return true
     # A settled source and a single writer keep the prepared Many carrier
     # family stable on addition. Borrow the cell and recover its final
     # membership from the live cache after the ordinary refresh has run.
     staged.pure_addition && (plan.application !== nothing ||
         _input_route_from_status(plan.route) || length(plan.potential_source_application_ids) == 1) ||
-        return nothing
-    previous = _shared_many_input_binding(staged.published, model, plan, consumer)
-    isnothing(previous) && return nothing
-    if isempty(previous.source_ids)
-        # An empty live group can receive its first column. Check only the
-        # incoming cells against the existing carrier's admitted element type.
-        scope = _default_dependency_scope(model, consumer)
-        R = eltype(parent(previous.carrier))
-        for id in staged.added
-            _selector_matches_object_id(model, plan.matcher, id, consumer, true, scope, false) || continue
-            ref = _input_source_cell(staged.statuses, model.registry.objects, id, _input_route_source(plan.route))
-            ref isa R || return nothing
-        end
+        return false
+    return _try_push_shared_many_input!(destination, staged.published, model, plan, consumer, staged)
+end
+
+_accept_shared_many_sources(::Nothing, canonical, model, plan, consumer) = true
+function _accept_shared_many_sources(staged::_StagedManyInputCache, canonical, model, plan, consumer)
+    isempty(canonical.source_ids) || return true
+    # The first incoming column must fit the admitted reference element type.
+    scope = _default_dependency_scope(model, consumer)
+    R = eltype(parent(canonical.carrier))
+    for id in staged.added
+        _selector_matches_object_id(model, plan.matcher, id, consumer, true, scope, false) || continue
+        ref = _input_source_cell(staged.statuses, model.registry.objects, id, _input_route_source(plan.route))
+        ref isa R || return false
     end
-    return previous
+    return true
 end
 
 struct _PendingStatusInputChanges{B,I}
@@ -140,8 +140,8 @@ end
 _publish_added_consumer_bindings!(recorder, input_bindings, ::Nothing, args...) = nothing
 
 function _publish_shared_consumer_input!(binding, destination, cache, model, consumer)
-    shared = _shared_many_input_binding(cache, model, binding.plan, consumer)
-    push!(destination, isnothing(shared) ? binding : shared)
+    _try_push_shared_many_input!(destination, cache, model, binding.plan, consumer) ||
+        push!(destination, binding)
     return nothing
 end
 
