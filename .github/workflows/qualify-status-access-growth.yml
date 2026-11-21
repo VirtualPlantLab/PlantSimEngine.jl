@@ -18,7 +18,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v7
         with:
-          ref: a55afb0ded239b0fbdcb8e992ff517134de87d5e
+          ref: 7bab6b3ca6b8520ee82ffb1eafff213b8058f2f1
           path: subject
           persist-credentials: false
       - uses: actions/checkout@v7
@@ -43,7 +43,7 @@ jobs:
         working-directory: subject
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "a55afb0ded239b0fbdcb8e992ff517134de87d5e"
+          test "$(git rev-parse HEAD)" = "7bab6b3ca6b8520ee82ffb1eafff213b8058f2f1"
           test "$(git -C ../public-mtg rev-parse HEAD)" = "b3b39f5d33543fe2775756782ec1c4de33ba5775"
           echo "49240a69a8378604ec2b34e8844457c6dcfd120f00991404bff05e87733a9d08  ../.ci/xpalm-mixed-routing/src/XPalmLifecycleApp.jl" | sha256sum --check
           julia -C generic --project="$RUNNER_TEMP/status-growth" --startup-file=no -e '
