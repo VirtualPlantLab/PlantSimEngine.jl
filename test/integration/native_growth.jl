@@ -14,6 +14,10 @@ const _producer_growth_app = stage_native_fixture(joinpath(_growth_root,
 Base.include(@__MODULE__, joinpath(_palm_growth_app, "src", "PSELocalPalmLeafBirth.jl"))
 Base.include(@__MODULE__, joinpath(_producer_growth_app, "src", "PSEThirtyProducerControl.jl"))
 
+const _scene_dependency_app = stage_native_fixture(joinpath(_growth_root,
+    "test", "integration", "fixtures", "scene_dependencies"))
+Base.include(@__MODULE__, joinpath(_scene_dependency_app, "src", "PSESceneDependencyControl.jl"))
+
 function _split_neighbour_report(words)
     length(words) >= 8 || error("Incomplete native neighbour report.")
     words[end-5] == 0x50484153454e5343 || error("Missing native phase timing tag.")
@@ -85,6 +89,16 @@ end
             @test isfile(producer.executable)
             # main checks every destination, every sample, and the same cells/streams.
             @test success(`$(producer.executable)`)
+        end
+    end
+end
+
+@testset "Native scene and relative model-call selectors" begin
+    mktempdir() do directory
+        scene = Compilation.compile(_scene_dependency_app; destination=joinpath(directory, "scene"))
+        for args in (String[], ["crown"])
+            @test PSESceneDependencyControl.main(args) == 0
+            @test success(`$(scene.executable) $args`)
         end
     end
 end
