@@ -6816,10 +6816,10 @@ function _status_recipe_reference(original, edit_names, edit_references, variabl
     return reference
 end
 
-function _status_recipe_set_reference!(
+Base.@nospecializeinfer function _status_recipe_set_reference!(
     recipe::_CanonicalStatusRecipe,
     variable::Symbol,
-    reference::Ref,
+    @nospecialize(reference::Ref),
 )
     _validate_status_reference(recipe.original, variable, reference)
     position = findfirst(isequal(variable), recipe.edit_names)
@@ -7930,18 +7930,21 @@ _model_input_status_reference(binding) =
     binding.carrier : Ref(binding.carrier)
 
 function _model_input_status_references(objects::AbstractDict{I}, bindings) where {I<:ObjectId}
-    references = _object_key_index(Tuple{Symbol,I,Symbol}, Any)
+    references = _object_key_index(Tuple{Symbol,I,Symbol}, Ref)
     for binding in bindings
-        binding.carrier_hint == :temporal_stream && continue
-        isnothing(binding.carrier) && continue
-        consumer_id = _index_object_id(objects, binding.consumer_id)
-        references[(
-            binding.application_id,
-            consumer_id,
-            binding.input,
-        )] = _model_input_status_reference(binding)
+        _with_model_input_binding(_index_model_input_reference!, bindings, binding,
+            references, objects)
     end
     return references
+end
+
+function _index_model_input_reference!(binding, references, objects)
+    binding.carrier_hint === :temporal_stream && return nothing
+    isnothing(binding.carrier) && return nothing
+    consumer_id = _index_object_id(objects, binding.consumer_id)
+    references[(binding.application_id, consumer_id, binding.input)] =
+        _model_input_status_reference(binding)
+    return nothing
 end
 
 # Projection uses existing raw binding families; no references or values are made.
@@ -7961,26 +7964,6 @@ function _model_input_status_reference_types(B)
     return Tuple(references)
 end
 
-@inline function _with_model_input_status_reference(f::F,
-    ::AbstractVector{CompiledModelInputBinding}, reference, args::Vararg{Any,N},
-) where {F,N}
-    reference isa Ref || throw(ArgumentError("An input status reference must be a Ref."))
-    return f(reference, args...)
-end
-
-@generated function _with_model_input_status_reference(f::F,
-    ::AbstractVector{B}, reference, args::Vararg{Any,N},
-) where {F,B,N}
-    references = _model_input_status_reference_types(B)
-    branches = [:(reference isa $R && return f(reference::$R, args...)) for R in references]
-    return quote
-        $(branches...)
-        throw(ArgumentError("The input status reference is outside its prepared binding family."))
-    end
-end
-
-# The per-record worker already owns a concrete real B after existing IB admission.
-# Use the same projection when no all-bindings union is needed.
 @generated function _with_model_input_status_reference(f::F,
     binding::B, reference, args::Vararg{Any,N},
 ) where {F,B<:CompiledModelInputBinding,N}
@@ -8002,22 +7985,14 @@ Base.@noinline function _stage_model_input_default!(value, recipe, variable, con
         context.default_status_updates[(context.object_id, variable)] = true
         return nothing
     end
-    Base.@inline _with_model_input_status_reference(
-        _stage_model_input_default_reference!, context.bindings, reference,
-        recipe, variable, value, context)
-    return nothing
-end
-
-function _stage_model_input_default_reference!(reference, preparation, variable,
-    value, context,
-)
+    reference isa Ref || throw(ArgumentError("An input status reference must be a Ref."))
     # Keep the existing conversion/validation even when the carrier owns storage.
     _no_status_conversion(context.model.status_conversion) ||
         _materialize_status_value(context.model, variable, value;
             object_id=context.object_id, application_id=context.application_id,
             origin=:model_input_default, private_copy=true,
             conversion_records=context.conversion_records)
-    _status_recipe_set_reference!(preparation, variable, reference)
+    _status_recipe_set_reference!(recipe, variable, reference)
     counter = context.input_default_rewrites_avoided
     isnothing(counter) || (counter[] += 1)
     return nothing
@@ -8085,7 +8060,7 @@ function _prepare_model_input_statuses_batched!(
     default_status_updates = Dict{Tuple{I,Symbol},Bool}()
     # Keep optional telemetry local until the staged status transaction succeeds.
     input_default_rewrites_avoided = isnothing(performance) ? nothing : Ref(0)
-    context = (; model, recipes, recipe_order, bindings, final_references,
+    context = (; model, recipes, recipe_order, final_references,
         conversion_records, default_status_updates, input_default_rewrites_avoided)
     for partial in applications
         Base.@inline _with_model_application(applications_by_id, partial) do application

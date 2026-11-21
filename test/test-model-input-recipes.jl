@@ -179,7 +179,10 @@ end
     old_binding = only(simulation.compiled.input_bindings)
     old_carrier = input_carrier(old_binding)
     first_ref = PSE.refvalue(first, :x)
-    @test only(parent(old_carrier)) === first_ref
+    references = PSE._model_input_status_references(model.registry.objects, simulation.compiled.input_bindings)
+    aggregate = references[(:aggregate, ObjectId(:plant), :values)]
+    @test aggregate[] === old_carrier === PSE.refvalue(model_status(model, :plant), :values)[]
+    @test only(parent(aggregate[])) === first_ref
 
     second = Status(x=9.0)
     register_object!(model, Object(:new_leaf; scale=:Leaf, parent=:plant, status=second))
@@ -189,7 +192,8 @@ end
     binding = only(simulation.compiled.input_bindings)
     carrier = input_carrier(binding)
     @test carrier isa PSE.ObjectRefVector
-    @test carrier === old_carrier
+    @test carrier === old_carrier === aggregate[]
+    @test PSE.refvalue(model_status(model, :plant), :values)[] === carrier
     @test Set(binding.source_ids) == Set((ObjectId(1), ObjectId(:new_leaf)))
     @test isempty(binding.source_application_ids)
     for (id, reference) in zip(binding.source_ids, parent(carrier))
@@ -232,10 +236,12 @@ end
     I = keytype(model.registry.objects)
     @test I === Union{ObjectId{Symbol},ObjectId{Tuple{Symbol,Symbol,Int}}}
     @test keytype(references) === Tuple{Symbol,I,Symbol}
+    @test valtype(references) === Ref
     @test length(references) == 4
     for binding in bindings
         key = (binding.application_id, binding.consumer_id, binding.input)
-        @test references[key] === input_carrier(binding)
+        @test references[key] === input_carrier(binding) ===
+            PSE.refvalue(model_status(model, :source), binding.source_var)
     end
     continue!(simulation)
     @test model_status(model,:reader).total === 6f0
