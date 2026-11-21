@@ -39,9 +39,9 @@ to inspect it, and `continue!` or `step!` to advance it.
 
 ## Build the example executable
 
-Use Julia 1.13.1, JuliaC 0.3.12 and a working C compiler to match the qualified
-build. From the root of a PlantSimEngine checkout, instantiate the named app
-project once:
+The Linux CI job builds this example with Julia 1.13 and JuliaC 0.3.12. You
+also need a C compiler. From the root of a PlantSimEngine checkout, instantiate
+the app project once.
 
 ```sh
 julia --project=examples/compiled_scenario -e 'using Pkg; Pkg.instantiate()'
