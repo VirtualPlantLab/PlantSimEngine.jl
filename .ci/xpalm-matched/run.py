@@ -17,7 +17,7 @@ results.mkdir()
 revisions = {
     "main": "8d1f8484c8ad68cc5da8004209b2062070cac28a",
     "historical": "cd5517551f4cd4cf01504cb312e2b81f6fabe6ba",
-    "candidate": "54d2302c1e73d2e9a657c0a1a9228c2e70fde0b3",
+    "candidate": "141c054da326bb14d9b9486b6b2e00d64394d37f",
 }
 scenario, = sys.argv[1:]
 xpalm_revision = {
