@@ -88,6 +88,20 @@ function execute_prepared!(data, application, time)
         simulation.performance)
 end
 
+@testset "A surviving temporal reader keeps an independent list of its removed sources" begin
+    simulation = temporal_fixture(false).simulation
+    binding = only(simulation.compiled.input_bindings)
+    source = ObjectId(:source)
+    key = (:consumer, ObjectId(:consumer), :signal)
+    dirty = Set{ObjectId}([source])
+    delta = PSE._prepare_structural_compiled_delta(simulation.model, simulation.compiled, dirty)
+    @test only(delta.compiled.input_bindings) === binding
+    @test only(delta.forced_input_binding_keys) == key
+    previous = delta.previous_temporal_sources[key]
+    @test previous == binding.source_ids == [source]
+    @test previous !== binding.source_ids
+end
+
 @testset "one batch loop preserves temporal materialization and output publication" begin
     for performance in (false, true)
         data = temporal_fixture(performance)

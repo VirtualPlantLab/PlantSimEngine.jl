@@ -4449,6 +4449,20 @@ end
 _input_binding_key_set(::AbstractDict{I}) where {I<:ObjectId} =
     _object_key_set(Tuple{Symbol,I,Symbol})
 
+function _retain_structural_input_binding!(binding, retained, objects, dirty,
+    forced_input_keys, previous_temporal_sources)
+    consumer_id = _index_object_id(objects, binding.consumer_id)
+    consumer_id in dirty && return nothing
+    push!(retained, binding)
+    _sorted_object_ids_intersect_set(binding.source_ids, dirty) || return nothing
+    key = (binding.application_id, consumer_id, binding.input)
+    push!(forced_input_keys, key)
+    if binding.carrier_hint === :temporal_stream
+        previous_temporal_sources[key] = copy(binding.source_ids)
+    end
+    return nothing
+end
+
 function _prepare_structural_compiled_delta(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -4484,24 +4498,12 @@ function _prepare_structural_compiled_delta(
 
     input_bindings = similar(compiled.input_bindings, 0)
     sizehint!(input_bindings, length(compiled.input_bindings))
-    for binding in compiled.input_bindings
-        consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
-        if consumer_id in dirty
-            continue
-        end
-        push!(input_bindings, binding)
-    end
     forced_input_binding_keys = _input_binding_key_set(model.registry.objects)
     previous_temporal_sources = _previous_temporal_source_storage(model)
-    for binding in input_bindings
-        _sorted_object_ids_intersect_set(binding.source_ids, dirty) ||
-            continue
-        consumer_id = _index_object_id(model.registry.objects, binding.consumer_id)
-        key = (binding.application_id, consumer_id, binding.input)
-        push!(forced_input_binding_keys, key)
-        if binding.carrier_hint == :temporal_stream
-            previous_temporal_sources[key] = copy(binding.source_ids)
-        end
+    for binding in compiled.input_bindings
+        _with_model_input_binding(_retain_structural_input_binding!, compiled.input_bindings,
+            binding, input_bindings, model.registry.objects, dirty, forced_input_binding_keys,
+            previous_temporal_sources)
     end
     input_bindings_by_target = _index_model_input_bindings(
         input_bindings, keytype(model.registry.objects),
