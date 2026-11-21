@@ -67,8 +67,8 @@ function _record_consumer_input_bindings!(staged::_StagedConsumerBindings, bindi
     range = first_binding:last_binding
     push!(staged.ranges, (application_id, object_id, range))
     for i in range
-        staged.entries[i] = _share_many_input_binding!(staged.cache.local_cache,
-            staged.model, staged.entries[i])
+        _store_shared_many_input_binding!(staged.cache.local_cache, staged.model,
+            staged.entries, i)
     end
     return nothing
 end

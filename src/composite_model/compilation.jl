@@ -3136,10 +3136,8 @@ function _record_consumer_input_bindings!(
     new_bindings = B[]
     sizehint!(new_bindings, last_new_binding - first_new_binding + 1)
     for binding_index in first_new_binding:last_new_binding
-        binding = _share_many_input_binding!(
-            recorder.many_binding_cache, recorder.model, bindings[binding_index],
-        )
-        bindings[binding_index] = binding
+        _store_shared_many_input_binding!(recorder.many_binding_cache, recorder.model,
+            bindings, binding_index)
         push!(new_bindings, bindings[binding_index])
     end
     append!(recorder.changed_bindings, new_bindings)
@@ -3441,11 +3439,18 @@ function _cache_many_binding_plan!(binding, cache::_ManyInputBindingCache,
     return binding
 end
 
-@inline function _share_many_input_binding!(cache::_ManyInputBindingCache,
-    model::CompositeModel, binding,
+# Store before leaving the slot admission. Different slots can return different
+# concrete bindings while the recording and refresh callers require only the write.
+@inline function _store_shared_many_input_binding!(cache::_ManyInputBindingCache,
+    model::CompositeModel, bindings, index, binding=bindings[index],
 )
-    return Base.@inline _with_model_input_binding(_share_admitted_many_input_binding!,
-        cache.bindings, binding, cache, model)
+    return _with_model_input_binding(_store_admitted_many_input_binding!,
+        cache.bindings, binding, cache, model, bindings, index)
+end
+
+function _store_admitted_many_input_binding!(binding, cache, model, bindings, index)
+    bindings[index] = _share_admitted_many_input_binding!(binding, cache, model)
+    return nothing
 end
 
 function _share_admitted_many_input_binding!(binding, cache, model)
@@ -3475,7 +3480,7 @@ end
 function _share_many_input_bindings!(model::CompositeModel, bindings)
     cache = _empty_many_input_binding_cache(keytype(model.registry.objects), bindings)
     for index in eachindex(bindings)
-        bindings[index] = _share_many_input_binding!(cache, model, bindings[index])
+        _store_shared_many_input_binding!(cache, model, bindings, index)
     end
     return cache
 end
@@ -4803,7 +4808,7 @@ end
 Base.@noinline function _store_rebuilt_input_binding!(
     bindings, changed_bindings, index, replacement, cache, model,
 )
-    replacement[1] = _share_many_input_binding!(cache, model, only(replacement))
+    _store_shared_many_input_binding!(cache, model, replacement, 1, only(replacement))
     copyto!(bindings, index, replacement, 1, 1)
     append!(changed_bindings, replacement)
     return nothing
@@ -4872,7 +4877,9 @@ function _refresh_existing_scene_input_binding!(binding::B, index::Int, state::S
     prepared = _pending_input_update(admissions, index)
     appended_sources = if !isnothing(prepared) && first(prepared) === :append && !force_rebuild
         delta = admissions.bindings[last(prepared)]
-        _apply_added_many_sources!(binding, delta, performance)
+        Base.@inline _with_model_input_binding(admissions.bindings, delta) do admitted
+            _apply_added_many_sources!(binding, admitted, performance)
+        end
     elseif !isnothing(prepared) && first(prepared) === :unchanged && !force_rebuild
         true
     elseif !isnothing(prepared) || force_rebuild
