@@ -4148,8 +4148,10 @@ function _model_execution_target_change_reason(
     target.call_bindings_signature ==
     _call_bindings_signature(target.call_bindings) ||
         return :call_bindings
-    if any(binding -> _manual_call_binding_has_changed_target(binding,compiled),
-        target.call_bindings)
+    for slot in eachindex(target.call_bindings)
+        Base.@inline _with_metadata_entry(
+            _manual_call_binding_has_changed_target, target.call_bindings, slot, compiled,
+        ) || continue
         context = target.context
         # Delta markers describe changes entering this compiled owner. A child
         # already prepared against that exact owner must not replay the delta.
@@ -4160,6 +4162,7 @@ function _model_execution_target_change_reason(
             target.output_targets,target.call_bindings,temporal_streams,
             output_retention,context.constants)
         current || return :call_bindings
+        break
     end
     return nothing
 end
