@@ -960,9 +960,10 @@ function _finalize_authored_scenario(model, source_specs, authored_records, raw_
     failure = isnothing(failure_index) ? nothing : authored_records[failure_index]
     recipes = _graph_record_vector(AuthoredApplicationRecipe,
         (record for record in authored_records if record isa AuthoredApplicationRecipe))
-    program = _prepare_authored_scenario_program(model, recipes)
+    birth_types = _prepared_birth_status_types(model)
+    program = _prepare_authored_scenario_program(model, recipes, birth_types)
     status_manifest = _capture_authored_metadata(:status_manifest, nothing) do
-        _prepare_status_manifest(model, authored_records, program, raw_families)
+        _prepare_status_manifest(model, authored_records, program, raw_families, birth_types)
     end
     if isnothing(failure) && status_manifest isa ScenarioPreparationFailure
         # A missing field family may be downstream of a rejected logical route
@@ -1583,11 +1584,11 @@ function _prepare_authored_scenario_graph(application_records, input_records, ca
         frozen_children, order, failures)
 end
 
-function _prepare_authored_scenario_program(model, recipes)
+function _prepare_authored_scenario_program(model, recipes, birth_types)
     applications = _graph_record_vector(AuthoredApplicationRecipe, recipes)
     output_records = _prepare_authored_output_records(applications)
     destinations = _authored_distributed_output_plans(applications, output_records)
-    input_records = _prepare_authored_input_records(model, applications, destinations)
+    input_records = _prepare_authored_input_records(model, applications, destinations, birth_types)
     inputs = Tuple(record for record in input_records if record isa CompiledModelInputPlan)
     calls = Tuple(plan for application in applications for plan in application.call_plans)
     graph = _prepare_authored_scenario_graph(applications, inputs, calls, destinations)
@@ -8588,9 +8589,13 @@ function _status_reader_value_bound(model, ports, input, selector)
     return T <: AbstractVector ? eltype(T) : nothing
 end
 
-function _check_required_status_sources(_, ports, model, application_id, input, selector, variable, ids)
+function _required_status_reader_bound(model, ports, input, selector)
     input in _required_input_names(ports) || return nothing
-    T = _status_reader_value_bound(model, ports, input, selector)
+    return _status_reader_value_bound(model, ports, input, selector)
+end
+
+function _check_required_status_sources(_, ports, model, application_id, input, selector, variable, ids)
+    T = _required_status_reader_bound(model, ports, input, selector)
     isnothing(T) && return nothing
     T === Union{} && throw(ArgumentError(
         "Required input `$input` on application `$application_id` can only read an empty selection."))
@@ -8605,14 +8610,14 @@ function _check_required_status_sources(_, ports, model, application_id, input, 
 end
 
 function _many_current_source_ids(model, consumer, producer, variant, selector,
-    source_selectors, distributed, input, source_var)
+    evidence_selector, source_selectors, distributed, input, source_var)
     current = Set{ObjectId}()
     if isnothing(producer)
         matcher = _authored_selector_matcher(selector)
         _many_scope_is_current(model, matcher) || return current
         matcher = _resolve_selector_matcher(model, matcher)
         for consumer_id in _many_current_application_targets(model, consumer)
-            ids = _dependency_object_ids(model, selector, matcher, consumer_id)
+            ids = _dependency_object_ids(model, evidence_selector, matcher, consumer_id)
             if _selector_from_status(selector) && !isempty(ids)
                 _with_application_variant(_check_required_status_sources, consumer, consumer_id,
                     model, consumer.id, input, selector, source_var, ids)
@@ -8675,11 +8680,24 @@ function _disjoint_self_status_input(model, consumer, selector::Many)
 end
 
 function _prepare_input_reference_types(model, consumer, input, selector,
-    source_var, producer_ids, applications_by_id, writer_applications, distributed_output_plans)
+    source_var, producer_ids, applications_by_id, writer_applications, distributed_output_plans, birth_types)
     references = Any[]
+    evidence_selector = selector
     # A status read can see a canonical output before its first value has been
     # materialized. Its declared cell type does not create a stream dependency.
     if _selector_from_status(selector)
+        if birth_types !== nothing && !(selector isa Many && _disjoint_self_status_input(model, consumer, selector))
+            scale = _authored_selector_matcher(selector).scale
+            for (family, fields) in birth_types
+                _object_matches_selector_value(family, scale) || continue
+                for (field, R) in fields
+                    field === source_var && push!(references, R)
+                end
+            end
+            # Membership supplies type evidence. An actual One still enforces
+            # exactly one source when the prepared route binds in a simulation.
+            isempty(references) || (evidence_selector = _selector_as_many(selector))
+        end
         _add_status_writer_reference_types!(references, model, selector, source_var,
             get(writer_applications, source_var, ()), distributed_output_plans)
     end
@@ -8709,7 +8727,7 @@ function _prepare_input_reference_types(model, consumer, input, selector,
         variants = isnothing(producer) ? ((nothing, nothing, nothing),) : _many_model_variant_types(producer)
         for (variant, output_types, element_types) in variants
             current = _many_current_source_ids(model, consumer, producer, variant,
-                selector, source_selectors, distributed, input, source_var)
+                selector, evidence_selector, source_selectors, distributed, input, source_var)
             missing_current = copy(current)
             for source_selector in source_selectors
                 matcher = _authored_selector_matcher(source_selector)
@@ -8761,6 +8779,13 @@ function _prepare_input_reference_types(model, consumer, input, selector,
             end
         end
     end
+    if _selector_from_status(selector)
+        bound = _required_status_reader_bound(model, _application_ports(consumer), input, selector)
+        if !isnothing(bound)
+            filter!(R -> bound !== Union{} && eltype(R) <: bound, references)
+            isempty(references) && selector isa Many && return Tuple{}
+        end
+    end
     isempty(references) && !(selector isa OptionalOne) &&
         throw(ArgumentError("An input has no prepared reference family."))
     # Julia canonicalizes the union; its members give deterministic witness order.
@@ -8779,6 +8804,7 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
     distributed_output_plans,
     local_output_names,
     variable_contracts_by_application,
+    birth_types,
 )
     # Selector and application values still determine the concrete final plan.
     @nospecialize application selector
@@ -8845,11 +8871,11 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
         _selector_window(selector),
         _prepare_input_reference_types(model, application, input, selector,
             source_var, potential_source_application_ids,
-            applications_by_id, writer_applications, distributed_output_plans),
+            applications_by_id, writer_applications, distributed_output_plans, birth_types),
     )
 end
 
-function _prepare_authored_input_records(model, applications, distributed_output_plans)
+function _prepare_authored_input_records(model, applications, distributed_output_plans, birth_types)
     plans = CompiledModelInputPlan[]
     records = Any[]
     applications_by_id = Dict(application.id => application for application in applications)
@@ -8881,7 +8907,7 @@ function _prepare_authored_input_records(model, applications, distributed_output
                     application, input, selector,
                     get(input_origins(application.spec), input, :model_spec),
                     applications_by_id, distributed_output_plans, local_output_names,
-                    variable_contracts_by_application)
+                    variable_contracts_by_application, birth_types)
             end
             push!(records, record)
             record isa CompiledModelInputPlan && push!(plans, record)
@@ -8901,7 +8927,7 @@ function _prepare_authored_input_records(model, applications, distributed_output
                     _compiled_model_input_plan(model, length(plans) + 1, writer_applications,
                         application, input, selector, :inferred_same_object,
                         applications_by_id, distributed_output_plans, local_output_names,
-                        variable_contracts_by_application)
+                        variable_contracts_by_application, birth_types)
                 end
                 push!(records, record)
                 record isa CompiledModelInputPlan && push!(plans, record)
@@ -8930,7 +8956,7 @@ function _resolve_model_input_plans(model, preparation::ScenarioPreparation,
         # A partial report is a different declaration set. Project the real
         # recipes through the SAME pure factory, without replaying a hook.
         _prepare_authored_input_records(model, _project_authored_applications(preparation, applications),
-            distributed_output_plans)
+            distributed_output_plans, _frozen_birth_status_types(preparation.status_manifest))
     end
     plans = CompiledModelInputPlan[]
     for record in records

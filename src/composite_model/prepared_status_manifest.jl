@@ -2,15 +2,16 @@
 # configured selector owners and raw-family correlations, never default values.
 # These lists refer to the authored owners and their existing permissions.
 # Cardinalities are data: adding organs never specializes the execution model.
-struct PreparedBirthRecipe{S,A,F,D,R}
+struct PreparedBirthRecipe{S,A,F,D,R,C}
     status_type::Type{S}
     applications::A
     sources::F
     destinations::D
     raw_families::R
+    declared_fields::C
 end
 
-mutable struct PreparedStatusManifest{S,A,P,D,R,B}
+mutable struct PreparedStatusManifest{S,A,P,D,R,B,C}
     const status_type::Type{S}
     const authored::A
     const permissions::P
@@ -18,6 +19,7 @@ mutable struct PreparedStatusManifest{S,A,P,D,R,B}
     const raw_families::R
     const birth_recipes::Dict{Union{Nothing,Symbol},B}
     const all_routes::B
+    const birth_types::C
 end
 
 # RAW membership, labels and reference classes are constructor evidence DATA.
@@ -214,7 +216,70 @@ function _prepared_status_destinations(plans)
         for plan in plans]
 end
 
-function _prepared_birth_recipes(S, applications, permissions, destinations, raw, model)
+"""
+    PlantSimEngine.birth_status_types(initializer, objects)
+
+Declare status fields that an MTG-backed [`CompositeModel`](@ref) can receive when new
+organs appear. Extend this method for the callable passed as `status=initializer`.
+The default returns `nothing`.
+
+Return a named tuple or dictionary keyed by organ scale. Each scale maps field names
+to concrete value types or finite unions of concrete value types. For example,
+`(Leaf=(age=Float64,), Flower=(sex=Symbol,))` allows a new flower to receive
+`initial_status=(sex=:female,)` in [`add_organ!`](@ref). The declaration supplies
+types. The caller supplies each value at birth.
+
+During preparation, `objects` iterates the registered [`Object`](@ref)s with
+their initialized statuses. Read an object's `scale` and `status` here when the
+set of future organs depends on plant parameters. PSE retains the declaration
+for later births. A selected `from_status` reader must also accept its source
+cell's type when the input is `Required`. A `Default` supplies an initial value.
+"""
+birth_status_types(initializer, objects) = nothing
+
+function _prepared_birth_status_types(model)
+    catalog = model.registry.objects.catalog
+    catalog isa ClosedObjectFamilyCatalog && return _frozen_birth_status_types(catalog.status_manifest)
+    adapter = model.source_adapter
+    adapter isa MTGObjectAdapter || return nothing
+    declared = birth_status_types(adapter.status, values(model.registry.objects))
+    declared === nothing && return nothing
+    refs = Dict{Symbol,Vector{Pair{Symbol,DataType}}}()
+    for (scale, fields) in pairs(declared)
+        scale isa Symbol || throw(ArgumentError("A birth status scale must be a Symbol."))
+        classes = Pair{Symbol,DataType}[]
+        for (field, T) in pairs(fields)
+            field isa Symbol && T isa Type || throw(ArgumentError(
+                "Birth status fields must pair a Symbol with a type."))
+            R = _prepared_status_declared_reference(model.status_conversion, field, T, nothing)
+            R === Union{} && throw(ArgumentError(
+                "Initial field $field on $scale needs a finite concrete storage family."))
+            for ref_type in Base.uniontypes(R)
+                push!(classes, field => ref_type)
+            end
+        end
+        refs[scale] = classes
+    end
+    return refs
+end
+
+_declared_birth_reference_admission(::Nothing, name, reference) = (false, true)
+function _declared_birth_reference_admission(fields, name, reference)
+    declared = false
+    for (field, R) in fields
+        field === name || continue
+        declared = true
+        R === typeof(reference) && return (true, true)
+    end
+    return (false, !declared)
+end
+
+
+# Reuse the table frozen by the constructor when projecting or refreshing the plan.
+_frozen_birth_status_types(manifest) = nothing
+_frozen_birth_status_types(manifest::PreparedStatusManifest) = manifest.birth_types
+
+function _prepared_birth_recipes(S, applications, permissions, destinations, raw, model, declarations)
     owners = collect(zip(applications, permissions))
     by_slot = Dict(first(owner).slot => owner for owner in owners)
     Source = eltype(fieldtype(eltype(permissions), :sources))
@@ -222,8 +287,10 @@ function _prepared_birth_recipes(S, applications, permissions, destinations, raw
         (app, permission, source) for (app, permission) in owners for source in permission.sources]
     routes = Tuple{eltype(applications),eltype(permissions),eltype(destinations)}[
         (by_slot[plan.application_slot]..., plan) for plan in destinations]
-    all_routes = PreparedBirthRecipe(S, owners, sources, routes, raw)
+    empty_fields = isnothing(declarations) ? nothing : Pair{Symbol,DataType}[]
+    all_routes = PreparedBirthRecipe(S, owners, sources, routes, raw, empty_fields)
     scales = Set{Union{Symbol,Nothing}}(keys(model.registry.by_scale))
+    isnothing(declarations) || union!(scales, keys(declarations))
     push!(scales, nothing)
     for matcher in Iterators.flatten(((app.target_matcher for app in applications),
         (source.matcher for (_, _, source) in sources), (plan.matcher for plan in destinations)))
@@ -237,7 +304,8 @@ function _prepared_birth_recipes(S, applications, permissions, destinations, raw
             filter(owner -> matches(first(owner).target_matcher), owners),
             filter(row -> matches(last(row).matcher), sources),
             filter(row -> matches(last(row).matcher), routes),
-            filter(family -> first(family.labels) === scale, raw))
+            filter(family -> first(family.labels) === scale, raw),
+            isnothing(declarations) ? nothing : get(declarations, scale, empty_fields))
     end
     return recipes, all_routes
 end
@@ -314,7 +382,7 @@ function _add_supplied_status_fields!(names, refs, raw)
     return nothing
 end
 
-function _prepare_status_manifest(model, authored, program, raw_basis)
+function _prepare_status_manifest(model, authored, program, raw_basis, declarations)
     # Host traversal uses scalar records; freeze exact owner tuples only once
     # the namespace and all RAW permissions have been prepared.
     recipes = _graph_record_vector(AuthoredApplicationRecipe,
@@ -361,6 +429,11 @@ function _prepare_status_manifest(model, authored, program, raw_basis)
         raw_basis
     end
     _add_supplied_status_fields!(names, refs, raw)
+    if !isnothing(declarations)
+        for scale in sort!(collect(keys(declarations))), (name, R) in declarations[scale]
+            _prepared_status_add_type!(names, refs, name, R)
+        end
+    end
     for permission in permissions
         for variant in permission.variants, (name, R) in variant.canonical
             _prepared_status_add_type!(names, refs, name, R)
@@ -415,8 +488,8 @@ function _prepare_status_manifest(model, authored, program, raw_basis)
     # no biological Ref is created for that slot.
     physical_refs = map(R -> R === Union{} ? Nothing : R, refs)
     S = _fixed_status_type(Tuple(names), Tuple{physical_refs...})
-    recipes_by_scale, all_routes = _prepared_birth_recipes(S, applications, permissions, destinations, raw, model)
-    return PreparedStatusManifest(S, applications, permissions, destinations, raw, recipes_by_scale, all_routes)
+    recipes_by_scale, all_routes = _prepared_birth_recipes(S, applications, permissions, destinations, raw, model, declarations)
+    return PreparedStatusManifest(S, applications, permissions, destinations, raw, recipes_by_scale, all_routes, declarations)
 end
 
 # The catalog references the SAME prepared manifest; runtime never finds a
@@ -587,8 +660,11 @@ function _prepared_status_source_route_admission(source, application, permission
             topology = _prepared_status_topology(model, object, id, parent_id)
             if _selector_matches_object_id(topology, matcher, id,
                 nothing, false, nothing, false)
+                # An absent reader gives no permission for an incompatible cell.
+                # Independent declarations and observed raw families are checked
+                # separately; a real reader checks its own family on activation.
                 _prepared_status_reference_allowed(source.references, name, reference) ||
-                    return (false, false, false)
+                    return (false, false, true)
                 declared, allowed = _prepared_status_source_input_admission(
                     first(permission.variants), source.input, reference)
             end
@@ -757,7 +833,8 @@ Base.@noinline Base.@nospecializeinfer function _prepared_status_source_allowed(
             present += 1
             allowed, compatible = _prepared_status_configured_reference_admission(recipe, model,
                 object, parent_id, name, reference)
-            compatible && (allowed ||
+            declared, in_family = _declared_birth_reference_admission(recipe.declared_fields, name, reference)
+            compatible && ((in_family && (allowed || declared)) ||
                 _prepared_status_raw_reference_allowed(raw, name, reference)) || return false
         end
     end

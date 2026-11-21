@@ -103,6 +103,37 @@ when the prepared tree supports that column type. On a tree with only numeric
 columns, declare the symbol column first. To set only the simulation object's
 label, pass `kind=:expanding` directly to `add_organ!`.
 
+### Give future organs their own fields
+
+Suppose the initial plant has no flowers. When a flower appears, the growth
+model supplies its sex. Declare this field on the callable that imports the
+initial statuses so PSE can prepare its storage before the first flower exists.
+
+```@example future_flower
+using PlantSimEngine, MultiScaleTreeGraph
+
+struct PalmInitialStatus end
+(::PalmInitialStatus)(node) = nothing
+PlantSimEngine.birth_status_types(::PalmInitialStatus, objects) =
+    (Flower=(sex=Symbol,),)
+
+palm = Node(1, NodeMTG(:/, :Plant, 1, 0), NamedTuple())
+plant = CompositeModel(palm; status=PalmInitialStatus())
+flower = add_organ!(palm, plant, :+, :Flower, 1; initial_status=(sex=:female,))
+flower.sex
+```
+
+Use a finite union such as `Union{Int,Float64}` when new organs can supply
+either representation. If the organ names depend on plant parameters,
+read those parameters from the initialized plants in `objects` and return a
+dictionary keyed by their organ symbols. Each object exposes its `scale` and
+`status`. PSE reuses the declaration as the plant grows.
+
+A `from_status` input declared with `Required(Real)` can read a numeric cell.
+If a new organ falls in its selection, a text cell is rejected before that
+organ joins the tree. The same text field can belong to an organ outside that
+selection. A `Default` value supplies the input's starting value.
+
 See [Growth within a time step](../../tutorials/growing_plant/part1_growth.md).
 
 Use `objects_from_mtg(root; status=initial_status)` when you only want a

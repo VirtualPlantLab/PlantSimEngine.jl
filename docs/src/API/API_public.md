@@ -271,6 +271,13 @@ keep those new values consistent with the rest of the simulation:
   object's output. The initializer itself can still use a `PreviousTimeStep`
   input.
 
+The MTG initializer can declare fields supplied later through `initial_status`.
+See [Importing an MTG](../guides/multiscale/import_mtg.md) for a flower example.
+
+```@docs
+PlantSimEngine.birth_status_types
+```
+
 ### Explanations
 
 Use the `Diagnostics` namespace instead of inspecting internals:
