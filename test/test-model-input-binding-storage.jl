@@ -348,6 +348,54 @@ end
     end
 end
 
+struct RequiredValues{T} <: AbstractInput_Binding_Storage_ReaderModel end
+PSE.inputs_(::RequiredValues{T}) where {T} = (values=Required(Vector{T}),)
+PSE.outputs_(::RequiredValues) = (total=0.0,)
+function PSE.run!(::RequiredValues, status, environment, constants, context)
+    status.total = sum(bound_input(context, :values); init=0.0)
+    return nothing
+end
+
+@testset "a Required status input checks only selected cells" begin
+    reader(T) = ModelSpec(RequiredValues{T}(); name=:reader, on=One(id=:scene),
+        inputs=(values=Many(within=Scope(ObjectId(:inside)), scale=:Leaf, var=:x, from_status=true),))
+    make(leaves...; T=Real) = CompositeModel(Object(:scene; scale=:Scene), Object(:inside; parent=:scene),
+        Object(:annotation; parent=:scene, scale=:Leaf, status=Status(x="label")), leaves...;
+        applications=(reader(T),))
+    leaf(id, ref) = Object(id; parent=:inside, scale=:Leaf, status=Status((x=ref,)))
+    @test_throws ArgumentError run!(make(leaf(:bad, Ref("text"))); steps=0)
+    @test isempty(binding(run!(make(); steps=0), :scene, :values).carrier)
+    @test isempty(binding(run!(make(; T=Union{}); steps=0), :scene, :values).carrier)
+    @test_throws ArgumentError run!(make(leaf(:one, Ref(1f0)); T=Union{}); steps=0)
+
+    scalar(selector) = CompositeModel(Object(:scene; scale=:Scene, status=Status(single=1f0)),
+        Object(:annotation; parent=:scene, scale=:Leaf, status=Status(x="label")); applications=(
+            ModelSpec(Reader(); name=:reader, on=One(id=:scene), inputs=(single=selector,
+                values=Many(within=SceneScope(), scale=:Absent, var=:x, from_status=true),)),))
+    for selector in (One, OptionalOne)
+        selected = selector(within=SceneScope(), id=:annotation, var=:x, from_status=true)
+        @test_throws ArgumentError run!(scalar(selected); steps=0)
+    end
+    absent = scalar(OptionalOne(within=SceneScope(), id=:missing, var=:x, from_status=true))
+    run!(absent; steps=1)
+    @test model_status(absent, :scene).total == 1.0
+
+    left, right = Ref(1f0), Ref(2.0)
+    model = make(leaf(:one, left), leaf(:two, right))
+    sim = run!(model; steps=1, outputs=:all)
+    before = copy(outputs(sim)[(:reader,ObjectId(:scene),:total)])
+    @test_throws ArgumentError register_object!(model, leaf(:bad, Ref("text")))
+    @test !haskey(model.registry.objects, ObjectId(:bad))
+    @test outputs(sim)[(:reader,ObjectId(:scene),:total)] == before
+    carrier = binding(sim, :scene, :values).carrier
+    @test length(carrier) == 2
+    @test all(cell -> any(ref -> ref === cell, parent(carrier)), (left, right))
+    left[] = 4f0
+    step!(sim)
+    @test outputs(sim)[(:reader,ObjectId(:scene),:total)] == [(1.0,3.0), (2.0,6.0)]
+    @test model_status(model, :annotation).x == "label"
+end
+
 @testset "a canonical source right is independent of a consumer's Default seed" begin
     source = ModelSpec(Reader{Float64}();name=:source,on=Many(scale=:Leaf),inputs=(
         single=One(id=:anchor,within=SceneScope(),var=:x,from_status=true),

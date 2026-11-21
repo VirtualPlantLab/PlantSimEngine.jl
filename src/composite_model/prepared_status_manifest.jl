@@ -141,13 +141,8 @@ function _prepared_status_variant_permission(model, application, ports, plans)
     source_names = Symbol[]; source_refs = Any[]
     for plan in plans
         _input_route_from_status(plan.route) || continue
-        configured = _configured_status_value_type(model.status_conversion, plan.input,
-            getproperty(ports.input_types, plan.input),
-            get(ports.input_element_types, plan.input, nothing))
-        T = plan.selector isa Many ?
-            (!isnothing(configured) && configured <: AbstractVector ? eltype(configured) : Union{}) :
-            (isnothing(configured) ? Union{} : configured)
-        T === Union{} && continue
+        T = _status_reader_value_bound(model, ports, plan.input, plan.selector)
+        (isnothing(T) || T === Union{}) && continue
         # Real/Any are value bounds, not requests to replace Ref32/Ref64 by
         # invariant Ref{Real}/Ref{Any}. Keep only already prepared real classes.
         classes = Tuple(R for slot in fieldtypes(plan.reference_types)

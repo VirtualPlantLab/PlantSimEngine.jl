@@ -8592,15 +8592,44 @@ function _many_current_application_targets(model, application)
     return _resolve_object_ids(model, many, _resolve_selector_matcher(model, matcher))
 end
 
+function _status_reader_value_bound(model, ports, input, selector)
+    T = _configured_status_value_type(model.status_conversion, input,
+        getproperty(ports.input_types, input), get(ports.input_element_types, input, nothing))
+    isnothing(T) && return nothing
+    selector isa Many || return T
+    return T <: AbstractVector ? eltype(T) : nothing
+end
+
+function _check_required_status_sources(_, ports, model, application_id, input, selector, variable, ids)
+    input in _required_input_names(ports) || return nothing
+    T = _status_reader_value_bound(model, ports, input, selector)
+    isnothing(T) && return nothing
+    T === Union{} && throw(ArgumentError(
+        "Required input `$input` on application `$application_id` can only read an empty selection."))
+    for id in ids
+        reference = _status_ref_or_nothing(model.registry.objects[id].status, variable)
+        isnothing(reference) && continue
+        eltype(reference) <: T || throw(ArgumentError(
+            "Required input `$input` on application `$application_id` expects `$T` " *
+            "from `$variable` on object `$(_object_id_text(id))`, got `$(eltype(reference))`."))
+    end
+    return nothing
+end
+
 function _many_current_source_ids(model, consumer, producer, variant, selector,
-    source_selectors, distributed)
+    source_selectors, distributed, input, source_var)
     current = Set{ObjectId}()
     if isnothing(producer)
         matcher = _authored_selector_matcher(selector)
         _many_scope_is_current(model, matcher) || return current
         matcher = _resolve_selector_matcher(model, matcher)
         for consumer_id in _many_current_application_targets(model, consumer)
-            union!(current, _dependency_object_ids(model, selector, matcher, consumer_id))
+            ids = _dependency_object_ids(model, selector, matcher, consumer_id)
+            if _selector_from_status(selector) && !isempty(ids)
+                _with_application_variant(_check_required_status_sources, consumer, consumer_id,
+                    model, consumer.id, input, selector, source_var, ids)
+            end
+            union!(current, ids)
         end
     else
         isempty(source_selectors) && return current
@@ -8692,7 +8721,7 @@ function _prepare_input_reference_types(model, consumer, input, selector,
         variants = isnothing(producer) ? ((nothing, nothing, nothing),) : _many_model_variant_types(producer)
         for (variant, output_types, element_types) in variants
             current = _many_current_source_ids(model, consumer, producer, variant,
-                selector, source_selectors, distributed)
+                selector, source_selectors, distributed, input, source_var)
             missing_current = copy(current)
             for source_selector in source_selectors
                 matcher = _authored_selector_matcher(source_selector)
