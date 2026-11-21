@@ -3784,7 +3784,7 @@ function _compiled_call_execution_batches(
     admission = _call_cohort_admission(batch_schema,cohort_schema)
     batches = _execution_batch_buffer(batch_schema)
     for application_id in binding.callee_application_ids
-        _compiled_application_by_id(compiled,application_id) do application
+        _with_call_batch_application(compiled, application_id, batch_schema) do application
             application_schema = _call_batch_schema_for_application(batch_schema,application)
             current_ids = [object_id for object_id in binding.callee_object_ids
                 if _call_binding_target_matches(binding,application,object_id)]
@@ -4217,18 +4217,18 @@ function _model_execution_batch_accepts_target(
     return isequal(provider, batch.environment_provider)
 end
 
-# Only admission needs the closed batch types. The registered application
-# supplies its current target IDs for the same ordered-prefix check.
-@inline _call_prefix_application(compiled, id, ::OpenExecutionBatchSchema) =
-    _compiled_application_by_id(compiled, id)
+# The ID selects the registered application instance. Its prepared batch schema
+# limits which application types the nested call needs to compile.
+@inline _with_call_batch_application(f::F, compiled, id, ::OpenExecutionBatchSchema) where {F} =
+    _compiled_application_by_id(f, compiled, id)
 
-@generated function _call_prefix_application(compiled, id, ::PreparedExecutionBatchSchema{BT}) where {BT}
+@generated function _with_call_batch_application(f::F, compiled, id, ::PreparedExecutionBatchSchema{BT}) where {F,BT}
     owners = unique(fieldtype(batch, :application) for batch in _prepared_execution_batch_types(BT))
-    A = Union{owners...}
+    branches = [:(application isa $A && return f(application::$A)) for A in owners]
     return quote
         application = _compiled_application_by_id(compiled, id)
-        application isa $A || throw(ArgumentError("A callee application is outside its prepared batch schema."))
-        return application::$A
+        $(branches...)
+        throw(ArgumentError("A callee application is outside its prepared batch schema."))
     end
 end
 
@@ -4288,7 +4288,7 @@ function _extend_execution_target_call_batches_by_prefix!(
             _execution_call_batches_match_applications(schema, execution_batches,
                 binding.callee_application_ids) || return false
             for application_id in binding.callee_application_ids
-                application = _call_prefix_application(compiled, application_id, schema)
+                application = _with_call_batch_application(identity, compiled, application_id, schema)
                 application_schema = _call_batch_schema_for_application(schema, application)
                 batches = _execution_call_batches_for_application(schema, application_schema,
                     execution_batches, application_id)

@@ -604,4 +604,41 @@ end
     assert_same_cells(model, cells)
 end
 
+@testset "Prepared nested calls retain the application of each template instance" begin
+    counts = Dict(:root => 0, :middle => 0, :leaf => 0)
+    plant(name, leaf, seed) = ObjectInstance(name, CompositeModelTemplate((
+        ModelSpec(Middle(Dict{Symbol,Any}(), counts); name=:branch, on=One(scale=:Plant),
+            calls=(leaf=One(scale=:Leaf, within=Subtree(), application=:leaf),)),
+        ModelSpec(Leaf(Xoshiro(seed), counts); name=:leaf, on=One(scale=:Leaf)),
+    )); root=Object(name; scale=:Plant, parent=:scene),
+        objects=(Object(leaf; scale=:Leaf, parent=name),))
+    scene = CompositeModel(Object(:scene; scale=:Scene), plant(:east, :east_leaf, 3),
+        plant(:west, :west_leaf, 7); applications=(
+            ModelSpec(Root(Ref{Any}(nothing), counts); name=:top, on=One(id=:scene),
+                calls=(middle=Many(scale=:Plant, within=SceneScope(), process=:cold_schema_activation_middle),)),))
+    sim = run!(scene; steps=0, outputs=:none)
+    function prepared(call)
+        observed = PSE._materialize_call_execution_batches!(call)
+        types = unique(typeof.(observed))
+        schema = PSE.PreparedExecutionBatchSchema{Vector{Union{types...}}}()
+        return PSE._compiled_call_execution_batches(call.compiled, call.environment_bindings,
+            call.binding, call.temporal_streams, call.output_retention, call.constants;
+            cohort_schema=PSE._execution_cohort_schema(schema), batch_schema=schema)
+    end
+    applications = sim.compiled.applications_by_id
+    @test typeof(applications[:east__leaf]) === typeof(applications[:west__leaf])
+    @test applications[:east__leaf] !== applications[:west__leaf]
+    branches = PSE._materialize_call_execution_batches!(call_targets(root_target(sim).context, :middle))
+    @test Set(b.application.id for b in branches) == Set((:east__branch, :west__branch))
+    for branch in branches
+        row = only(branch.targets)
+        east = row.object_id == ObjectId(:east)
+        leaf = only(prepared(call_targets(row.context, :leaf)))
+        @test leaf.application === applications[east ? :east__leaf : :west__leaf]
+        @test only(leaf.targets).object_id == ObjectId(east ? :east_leaf : :west_leaf)
+        @test only(leaf.targets).status_view.canonical_status ===
+            model_status(scene, east ? :east_leaf : :west_leaf)
+    end
+end
+
 end # module ColdCallSchemaActivationChecks
