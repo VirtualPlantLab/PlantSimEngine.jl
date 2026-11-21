@@ -17,10 +17,10 @@ function close_registry(model, id_type=nothing)
 end
 
 mutable struct RuntimeTypes
-    inputs::Vector{DataType}
+    inputs::Set{Tuple{Int,DataType}}
     views::Dict{Symbol,Vector{DataType}}
 end
-RuntimeTypes() = RuntimeTypes(DataType[], Dict{Symbol,Vector{DataType}}())
+RuntimeTypes() = RuntimeTypes(Set{Tuple{Int,DataType}}(), Dict{Symbol,Vector{DataType}}())
 remember!(pool, T) = (T in pool || push!(pool, T); nothing)
 struct InputTrace <: AbstractVector{PSE.CompiledModelInputBinding}
     data::Vector{PSE.CompiledModelInputBinding}
@@ -31,13 +31,19 @@ Base.IndexStyle(::Type{InputTrace}) = IndexLinear()
 Base.size(values::InputTrace) = size(values.data)
 Base.getindex(values::InputTrace, index::Int) = values.data[index]
 function Base.setindex!(values::InputTrace, binding, index::Int)
-    remember!(values.observed.inputs, typeof(binding)); values.data[index] = binding; return values
+    push!(values.observed.inputs, (binding.slot, typeof(binding)))
+    values.data[index] = binding
+    return values
 end
 function Base.push!(values::InputTrace, binding)
-    remember!(values.observed.inputs, typeof(binding)); push!(values.data, binding); return values
+    push!(values.observed.inputs, (binding.slot, typeof(binding)))
+    push!(values.data, binding)
+    return values
 end
 function Base.insert!(values::InputTrace, index::Integer, binding)
-    remember!(values.observed.inputs, typeof(binding)); insert!(values.data, index, binding); return values
+    push!(values.observed.inputs, (binding.slot, typeof(binding)))
+    insert!(values.data, index, binding)
+    return values
 end
 Base.append!(values::InputTrace, bindings) = (foreach(binding -> push!(values, binding), bindings); values)
 Base.similar(values::InputTrace, n::Integer) =
@@ -87,13 +93,13 @@ function prepare_growth_fixture(make_model, ids, trajectories)
         return PSE._prepare_simulation!(close_registry(make_model()); steps=0, outputs=:all,
             constants=PSE.Constants(), environment_schema, input_binding_storage, status_view_schema)
     end
-    for advance! in trajectories
-        advance!(prepare(collecting, trace, observed), ignore)
+    slot_counts = map(trajectories) do advance!
+        simulation = prepare(collecting, trace, observed)
+        advance!(simulation, ignore)
+        length(simulation.compiled.scenario_plan.input_plans)
     end
     isempty(trace) || error("Input prototype was mutated.")
-    all(T -> isconcretetype(T) && T <: PSE.CompiledModelInputBinding, observed.inputs) ||
-        error("Expected concrete input bindings.")
-    inputs = Vector{Union{observed.inputs...}}()
+    inputs = PSE._prepared_input_bindings(only(unique(slot_counts)), observed.inputs)
     views = PSE.CompiledMetadataTable(NamedTuple{ids}(map(ids) do id
         types = observed.views[id]
         all(T -> isconcretetype(T) && T <: PSE.CompiledModelStatusView, types) ||
@@ -104,7 +110,7 @@ function prepare_growth_fixture(make_model, ids, trajectories)
     fresh() = prepare(environment, inputs, views)
     batches = Dict(id => DataType[] for id in ids)
     function observe(sim)
-        sim.compiled.input_bindings isa Vector{eltype(inputs)} || error("Lost finite input owner.")
+        sim.compiled.input_bindings.family_by_slot === inputs.family_by_slot || error("Lost input slot admissions.")
         sim.compiled.status_view_schema === views || error("Lost finite view owner.")
         for group in sim.execution_plan.groups, batch in group.batches
             remember!(batches[batch.application.id], typeof(batch))

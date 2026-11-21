@@ -75,9 +75,8 @@ function prepare_native_scene()
         input_binding_storage=input_trace,status_view_schema=observed)
     advance_host!(recording,neighbours) == baseline || error("Recording changed state/history.")
     isempty(input_trace) || error("Input prototype was mutated.")
-    all(B -> isconcretetype(B) && B <: PSE.CompiledModelInputBinding,observed.inputs) ||
-        error("Invalid input-binding family.")
-    input_prototype = Vector{Union{observed.inputs...}}()
+    input_prototype = PSE._prepared_input_bindings(
+        length(recording.simulation.compiled.scenario_plan.input_plans), observed.inputs)
     views = PSE.CompiledMetadataTable(NamedTuple{APPLICATION_IDS}(map(APPLICATION_IDS) do id
         types = observed.views[id]
         all(V -> isconcretetype(V) && V <: PSE.CompiledModelStatusView,types) || error("Invalid view family.")
@@ -89,8 +88,8 @@ function prepare_native_scene()
     batches = Dict(id=>DataType[] for id in APPLICATION_IDS)
     function observe_batches(state)
         simulation = state.simulation
-        simulation.compiled.input_bindings isa Vector &&
-            eltype(simulation.compiled.input_bindings) === eltype(input_prototype) || error("Lost finite input owner.")
+        simulation.compiled.input_bindings.family_by_slot === input_prototype.family_by_slot ||
+            error("Lost input slot admissions.")
         simulation.compiled.status_view_schema === views && all(isempty,values(views)) || error("Lost view admission.")
         simulation.environment_bindings.environment_schema === environment_schema || error("Lost environment admission.")
         isempty(input_prototype) || error("Finite input prototype was mutated.")
