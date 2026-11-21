@@ -97,4 +97,24 @@ end
         simulation.execution_plan.groups)
 end
 
+@testset "a new leaf and a replaced model reach the same timestep" begin
+    leaves = ModelSpec(SlotCounter(1); name=:leaves, on=Many(scale=:Leaf))
+    axis(amount) = ModelSpec(SlotCounter(amount); name=:axis, on=One(id=:axis))
+    model = CompositeModel(Object(:first; scale=:Leaf, status=Status(count=0)),
+        Object(:axis; scale=:Axis, status=Status(count=0)); applications=(leaves, axis(2)))
+    simulation = run!(model; steps=1, outputs=:all)
+    cell = PSE.refvalue(model_status(model, :axis), :count)
+
+    register_object!(model, Object(:new; scale=:Leaf, status=Status(count=0)))
+    model.applications[2] = axis(7)
+    Advanced.refresh_bindings!(model; force=true)
+    step!(simulation)
+
+    @test PSE.refvalue(model_status(model, :axis), :count) === cell
+    retained = outputs(simulation)
+    @test retained[(:axis, ObjectId(:axis), :count)] == [(1.0, 2), (2.0, 9)]
+    @test retained[(:leaves, ObjectId(:first), :count)] == [(1.0, 1), (2.0, 2)]
+    @test retained[(:leaves, ObjectId(:new), :count)] == [(2.0, 1)]
+end
+
 end

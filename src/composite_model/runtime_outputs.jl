@@ -4670,6 +4670,17 @@ function _preflight_execution_group_layout!(previous, compiled, slots::Tuple)
     return nothing
 end
 
+function _reuse_unchanged_execution_group!(application, previous_slots, visited, groups, batches)
+    return _with_previous_execution_group(previous_slots, application, visited) do previous_group
+        if isnothing(previous_group) || previous_group.application !== application
+            return (0, 0, 0)
+        end
+        push!(groups, previous_group)
+        append!(batches, previous_group.batches)
+        return (0, 0, 1)
+    end
+end
+
 function _refresh_model_execution_plan(
     previous::CompiledExecutionPlan,
     compiled::CompiledCompositeModel,
@@ -4699,16 +4710,18 @@ function _refresh_model_execution_plan(
     # These are the compiler's existing dependency-ordered root entries;
     # call-only applications are already excluded by that same schedule.
     for entry in compiled.scenario_plan.application_schedule.entries
+        if !isnothing(changed_application_ids) && !(entry.application_id in changed_application_ids)
+            reused = _with_metadata_entry(_reuse_unchanged_execution_group!, compiled.applications_by_id,
+                entry.application_id, previous_slots, visited_slots, groups, batches)
+            if !iszero(reused[3])
+                groups_reused += 1
+                continue
+            end
+        end
         counts = _with_metadata_entry(compiled.applications_by_id, entry.application_id) do application
             _with_previous_execution_group(previous_slots, application,
                 visited_slots,
             ) do previous_group
-                if !isnothing(previous_group) && !isnothing(changed_application_ids) &&
-                   !(application.id in changed_application_ids)
-                    push!(groups, previous_group)
-                    append!(batches, previous_group.batches)
-                    return (0, 0, 1)
-                end
                 changed_ids = isnothing(changed_by_application) ? nothing :
                               get(changed_by_application, application.id, ())
                 return _refresh_model_execution_group!(
