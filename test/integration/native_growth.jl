@@ -103,7 +103,7 @@ end
 @testset "Native scene and relative model-call selectors" begin
     mktempdir() do directory
         scene = Compilation.compile(_scene_dependency_app; destination=joinpath(directory, "scene"))
-        for args in (String[], ["crown"])
+        for args in (String[], ["crown"], ["nested"])
             @test PSESceneDependencyControl.main(args) == 0
             @test success(`$(scene.executable) $args`)
         end

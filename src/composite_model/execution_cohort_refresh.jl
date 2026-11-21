@@ -270,18 +270,18 @@ function refresh_cohort_membership!(build_target::F, store::ExecutionCohortStore
         location = cohort_location(store, application_id, object_id; owner)
         is_current = isnothing(previous) || isnothing(changed_ids) ||
                      first(_sorted_object_id_position(current_ids, object_id))
-        _with_execution_cohort_location(schema, store, location, owner, application_id, object_id) do admitted
-            if !is_current
-                push!(removed_ids, object_id)
-                return nothing
-            end
-            previous_target = isnothing(admitted) ? nothing : _execution_cohort_target(admitted)
-            target = build_target(object_id, previous_target)
-            _with_execution_cohort_target(schema, target) do accepted
-                _check_execution_cohort_target(accepted, object_id)
-                accepted === previous_target || push!(staged_targets, (object_id, accepted))
-                return nothing
-            end
+        if !is_current
+            _with_execution_cohort_location(identity, schema, store, location, owner, application_id, object_id)
+            push!(removed_ids, object_id)
+            continue
+        end
+        previous_target = _with_execution_cohort_location(schema, store, location, owner, application_id, object_id) do admitted
+            return isnothing(admitted) ? nothing : _execution_cohort_target(admitted)
+        end
+        target = build_target(object_id, previous_target)
+        _with_execution_cohort_target(schema, target) do accepted
+            _check_execution_cohort_target(accepted, object_id)
+            accepted === previous_target || push!(staged_targets, (object_id, accepted))
             return nothing
         end
     end
@@ -351,6 +351,7 @@ function refresh_cohort_membership!(build_target::F, store::ExecutionCohortStore
     if isnothing(previous)
         for object_id in current_ids
             location = cohort_location(store, application_id, object_id; owner)
+            isnothing(location) && throw(ArgumentError("An admitted target is missing its execution cohort location."))
             _with_execution_cohort_location(schema, store, location, owner, application_id, object_id) do admitted
                 _insert_execution_membership_row!(
                     membership, length(membership.object_ids) + 1, object_id, admitted,

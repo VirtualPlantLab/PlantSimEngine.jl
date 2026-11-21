@@ -1,6 +1,7 @@
 module PSESceneDependencyControl
 
 import PlantSimEngine as PSE
+include("NestedCallControl.jl")
 
 const SCENE = PSE._with_object_id_domain(PSE.CompositeModel(
     PSE.Object(:scene; scale=:Scene, kind=:scene),
@@ -19,6 +20,9 @@ Base.@noinline function both_crowns(model, selector, matcher, context)
 end
 
 function (@main)(args)
+    if length(args) == 1 && only(args) == "nested"
+        return NestedCallControl.check(NestedCallControl.TARGETS) ? Cint(0) : Cint(3)
+    end
     context = isempty(args) ? PSE.ObjectId(:scene) : PSE.ObjectId(:crown_1)
     both_crowns(SCENE, CROWNS, MATCHER, context) || return Cint(1)
     ids = PSE._dependency_object_ids(SCENE, RELATIVE, RELATIVE_MATCHER, context)
