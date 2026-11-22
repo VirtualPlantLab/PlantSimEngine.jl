@@ -130,8 +130,9 @@ function _begin_call_evaluation!(frame, compiled, time, permission)
     frame.model_revision = compiled.model.revision
     frame.runtime_revision = compiled.model.runtime_revision
     frame.environment_revision = compiled.model.environment_revision
-    frame.lifecycle_delta = lifecycle_delta(compiled.model)
-    frame.lifecycle_generation = frame.lifecycle_delta.mutation_generation
+    delta = lifecycle_delta(compiled.model)
+    frame.lifecycle_delta = delta
+    frame.lifecycle_generation = delta.mutation_generation
     frame.binding_flags = (compiled.model.bindings_dirty, compiled.model.environment_bindings_dirty)
     frame.execution_generation = compiled.execution_generation
     frame.time = time
@@ -253,13 +254,18 @@ end
 @noinline _call_execution_matches(stamp::Base.RefValue{UInt64},
     executions::IdDict{Base.RefValue{UInt64},UInt64}) = stamp[] == executions[stamp]
 
+@inline _evaluation_compiled(frame::CallEvaluationFrame, targets) = frame.compiled
+
+@inline _evaluation_compiled(frame::CallEvaluationFrame, ::CallTargets{CS}) where {CS} =
+    frame.compiled::CS
+
 function _validate_call_evaluation(evaluation::CallEvaluation)
     frame = evaluation.frame
     frame.task_identity === _call_evaluation_task_identity!() ||
         throw(ArgumentError("Accept a call evaluation on its originating task."))
     frame.pending && frame.generation == evaluation.generation ||
         throw(ArgumentError("Call evaluation is stale or has already been accepted."))
-    _validate_call_model_state(frame, frame.compiled)
+    _validate_call_model_state(frame, _evaluation_compiled(frame, evaluation.targets))
     for stamp in keys(frame.executions)
         _call_execution_matches(stamp, frame.executions) ||
             throw(ArgumentError("Call evaluation is stale after another execution of its targets."))
