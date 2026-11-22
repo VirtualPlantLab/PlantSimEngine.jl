@@ -231,10 +231,21 @@ function sample(backend::AbstractEnvironmentBackend, handle, state, variable::Sy
     )
 end
 
+@inline _environment_row_hasproperty(row, variable::Symbol) = hasproperty(row, variable)
+
+@inline function _environment_row_hasproperty(row::PlantMeteo.TimeStepRow, variable::Symbol)
+    # The row's column tuple stores its symbols without fixing the arity.
+    names = propertynames(row)
+    for index in 1:nfields(names)
+        getfield(names, index) === variable && return true
+    end
+    return false
+end
+
 function sample(backend::GlobalConstant, handle, variable::Symbol, time)
     source = _environment_row_at_step(environment_source(backend), Int(round(time)))
     isnothing(source) && return nothing
-    hasproperty(source, variable) || error(
+    _environment_row_hasproperty(source, variable) || error(
         "GlobalConstant source does not provide variable `$(variable)`."
     )
     return getproperty(source, variable)
@@ -243,7 +254,7 @@ end
 function sample(backend::GlobalConstant, handle, state, variable::Symbol, time)
     source = _environment_row_at_step(state, Int(round(time)))
     isnothing(source) && return nothing
-    hasproperty(source, variable) || error(
+    _environment_row_hasproperty(source, variable) || error(
         "Transient GlobalConstant state does not provide variable `$(variable)`."
     )
     return getproperty(source, variable)
