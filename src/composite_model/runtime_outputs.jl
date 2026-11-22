@@ -1801,11 +1801,16 @@ end
 _compiled_application_by_id(compiled::CompiledCompositeModel, id::Symbol) =
     _compiled_application_by_id(identity, compiled, id)
 
-function _environment_binding_for(env_bindings::CompiledEnvironmentBindings, application_id::Symbol, object_id::ObjectId)
+@inline function _environment_binding_for(
+    f::F, env_bindings::CompiledEnvironmentBindings, application_id::Symbol, object_id::ObjectId,
+) where {F}
     binding = get(env_bindings.by_target, (application_id, object_id), nothing)::Union{Nothing,CompiledEnvironmentBinding}
-    isnothing(binding) && return nothing
-    return _with_environment_binding(identity, env_bindings.environment_schema, binding)
+    isnothing(binding) && return f(nothing)
+    return _with_environment_binding(f, env_bindings.environment_schema, binding)
 end
+
+_environment_binding_for(env_bindings::CompiledEnvironmentBindings, application_id::Symbol, object_id::ObjectId) =
+    _environment_binding_for(identity, env_bindings, application_id, object_id)
 
 function _model_object_status(model::CompositeModel, object_id::ObjectId)
     status = model_status(model, object_id)
@@ -6532,23 +6537,6 @@ function _selected_topology_call_targets(resolved_binding, cached_targets, conte
     )
 end
 
-function _environment_binding_for_current_context(context::RunContext)
-    binding = _environment_binding_for(
-        context.environment_bindings,
-        context.application.id,
-        context.object_id,
-    )
-    if isnothing(binding) || isnothing(binding.backend)
-        error(
-            "Cannot commit environment state for `$(context.application.id)` on object ",
-            "`$(_object_id_text(context.object_id))`: no environment binding is configured. ",
-            "Attach an environment with `CompositeModel(...; environment=...)` and ",
-            "`ModelSpec(model; environment=Environment(...))`."
-        )
-    end
-    return binding
-end
-
 function _validate_environment_commit(context::RunContext, state)
     declared = _model_environment_output_names(context.application)
     isempty(declared) && error(
@@ -6558,7 +6546,7 @@ function _validate_environment_commit(context::RunContext, state)
     missing = Symbol[variable for variable in declared if !hasproperty(state, variable)]
     isempty(missing) || error(
         "Environment state committed by application `$(context.application.id)` is missing ",
-        "declared `environment_outputs_` variable(s) `$(Tuple(missing))`.",
+        "declared `environment_outputs_` variable(s) `$(_diagnostic_symbol_list(missing; as_tuple=true))`.",
     )
     return nothing
 end
@@ -6576,21 +6564,27 @@ hard call. Trial environment states should instead be passed to
 """
 function commit_environment!(context::RunContext, state)
     context.publication_allowed || return nothing
-    binding = _environment_binding_for_current_context(context)
-    _validate_environment_commit(context, state)
-    frame = _active_call_evaluation()
-    if frame !== nothing
-        push!(frame.events, CapturedEnvironmentCommit(
-            binding.backend, binding.handle, deepcopy(state), context.time,
-        ))
-        return nothing
+    return _environment_binding_for(
+        context.environment_bindings, context.application.id, context.object_id,
+    ) do binding
+        if isnothing(binding) || isnothing(binding.backend)
+            error(
+                "Cannot commit environment state for `$(context.application.id)` on object ",
+                "`$(_object_id_text(context.object_id))`: no environment binding is configured. ",
+                "Attach an environment with `CompositeModel(...; environment=...)` and ",
+                "`ModelSpec(model; environment=Environment(...))`.",
+            )
+        end
+        _validate_environment_commit(context, state)
+        frame = _active_call_evaluation()
+        if frame !== nothing
+            push!(frame.events, CapturedEnvironmentCommit(
+                binding.backend, binding.handle, deepcopy(state), context.time,
+            ))
+            return nothing
+        end
+        return commit_environment!(binding.backend, binding.handle, state, context.time)
     end
-    return commit_environment!(
-        binding.backend,
-        binding.handle,
-        state,
-        context.time,
-    )
 end
 
 function commit_environment!(context, state)
