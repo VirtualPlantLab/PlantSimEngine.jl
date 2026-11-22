@@ -2269,12 +2269,17 @@ end
 
 # Select each admitted output by its slot so publication keeps concrete
 # types for wide heterogeneous tuples without constructing successive tails.
-@generated function _model_publish_runtime_outputs!(outputs::T, time::Real) where {T<:Tuple}
-    calls = [:(_model_publish_runtime_output!(getfield(outputs, $slot), time))
-        for slot in 1:fieldcount(T)]
+@generated function _foreach_runtime_output(visit::F, outputs::T) where {F,T<:Tuple}
+    calls = [:(visit(getfield(outputs, $slot))) for slot in 1:fieldcount(T)]
     return quote
         $(calls...)
         nothing
+    end
+end
+
+@inline function _model_publish_runtime_outputs!(outputs::Tuple, time::Real)
+    return _foreach_runtime_output(outputs) do output
+        _model_publish_runtime_output!(output, time)
     end
 end
 

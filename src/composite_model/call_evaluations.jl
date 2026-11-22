@@ -19,7 +19,7 @@ function _capture_call_output!(frame, output::RuntimeDistributedOutputStream, ti
 end
 
 function _publish_evaluated_call!(frame::CallEvaluationFrame, outputs, context)
-    for output in outputs
+    _foreach_runtime_output(outputs) do output
         _capture_call_output!(frame, output, context.time)
     end
     _record_evaluated_call_clock!(frame, context.output_retention, context.application.id, context.time)
