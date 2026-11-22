@@ -2191,8 +2191,8 @@ end
     end
     # A model may update an array or a nested mutable value in place on its next
     # execution. Published history must remain independent of that live state.
-    # `deepcopy` leaves scalar/isbits values unchanged.
-    push!(samples, (sample_time, copy_value ? deepcopy(value) : value))
+    # Use the same private copy as for temporal inputs.
+    push!(samples, (sample_time, copy_value ? _private_initial_value(value) : value))
     return samples
 end
 
