@@ -415,7 +415,7 @@ end
             "Application `$(context.application.id)` on object " *
             "`$(_object_id_text(context.object_id))` has no declared Many input " *
             "`$(input)`. Available identity-aware inputs: " *
-            "`$(propertynames(context.bound_inputs))`.",
+            "`$(_diagnostic_symbol_list(propertynames(context.bound_inputs); as_tuple=true))`.",
         ),
     )
     return getproperty(context.bound_inputs, input)
@@ -462,13 +462,14 @@ end
     throw(ArgumentError(
         "Application `$(context.application.id)` on object `$(_object_id_text(context.object_id))` " *
         "has no distributed output `$(name)`. Available variables: " *
-        "`$(propertynames(context.output_targets))`.",
+        "`$(_diagnostic_symbol_list(propertynames(context.output_targets); as_tuple=true))`.",
     ))
 end
 
 @noinline function _unaligned_distributed_output_targets(context, variables)
+    names = _diagnostic_symbol_list(variables; as_tuple=true)
     throw(ArgumentError(
-        "Distributed outputs `$(variables)` on application `$(context.application.id)` " *
+        "Distributed outputs `$(names)` on application `$(context.application.id)` " *
         "have different destination ObjectIds. Request separate output target views.",
     ))
 end
@@ -5780,7 +5781,10 @@ end
     return _missing_named_call(context, name, available)
 end
 
-function _diagnostic_symbol_list(names::Vector{Symbol}; as_tuple=false)
+function _diagnostic_symbol_list(
+    names::Union{Vector{Symbol},Tuple{Vararg{Symbol}}};
+    as_tuple=false,
+)
     isempty(names) && return as_tuple ? "()" : "Symbol[]"
     io = IOBuffer()
     print(io, as_tuple ? '(' : '[')
