@@ -40,6 +40,7 @@ function _input_default(declaration::Default)
 end
 
 _private_initial_value(value) = deepcopy(value)
+_private_initial_value(value::BitArray) = copy(value)
 
 function _private_initial_value(value::Array{T}) where {T}
     # Bits values and interned symbols keep their identities under deepcopy.
