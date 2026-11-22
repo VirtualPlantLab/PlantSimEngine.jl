@@ -1,7 +1,8 @@
 abstract type AbstractCallPublicationEvent end
 
-struct CapturedCallOutput{O,S,V} <: AbstractCallPublicationEvent
-    output::O
+struct CapturedCallOutput{S,V} <: AbstractCallPublicationEvent
+    variable::Symbol
+    dependency_horizon::Float64
     stream::S
     value::V
     time::Float64

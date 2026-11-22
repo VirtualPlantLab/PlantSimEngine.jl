@@ -6,14 +6,19 @@ end
 
 function _capture_call_output!(frame, output::RuntimeOutputStream, time)
     value = deepcopy(output.reference[])
-    push!(frame.events, CapturedCallOutput(output, output.stream, value, time))
+    push!(frame.events, CapturedCallOutput(
+        _runtime_output_variable(output), output.dependency_horizon, output.stream, value, time,
+    ))
     return nothing
 end
 
 function _capture_call_output!(frame, output::RuntimeDistributedOutputStream, time)
+    variable = _runtime_output_variable(output)
     for index in eachindex(output.references, output.streams)
         value = deepcopy(output.references[index])
-        push!(frame.events, CapturedCallOutput(output, output.streams[index], value, time))
+        push!(frame.events, CapturedCallOutput(
+            variable, output.dependency_horizon, output.streams[index], value, time,
+        ))
     end
     return nothing
 end
@@ -34,8 +39,10 @@ function _evaluated_temporal_source(frame::CallEvaluationFrame, stream::S) where
             # Build a private read view only when a staged publication affects
             # this input. Ancestor views are already private and can be reused.
             source === stream && (source = collect(stream))
-            _model_publish_runtime_output_value!(event.output, source, event.value,
-                event.time; copy_value=false)
+            _model_publish_runtime_output_value!(
+                event.variable, event.dependency_horizon, source, event.value, event.time;
+                copy_value=false,
+            )
         end
     end
     return source::Union{S,Vector{eltype(S)}}
@@ -280,8 +287,10 @@ function _validate_call_evaluation(evaluation::CallEvaluation)
 end
 
 function _accept_call_event!(event::CapturedCallOutput)
-    _model_publish_runtime_output_value!(event.output, event.stream, event.value, event.time;
-        copy_value=false)
+    _model_publish_runtime_output_value!(
+        event.variable, event.dependency_horizon, event.stream, event.value, event.time;
+        copy_value=false,
+    )
     return nothing
 end
 

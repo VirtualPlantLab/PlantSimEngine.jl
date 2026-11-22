@@ -2214,7 +2214,8 @@ end
 end
 
 @inline function _model_publish_runtime_output_value!(
-    output,
+    variable::Symbol,
+    dependency_horizon::Float64,
     stream,
     value,
     time::Real,
@@ -2222,7 +2223,7 @@ end
 )
     expected_type = fieldtype(eltype(stream), 2)
     value isa expected_type || error(
-        "Output `$(_runtime_output_variable(output))` changed value type from ",
+        "Output `$(variable)` changed value type from ",
         "`$(expected_type)` to `$(typeof(value))`. CompositeModel temporal ",
         "streams require a stable output type.",
     )
@@ -2233,7 +2234,7 @@ end
         value,
         ; copy_value=copy_value,
     )
-    _model_prune_dependency_samples!(stream, sample_time, output.dependency_horizon)
+    _model_prune_dependency_samples!(stream, sample_time, dependency_horizon)
     return nothing
 end
 
@@ -2242,7 +2243,8 @@ end
     time::Real,
 )
     _model_publish_runtime_output_value!(
-        output,
+        _runtime_output_variable(output),
+        output.dependency_horizon,
         output.stream,
         output.reference[],
         time,
@@ -2256,9 +2258,11 @@ end
 )
     references = output.references
     streams = output.streams
+    variable = _runtime_output_variable(output)
     @inbounds for index in eachindex(references)
         _model_publish_runtime_output_value!(
-            output,
+            variable,
+            output.dependency_horizon,
             streams[index],
             references[index],
             time,
