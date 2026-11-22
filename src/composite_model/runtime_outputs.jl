@@ -2261,15 +2261,15 @@ end
     return nothing
 end
 
-@inline _model_publish_runtime_outputs!(::Tuple{}, time::Real) = nothing
-
-@inline function _model_publish_runtime_outputs!(
-    outputs::Tuple,
-    time::Real,
-)
-    _model_publish_runtime_output!(first(outputs), time)
-    _model_publish_runtime_outputs!(Base.tail(outputs), time)
-    return nothing
+# Select each admitted output by its slot so publication keeps concrete
+# types for wide heterogeneous tuples without constructing successive tails.
+@generated function _model_publish_runtime_outputs!(outputs::T, time::Real) where {T<:Tuple}
+    calls = [:(_model_publish_runtime_output!(getfield(outputs, $slot), time))
+        for slot in 1:fieldcount(T)]
+    return quote
+        $(calls...)
+        nothing
+    end
 end
 
 function _model_latest_sample(samples, time::Real)
