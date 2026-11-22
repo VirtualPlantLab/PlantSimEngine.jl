@@ -242,7 +242,7 @@ end
     return false
 end
 
-function sample(backend::GlobalConstant, handle, variable::Symbol, time)
+@inline Base.@constprop :aggressive function sample(backend::GlobalConstant, handle, variable::Symbol, time)
     source = _environment_row_at_step(environment_source(backend), Int(round(time)))
     isnothing(source) && return nothing
     _environment_row_hasproperty(source, variable) || error(
@@ -251,7 +251,7 @@ function sample(backend::GlobalConstant, handle, variable::Symbol, time)
     return getproperty(source, variable)
 end
 
-function sample(backend::GlobalConstant, handle, state, variable::Symbol, time)
+@inline Base.@constprop :aggressive function sample(backend::GlobalConstant, handle, state, variable::Symbol, time)
     source = _environment_row_at_step(state, Int(round(time)))
     isnothing(source) && return nothing
     _environment_row_hasproperty(source, variable) || error(

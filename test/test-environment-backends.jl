@@ -39,3 +39,22 @@ using Dates
         1.0,
     )
 end
+
+@testset "GlobalConstant infers duration from heterogeneous time-step rows" begin
+    sample_duration(backend, time) = sample(backend, nothing, :duration, time)
+    sample_duration(backend, state, time) = sample(backend, nothing, state, :duration, time)
+
+    row = (
+        date=DateTime(2026, 1, 1),
+        duration=3600.0,
+        air_temperature=20.0,
+        raining=false,
+        observation_index=1,
+        source_temperature=22.0,
+    )
+    backend = GlobalConstant(TimeStepTable([row]))
+    trial = TimeStepTable([merge(row, (duration=1800.0,))])
+
+    @test (@inferred sample_duration(backend, 1.0)) === 3600.0
+    @test (@inferred sample_duration(backend, trial, 1.0)) === 1800.0
+end
