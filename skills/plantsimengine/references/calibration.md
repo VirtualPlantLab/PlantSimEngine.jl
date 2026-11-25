@@ -90,6 +90,17 @@ proposed design and the unresolved decisions that affect it.
    needed. If several effects remain interchangeable, estimate a defensible
    combination, fix some parameters, or report the compatible range.
 
+Check biological constraints across parameters as well as individual bounds.
+For example, if leaf expansion starts and ends on the same thermal-time
+scale, fitting an onset and a positive duration preserves their order.
+
+Define what would justify freeing each additional candidate. For example,
+first fit a water-stress threshold with a justified fixed slope. Then free
+the slope and compare both fits on identical training observations. Inspect
+whether intermediate deficits distinguish threshold from slope. Retain the
+extra parameter when the contrast and improvement support it. An information
+criterion is an option for comparable likelihoods on the same data.
+
 Freeze the planned blocks or joint fit, the observation masks, candidates,
 objective and scoring weights, and the criteria for revisiting earlier
 decisions. Use an error model where supported, or an explicit scale for each
@@ -99,6 +110,33 @@ When a total and its components carry the same information, designate a
 primary objective and use the other quantities as diagnostics unless a joint
 error model accounts for the dependence. Declare how failed runs and missing
 predictions affect comparison on the fixed support.
+
+## Select training situations for each calibration block
+
+For each block, record the parameter, the process and stage where it acts,
+the observable, and the sites, plots, treatments or dates eligible for
+scoring. Give the evidence for eligibility and counts of independent units.
+Choose these subsets within the training split before comparing fits. A site
+can contribute to different blocks in different periods. Run the preceding
+trajectory when its water balance, reserves or developmental state carries
+into the scoring window.
+
+| Parameter block | Informative training contrast |
+| --- | --- |
+| Potential growth or expansion | Select sites or periods with evidence of adequate resources during the relevant stage, such as measured water status and adequate nitrogen. The highest observed yield alone cannot establish potential. If all situations are limited, use independent information or report the range compatible with the observed stress. |
+| Water-stress response | Compare water-limited plots or periods against comparable well-watered ones spanning the response, with adequate nitrogen or measured differences that can be accounted for. Use the timing and intensity of water deficit during the sensitive stage. |
+| Nitrogen-stress response | Use a nitrogen supply or plant nitrogen status gradient with comparable water availability. Where both stresses vary together, seek a factorial contrast or report which combined effect the data constrain. |
+
+For competing mechanisms, spell out an observable on which their predictions
+would differ and check its availability. For example, fruit number and mean
+fruit mass per bunch can help distinguish two explanations for the same
+harvest mass. With total mass alone, limit the inference to what it constrains.
+
+Match each scored observation to the period when its contributing cohort was
+exposed to the fitted process. An early harvest may come from organs already
+past the sensitive stage at initialization. Use cohort or event records to
+decide whether to start earlier, reconstruct initial cohorts, or score early
+harvests separately. Document uncertainty when the exposure cannot be dated.
 
 ## Choose optional forcing and a fitting sequence
 
@@ -115,18 +153,95 @@ predictions affect comparison on the fixed support.
   retrospective forcing uses observations unavailable at prediction time,
   label the comparison as conditional and keep it separate from prospective
   evaluation.
-- Where forcing is infeasible or irrelevant, fit the coupled model directly to
-  aligned outputs. Start with the best-constrained processes or a small joint
-  fit when feedback and the data warrant it. If using staged fitting, rerun the
-  coupled reference after important blocks. Reopen earlier parameters when a
-  measured output has degraded beyond a meaningful tolerance and the proposed
-  change is supported by data. Recheck the affected outputs before accepting a
-  revision. Document any changes to the plan and keep evaluation data reserved.
+- Choose how to fill gaps from the variable, measurement protocol and
+  intended use. For example, when LAI is measured weekly on the same plot
+  and changes smoothly, propose linear interpolation between successive valid
+  measurements to supply daily LAI directly to consumers. The LAI process
+  can be omitted in this composition. Check for harvest, pruning or other
+  abrupt changes before bridging an interval. Agree on the longest credible
+  gap and how to handle dates outside the measured range. Mark interpolated
+  inputs as such and score predictions against actual measurements. Using
+  the next measurement makes this a retrospective reconstruction.
+- If the choice is unclear after inspecting the dates, values and metadata,
+  ask the user a concrete question grounded in the data. For example:
+  “Most LAI measurements are a week apart, but this plot has a three-week
+  gap. Was there a cut during that period? Is interpolation defensible there,
+  or should the model supply LAI across that gap?” Use the answer to record
+  a policy by variable and, when necessary, by interval.
+- When simulated fallback is appropriate, keep the process running at every step.
+  Compute its prediction, then let one correction model publish the value used
+  by consumers: use a valid observation for that object and time when available,
+  otherwise use the current prediction. A measured zero is a valid value.
+  Keep the raw prediction and record which source was used. For a dynamic
+  state, specify whether the correction updates the state for the next step
+  or only the input seen by a consumer. Reconcile linked stocks or increments
+  if a state correction affects their balance. Trace a gap, a correction and
+  the step after it. Score the pre-correction prediction when assessing the
+  corrected variable itself.
 - For alternative formulations, estimate each model's free parameters under
   comparable data, objectives, constraints and tuning budgets. Freeze the
   resulting models before comparing their predictive performance. A comparison
   at one common parameter vector answers a separate sensitivity question
   about the effect of changing the formulation at that setting.
+
+### Order the blocks and revisit them
+
+Read the simulation schedule and bindings, including dependencies carried
+between steps. Use that order to propose calibration blocks. For each block,
+name the process, the first parameter to vary, the observation that constrains
+it, and the parameters held fixed. Start with an upstream effect that the
+training data can distinguish. Group strongly coupled parameters when the
+observations can constrain them jointly.
+
+For example, if developmental stage governs leaf expansion, first fit a
+thermal-time requirement to observed stage dates with base temperature fixed
+from independent evidence. Then hold that requirement fixed and fit a leaf
+expansion parameter to repeated leaf-area measurements. Release any stage
+forcing and rerun the coupled trajectory after the second block. If canopy
+development feeds back through water stress to development rate, compare
+stage-date residuals again and revisit the thermal-time parameter with the
+updated canopy parameters. With a one-way dependency, verify that stage dates
+are unchanged and carry the upstream fit forward.
+
+When several upstream variables are forced, release each one separately from
+the same forced reference, then release them together. Keep parameters, units
+of observation, scoring dates, initial conditions and random seeds fixed.
+Compare both the released trajectory and the downstream response. A loss
+after releasing phenology directs the next check to stage timing and its
+consumers. A loss only after releasing both phenology and leaf area warrants
+checking their interaction before choosing which block to revisit.
+
+After each pass, inspect all affected training targets on the same support.
+Alongside each block's own fitting subset, rerun the coupled model on a fixed
+training panel. Keep a table by fitting step, variable and relevant treatment
+with bias, RMSE in measurement units and matched count. Keep observation
+identities fixed within each comparison and flag missing predictions. If leaf
+area improves while stage dates drift on dry plots, inspect those trajectories
+and the water-stress feedback before reopening phenology.
+Repeat the affected blocks or refine them jointly while changes exceed the
+declared tolerances for scores and parameter movement. If blocks trade errors
+or oscillate, check identifiability and report the tradeoff. Use the reserved
+evaluation set once the coupled configuration is frozen.
+
+### Prepare repeated evaluations before fitting
+
+List the fixed compositions needed by the campaign, for example a downstream
+fit with observation correction and a free coupled model for refinement.
+For an admitted composition, prepare and build its JuliaC application before
+the optimizer loop. See the checkout's
+[compiled scenario guide](../../../docs/src/guides/compile_scenario.md) for
+the qualified entry point and supported features. In this checkout the
+documented path captures model parameters and environment rows at build time.
+Time-varying observations and changing candidate parameters therefore require
+a separately verified runtime input path before a bundle can serve that fit.
+
+For every proposed bundle, try two distinct candidates and two driver series
+through the same executable, including a missing observation if applicable.
+Compare the resulting trajectories and objective against ordinary Julia runs
+from the same initial state. If the composition or inputs exceed compiler
+support, keep the ordinary Julia process warm across trials and reset each
+trajectory. Measure build time, first evaluation in a fresh process, and
+subsequent time per evaluation separately, with the same scoring and outputs.
 
 ## Run, check and report
 
@@ -157,6 +272,14 @@ inference framework.
   by trajectory and compare timing at equivalent output retention. Compile or
   parallelize when the workload merits it and check that the execution path
   reproduces the scientific outputs needed by the objective.
+- For a local search, compare starting and fitted values, final scores and
+  stopping reasons across dispersed feasible starts. When scores are similar
+  despite different parameters, compare trajectories under conditions that
+  distinguish the mechanisms, such as intermediate water deficits. Report
+  which predictions are stable and where another measurement could separate
+  the fits. When final scores differ materially, check simulation failures,
+  budget limits and sensitivity to initialization before interpreting the
+  best fit biologically.
 - For a long calibration, publish checkpoints at useful decisions. Include
   initial and current predictions on the training support, fitted and fixed
   values and residuals by the relevant groups and periods. Show individual
@@ -175,6 +298,10 @@ inference framework.
   supported. Synthetic recovery can check the fitting implementation.
 
 ## References for protocol choices
+
+- CroptimizR illustrates [multi-start diagnostics](https://sticsrpacks.github.io/CroptimizR/articles/Parameter_estimation_simple_case.html),
+  [candidate selection](https://sticsrpacks.github.io/CroptimizR/reference/estim_param.html)
+  and [stepwise error diagnostics](https://sticsrpacks.github.io/CroptimizR/reference/plot_stats_evolution.html).
 
 - Wallach et al. (2024) give a staged soil–crop calibration protocol with
   documented observation groups and major and candidate parameters. Their
