@@ -40,7 +40,9 @@ requirement. If execution is unavailable, report source checks as source checks.
   [scenario-coupling.md](references/scenario-coupling.md).
 - Debugging, model compatibility, or compiled/runtime explanations:
   [diagnostics.md](references/diagnostics.md).
-- Observation forcing, parameter fitting, or empirical evaluation:
+- Designing or running a parameter calibration, including when the protocol is
+  unspecified: [calibration.md](references/calibration.md).
+- Observation alignment, forcing implementation, or empirical evaluation:
   [data-calibration-evaluation.md](references/data-calibration-evaluation.md).
 - Topology, MTG growth, initializers, or distributed outputs:
   [dynamic-models.md](references/dynamic-models.md).

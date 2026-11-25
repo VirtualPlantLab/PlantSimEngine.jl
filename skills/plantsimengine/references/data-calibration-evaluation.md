@@ -56,38 +56,9 @@ model and comparing that copied target to itself is not predictive validation.
 
 ## Calibrate parameters
 
-PlantSimEngine provides `Evaluation.fit` as an extension point. Model packages
-implement fitting methods; it is not a generic optimizer for arbitrary
-`CompositeModel`s. The documented example is
-`PlantSimEngine.Evaluation.fit(Beer, data)`, returning named parameter values
-such as `(k=k,)`. See `docs/src/working_with_data/fitting.md` under the verified
-package root.
-
-For a model without a fitting method, use an appropriate optimizer or inference
-framework around a reproducible simulation/objective. Choose it according to
-the formulation and task rather than assuming the package supplies a fitting,
-likelihood, assimilation, or uncertainty API. Distinguish estimated parameters
-from fixed values, imposed inputs, and initial conditions; changing the model
-structure is a separate scientific choice.
-
-Make the fitting scope explicit: dataset split, estimated parameters and their
-units/bounds, objective or likelihood, weighting, observation alignment, and
-failure handling. Bounds need a scientific or documented numerical basis.
-Check sensitivity or identifiability when the data may not constrain the
-requested parameters. A returned optimum alone does not establish uniqueness
-or parameter uncertainty.
-
-Each objective evaluation must start from the intended initial state. Use a
-fresh scenario or verified reset; `continue!` advances an existing simulation
-and would carry state between trials. Keep stochastic seeds and replicate
-policy reproducible where used. Apply fitted values by constructing the model
-with those values and verify the resulting simulation, not only the optimizer
-return value.
-
-Report the data/objective/configuration, fitted values, convergence and
-boundary diagnostics, and calibration residuals or plots. Recovering a known
-parameter from synthetic data is a useful implementation check, not evidence
-that the model is calibrated for a real population or environment.
+Use [calibration.md](calibration.md) to map processes to observations, design a
+protocol for the available evidence, and fit and check parameters. Open the
+forcing section above when the protocol calls for measured upstream inputs.
 
 ## Evaluate predictions
 
