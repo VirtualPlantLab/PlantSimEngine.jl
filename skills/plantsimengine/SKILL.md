@@ -78,7 +78,7 @@ requirement. If execution is unavailable, report source checks as source checks.
 | Coupling change | Intended source/destination identities, compatible contracts or tested adapters, and behavior of the changed bindings. |
 | Debugging | A reproducible failure or bounded diagnosis, evidence for its cause, and a focused check of the correction. |
 | Observation forcing | Identified measured inputs, ownership and sampling policy, and evidence that intended observations reach consumers. |
-| Calibration | Reproducible fitting data/objective/parameter choices, fitted values, diagnostics, and the declared limits of the fit. |
+| Calibration | For an executed fit, generate predictions with the target model in PlantSimEngine.jl during fitting and validation. Report reproducible fitting data/objective/parameter choices, fitted values, diagnostics, and the declared limits of the fit. |
 | Empirical evaluation | Frozen configuration, independent evaluation data where claimed, explicit prediction/observation alignment, and appropriate metrics and plots. |
 
 Exercise numeric types, time policies, hard calls, lifecycle, or output

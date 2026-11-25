@@ -6,6 +6,13 @@ evidence. For a well-posed fit with an agreed split and a small parameter set,
 verify those choices and proceed. When the scope is open, use the audit to
 decide what can be estimated before launching a search.
 
+For an executed calibration, use the target PlantSimEngine.jl model in Julia
+to generate predictions for the objective and validation. Reuse the study's
+scenario when available. If only equations are supplied, implement the minimal
+PlantSimEngine scenario that represents them and check a reference case before
+fitting. A hand calculation or independent script can check that case. If the
+engine cannot run, report the blocker and which steps were completed.
+
 ## Map processes to observations
 
 - Define the prediction of interest and its scale, time horizon and domain of
@@ -138,6 +145,11 @@ inference framework.
   differences approach simulation noise. Identify the stochastic processes
   still active under forcing. Treat simulated replicates and biological
   replicates as different sources of variation.
+- Trace one training observation through a trial: verify the candidate value
+  reached the intended model instance, inspect its simulated output, then
+  reproduce the observation match and its contribution to the objective.
+  For threshold events, define how a simulated event date is extracted and
+  how a missed event is scored before comparing candidates.
 - Check the baseline, a small search and a reproducible rerun of the selected
   parameters before scaling up. Choose a search consistent with the parameter
   dimension and response shape. Record seeds, starts, failures, convergence,
@@ -154,6 +166,10 @@ inference framework.
   objective, run configuration, fitted values and diagnostic results in a
   reproducible form. Evaluate the frozen model on the intended prediction
   task following [empirical evaluation](data-calibration-evaluation.md#evaluate-predictions).
+  Compare fitted and reference predictions on the same held-out units with
+  the same scoring rules. Report deterioration for individual targets even
+  when the aggregate improves. If that comparison prompts retuning, record
+  those units as development data for the revised model.
   Identify which results are calibration fit, conditional prediction or
   independent evaluation. State which parameters or domains remain weakly
   supported. Synthetic recovery can check the fitting implementation.
