@@ -38,4 +38,25 @@ function details(title, relative_path, from, to=nothing)
     )
 end
 
+"""Embed the setup prompt for one-click and offline copying on either docs page."""
+function connect_agent()
+    prompt = chomp(read(joinpath(@__DIR__, "src", "assets", "connect-agent.txt"), String))
+    return DOM.div(
+        DOM.button(
+            DOM.img(; src="assets/agent-icons/agents.svg", alt="", width="52", height="16"),
+            DOM.span("Connect your agent"; class="pse-connect-label"),
+            DOM.span(; class="pse-connect-icon");
+            type="button", class="pse-connect-agent", hidden=true,
+            title="Copy the setup prompt to paste into your coding agent",
+        ),
+        DOM.span(; role="status", class="pse-connect-status"),
+        DOM.details(
+            DOM.summary("Show setup prompt"),
+            DOM.pre(prompt; tabindex="0", ariaLabel="Setup prompt");
+            class="pse-connect-manual",
+        );
+        class="pse-connect",
+    )
+end
+
 end
