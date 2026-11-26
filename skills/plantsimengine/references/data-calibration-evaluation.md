@@ -24,6 +24,16 @@ and their scientific interpretation can be checked.
 
 ## Force observations into a scenario
 
+Match the forcing to the unit measured. For a plant's stage changes or an
+organ's biomass, simulate the trajectory of each observed individual and
+join its records by plant, organ where relevant, and time. Trace two plants
+with different observations to check that each consumer sees its own series.
+When plants interact in one scene, keep them in that scene with distinct
+states and forcing histories. Shared plot weather or a measured plot-level
+LAI can drive a process defined at that scale. If identities were lost or
+sampling was destructive, use the observations at their supported scale
+unless the protocol justifies a longitudinal match.
+
 For a fixed measured input, supply status and omit the model that would
 predict/write that variable. An initial status value alone does not keep it
 fixed when a scheduled producer overwrites it.
@@ -78,7 +88,12 @@ measured/imposed, estimated, and predicted. State whether results test a
 component with measured inputs, a coupled system, or transfer to a new scope.
 
 Use explicit output retention and align collected predictions with
-observations by identity and time/support. Summarize errors in relevant units
+observations by identity and time/support. Compare at the finest scale
+supported by both records, such as an identified organ, plant or plot on a
+given date. Where a broader scale matters, also compare matched summaries
+using the measurement protocol's aggregation and weights. Opposite errors
+on two plants can cancel in the plot mean. If only a plot mean was measured,
+compare at plot scale. Summarize errors in relevant units
 and include sample counts, exclusions, residual structure, and useful plots.
 Bias and RMSE/MAE often describe different failures; choose metrics for the
 scientific question and avoid percentage metrics near zero without a clear
