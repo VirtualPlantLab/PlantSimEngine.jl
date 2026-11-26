@@ -4618,18 +4618,21 @@ end
 
 # The ordinary open representation can learn a new group schema. A closed
 # tuple must enter the worker with an already admitted application witness.
-function _with_matching_previous_execution_group(f, group, application::A,
-    ::Tuple,
-) where {A<:CompiledModelApplication}
-    group isa CompiledApplicationExecutionGroup{A} || return nothing
-    group.application.id === application.id || return nothing
-    group.application.slot == application.slot || return nothing
-    return f(group)::NTuple{3,Int}
+function _with_matching_previous_execution_group(f::F, slots::Tuple, slot, application::A,
+) where {F,A<:CompiledModelApplication}
+    return _with_metadata_entry(slots, slot) do group
+        group isa CompiledApplicationExecutionGroup{A} || return nothing
+        group.application.id === application.id || return nothing
+        group.application.slot == application.slot || return nothing
+        return f(group)::NTuple{3,Int}
+    end
 end
 
-function _with_matching_previous_execution_group(f, group, application,
-    ::AbstractVector,
-)
+function _with_matching_previous_execution_group(f::F, slots::AbstractVector, slot, application,
+) where {F}
+    # An open slot can contain any group's type. Check the ID before
+    # dispatching the application-specific refresh to that group.
+    group = slots[slot]
     isnothing(group) && return nothing
     group.application.id === application.id || return nothing
     return f(group)::NTuple{3,Int}
@@ -4656,9 +4659,7 @@ function _with_previous_execution_group(f::F, slots, application::CompiledModelA
         slot = iszero(candidate) ? preferred_slot : candidate
         (slot < 1 || slot > length(slots) ||
          (!iszero(candidate) && slot == preferred_slot)) && continue
-        counts = _with_metadata_entry(slots, slot) do group
-            _with_matching_previous_execution_group(f, group, application, slots)
-        end
+        counts = _with_matching_previous_execution_group(f, slots, slot, application)
         if !isnothing(counts)
             visited[slot] = true
             return counts
