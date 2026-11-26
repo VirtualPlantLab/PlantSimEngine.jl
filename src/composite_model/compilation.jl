@@ -8257,6 +8257,36 @@ _input_value(carrier::Ref) = carrier[]
 _input_value(carrier::RefVector) = carrier
 _input_value(carrier::ObjectRefVector) = carrier
 
+# All partial applications share their plan and its output ports with the
+# catalog entry. Read the planned writer once, before inspecting live membership.
+_input_writer_targets(application, variable) =
+    (application.target_ids, variable in _model_output_names(application))
+
+_input_member_has_id(application, id) = application.id === id
+
+function _planned_input_writer_matches(
+    applications_by_object, applications_by_id, source_ids, source_var, application_id,
+    distributed_outputs,
+)
+    target_ids, writes_local = _with_metadata_entry(
+        _input_writer_targets, applications_by_id, application_id, source_var,
+    )
+    for source_id in source_ids
+        writes_local && first(_sorted_object_id_position(target_ids, source_id)) && return true
+        _is_distributed_input_writer(distributed_outputs, application_id, source_id, source_var) &&
+            return true
+        writes_local || continue
+        # A targeted initializer can see a partial application before its
+        # newborn appears in the published target vector.
+        for member in get(applications_by_object, source_id, ())
+            matched = Base.@inline _with_model_application(_input_member_has_id,
+                applications_by_id, member::CompiledModelApplication, application_id)
+            matched && return true
+        end
+    end
+    return false
+end
+
 function _matching_input_source_applications(
     applications_by_object,
     source_ids,
@@ -8275,29 +8305,8 @@ function _matching_input_source_applications(
                             haskey(applications_by_id, potential_application_id)
     matches = if use_planned_singleton
         application_id = potential_application_id
-        matched = _with_metadata_entry(applications_by_id, application_id) do application
-            for source_id in source_ids
-                _application_writes_object_variable(
-                    distributed_outputs,
-                    application,
-                    source_id,
-                    source_var,
-                ) && return true
-                # Targeted newborn initializers use a partial application
-                # overlay until the lifecycle barrier extends the application.
-                for raw_candidate in get(applications_by_object, source_id, ())
-                    candidate_matches = Base.@inline _with_model_application(
-                        applications_by_id, raw_candidate::CompiledModelApplication,
-                        application_id, source_var,
-                    ) do candidate, id, variable
-                        candidate.id == id || return false
-                        return variable in _model_output_names(candidate)
-                    end
-                    candidate_matches && return true
-                end
-            end
-            return false
-        end
+        matched = _planned_input_writer_matches(applications_by_object, applications_by_id,
+            source_ids, source_var, application_id, distributed_outputs)
         matched ? Symbol[application_id] : Symbol[]
     else
         resolved = Symbol[]
@@ -8406,8 +8415,15 @@ function _application_writes_object_variable(
         ),
     ) &&
         variable in _model_output_names(application) && return true
+    return _is_distributed_input_writer(distributed_outputs, application.id, object_id, variable)
+end
+
+_is_distributed_input_writer(::NoCompiledDistributedOutputs, application_id, object_id, variable) = false
+
+function _is_distributed_input_writer(distributed_outputs::CompiledDistributedOutputs,
+    application_id, object_id, variable)
     return any(
-        owner -> owner.application_id == application.id,
+        owner -> owner.application_id == application_id,
         get(distributed_outputs.writer_ownership, (object_id, variable), ()),
     )
 end
