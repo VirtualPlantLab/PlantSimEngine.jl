@@ -1,5 +1,14 @@
 # AI agent skill
 
+Copy the setup prompt and paste it into a coding agent with access to your
+project, such as Codex or Claude Code. It will install PlantSimEngine, find the
+matching skill, and run the packaged examples. In a chat without local tools,
+you’ll get instructions to run yourself.
+
+```@example
+Main.DocsSources.connect_agent() # hide
+```
+
 An **AI coding agent** can read and edit code and run tests with the tools you
 make available. The examples on this page assume a recent frontier coding or
 reasoning model with access to your project, source documents, data, and Julia
