@@ -174,8 +174,7 @@ end
 _prepared_status_field_type(values) = foldl((T, value) -> Union{T,typeof(value)},
     values; init=Union{})
 
-function _prepared_status_applications(model, recipes, program)
-    inputs = [plan for plan in program.input_records if plan isa CompiledModelInputPlan]
+function _prepared_status_applications(model, recipes, inputs)
     M = _prepared_status_field_type(application.target_matcher for application in recipes)
     O = _prepared_status_field_type(_prepared_status_object_slots(application) for application in recipes)
     R = PreparedStatusSource{_prepared_status_field_type(plan.matcher for plan in inputs if
@@ -382,12 +381,12 @@ function _add_supplied_status_fields!(names, refs, raw)
     return nothing
 end
 
-function _prepare_status_manifest(model, authored, program, raw_basis, declarations)
+function _prepare_status_manifest(model, authored, program, input_plans, raw_basis, declarations)
     # Host traversal uses scalar records; freeze exact owner tuples only once
     # the namespace and all RAW permissions have been prepared.
     recipes = _graph_record_vector(AuthoredApplicationRecipe,
         (item for item in authored if item isa AuthoredApplicationRecipe))
-    applications, permissions = _prepared_status_applications(model, recipes, program)
+    applications, permissions = _prepared_status_applications(model, recipes, input_plans)
     outputs = _authored_distributed_output_plans(
         _graph_record_vector(AuthoredApplicationRecipe, recipes), program.output_records)
     destinations = _prepared_status_destinations(outputs isa NoCompiledDistributedOutputPlans ? () : outputs.plans)

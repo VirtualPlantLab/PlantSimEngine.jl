@@ -2081,6 +2081,36 @@ function _initialize_changed_model_output_application_streams!(
     return nothing
 end
 
+function _with_output_stream_application(f::F, applications::CompiledMetadataTable,
+    ::Nothing, id::Symbol,
+) where {F}
+    return _compiled_application_by_id(applications, id) do application
+        f(application, ())
+    end
+end
+
+# Both tables are keyed by application ID. Selecting the two fields in the
+# same branch keeps unrelated producers and destination plans out of inference.
+@generated function _with_output_stream_application(f::F, applications::CompiledMetadataTable{A},
+    plans::CompiledDistributedOutputPlans, id::Symbol,
+) where {F,A}
+    branches = Expr[]
+    for name in fieldnames(A)
+        key = QuoteNode(name)
+        push!(branches, quote
+            if id === $key
+                application = getfield(getfield(applications, :entries), $key)
+                application_plans = getfield(getfield(plans, :by_application), $key)
+                return f(application, application_plans)
+            end
+        end)
+    end
+    return quote
+        $(branches...)
+        error(string("No compiled model application with id `", String(id), "`."))
+    end
+end
+
 function _initialize_changed_model_output_streams!(
     streams,
     compiled::CompiledCompositeModel,
@@ -2096,7 +2126,11 @@ function _initialize_changed_model_output_streams!(
             (),
         )
         isempty(variables) && continue
-        _compiled_application_by_id(compiled, application_id) do application
+        plans = compiled.distributed_outputs isa CompiledDistributedOutputs ?
+            compiled.scenario_plan.distributed_output_plans::CompiledDistributedOutputPlans : nothing
+        _with_output_stream_application(
+            compiled.applications_by_id, plans, application_id,
+        ) do application, application_plans
             model_outputs = _model_output_names(application)
             if haskey(compiled.status_views_by_target, (application_id, object_id))
                 for variable in variables
@@ -2112,11 +2146,9 @@ function _initialize_changed_model_output_streams!(
                     )
                 end
             end
-            compiled.distributed_outputs isa CompiledDistributedOutputs || return nothing
-            plans = compiled.scenario_plan.distributed_output_plans::CompiledDistributedOutputPlans
-            _with_metadata_entry(
-                _initialize_changed_model_output_application_streams!,
-                plans.by_application, application_id, object_id, streams, compiled,
+            isempty(application_plans) && return nothing
+            _initialize_changed_model_output_application_streams!(
+                application_plans, object_id, streams, compiled,
                 retention, application, variables, sizehint_steps,
             )
         end
@@ -4914,31 +4946,19 @@ function _model_output_retention_covers_binding(
     end
 end
 
-_model_output_retention_covers_inputs(::Tuple{}, plan, compiled) = true
-
-function _model_output_retention_covers_inputs(inputs::Tuple, plan, compiled)
-    _model_output_retention_covers_binding(plan, compiled, first(inputs).binding) ||
-        return false
-    return _model_output_retention_covers_inputs(Base.tail(inputs), plan, compiled)
-end
-
-function _model_output_retention_covers_view(view, plan, compiled)
-    return _model_output_retention_covers_inputs(view.temporal_inputs, plan, compiled)
-end
-
 function _model_output_retention_covers_addition(
     plan::OutputRetentionPlan,
     compiled::CompiledCompositeModel,
 )
     for (application_id, object_id) in compiled.changed_execution_target_ids
         id = _index_object_id(compiled.model.registry.objects, object_id)
-        view = get(compiled.status_views_by_target, (application_id, id), nothing)
-        isnothing(view) && continue
-        covers = Base.@inline _with_model_status_view(
-            _model_output_retention_covers_view, compiled.status_view_schema,
-            application_id, view, plan, compiled,
-        )
-        covers || return false
+        key = (application_id, id)
+        isnothing(get(compiled.status_views_by_target, key, nothing)) && continue
+        # Use the same temporal bindings that populate this target's status view.
+        for binding in get(compiled.input_bindings_by_target, key, ())
+            binding.carrier_hint === :temporal_stream || continue
+            _model_output_retention_covers_binding(plan, compiled, binding) || return false
+        end
     end
     return true
 end

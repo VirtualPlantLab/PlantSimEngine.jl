@@ -961,9 +961,10 @@ function _finalize_authored_scenario(model, source_specs, authored_records, raw_
     recipes = _graph_record_vector(AuthoredApplicationRecipe,
         (record for record in authored_records if record isa AuthoredApplicationRecipe))
     birth_types = _prepared_birth_status_types(model)
-    program = _prepare_authored_scenario_program(model, recipes, birth_types)
+    program, input_plans = _prepare_authored_scenario_program(model, recipes, birth_types)
     status_manifest = _capture_authored_metadata(:status_manifest, nothing) do
-        _prepare_status_manifest(model, authored_records, program, raw_families, birth_types)
+        _prepare_status_manifest(model, authored_records, program, input_plans,
+            raw_families, birth_types)
     end
     if isnothing(failure) && status_manifest isa ScenarioPreparationFailure
         # A missing field family may be downstream of a rejected logical route
@@ -1588,11 +1589,14 @@ function _prepare_authored_scenario_program(model, recipes, birth_types)
     applications = _graph_record_vector(AuthoredApplicationRecipe, recipes)
     output_records = _prepare_authored_output_records(applications)
     destinations = _authored_distributed_output_plans(applications, output_records)
-    input_records = _prepare_authored_input_records(model, applications, destinations, birth_types)
-    inputs = Tuple(record for record in input_records if record isa CompiledModelInputPlan)
+    # The graph and status manifest consume the successful plans in authoring order.
+    # The program retains the complete ordered records, including captured failures.
+    input_plans = CompiledModelInputPlan[]
+    input_records = _prepare_authored_input_records!(input_plans, model, applications,
+        destinations, birth_types)
     calls = Tuple(plan for application in applications for plan in application.call_plans)
-    graph = _prepare_authored_scenario_graph(applications, inputs, calls, destinations)
-    return AuthoredScenarioProgram(output_records, input_records, calls, graph)
+    graph = _prepare_authored_scenario_graph(applications, input_plans, calls, destinations)
+    return AuthoredScenarioProgram(output_records, input_records, calls, graph), input_plans
 end
 
 function _authored_input_graph_matches(records::Tuple, plans)
@@ -8873,8 +8877,7 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
     )
 end
 
-function _prepare_authored_input_records(model, applications, distributed_output_plans, birth_types)
-    plans = CompiledModelInputPlan[]
+function _prepare_authored_input_records!(plans, model, applications, distributed_output_plans, birth_types)
     records = Any[]
     applications_by_id = Dict(application.id => application for application in applications)
     local_output_names = Dict(application.id => _model_output_names(application)
@@ -8953,7 +8956,8 @@ function _resolve_model_input_plans(model, preparation::ScenarioPreparation,
     else
         # A partial report is a different declaration set. Project the real
         # recipes through the SAME pure factory, without replaying a hook.
-        _prepare_authored_input_records(model, _project_authored_applications(preparation, applications),
+        _prepare_authored_input_records!(CompiledModelInputPlan[], model,
+            _project_authored_applications(preparation, applications),
             distributed_output_plans, _frozen_birth_status_types(preparation.status_manifest))
     end
     plans = CompiledModelInputPlan[]
