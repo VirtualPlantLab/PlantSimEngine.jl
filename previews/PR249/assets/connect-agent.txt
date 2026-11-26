@@ -1,0 +1,19 @@
+Set up PlantSimEngine and its modeling skill for me in this project.
+If you cannot access my project files or execute commands on my machine,
+give me the steps to run locally.
+
+Use the project's Julia tools, or install Julia from https://julialang.org/install/
+if needed. Activate the project (create a local environment if there is none).
+Keep any existing PlantSimEngine version. If it is missing, use Julia's package
+manager to add a compatible release with the bundled skill (v0.15 or later)
+from https://github.com/VirtualPlantLab/PlantSimEngine.jl.
+
+Load PlantSimEngine. Find skills/plantsimengine under pkgdir(PlantSimEngine)
+and read its SKILL.md. Install or link that whole folder using this agent's
+project-level skill support. If there is no skill installer, use it in place.
+If the package has no bundled skill, explain the version mismatch before
+changing it; do not install a skill from a different release.
+
+Run the bundled skills/plantsimengine/scripts/check-examples.jl in the project.
+Tell me which project, package version and skill path you used, whether the
+checks passed, and anything I still need to do.
