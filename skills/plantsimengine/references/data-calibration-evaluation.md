@@ -24,6 +24,16 @@ and their scientific interpretation can be checked.
 
 ## Force observations into a scenario
 
+Match the forcing to the unit measured. For a plant's stage changes or an
+organ's biomass, simulate the trajectory of each observed individual and
+join its records by plant, organ where relevant, and time. Trace two plants
+with different observations to check that each consumer sees its own series.
+When plants interact in one scene, keep them in that scene with distinct
+states and forcing histories. Shared plot weather or a measured plot-level
+LAI can drive a process defined at that scale. If identities were lost or
+sampling was destructive, use the observations at their supported scale
+unless the protocol justifies a longitudinal match.
+
 For a fixed measured input, supply status and omit the model that would
 predict/write that variable. An initial status value alone does not keep it
 fixed when a scheduled producer overwrites it.
@@ -56,38 +66,9 @@ model and comparing that copied target to itself is not predictive validation.
 
 ## Calibrate parameters
 
-PlantSimEngine provides `Evaluation.fit` as an extension point. Model packages
-implement fitting methods; it is not a generic optimizer for arbitrary
-`CompositeModel`s. The documented example is
-`PlantSimEngine.Evaluation.fit(Beer, data)`, returning named parameter values
-such as `(k=k,)`. See `docs/src/working_with_data/fitting.md` under the verified
-package root.
-
-For a model without a fitting method, use an appropriate optimizer or inference
-framework around a reproducible simulation/objective. Choose it according to
-the formulation and task rather than assuming the package supplies a fitting,
-likelihood, assimilation, or uncertainty API. Distinguish estimated parameters
-from fixed values, imposed inputs, and initial conditions; changing the model
-structure is a separate scientific choice.
-
-Make the fitting scope explicit: dataset split, estimated parameters and their
-units/bounds, objective or likelihood, weighting, observation alignment, and
-failure handling. Bounds need a scientific or documented numerical basis.
-Check sensitivity or identifiability when the data may not constrain the
-requested parameters. A returned optimum alone does not establish uniqueness
-or parameter uncertainty.
-
-Each objective evaluation must start from the intended initial state. Use a
-fresh scenario or verified reset; `continue!` advances an existing simulation
-and would carry state between trials. Keep stochastic seeds and replicate
-policy reproducible where used. Apply fitted values by constructing the model
-with those values and verify the resulting simulation, not only the optimizer
-return value.
-
-Report the data/objective/configuration, fitted values, convergence and
-boundary diagnostics, and calibration residuals or plots. Recovering a known
-parameter from synthetic data is a useful implementation check, not evidence
-that the model is calibrated for a real population or environment.
+Use [calibration.md](calibration.md) to map processes to observations, design a
+protocol for the available evidence, and fit and check parameters. Open the
+forcing section above when the protocol calls for measured upstream inputs.
 
 ## Evaluate predictions
 
@@ -107,7 +88,12 @@ measured/imposed, estimated, and predicted. State whether results test a
 component with measured inputs, a coupled system, or transfer to a new scope.
 
 Use explicit output retention and align collected predictions with
-observations by identity and time/support. Summarize errors in relevant units
+observations by identity and time/support. Compare at the finest scale
+supported by both records, such as an identified organ, plant or plot on a
+given date. Where a broader scale matters, also compare matched summaries
+using the measurement protocol's aggregation and weights. Opposite errors
+on two plants can cancel in the plot mean. If only a plot mean was measured,
+compare at plot scale. Summarize errors in relevant units
 and include sample counts, exclusions, residual structure, and useful plots.
 Bias and RMSE/MAE often describe different failures; choose metrics for the
 scientific question and avoid percentage metrics near zero without a clear
