@@ -60,7 +60,9 @@ end
 Base.propertynames(application::CompiledModelApplication) =
     (:plan, :target_ids, propertynames(application.plan)...)
 
-struct InputRouteTag{INPUT,SOURCE,FROM_STATUS} end
+struct InputRouteTag{INPUT,SOURCE,FROM_STATUS}
+    local_source_application_ids::Union{Nothing,Vector{Symbol}}
+end
 
 _input_route_input(::InputRouteTag{INPUT}) where {INPUT} = INPUT
 _input_route_source(::InputRouteTag{INPUT,SOURCE}) where {INPUT,SOURCE} = Val(SOURCE)
@@ -89,6 +91,13 @@ end
 @inline function Base.getproperty(plan::CompiledModelInputPlan, name::Symbol)
     name === :multiplicity && return multiplicity(getfield(plan, :selector))
     return getfield(plan, name)
+end
+
+_uses_planned_local_sources(selector, ids) = selector isa Many && length(ids) > 1
+
+function _planned_local_source_ids(plan::CompiledModelInputPlan)
+    _uses_planned_local_sources(plan.selector, plan.potential_source_application_ids) || return nothing
+    return plan.route.local_source_application_ids::Vector{Symbol}
 end
 
 Base.propertynames(plan::CompiledModelInputPlan) =
@@ -3675,7 +3684,8 @@ function _prepare_added_many_sources(
             binding.process,
             binding.application,
             distributed_outputs,
-            binding.potential_source_application_ids;
+            binding.potential_source_application_ids,
+            _planned_local_source_ids(binding.plan);
             applications_by_id=applications_by_id,
             allow_empty=true,
         )
@@ -3694,7 +3704,8 @@ function _prepare_added_many_sources(
                 binding.process,
                 binding.application,
                 distributed_outputs,
-                binding.potential_source_application_ids;
+                binding.potential_source_application_ids,
+                _planned_local_source_ids(binding.plan);
                 applications_by_id=applications_by_id,
                 allow_empty=false,
             )
@@ -8287,6 +8298,13 @@ function _planned_input_writer_matches(
     return false
 end
 
+# All multi-producer input routes in this catalog share the same owner check.
+# The live member can be a partial application from a targeted newborn.
+Base.@noinline function _admitted_input_source_id(applications_by_id,
+    @nospecialize(member::CompiledModelApplication))
+    return _with_model_application(application -> application.id, applications_by_id, member)
+end
+
 function _matching_input_source_applications(
     applications_by_object,
     source_ids,
@@ -8294,7 +8312,8 @@ function _matching_input_source_applications(
     process_filter,
     application_filter,
     distributed_outputs=NoCompiledDistributedOutputs(),
-    potential_source_application_ids=();
+    potential_source_application_ids=(),
+    local_source_application_ids=nothing;
     applications_by_id::CompiledMetadataTable,
     allow_empty::Bool=false,
 )
@@ -8312,15 +8331,20 @@ function _matching_input_source_applications(
         resolved = Symbol[]
         for source_id in source_ids
             for raw_application in get(applications_by_object, source_id, ())
-                Base.@inline _with_model_application(
-                    applications_by_id, raw_application::CompiledModelApplication,
-                    resolved, source_var, process_filter, application_filter,
-                ) do application, matches, variable, process, application_name
-                    variable in _model_output_names(application) || return nothing
-                    isnothing(process) || application.process == process || return nothing
-                    isnothing(application_name) || application.id == application_name || return nothing
-                    application.id in matches || push!(matches, application.id)
-                    return nothing
+                if isnothing(local_source_application_ids)
+                    Base.@inline _with_model_application(
+                        applications_by_id, raw_application::CompiledModelApplication,
+                        resolved, source_var, process_filter, application_filter,
+                    ) do application, matches, variable, process, application_name
+                        variable in _model_output_names(application) || return nothing
+                        isnothing(process) || application.process == process || return nothing
+                        isnothing(application_name) || application.id == application_name || return nothing
+                        application.id in matches || push!(matches, application.id)
+                        return nothing
+                    end
+                else
+                    id = _admitted_input_source_id(applications_by_id, raw_application::CompiledModelApplication)
+                    id in local_source_application_ids && !(id in resolved) && push!(resolved, id)
                 end
             end
             _append_distributed_input_source_applications!(
@@ -8870,7 +8894,17 @@ Base.@nospecializeinfer function _compiled_model_input_plan(
             "`PreviousTimeStep(:$(input))`."
         )
     end
-    route = InputRouteTag{input,source_var,_selector_from_status(selector)}()
+    # Resolve local declarations once for a Many with several possible producers.
+    # Object membership supplies the spatial filter and can change at each birth.
+    local_source_application_ids = if _uses_planned_local_sources(selector, potential_source_application_ids)
+        Symbol[writer.id for writer in get(writer_applications, source_var, ())
+            if source_var in local_output_names[writer.id] &&
+               (isnothing(process_filter) || writer.process === process_filter) &&
+               (isnothing(application_filter) || writer.id === application_filter)]
+    else
+        nothing
+    end
+    route = InputRouteTag{input,source_var,_selector_from_status(selector)}(local_source_application_ids)
     return CompiledModelInputPlan(
         route,
         slot,
@@ -9311,7 +9345,8 @@ function _resolve_input_sources(
             process_filter,
             application_filter,
             distributed_outputs,
-            plan.potential_source_application_ids;
+            plan.potential_source_application_ids,
+            _planned_local_source_ids(plan);
             applications_by_id=applications_by_id,
             allow_empty=selector isa OptionalOne ||
                         (selector isa Many && isempty(source_ids)),
