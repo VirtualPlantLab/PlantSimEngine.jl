@@ -6295,10 +6295,16 @@ function _prepare_targeted_newborn_targets(
     end
 
     targets = _targeted_newborn_target_buffer(batch_schema, context)
+    # The newborn inherits the invocation state. Its assembly does not depend
+    # on the creator's application, calls, or bound inputs.
+    owners = (compiled=compiled, environment_bindings=environment_bindings,
+        temporal_streams=context.temporal_streams, output_retention=context.output_retention,
+        constants=context.constants, environment=context.environment)
+    invocation = (time=context.time, publication_allowed=context.publication_allowed)
     for partial_application in callee_applications
         Base.@inline _with_model_application(_append_targeted_newborn_targets!,
-            compiled.applications_by_id, partial_application, targets, context,
-            targeted_runtime, targeted_input_bindings, environment_bindings, batch_schema)
+            compiled.applications_by_id, partial_application, targets, owners, invocation,
+            targeted_runtime, targeted_input_bindings, batch_schema)
     end
     if initializer
         length(targets) == 1 || error(
@@ -6311,13 +6317,12 @@ end
 
 function _append_targeted_newborn_targets!(
     partial_application::A, targets,
-    context::RunContext,
+    owners, invocation,
     targeted_runtime::_TargetedTopologyRuntime,
     targeted_input_bindings,
-    environment_bindings::CompiledEnvironmentBindings,
     batch_schema::ExecutionBatchSchema,
 ) where {A<:CompiledModelApplication}
-    compiled = context.compiled
+    compiled = owners.compiled
     # The selection owns the requested IDs. Contexts retain the registered application.
     application = compiled.applications_by_id[partial_application.id]::A
     application_schema = _call_batch_schema_for_application(batch_schema,application)
@@ -6327,28 +6332,24 @@ function _append_targeted_newborn_targets!(
         cache = get(targeted_runtime.call_context_caches,key,nothing)::Union{Nothing,CallContextCache}
         stamp = isnothing(cache) ? Ref(UInt64(0)) :
             (getfield(cache,:execution_stamp)::Base.RefValue{UInt64})
-        status_view = _compile_model_status_view_for_application(partial_application, runtime_model(context),
+        status_view = _compile_model_status_view_for_application(partial_application, compiled.model,
             object_id,get(targeted_input_bindings,key,()),compiled.applications_by_id,
             targeted_runtime.application_positions,compiled.distributed_outputs,
             stamp, compiled.status_view_schema,
             compiled.input_bindings)::CompiledModelStatusView
         output_groups = _runtime_model_output_groups(compiled,application,object_id)
-        environment_binding = _environment_binding_for(environment_bindings,application.id,object_id)
+        environment_binding = _environment_binding_for(owners.environment_bindings,application.id,object_id)
         call_bindings = () # targeted admission has rejected nested callees
         model = _application_model(application,object_id)
-        owners = (compiled=compiled,environment_bindings=environment_bindings,
-            temporal_streams=context.temporal_streams,
-            output_retention=context.output_retention,constants=context.constants,
-            environment=context.environment)
         Base.@inline _with_execution_target_type(_append_targeted_newborn_target!, admission,
             application, status_view, object_id, model, output_groups, call_bindings,
-            environment_binding, owners, cache, targets, context, stamp, targeted_runtime, key)
+            environment_binding, owners, cache, targets, invocation, stamp, targeted_runtime, key)
     end
     return targets
 end
 
 function _append_targeted_newborn_target!(::Val{Target}, actual_application, actual, owner,
-    call_schema, prepared_cache, targets, context, stamp, targeted_runtime, key,
+    call_schema, prepared_cache, targets, invocation, stamp, targeted_runtime, key,
 ) where {Target}
     outputs = isnothing(Target) ?
         _runtime_model_output_streams(actual.status_view.status,actual_application,
@@ -6358,13 +6359,13 @@ function _append_targeted_newborn_target!(::Val{Target}, actual_application, act
             actual.object_id,owner.temporal_streams,
             owner.output_retention,true)
     if isnothing(prepared_cache)
-        prepared_cache = _newborn_call_context_cache(context,actual_application,
+        prepared_cache = _newborn_call_context_cache(owner,invocation,actual_application,
             actual.object_id,actual.bound_inputs,actual.output_targets,
-            actual.call_bindings,owner.environment_bindings,stamp;call_schema)
+            actual.call_bindings,stamp;call_schema)
     end
-    result = _targeted_newborn_call_target(context,actual_application,
+    result = _targeted_newborn_call_target(owner,invocation,actual_application,
         actual.object_id,actual.model,actual.status_view,outputs,
-        actual.output_targets,actual.call_bindings,owner.environment_bindings,
+        actual.output_targets,actual.call_bindings,
         actual.environment_binding,prepared_cache)
     isnothing(Target) || result.execution_target isa Target ||
         throw(ArgumentError("A newborn execution target is outside its prepared schema."))
@@ -6390,16 +6391,16 @@ end
 # Build a real context only on the first preparation of this newborn owner.
 # Repeated target retrieval never changes an active default shell or its leases.
 # Call bindings come from resolution, not from the shape of a cached prototype.
-function _newborn_call_context_cache(context::RunContext, application, object_id,
-    bound_inputs, output_targets, call_bindings::Tuple, environment_bindings,
+function _newborn_call_context_cache(owner, invocation, application, object_id,
+    bound_inputs, output_targets, call_bindings::Tuple,
     stamp::Base.RefValue{UInt64};
     call_schema=OpenContextCallSchema(),
 )
     prepared = _prepare_model_execution_context!(
-        nothing, context.compiled, environment_bindings, application, object_id,
-        bound_inputs, output_targets, call_bindings, context.temporal_streams,
-        context.output_retention, context.time, context.constants,
-        context.publication_allowed, context.environment;call_schema,
+        nothing, owner.compiled, owner.environment_bindings, application, object_id,
+        bound_inputs, output_targets, call_bindings, owner.temporal_streams,
+        owner.output_retention, invocation.time, owner.constants,
+        invocation.publication_allowed, owner.environment;call_schema,
     )
     return CallContextCache(prepared, stamp)
 end
@@ -6407,7 +6408,8 @@ end
 # Status views, publication tuples and handles leave heterogeneous assembly at
 # this boundary. Reuse one concrete payload constructor for each actual schema.
 function _targeted_newborn_call_target(
-    context::RunContext,
+    owner,
+    invocation,
     application::CompiledModelApplication,
     object_id::ObjectId,
     model,
@@ -6415,7 +6417,6 @@ function _targeted_newborn_call_target(
     outputs::Tuple,
     output_targets::NamedTuple,
     call_bindings::Tuple,
-    environment_bindings::CompiledEnvironmentBindings,
     environment_binding,
     cache::CallContextCache{RC},
 ) where {RC<:RunContext}
@@ -6427,9 +6428,9 @@ function _targeted_newborn_call_target(
         environment_binding, cache.default, cache,
     )
     return CallTarget(
-        execution_target, context.compiled, environment_bindings, application,
-        object_id, cache.default.calls, context.temporal_streams, context.output_retention,
-        context.time, context.constants, context.publication_allowed, context.environment,
+        execution_target, owner.compiled, owner.environment_bindings, application,
+        object_id, cache.default.calls, owner.temporal_streams, owner.output_retention,
+        invocation.time, owner.constants, invocation.publication_allowed, owner.environment,
     )
 end
 
