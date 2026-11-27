@@ -20,6 +20,13 @@ diagnostics. Use `Diagnostics.input_value` to read the values,
 `Diagnostics.input_carrier` to inspect their container, and
 `Diagnostics.explain_bindings` to see where they come from.
 
+For a model running on a plant, an input such as
+`areas=Many(Self(); scale=:Leaf, var=:area, from_status=true)` stays empty
+even after leaves appear. Use `within=Subtree()` to read those leaves. If
+neither a source nor the input supplies a concrete element type, the empty
+collection has element type `Union{}`. For example,
+`sum(status.areas; init=0.0)` then returns `0.0`.
+
 !!! note "Reading the model examples"
     The examples below show code inside a model. A model stores its parameters
     in a Julia `struct`, declares its variables with `inputs_` and `outputs_`,

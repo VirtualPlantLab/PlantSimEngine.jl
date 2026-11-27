@@ -132,6 +132,37 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+@testset "input default rewrite telemetry preserves cells across batched births" begin
+    metric = :input_default_status_rewrites_avoided
+    for enabled in (false, true)
+        model = CompositeModel(Object(:plant; scale=:Plant),
+            Object(:leaf_1; scale=:Leaf, parent=:plant);
+            applications=(
+                ModelSpec(StatusTypeLifecycleIncrementModel(); name=:source, on=Many(scale=:Leaf)),
+                ModelSpec(StatusTypeLifecycleBoundConsumerModel(); name=:consumer, on=Many(scale=:Leaf),
+                    inputs=(bound_value=One(Self(); application=:source, var=:value),)),
+            ), environment=(duration=Hour(1),))
+        simulation = run!(model; steps=0, outputs=:all, performance=enabled)
+        performance = Advanced.runtime_performance(simulation)
+        @test isnothing(performance) == !enabled
+        before = enabled ? get(performance.counts, metric, 0) : 0
+        register_object!(model, Object(:leaf_2; scale=:Leaf, parent=:plant))
+        register_object!(model, Object(:leaf_3; scale=:Leaf, parent=:plant))
+        continue!(simulation)
+        for id in (:leaf_1, :leaf_2, :leaf_3)
+            status = model_status(model, id)
+            @test status.value === status.bound_value === status.seen === 1.0
+            @test PlantSimEngine.refvalue(status, :bound_value) ===
+                  PlantSimEngine.refvalue(status, :value)
+        end
+        performance = Advanced.runtime_performance(simulation)
+        @test isnothing(performance) == !enabled
+        if enabled
+            @test performance.counts[metric] - before == 2
+        end
+    end
+end
+
 @testset "pure additions preserve bound-default conversion diagnostics" begin
     calls = Ref(0)
     model = CompositeModel(
@@ -227,10 +258,14 @@ end
     initial_status = Status((external_value=external_reference,))
     @test PlantSimEngine.refvalue(initial_status, :external_value) ===
           external_reference
+    existing_storage = [1.5]
+    existing_reference = Ref(existing_storage, 1)
+    existing_source = Status((external_value=existing_reference,))
 
     model = CompositeModel(
         Object(:scene; scale=:Scene),
-        Object(:plant; scale=:Plant, parent=:scene);
+        Object(:plant; scale=:Plant, parent=:scene),
+        Object(:existing_leaf; scale=:Leaf, parent=:plant, status=existing_source);
         applications=(
             ModelSpec(
                 StatusTypeLifecycleIncrementModel();
@@ -253,7 +288,11 @@ end
         environment=(duration=Hour(1),),
     )
     Advanced.refresh_bindings!(model)
-    register_object!(
+    existing = model_status(model, :existing_leaf)
+    @test existing !== existing_source
+    @test PlantSimEngine.refvalue(existing, :external_value) === existing_reference
+    @test existing.external_value == 1.5
+    registered = register_object!(
         model,
         Object(
             :late_leaf;
@@ -262,11 +301,16 @@ end
             status=initial_status,
         ),
     )
+    official = registered.status
+    @test official !== initial_status
+    @test PlantSimEngine.refvalue(official, :external_value) === external_reference
+    @test_throws ArgumentError object_id(model, initial_status)
 
     Advanced.refresh_bindings!(model)
     refreshed = model_status(model, :late_leaf)
+    @test refreshed === official
     @test propertynames(refreshed) ==
-          (:external_value, :value, :seen, :bound_value)
+          (:value, :seen, :bound_value, :external_value)
     @test PlantSimEngine.refvalue(refreshed, :external_value) ===
           external_reference
     @test PlantSimEngine.refvalue(refreshed, :bound_value) ===
@@ -354,9 +398,11 @@ end
 end
 
 @testset "register_object! converts status after compilation" begin
+    existing_source = Status(initial_value=1.5)
     model = CompositeModel(
         Object(:scene; scale=:Scene),
-        Object(:plant; scale=:Plant, parent=:scene);
+        Object(:plant; scale=:Plant, parent=:scene),
+        Object(:existing_leaf; scale=:Leaf, parent=:plant, status=existing_source);
         applications=(
             ModelSpec(
                 StatusTypeLifecycleIncrementModel();
@@ -368,6 +414,8 @@ end
         type_promotion=Dict(Float64 => Float32),
     )
     simulation = run!(model; outputs=:all)
+    @test model_status(model, :existing_leaf).initial_value === Float32(1.5)
+    @test existing_source.initial_value === 1.5
 
     late_leaf = Object(
         :late_leaf;
@@ -375,9 +423,13 @@ end
         parent=:plant,
         status=Status(initial_value=2.5),
     )
+    source = late_leaf.status
     registered = register_object!(model, late_leaf)
 
     @test registered === late_leaf
+    @test registered.status !== source
+    @test source.initial_value === 2.5
+    @test_throws ArgumentError object_id(model, source)
     @test registered.status === model_status(model, :late_leaf)
     @test registered.status.initial_value === Float32(2.5)
     @test !(:value in propertynames(registered.status))
@@ -406,7 +458,7 @@ end
         plant,
         MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2),
     )
-    imported_source = Status(node=leaf, biomass=2.5)
+    imported_source = Status(biomass=2.5, area=1.0)
 
     model = CompositeModel(
         root;
@@ -416,7 +468,8 @@ end
     imported = model_status(model, leaf)
 
     @test imported !== imported_source
-    @test imported.node === leaf
+    @test source_node(model, imported) === leaf
+    @test imported.area === Float32(1)
     @test imported.biomass === Float32(2.5)
     @test imported_source.biomass === 2.5
 
@@ -430,13 +483,14 @@ end
         index=2,
         initial_status=(biomass=3.5, area=2.0),
     )
-    registered = model_status(model, added.node)
+    registered = model_status(model, source_node(model, added))
 
     @test added === registered
-    @test model_object(model, added.node).status === added
+    @test model_object(model, source_node(model, added)).status === added
     @test added.biomass === Float32(3.5)
     @test added.area === Float32(2)
-    @test added.node isa MultiScaleTreeGraph.Node
+    @test source_node(model, added) isa MultiScaleTreeGraph.Node
+    @test !hasproperty(added, :node)
 end
 
 @testset "refresh, reparent, steps, and removal do not repeat transforms" begin
@@ -521,4 +575,45 @@ end
     @test last.(retained_writer_stream) == Float32[1, 2, 3]
     @test all(value -> value isa Float32, last.(retained_consumer_stream))
     @test length(retained_consumer_stream) == 3
+end
+
+@testset "reparented output targets stage every default before publishing" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant_a; scale=:Plant, parent=:scene),
+        Object(:plant_b; scale=:Plant, parent=:scene),
+        Object(:late_leaf; scale=:Leaf, parent=:plant_b);
+        applications=(ModelSpec(StatusTypeLifecycleOutputTransactionModel();
+            name=:rewired_outputs,
+            on=Many(scale=:Leaf, within=Scope(ObjectId(:plant_a)))),),
+        environment=(duration=Hour(1),),
+        status_transform=StatusTypeLifecycleFailOn(:failing_output),
+    )
+    simulation = run!(model; steps=0, outputs=:none)
+    records = copy(model.status_conversion_records)
+    @test model_object(model, :late_leaf).status === nothing
+
+    reparent_object!(model, :late_leaf, :plant_a)
+    @test_throws "intentional conversion failure" continue!(simulation; steps=1)
+    @test model_object(model, :late_leaf).parent === ObjectId(:plant_a)
+    @test model_object(model, :late_leaf).status === nothing
+    @test model.status_conversion_records == records
+end
+
+@testset "rejected supplied status leaves registration receipts unpublished" begin
+    model = CompositeModel(Object(:parent; scale=:Plant);
+        status_transform=StatusTypeLifecycleFailOn(:failing_output),
+        type_promotion=Dict(Float64 => Float32))
+    source = Status(first_output=1.0, failing_output=2.0)
+    object = Object(:rejected; scale=:Leaf, parent=:parent, status=source)
+    records = copy(model.status_conversion_records)
+    children = copy(model_object(model, :parent).children)
+    @test_throws "intentional conversion failure" register_object!(model, object)
+    @test ObjectId(:rejected) ∉ object_ids(model)
+    @test model.status_conversion_records == records
+    @test model_object(model, :parent).children == children
+    @test object.status === source
+    @test source.first_output === 1.0
+    @test source.failing_output === 2.0
+    @test !haskey(model.status_source_identities, ObjectId(:rejected))
 end

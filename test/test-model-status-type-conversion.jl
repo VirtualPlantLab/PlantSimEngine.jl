@@ -30,6 +30,77 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+# The same default object is deliberately reused by two real application targets.
+struct OwnedArrayDefaultModel{V} <: AbstractStatus_Type_ConversionModel
+    default::V
+end
+PlantSimEngine.inputs_(model::OwnedArrayDefaultModel) = (payload=Default(model.default),)
+PlantSimEngine.outputs_(::OwnedArrayDefaultModel) = NamedTuple()
+PlantSimEngine.run!(::OwnedArrayDefaultModel, status, environment, constants, context) = nothing
+
+mutable struct ModelOwnedDefaultCell
+    value::Int
+end
+
+# A model may define how its non-bits array defaults are privately copied.
+Base.deepcopy_internal(values::Vector{ModelOwnedDefaultCell}, ::IdDict) =
+    [ModelOwnedDefaultCell(cell.value + 1) for cell in values]
+
+@testset "private array defaults retain symbols, bits and independent mutable graphs" begin
+    function prepared_defaults(value)
+        model = CompositeModel(
+            Object(:first; scale=:Scene), Object(:second; scale=:Scene);
+            applications=(ModelSpec(OwnedArrayDefaultModel(value);
+                name=:defaults, on=Many(scale=:Scene)),),
+            environment=(duration=Hour(1),))
+        run!(model; steps=0, outputs=:none)
+        return model_status(model, :first).payload, model_status(model, :second).payload
+    end
+
+    source = Float32[reinterpret(Float32, UInt32(0x7fc00001)), -0f0, 3f0]
+    left, right = prepared_defaults(source)
+    @test left isa Vector{Float32} && right isa Vector{Float32}
+    @test left !== source && right !== source && left !== right
+    @test reinterpret(UInt32, left) == reinterpret(UInt32, source)
+    @test reinterpret(UInt32, right) == reinterpret(UInt32, source)
+    left[3] = 9f0
+    @test right[3] === source[3] === 3f0
+
+    states = [:undetermined]
+    first_states, second_states = prepared_defaults(states)
+    first_states[1] = :female
+    @test second_states == states == [:undetermined]
+    @test first_states !== second_states && second_states !== states
+
+    unfilled = Matrix{Symbol}(undef, 1, 2)
+    unfilled[1] = :male
+    copied = PlantSimEngine._private_initial_value(unfilled)
+    @test size(copied) == size(unfilled)
+    @test copied[1] === :male && !isassigned(copied, 2)
+
+    owned = [ModelOwnedDefaultCell(2)]
+    copied_owned = PlantSimEngine._private_initial_value(owned)
+    @test only(copied_owned).value == 3 && only(owned).value == 2
+
+    shared = Float32[1, 2]
+    nested = [shared, shared]
+    first_graph, second_graph = prepared_defaults(nested)
+    @test first_graph !== nested && second_graph !== nested && first_graph !== second_graph
+    @test first_graph[1] === first_graph[2]
+    @test second_graph[1] === second_graph[2]
+    @test first_graph[1] !== shared && second_graph[1] !== shared
+    @test first_graph[1] !== second_graph[1]
+    first_graph[1][1] = 9f0
+    @test first_graph[2][1] === 9f0
+    @test second_graph[1][1] === shared[1] === 1f0
+
+    cycle = Any[]
+    push!(cycle, cycle)
+    copied_cycle = PlantSimEngine._private_initial_value(cycle)
+    @test copied_cycle !== cycle
+    @test copied_cycle[1] === copied_cycle
+end
+
 struct StatusTransformParticle{T}
     value::T
     spread::T
@@ -79,8 +150,13 @@ end
         ),
     )
 
-    @test object.status === original
-    @test PlantSimEngine.refvalue(object.status, :supplied) === supplied_reference
+    official = model_status(model, :scene)
+    @test object.status === official
+    @test official !== original
+    @test_throws ArgumentError object_id(model, original)
+    @test PlantSimEngine.refvalue(official, :supplied) === supplied_reference
+    @test PlantSimEngine.refvalue(official, :untouched) ===
+          PlantSimEngine.refvalue(original, :untouched)
     Advanced.refresh_bindings!(model)
     @test object.status.supplied isa Float64
     @test object.status.offset isa Float64
@@ -122,8 +198,13 @@ end
     @test status.label_text == "leaf"
     @test status.date === Date(2026, 8, 26)
     @test status.cadence === Hour(1)
+    view = only(values(compiled.status_views_by_target))
+    @test view.canonical_status === status
+    @test keys(view.status) == keys(status)
+    @test all(name -> PlantSimEngine.refvalue(view.status, name) ===
+              PlantSimEngine.refvalue(status, name), keys(status))
     @test only(Diagnostics.explain_execution_plan(model)).status_type ==
-          typeof(status)
+          typeof(view.status)
 
     simulation = run!(model; outputs=:all)
     @test status.result === Float32(1.75)

@@ -39,15 +39,20 @@ to inspect it, and `continue!` or `step!` to advance it.
 
 ## Build the example executable
 
-Use Julia 1.13.1, JuliaC 0.3.12 and a working C compiler to match the qualified
-build. From the root of a PlantSimEngine checkout, instantiate the named app
-project once:
+The Linux CI job builds this example with Julia 1.13 and JuliaC 0.3.12. You
+also need a C compiler. From the root of a PlantSimEngine checkout, instantiate
+the app project once.
 
 ```sh
 julia --project=examples/compiled_scenario -e 'using Pkg; Pkg.instantiate()'
 ```
 
 The app project points to the local PlantSimEngine checkout in `[sources]`.
+The example pins `Libiconv_jll` to 1.18.0 in the app's `Project.toml`.
+With version 1.18.1 on Linux, JuliaC 0.3.12 reports unresolved calls to
+`string` and `convert` in `Libiconv_jll.__init__`. If your build reports
+these errors, use the same dependency and compatibility entries in your app.
+
 Use a separate environment for the build tools. From the repository root,
 start Julia and run:
 
@@ -91,7 +96,7 @@ entry point. Use the entry point to parse arguments, advance the program,
 and write the result. JuliaC loads the module during the build, so put the
 fixed scenario in `make_model()` and handle runtime data in the entry point.
 
-This compiler admits one ordinary object with at least one scheduled
+`Compilation.prepare` admits one ordinary object with at least one scheduled
 application, and same-object scalar inputs and outputs. All scheduled
 applications run at every base step. Status values must be
 numeric bits values such as `Float32`, `Float64` or `Int`, and model and
@@ -111,6 +116,22 @@ or spatial environments, environment commits, different cadences, temporal
 inputs, hard calls, initializers, distributed or stream-only outputs,
 topology edits, or retained histories can run through the ordinary
 PlantSimEngine API.
+
+`Compilation.compile` takes an **application project**. A multi-object
+application can prepare a PSE `Simulation` at build time and advance it with
+the same `step!` or `continue!` as an ordinary run. For example, a growing
+plant also needs the types of the organs and model calls that can appear
+after the first step. The multi-object growth tests currently supply these
+types using internal preparation functions. Automatic preparation through
+the public API covers the fixed scenario described above.
+
+For a multi-object app that reads values from other organs, declare what the
+reader needs. For example, `ages=Required(Vector{Real})` with
+`Many(scale=(:Leaf, :Flower), var=:birth, from_status=true)` lets the reader
+use a leaf's `Float64` value and a flower's `Float32` value. Writing
+`ages=Default(Real[])` also asks PSE to make a private copy of the default.
+With Julia 1.13.3 and JuliaC 0.3.12, the safe verifier reports unresolved
+calls in `deepcopy(::Vector{Real})` even when that array starts empty.
 
 If preparation rejects a model, read the reported application or feature
 and check it against this list. If JuliaC's safe verifier rejects a call,

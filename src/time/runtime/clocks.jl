@@ -140,7 +140,7 @@ function _base_step_seconds_from_environment_row(
     require_duration::Bool=false,
     context::String="environment",
 )
-    if hasproperty(row, :duration)
+    if _environment_row_hasproperty(row, :duration)
         duration = getproperty(row, :duration)
         seconds = _duration_to_seconds(duration)
         !isnothing(seconds) && return seconds

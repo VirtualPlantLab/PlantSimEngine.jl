@@ -289,10 +289,12 @@ function PlantSimEngine.run!(
     )
     status.returned_status_is_registered =
         model_status(runtime, leaf_status) === leaf_status
+    leaf_node = source_node(runtime, leaf_status)
     status.source_identity_matches =
-        source_node(runtime, leaf_status) === leaf_status.node
+        object_id(runtime, leaf_node) == object_id(runtime, leaf_status) &&
+        MultiScaleTreeGraph.parent(leaf_node) === source_node(context)
     status.runtime_attribute_absent = !haskey(
-        node_attributes(leaf_status.node),
+        node_attributes(leaf_node),
         :plantsimengine_status,
     )
     status.initialized_mass = run_initializer!(
@@ -543,6 +545,7 @@ PlantSimEngine.outputs_(::InitializerCacheMutatorModel) = (
     targeted_value=-1.0,
     refreshed_plan=false,
     cache_invalidated=false,
+    cache_preserved_for_adoption=false,
     bindings_remained_dirty=false,
 )
 
@@ -568,6 +571,7 @@ function PlantSimEngine.run!(
         )
         run_call!(context, :manual_leaf; objects=leaf, publish=false)
     elseif object_id(context) == ObjectId(:cache_creator_b)
+        previous_cache = PlantSimEngine.lifecycle_delta(runtime).targeted_topology_runtime
         leaf = register_object!(
             runtime,
             Object(
@@ -579,8 +583,15 @@ function PlantSimEngine.run!(
             ),
         )
         reparent_object!(runtime, :cache_leaf_a, :plant_b)
+        delta = PlantSimEngine.lifecycle_delta(runtime)
+        # Keep the real newborn execution stamps until ordinary views adopt
+        # them, while rejecting this cache for a mixed structural event.
+        status.cache_preserved_for_adoption = !isnothing(previous_cache) &&
+            delta.targeted_topology_runtime === previous_cache
         status.cache_invalidated = isnothing(
-            PlantSimEngine.lifecycle_delta(runtime).targeted_topology_runtime,
+            PlantSimEngine._targeted_new_object_call_targets(
+                context, :manual_leaf, (leaf.id,), only(context.calls),
+            ),
         )
         target = only(
             run_call!(
@@ -621,6 +632,7 @@ function PlantSimEngine.run!(
     constants,
     context,
 )
+    status.biomass += 1.0
     return nothing
 end
 
@@ -655,6 +667,7 @@ function PlantSimEngine.run!(
     constants,
     context,
 )
+    status.initialized_Rm == -Inf || return nothing
     leaf = register_object!(
         runtime_model(context),
         Object(
@@ -880,27 +893,49 @@ end
         environment=(duration=Hour(1),),
     )
 
+    prepared_model = deepcopy(model)
     compiled = Advanced.refresh_bindings!(model)
     @test compiled.application_order ==
           (:respiration, :creator, :biomass_source)
-    simulation = run!(model; steps=1, outputs=:all)
-    leaf_status = model_status(model, :exact_new_leaf)
-    @test leaf_status.biomass == 4.0
-    @test leaf_status.Rm == 8.0
-    @test model_status(model, :scene).initialized_Rm == 8.0
-    @test isempty(
-        outputs(simulation)[
-            (:respiration, ObjectId(:exact_new_leaf), :Rm)
-        ],
-    )
-    @test last.(
-        outputs(simulation)[
-            (:biomass_source, ObjectId(:exact_new_leaf), :biomass)
-        ],
-    ) == [4.0]
+    request = OutputRequest(Many(scale=:Leaf), :Rm; application=:respiration)
+    leaf_id = ObjectId(:exact_new_leaf)
+    respiration_key = (:respiration, leaf_id, :Rm)
+    biomass_key = (:biomass_source, leaf_id, :biomass)
+    function check_two_steps!(sim)
+        step!(sim)
+        leaf = model_status(sim.model, leaf_id)
+        @test leaf.Rm == model_status(sim.model, :scene).initialized_Rm == 8.0
+        @test leaf.biomass == 5.0
+        @test isempty(outputs(sim)[respiration_key])
+        @test collect(outputs(sim)[biomass_key]) == [(1.0, 5.0)]
+
+        # The next respiration must use the published 5.0 even if canonical biomass changes.
+        leaf.biomass = 40.0
+        step!(sim)
+        @test leaf.Rm == 10.0
+        @test leaf.biomass == 41.0
+        @test collect(outputs(sim)[respiration_key]) == [(2.0, 10.0)]
+        @test collect(outputs(sim)[biomass_key]) == [(1.0, 5.0), (2.0, 41.0)]
+        return NamedTuple(leaf)
+    end
+
+    simulation = run!(model; steps=0, outputs=request)
+    ordinary_state = check_two_steps!(simulation)
+    PSE = PlantSimEngine
+    batches = Dict(group.application.id => typeof(only(group.batches))
+        for group in simulation.execution_plan.groups)
+    schema(B) = PSE.PreparedExecutionBatchSchema{Vector{B}}()
+    respiration = schema(batches[:respiration])
+    creator = schema(PSE._execution_batch_type_with_call_schemas(batches[:creator], (; respiration)))
+    biomass_source = schema(batches[:biomass_source])
+    prepared = PSE._prepare_execution_batch_schemas(
+        run!(prepared_model; steps=0, outputs=request), (; respiration, creator, biomass_source))
+    @test check_two_steps!(prepared) == ordinary_state
+    @test collect(outputs(prepared)[respiration_key]) == collect(outputs(simulation)[respiration_key])
+    @test collect(outputs(prepared)[biomass_key]) == collect(outputs(simulation)[biomass_key])
 end
 
-@testset "initializer resolves distributed current and prior sources" begin
+@testset "initializer resolves distributed current and prior sources" for replaced_history in (false, true)
     model = CompositeModel(
         Object(:scene; scale=:Scene),
         Object(:plant_a; name=:plant_a, scale=:Plant, parent=:scene),
@@ -978,14 +1013,25 @@ end
     @test findfirst(==(:writer_b), compiled.application_order) <
           findfirst(==(:distributed_creator), compiled.application_order)
 
-    run!(model; steps=2, outputs=:all)
+    sim = run!(model; steps=1, outputs=:all)
+    if replaced_history
+        key = (:writer_a, ObjectId(:plant_a), :incident_par)
+        original = outputs(sim)[key]
+        @test original == [(1.0, 10.0)]
+        # The ordinary output directory accepts an independently supplied history.
+        restored = Tuple{Float64,Real}[(1.0, 13.0)]
+        outputs(sim)[key] = restored
+        @test outputs(sim)[key] === restored
+    end
+    continue!(sim; steps=1)
+    lagged_total = replaced_history ? 113.0 : 110.0
     creator = model_status(model, :scene)
     leaf = model_status(model, :distributed_new_leaf)
     @test creator.created
     @test creator.direct_seen == 20.0
-    @test creator.lagged_total == 110.0
+    @test creator.lagged_total == lagged_total
     @test leaf.direct_seen == 20.0
-    @test leaf.lagged_total == 110.0
+    @test leaf.lagged_total == lagged_total
     @test model_status(model, :plant_a).incident_par == 20.0
     @test model_status(model, :plant_b).incident_par == 200.0
 end
@@ -1423,6 +1469,8 @@ end
     @test model_status(model, :cache_creator_b).targeted_value == 7.0
     @test model_status(model, :cache_creator_b).refreshed_plan
     @test model_status(model, :cache_creator_b).cache_invalidated
+    @test model_status(model, :cache_creator_b).cache_preserved_for_adoption
+    @test isnothing(PlantSimEngine.lifecycle_delta(model).targeted_topology_runtime)
     @test !model_status(model, :cache_creator_b).bindings_remained_dirty
     @test simulation.compiled.applications_by_id[:cache_manual_target].target_ids ==
           [ObjectId(:cache_leaf_b)]

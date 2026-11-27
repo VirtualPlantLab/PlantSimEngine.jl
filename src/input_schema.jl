@@ -40,6 +40,13 @@ function _input_default(declaration::Default)
 end
 
 _private_initial_value(value) = deepcopy(value)
+_private_initial_value(value::BitArray) = copy(value)
+
+function _private_initial_value(value::Array{T}) where {T}
+    # Bits values and interned symbols keep their identities under deepcopy.
+    # Other element types may provide a custom deepcopy for the whole array.
+    return isbitstype(T) || T === Symbol ? copy(value) : deepcopy(value)
+end
 
 @noinline function _invalid_input_schema_error(model, schema)
     context = "`inputs_($(typeof(model)))`"
@@ -74,11 +81,17 @@ end
     return schema
 end
 
-function _input_default_values(schema::NamedTuple)
-    pairs_ = Pair{Symbol,Any}[]
-    for (name, declaration) in pairs(schema)
-        declaration isa Default || continue
-        push!(pairs_, Symbol(name) => declaration.value)
+@inline _input_default_entry(::Val, declaration) = NamedTuple()
+@inline _input_default_entry(::Val{Name}, declaration::Default) where {Name} =
+    NamedTuple{(Name,)}((declaration.value,))
+
+# Unroll only the fixed names. Entry dispatch still reads each actual
+# declaration, including Any/Union fields, without a type-based default mask.
+@generated function _input_default_values(schema::NamedTuple{Names}) where {Names}
+    result = :(NamedTuple())
+    for index in reverse(eachindex(Names))
+        entry = :(_input_default_entry(Val{$(QuoteNode(Names[index]))}(), getfield(schema, $index)))
+        result = :(merge($entry, $result))
     end
-    return (; pairs_...)
+    return result
 end

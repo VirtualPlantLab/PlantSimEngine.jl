@@ -80,7 +80,7 @@ _status_transform(model) = model.status_conversion.transform
 
 function _status_conversion_context(; object_id=nothing, application_id=nothing, origin=:unknown)
     parts = String["status variable"]
-    isnothing(object_id) || push!(parts, "on object `$(ObjectId(object_id).value)`")
+    isnothing(object_id) || push!(parts, "on object `$(_object_id_text(ObjectId(object_id)))`")
     isnothing(application_id) || push!(parts, "for application `$(application_id)`")
     origin === :unknown || push!(parts, "from `$(origin)`")
     return join(parts, " ")
@@ -123,6 +123,94 @@ end
 _matching_status_type_rule(rules, value) =
     _matching_status_type_rule_for_type(rules, typeof(value))
 
+# The value materializer and the type-only preparation use the same join.
+_status_array_element_type(types) = foldl(typejoin, types)
+
+# The variable is a type parameter only in this cold preparation query. The
+# scientific callback is not evaluated; the real materializer below still owns
+# its one invocation and validates the actual resulting reference class.
+struct _StatusTransformForVariable{VARIABLE,F}
+    transform::F
+end
+(operation::_StatusTransformForVariable{VARIABLE})(value) where {VARIABLE} =
+    operation.transform(VARIABLE, value)
+
+function _configured_status_value_type(policy::StatusConversionPolicy,
+    variable::Symbol, T, elements)
+    isnothing(policy.transform) && return _configured_status_type_rules(policy, T, elements)
+    T === Union{} && return nothing
+    operation = _StatusTransformForVariable{variable,typeof(policy.transform)}(policy.transform)
+    transformed = Base.promote_op(operation, T)
+    # An always-throwing callback cannot produce an incompatible value. Preserve
+    # its declared storage and let the real worker report its original failure.
+    transformed === Union{} && return _configured_status_type_rules(policy, T, elements)
+    finite = all(isconcretetype, Base.uniontypes(transformed))
+    # Keep an unchanged abstract Required bound (Real/Any), which filters real RT
+    # classes later. An unknown result for a concrete declaration proves no class.
+    (finite || transformed === T) || return nothing
+    # When the outer type is unchanged, retained element types choose the same
+    # declared numeric configuration as before. They do not promise callback
+    # semantics: the real result must still pass exact reference admission.
+    # A different outer type has no captured element configuration.
+    configured_elements = transformed === T ? elements : nothing
+    return _configured_status_type_rules(policy, transformed, configured_elements)
+end
+
+# No conversion function or initializer is called here. A concrete target fixes
+# the converted scalar type. An abstract target cannot be predicted in general.
+function _configured_status_type_rules(policy::StatusConversionPolicy, T, elements)
+    T === Union{} && return nothing
+    if T isa Union
+        results = map(Base.uniontypes(T)) do member
+            _configured_status_type_rules(policy, member, nothing)
+        end
+        any(isnothing, results) && return nothing
+        return Union{results...}
+    end
+    rule = _matching_status_type_rule_for_type(policy.rules, T)
+    if !isnothing(rule)
+        return isconcretetype(last(rule)) ? last(rule) : nothing
+    end
+    T <: Array{<:Number} || return T
+    isempty(policy.rules) && return T
+    declared_element = eltype(T)
+    if isnothing(elements)
+        # A required homogeneous array has the same result type whether empty
+        # or not. An abstract element declaration needs real initializer types.
+        isconcretetype(declared_element) || return nothing
+        elements = Tuple{declared_element}
+    end
+    types = fieldtypes(elements)
+    if isempty(types)
+        rule = _matching_status_type_rule_for_type(policy.rules, declared_element)
+        isnothing(rule) && return T
+        target = last(rule)
+        return isconcretetype(target) ? Array{target,ndims(T)} : nothing
+    end
+    converted = Any[]
+    type_changed = false
+    same_type_conversion = false
+    for source in types
+        rule = _matching_status_type_rule_for_type(policy.rules, source)
+        if isnothing(rule)
+            push!(converted, source)
+        else
+            target = last(rule)
+            isconcretetype(target) || return nothing
+            push!(converted, target)
+            type_changed |= target !== source
+            same_type_conversion |= target === source
+        end
+    end
+    converted_array = Array{_status_array_element_type(converted),ndims(T)}
+    type_changed && return converted_array
+    # A user conversion may return a different value of the same scalar type.
+    # If that could change an abstract array's storage, types alone do not prove
+    # which branch of the value materializer will run. Diagnose, never guess.
+    same_type_conversion && converted_array !== T && return nothing
+    return T
+end
+
 function _convert_numeric_array_elements(rules, value::Array{<:Number}; context)
     if isempty(value)
         rule = _matching_status_type_rule_for_type(rules, eltype(value))
@@ -150,8 +238,7 @@ function _convert_numeric_array_elements(rules, value::Array{<:Number}; context)
     end
     changed || return value, false, nothing
 
-    effective_eltype = foldl(
-        typejoin,
+    effective_eltype = _status_array_element_type(
         (typeof(element) for element in converted_values),
     )
     converted_array = similar(value, effective_eltype)
@@ -317,7 +404,7 @@ function _materialize_status_value(
     return effective, details.storage_changed, details.mapping_rule
 end
 
-function _convert_registered_status(model, object_id, status)
+function _convert_registered_status(model, object_id, status; conversion_records)
     status isa Status || return status
     _no_status_conversion(model.status_conversion) && return status
     names = propertynames(status)
@@ -331,6 +418,7 @@ function _convert_registered_status(model, object_id, status)
             reference[];
             object_id=object_id,
             origin=:supplied_status,
+            conversion_records=conversion_records,
         )
         changed |= variable_changed
         return variable_changed ? Ref(converted) : reference

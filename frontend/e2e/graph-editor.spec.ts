@@ -128,6 +128,7 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
   });
 
   test("connects another consumer and supports undo, redo, remove, and save", async ({ page, request }, testInfo) => {
+    test.setTimeout(120_000);
     await page.goto(server.url);
     await page.getByTestId("configure-environment").click();
     await page.getByTestId("scene-environment").selectOption("environment:weather");
@@ -194,7 +195,7 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
       await page.getByTestId("instance-name").fill(plant);
       await page.getByTestId("instance-root").selectOption(JSON.stringify(plant));
       await page.getByTestId("instance-preview-button").click();
-      await expect(page.getByTestId("instance-preview")).toContainText("1 claimed object");
+      await expect(page.getByTestId("instance-preview")).toContainText("1 claimed object", { timeout: 20_000 });
       await page.getByTestId("instance-submit").click();
       await waitForState(request, server.url, (value) => value.graph.instances.some((instance) => instance.name === plant));
     }

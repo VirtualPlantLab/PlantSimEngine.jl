@@ -68,8 +68,41 @@ other simulations with different choices.
 
 ## Compilation Before Runtime
 
-Before the first time step, PlantSimEngine prepares the simulation. This
-preparation is called **compilation**. It:
+`CompositeModel` prepares the application declarations when you construct it:
+application identifiers, input/output and environment port names, variable
+contracts, selector rules, declared value and call connections, and the dependency
+order between applications. Objects and weather rows can be added later. The
+constructor registers the objects you supplied without running their equations.
+It also fixes the field order and allowed reference types for the configured
+object statuses, including fields declared for objects that may appear later.
+Values, object counts, and vector lengths remain dynamic. A field stays absent
+until real data, a default, or a connection supplies its reference.
+
+Use `model_status` to keep the official status after construction:
+
+```julia
+supplied = Status(x=1f0)
+model = CompositeModel(Object(:leaf; scale=:Leaf, status=supplied))
+status = model_status(model, :leaf)
+status.x = 2f0
+@assert supplied.x == 2f0
+object_id(model, status) # ObjectId(:leaf)
+```
+
+The official container shares unchanged references with the supplied status.
+Its identity belongs to the registry; `object_id(model, supplied)` raises an
+`ArgumentError` because the supplied container is no longer registered. Retain
+`model_status(model, object)` when you need both values and object identity.
+Conversions may create new references, as described in
+[numeric type configuration](guides/data/numerical_reliability.md).
+
+Field access such as `status.x` follows names. Positional access with `status[i]`
+and `Tuple(status)` follows the order fixed at preparation, rather than the
+order in which producers first supplied their values. Obtain `keys(status)`
+when you need to inspect the currently present fields.
+
+Starting a simulation resolves those declarations against the current objects
+and environment. This preparation is called **compilation**. It:
 
 1. finds the objects selected by each application's `on` rule;
 2. finds where each input value will come from;
@@ -79,17 +112,49 @@ preparation is called **compilation**. It:
    models that run at different time steps;
 5. lists the models that each controller can call through `calls`;
 6. finds the weather source, cell, or layer that supplies each object;
-7. puts applications in order so their inputs are available when needed,
-   including any order specified by `Updates`;
+7. prepares a schedule from the dependency order, including `Updates`, and
+   each application's actual cadence;
 8. groups objects with matching model, status, and environment types so Julia
    can run them efficiently.
 
-The scenario plan records the selected objects, connections, and execution
-order. PlantSimEngine can reuse it while those declarations and the topology
-still match. Live status references and time histories belong to the
-simulation. When a model creates or removes an object during a run,
-PlantSimEngine refreshes the affected connections before later applications
-use them. Use `continue!` or `step!` to advance with the same history.
+The model reuses its application declarations and dependency metadata. Target
+membership, reference carriers, clocks, and sampling handles are resolved from
+the real objects and environment. You can register objects or change the
+weather duration before the first run; preparation uses their current values.
+Run length, requested outputs, and temporal storage are supplied for each
+simulation.
+
+Canonical object statuses belong to the model's registry. A `Simulation` uses
+those live references and keeps its own progress and output history. `run!`
+starts a new timeline from the model's current state. For independent repeats,
+construct a fresh model or call `deepcopy(initial_model)` before the first run. Use
+`continue!` or `step!` to advance the same timeline.
+
+When a model creates, removes, or reparents an object, the same preparation
+operators refresh the affected membership and connections before later
+applications use them. Unaffected targets, references, and compatible execution
+batches are retained.
+
+### Declaration methods describe the model
+
+Treat `inputs_`, `outputs_`, environment declarations, `dep`, `timespec`,
+`environment_hint`, and variable contracts as descriptions derived from model
+parameters. PlantSimEngine may query them during construction, preparation, or
+inspection. Do not draw random numbers, advance a scientific state, or depend
+on their call count. Put those operations in `run!` or an explicit real-object
+initializer. Creating a fresh mutable default, such as an empty vector, is
+supported; object preparation keeps defaults private to each object.
+
+Keep declaration names and layouts stable while a prepared model is in use.
+Use `PlantSimEngine.Advanced.refresh_bindings!(model; force=true)` to refresh
+selectors or declaration metadata within the same prepared field and type schemas.
+A change that needs a different canonical Status or typed configuration schema
+requires constructing a new `CompositeModel`; it cannot replace the old schema in
+place. The same applies after an initial declaration failure prevented a schema
+from being prepared: fix the declaration, then construct the model again.
+Graph-editor configuration changes already return a newly prepared model.
+Environment changes resolve clocks and bindings while retaining unchanged
+application declarations.
 
 Useful inspection helpers:
 
@@ -440,14 +505,12 @@ update_geometry!(model, :leaf_5, new_geometry)
 ```
 
 Use `add_organ!` when the plant structure comes from an MTG. It creates the
-node, prepares its starting values, adds the object to the simulation, and
-marks its connections for updating. By default, it reuses the function you
-provided to initialize values from MTG nodes.
-
-Set `use_status_adapter=false` only if you supply all the new organ's
-attributes and values yourself, and that initialization function has no
-additional work to do. Use `register_object!` when you already have a fully
-prepared `Object` to add.
+node, registers its explicit `initial_status`, and marks its connections for
+updating. MTG `attributes` remain annotations and geometry; they do not become
+runtime variables. The `status(node)` accessor supplied to `CompositeModel`
+imports the initial tree only. Supply newborn scientific values explicitly,
+and use `source_node(model, leaf_status)` to retrieve the new source node.
+Use `register_object!` when you already have a fully prepared `Object` to add.
 
 Adding or removing objects can change which models run and where their
 inputs come from, so PlantSimEngine updates the affected connections. Moving

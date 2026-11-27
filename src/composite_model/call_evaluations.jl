@@ -6,20 +6,25 @@ end
 
 function _capture_call_output!(frame, output::RuntimeOutputStream, time)
     value = deepcopy(output.reference[])
-    push!(frame.events, CapturedCallOutput(output, output.stream, value, time))
+    push!(frame.events, CapturedCallOutput(
+        _runtime_output_variable(output), output.dependency_horizon, output.stream, value, time,
+    ))
     return nothing
 end
 
 function _capture_call_output!(frame, output::RuntimeDistributedOutputStream, time)
+    variable = _runtime_output_variable(output)
     for index in eachindex(output.references, output.streams)
         value = deepcopy(output.references[index])
-        push!(frame.events, CapturedCallOutput(output, output.streams[index], value, time))
+        push!(frame.events, CapturedCallOutput(
+            variable, output.dependency_horizon, output.streams[index], value, time,
+        ))
     end
     return nothing
 end
 
 function _publish_evaluated_call!(frame::CallEvaluationFrame, outputs, context)
-    for output in outputs
+    _foreach_runtime_output(outputs) do output
         _capture_call_output!(frame, output, context.time)
     end
     _record_evaluated_call_clock!(frame, context.output_retention, context.application.id, context.time)
@@ -34,8 +39,10 @@ function _evaluated_temporal_source(frame::CallEvaluationFrame, stream::S) where
             # Build a private read view only when a staged publication affects
             # this input. Ancestor views are already private and can be reused.
             source === stream && (source = collect(stream))
-            _model_publish_runtime_output_value!(event.output, source, event.value,
-                event.time; copy_value=false)
+            _model_publish_runtime_output_value!(
+                event.variable, event.dependency_horizon, source, event.value, event.time;
+                copy_value=false,
+            )
         end
     end
     return source::Union{S,Vector{eltype(S)}}
@@ -105,8 +112,17 @@ function _evaluate_call_targets!(targets::AbstractVector{<:CallTarget}, sampled_
     # Targeted newborn execution has lightweight individual views before the
     # lifecycle barrier installs the ordinary compiled batch.
     for target in targets
-        _run_call!(_evaluation_target(target), true, sampled_environment, environment)
+        _with_call_target_entry(targets, target) do actual
+            _run_call!(_evaluation_target(actual), true, sampled_environment, environment)
+        end
     end
+    return nothing
+end
+
+# Base.empty!(IdDict) allocates a fresh table. Its one-pass filter removes
+# current identities in place; insertion handles eventual tombstone cleanup.
+function _clear_call_execution_stamps!(frame::CallEvaluationFrame)
+    filter!(_ -> false, frame.executions)
     return nothing
 end
 
@@ -115,14 +131,15 @@ function _begin_call_evaluation!(frame, compiled, time, permission)
     frame.pending = false
     frame.in_use = true
     empty!(frame.events)
-    empty!(frame.executions)
+    _clear_call_execution_stamps!(frame)
     frame.task_identity = _call_evaluation_task_identity!()
     frame.compiled = compiled
     frame.model_revision = compiled.model.revision
     frame.runtime_revision = compiled.model.runtime_revision
     frame.environment_revision = compiled.model.environment_revision
-    frame.lifecycle_delta = lifecycle_delta(compiled.model)
-    frame.lifecycle_generation = frame.lifecycle_delta.mutation_generation
+    delta = lifecycle_delta(compiled.model)
+    frame.lifecycle_delta = delta
+    frame.lifecycle_generation = delta.mutation_generation
     frame.binding_flags = (compiled.model.bindings_dirty, compiled.model.environment_bindings_dirty)
     frame.execution_generation = compiled.execution_generation
     frame.time = time
@@ -142,7 +159,7 @@ function _with_call_evaluation(f, frame)
         return result
     catch
         empty!(frame.events)
-        empty!(frame.executions)
+        _clear_call_execution_stamps!(frame)
         frame.task_identity = nothing
         frame.parent = nothing
         rethrow()
@@ -241,8 +258,13 @@ call_targets(evaluation::CallEvaluation) = evaluation.targets
     return nothing
 end
 
-@noinline _call_execution_matches(cache::CallContextCache, executions::Dict{Any,UInt64}) =
-    cache.execution_revision == executions[cache]
+@noinline _call_execution_matches(stamp::Base.RefValue{UInt64},
+    executions::IdDict{Base.RefValue{UInt64},UInt64}) = stamp[] == executions[stamp]
+
+@inline _evaluation_compiled(frame::CallEvaluationFrame, targets) = frame.compiled
+
+@inline _evaluation_compiled(frame::CallEvaluationFrame, ::CallTargets{CS}) where {CS} =
+    frame.compiled::CS
 
 function _validate_call_evaluation(evaluation::CallEvaluation)
     frame = evaluation.frame
@@ -250,9 +272,9 @@ function _validate_call_evaluation(evaluation::CallEvaluation)
         throw(ArgumentError("Accept a call evaluation on its originating task."))
     frame.pending && frame.generation == evaluation.generation ||
         throw(ArgumentError("Call evaluation is stale or has already been accepted."))
-    _validate_call_model_state(frame, frame.compiled)
-    for cache in keys(frame.executions)
-        _call_execution_matches(cache, frame.executions) ||
+    _validate_call_model_state(frame, _evaluation_compiled(frame, evaluation.targets))
+    for stamp in keys(frame.executions)
+        _call_execution_matches(stamp, frame.executions) ||
             throw(ArgumentError("Call evaluation is stale after another execution of its targets."))
     end
     frame.parent === _active_call_evaluation() ||
@@ -265,8 +287,10 @@ function _validate_call_evaluation(evaluation::CallEvaluation)
 end
 
 function _accept_call_event!(event::CapturedCallOutput)
-    _model_publish_runtime_output_value!(event.output, event.stream, event.value, event.time;
-        copy_value=false)
+    _model_publish_runtime_output_value!(
+        event.variable, event.dependency_horizon, event.stream, event.value, event.time;
+        copy_value=false,
+    )
     return nothing
 end
 
@@ -310,7 +334,7 @@ function accept_call!(evaluation::CallEvaluation)
         # Keep prepared capacity, but release consumed snapshots. Published
         # streams or the parent journal now own the captured values.
         empty!(frame.events)
-        empty!(frame.executions)
+        _clear_call_execution_stamps!(frame)
         frame.task_identity = nothing
         frame.parent = nothing
     end

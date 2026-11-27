@@ -324,8 +324,10 @@ function prepare_test_cache(cache, target, environment; time=target.time, publis
     return PSE._prepare_cached_call_context!(
         cache, true, target.compiled, target.environment_bindings,
         target.application, target.object_id, target.bound_inputs, target.output_targets,
+        target.execution_target.call_bindings,
         target.temporal_streams, target.output_retention, time, target.constants,
-        publish, environment)
+        publish, environment,
+    )
 end
 
 @testset "materialization preserves descendants of an actively leased default context" begin
@@ -375,7 +377,7 @@ end
     scene = cache_scene(Float64)
     run!(scene.model; steps=1, outputs=:none)
     target = only(call_targets(scene.capture[], :middle))
-    cache = PSE.CallContextCache(nothing)
+    cache = PSE.CallContextCache(nothing, Ref(UInt64(0)))
     normal1 = prepare_test_cache(cache, target, target.environment)
     @test cache.default === nothing && cache.transient === normal1
     @test prepare_test_cache(cache, target, target.environment) === normal1

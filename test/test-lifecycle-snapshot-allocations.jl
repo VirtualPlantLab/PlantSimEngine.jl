@@ -9,11 +9,31 @@ function _lifecycle_append_allocations(append_path, ancestors, object_id)
     return @allocated append_path(ancestors, object_id)
 end
 
-# Retain the former expression as the allocation control, independently of the
-# production snapshot constructor's geometry dispatch barrier.
+# Keep the historical parametric geometry layout only as an allocation control.
+# It is not a runtime/prepared family or a compatibility constructor.
+module _LifecycleSnapshotAllocationReference
+using PlantSimEngine: ObjectId
+struct Snapshot{G}
+    id::ObjectId
+    scale::Union{Nothing,Symbol}
+    kind::Union{Nothing,Symbol}
+    species::Union{Nothing,Symbol}
+    name::Union{Nothing,String}
+    parent::Union{Nothing,ObjectId}
+    children::Tuple
+    ancestors::Tuple
+    geometry::G
+end
+end
+
+# Keep the preceding production geometry barrier as the allocation control.
 function _lifecycle_reference_snapshot(model, object)
     ancestors = get(model.registry.ancestor_ids_by_object, object.id, ())
-    return PlantSimEngine.LifecycleObjectSnapshot(
+    return _lifecycle_reference_snapshot(object, ancestors, object.geometry)
+end
+
+function _lifecycle_reference_snapshot(object, ancestors, geometry::G) where {G}
+    return _LifecycleSnapshotAllocationReference.Snapshot{G}(
         object.id,
         object.scale,
         object.kind,
@@ -22,7 +42,7 @@ function _lifecycle_reference_snapshot(model, object)
         object.parent,
         Tuple(object.children),
         Tuple(ancestors),
-        object.geometry,
+        geometry,
     )
 end
 
@@ -38,16 +58,20 @@ function _lifecycle_snapshot_allocations!(snapshots, snapshot, model, object)
     return @allocated _lifecycle_fill_snapshots!(snapshots, snapshot, model, object)
 end
 
-@testset "lifecycle snapshot allocations stay within historical budget" begin
-    model = CompositeModel(Object(1))
+@testset "lifecycle snapshot allocations stay within historical budget" for geometry in (
+    nothing,
+    (position=(1f0, 2f0, 3f0),),
+    Dict(:position => [1.0, 2.0, 3.0]),
+)
+    model = CompositeModel(Object(1; geometry=geometry))
     for id in 2:16
-        register_object!(model, Object(id; parent=id - 1))
+        register_object!(model, Object(id; parent=id - 1, geometry=geometry))
     end
     leaf = model_object(model, 16)
     # Allocate result storage outside measurement and inspect it afterward so
     # every measured snapshot escapes. Both implementations are warmed first.
     actual_snapshots = Vector{PlantSimEngine.LifecycleObjectSnapshot}(undef, 128)
-    previous_snapshots = similar(actual_snapshots)
+    previous_snapshots = Vector{_LifecycleSnapshotAllocationReference.Snapshot}(undef, 128)
     actual = _lifecycle_snapshot_allocations!(
         actual_snapshots, PlantSimEngine._lifecycle_object_snapshot, model, leaf,
     )
@@ -55,6 +79,8 @@ end
         previous_snapshots, _lifecycle_reference_snapshot, model, leaf,
     )
     @test actual <= previous
+    @test all(snapshot -> snapshot.geometry === geometry, actual_snapshots)
+    @test all(snapshot -> snapshot.geometry === geometry, previous_snapshots)
     expected_ancestors = Tuple(ObjectId.(1:16))
     @test all(snapshot -> snapshot.ancestors == expected_ancestors, actual_snapshots)
     @test all(snapshot -> snapshot.ancestors == expected_ancestors, previous_snapshots)
@@ -90,7 +116,9 @@ end
 
 @testset "lifecycle snapshots freeze topology and share geometry" begin
     geometry = Dict(:position => [1.0, 2.0])
-    model = CompositeModel(Object(:root; geometry=geometry))
+    # The future branch uses the same genuinely prepared initial-data family.
+    root_status = Status(signal=big"0.0", payload=Int[])
+    model = CompositeModel(Object(:root; geometry=geometry, status=root_status))
     root_snapshot = only(model.lifecycle_delta.added)
     source_status = Status(signal=big"1.25", payload=[1, 2])
     branch = register_object!(
@@ -99,9 +127,18 @@ end
     branch_snapshot = last(model.lifecycle_delta.added)
     leaf = register_object!(model, Object((:leaf, 1); parent=7))
     leaf_snapshot = last(model.lifecycle_delta.added)
-    @test branch.status === source_status
-    @test model_status(model, source_status) === source_status
-    @test object_id(model, source_status) == ObjectId(7)
+    official_status = model_status(model, branch.id)
+    @test branch.status === official_status
+    @test official_status !== source_status
+    @test PlantSimEngine.refvalue(official_status, :signal) ===
+          PlantSimEngine.refvalue(source_status, :signal)
+    @test PlantSimEngine.refvalue(official_status, :payload) ===
+          PlantSimEngine.refvalue(source_status, :payload)
+    @test official_status.signal isa BigFloat
+    @test official_status.signal == big"1.25"
+    @test official_status.payload == [1, 2]
+    @test object_id(model, official_status) == ObjectId(7)
+    @test_throws ArgumentError object_id(model, source_status)
     @test root_snapshot.children === ()
     @test branch_snapshot.children === ()
     @test branch_snapshot.ancestors == (ObjectId(:root), ObjectId(7))

@@ -101,6 +101,14 @@ targets_after_refresh = only(
 )
 ```
 
+A model that reads measured area directly from every leaf with
+`Many(scale=:Leaf, within=SceneScope(), from_status=true, var=:measured_area)`
+needs a `measured_area` value on each new leaf. If a leaf registered between steps is
+missing that value, `step!` reports the missing input before advancing the
+clock or recording another sample. The leaf is still in the model. You can
+remove it with `remove_object!`, register a leaf with its measured area,
+and retry the step.
+
 You can also create organs inside a model's `run!` function, for example in
 a growth model. In that case, PlantSimEngine updates the simulation after
 that model finishes. The new organ can take part in calculations scheduled

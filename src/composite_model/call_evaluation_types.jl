@@ -1,7 +1,8 @@
 abstract type AbstractCallPublicationEvent end
 
-struct CapturedCallOutput{O,S,V} <: AbstractCallPublicationEvent
-    output::O
+struct CapturedCallOutput{S,V} <: AbstractCallPublicationEvent
+    variable::Symbol
+    dependency_horizon::Float64
     stream::S
     value::V
     time::Float64
@@ -26,7 +27,7 @@ mutable struct CallEvaluationTaskIdentity end
 
 mutable struct CallEvaluationFrame
     events::Vector{AbstractCallPublicationEvent}
-    executions::Dict{Any,UInt64}
+    executions::IdDict{Base.RefValue{UInt64},UInt64}
     generation::UInt64
     pending::Bool
     in_use::Bool
@@ -46,9 +47,9 @@ mutable struct CallEvaluationFrame
 end
 
 CallEvaluationFrame() = CallEvaluationFrame(
-    # Cache keys are mutable objects with identity equality. Dict keeps its
-    # storage when emptied and stores revision values without boxing.
-    AbstractCallPublicationEvent[], Dict{Any,UInt64}(), UInt64(0), false,
+    # Execution stamps identify logical application/object state. Context-cache
+    # wrappers and transient leases may be rebuilt while that identity persists.
+    AbstractCallPublicationEvent[], IdDict{Base.RefValue{UInt64},UInt64}(), UInt64(0), false,
     false, nothing, nothing, 0, 0, 0, nothing, UInt64(0), (false, false), UInt64(0),
     0.0, nothing, UInt64(0), false,
 )

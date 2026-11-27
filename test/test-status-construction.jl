@@ -1,0 +1,230 @@
+module StatusConstructionChecks
+
+using Dates
+using PlantSimEngine
+using Test
+
+const PSE = PlantSimEngine
+
+@testset "exact projection preserves order and actual reference identities" begin
+    original = Status(keep=1, replace=2.0)
+    keep = PSE.refvalue(original, :keep)
+    replacement = Ref(3.0f0)
+    tail = Ref([4.0])
+    Result = PSE._dense_status_type((:keep, :replace, :tail),
+        Tuple{typeof(keep),typeof(replacement),typeof(tail)})
+    Edited = Tuple{typeof(replacement),typeof(tail)}
+    factory = PSE.ExactReferenceFactory(typeof(original), Edited, Result, (:replace,:tail))
+    constructed = PSE._construct_status(factory, original, (replacement,tail))
+    @test propertynames(constructed) == (:keep,:replace,:tail)
+    @test PSE.refvalue(constructed,:keep) === keep
+    @test PSE.refvalue(constructed,:replace) === replacement
+    @test PSE.refvalue(constructed,:tail) === tail
+    @test Tuple(constructed) == (1,3f0,[4.0])
+    constructed.replace = 5f0
+    @test replacement[] === 5f0
+    @test original.replace === 2.0
+
+    storage = [12.0]
+    external = Ref(storage,1)
+    External = PSE._dense_status_type((:keep,:external),Tuple{typeof(keep),typeof(external)})
+    external_factory = PSE.ExactReferenceFactory(typeof(original),Tuple{typeof(external)},
+        External,(:external,))
+    external_status = PSE._construct_status(external_factory,original,(external,))
+    @test PSE.refvalue(external_status,:external) === external
+    storage[1] = 13.0
+    @test external_status.external === 13.0
+
+    Empty = PSE._dense_status_type((),Tuple{})
+    empty_factory = PSE.ExactReferenceFactory(Nothing,Tuple{},Empty,())
+    empty_a = PSE._construct_status(empty_factory,nothing,())
+    empty_b = PSE._construct_status(empty_factory,nothing,())
+    @test propertynames(empty_a) == ()
+    @test getfield(empty_a,:identity) !== getfield(empty_b,:identity)
+end
+
+PSE.@process "status_construction_defaults" verbose=false
+struct MutableDefaults{T} <: AbstractStatus_Construction_DefaultsModel
+    initial::T
+end
+PSE.outputs_(model::MutableDefaults) = (items=model.initial[],)
+PSE.run!(::MutableDefaults, status, environment, constants, context) = nothing
+
+@testset "ordinary preparation keeps mutable defaults fresh and object-private" begin
+    initial = Ref([1.0])
+    model = CompositeModel(
+        Object(:first; scale=:Leaf), Object(:second; scale=:Leaf);
+        applications=(ModelSpec(MutableDefaults(initial); name=:defaults,
+            on=Many(scale=:Leaf)),),
+        environment=(duration=Hour(1),), type_promotion=Dict(Float64 => Float32))
+    simulation = run!(model; steps=0, outputs=:none)
+    first = model_status(model, :first).items
+    second = model_status(model, :second).items
+    @test first == second == Float32[1]
+    @test first !== second
+    @test first !== initial[]
+    @test eltype(first) === Float32
+    initial[][1] = 9.0
+    register_object!(model, Object(:third; scale=:Leaf))
+    continue!(simulation; steps=1)
+    third = model_status(model, :third).items
+    @test third == Float32[9]
+    @test first == second == Float32[1]
+    first[1] = 20f0
+    @test second == Float32[1]
+    @test third == Float32[9]
+    @test initial[] == [9.0]
+end
+
+PSE.@process "status_construction_producer" verbose=false
+PSE.@process "status_construction_consumer" verbose=false
+struct Producer <: AbstractStatus_Construction_ProducerModel end
+struct Consumer <: AbstractStatus_Construction_ConsumerModel end
+PSE.outputs_(::Producer) = (value=7.0,)
+PSE.inputs_(::Consumer) = (input=Default(0.0),)
+PSE.run!(::Producer, status, environment, constants, context) = nothing
+PSE.run!(::Consumer, status, environment, constants, context) = nothing
+
+@testset "resolved input aliases still validate their declared defaults" begin
+    converted = Pair{Symbol,Any}[]
+    transform(variable, value) = begin
+        push!(converted, variable => value)
+        variable === :input ? value + 1000 : value
+    end
+    model = CompositeModel(
+        Object(:source; status=Status(value=7.0)),
+        Object(:reader; status=Status());
+        applications=(
+            ModelSpec(Producer(); name=:producer, on=One(id=:source)),
+            ModelSpec(Consumer(); name=:consumer, on=One(id=:reader),
+                inputs=(input=One(SceneScope(); id=:source, application=:producer, var=:value),)),
+        ), environment=(duration=Hour(1),), status_transform=transform)
+    empty!(converted)
+    run!(model; steps=0, outputs=:none)
+    @test converted == [:input => 0.0]
+    @test model_status(model, :reader).input == 7.0
+    @test PSE.refvalue(model_status(model, :reader), :input) ===
+          PSE.refvalue(model_status(model, :source), :value)
+    @test haskey(model.status_conversion_records,
+        (:model_input_default, :consumer, ObjectId(:reader), :input))
+end
+
+PSE.@process "status_construction_transaction" verbose=false
+struct TransactionDefault{T} <: AbstractStatus_Construction_TransactionModel
+    initial::T
+end
+PSE.outputs_(model::TransactionDefault) = (pending=model.initial,)
+PSE.run!(::TransactionDefault, status, environment, constants, context) = nothing
+
+@testset "conversion failure leaves every staged object unchanged" begin
+    converted = Float64[]
+    transform(variable, value) = begin
+        if variable === :pending
+            push!(converted, value)
+            value == 2.0 && error("intentional later-object conversion failure")
+        end
+        value
+    end
+    model = CompositeModel(
+        Object(:first; status=Status(keep=11.0)),
+        Object(:second; status=Status(keep=12.0));
+        applications=(
+            ModelSpec(TransactionDefault(1.0); name=:first_default, on=One(id=:first)),
+            ModelSpec(TransactionDefault(2.0); name=:second_default, on=One(id=:second)),
+        ), environment=(duration=Hour(1),), status_transform=transform)
+    @test isempty(converted) # type preparation never runs the pending transform
+    first = model_status(model, :first)
+    second = model_status(model, :second)
+    records = copy(model.status_conversion_records)
+    @test_throws ErrorException run!(model; steps=0, outputs=:none)
+    @test converted == [1.0, 2.0]
+    @test model_status(model, :first) === first
+    @test model_status(model, :second) === second
+    @test propertynames(first) == propertynames(second) == (:keep,)
+    @test first.keep == 11.0
+    @test second.keep == 12.0
+    @test model.status_conversion_records == records
+end
+
+PSE.@process "status_construction_distributed" verbose=false
+struct DistributedDefaults{T} <: AbstractStatus_Construction_DistributedModel
+    initial::T
+end
+PSE.outputs_(model::DistributedDefaults) = (flow=Distributed(Default(model.initial[])),)
+PSE.run!(::DistributedDefaults, status, environment, constants, context) = nothing
+
+@testset "shared layouts retain fresh effective override defaults" begin
+    initial = Ref([1.0])
+    overridden = Ref([2.0])
+    template = CompositeModelTemplate((
+        ModelSpec(DistributedDefaults(initial); name=:writer, on=Many(scale=:Plant),
+            outputs_to=(OutputTo(Many(scale=:Leaf, within=Subtree())),)),
+    ))
+    model = CompositeModel(
+        ObjectInstance(:left, template; root=Object(:left_root; scale=:Plant),
+            objects=(Object(:left_leaf; scale=:Leaf, parent=:left_root),)),
+        ObjectInstance(:right, template; root=Object(:right_root; scale=:Plant),
+            objects=(Object(:right_leaf; scale=:Leaf, parent=:right_root),),
+            overrides=(writer=DistributedDefaults(overridden),));
+        environment=(duration=Hour(1),), type_promotion=Dict(Float64 => Float32))
+    simulation = run!(model; steps=0, outputs=:none)
+    @test model_status(model, :left_leaf).flow == Float32[1]
+    @test model_status(model, :right_leaf).flow == Float32[2]
+    initial[][1] = 3.0
+    overridden[][1] = 4.0
+    register_object!(model, Object(:left_new; scale=:Leaf, parent=:left_root))
+    register_object!(model, Object(:right_new; scale=:Leaf, parent=:right_root))
+    continue!(simulation; steps=1)
+    @test model_status(model, :left_new).flow == Float32[3]
+    @test model_status(model, :right_new).flow == Float32[4]
+    @test model_status(model, :left_leaf).flow == Float32[1]
+    @test model_status(model, :right_leaf).flow == Float32[2]
+end
+
+# A canonical input reference introduced by one applicable application is also
+# visible to another model on that same object. No raw/default TEff cell exists.
+struct SharedThermalBinder <: AbstractStatus_Construction_ConsumerModel end
+struct SharedThermalObserver <: AbstractStatus_Construction_ConsumerModel end
+PSE.inputs_(::SharedThermalBinder) = (TEff=Required(Real),)
+PSE.outputs_(::SharedThermalBinder) = NamedTuple()
+PSE.run!(::SharedThermalBinder, status, environment, constants, context) = nothing
+PSE.inputs_(::SharedThermalObserver) = (TEff=Required(Real),)
+PSE.outputs_(::SharedThermalObserver) = (observed_thermal=0.0,)
+PSE.run!(::SharedThermalObserver, status, environment, constants, context) =
+    (status.observed_thermal = status.TEff; nothing)
+
+@testset "a prepared canonical input serves other same-object Required readers" begin
+    model = CompositeModel(Object(:source; scale=:Scene); applications=(
+        ModelSpec(Producer(); name=:producer, on=One(id=:source)),
+        ModelSpec(SharedThermalBinder(); name=:thermal, on=Many(scale=:Leaf, kind=:wired),
+            inputs=(TEff=One(SceneScope(); id=:source, application=:producer, var=:value),)),
+        ModelSpec(SharedThermalObserver(); name=:observer, on=Many(scale=:Leaf)),
+    ), environment=(duration=Hour(1),))
+    @test model.scenario_plan_cache.status_manifest isa PSE.PreparedStatusManifest
+    simulation = run!(model; steps=0, outputs=:all)
+    @test isempty(model_objects(model; scale=:Leaf))
+    source_reference = PSE.refvalue(model_status(model, :source), :value)
+    register_object!(model, Object(:new_leaf; scale=:Leaf, kind=:wired))
+    continue!(simulation; steps=1)
+    official = model_status(model, :new_leaf)
+    @test official.TEff === official.observed_thermal === 7.0
+    @test PSE.refvalue(official, :TEff) === source_reference
+    @test last.(outputs(simulation)[(:observer, ObjectId(:new_leaf), :observed_thermal)]) == [7.0]
+
+    # The observer gains type evidence, not permission to populate that field
+    # on an object outside the actual binding application's selector.
+    unauthorized = Status(TEff=9.0)
+    candidate = Object(:outside; scale=:Leaf, kind=:unwired, status=unauthorized)
+    records = copy(model.status_conversion_records)
+    before_count = length(model.registry.objects)
+    @test_throws ArgumentError register_object!(model, candidate)
+    @test length(model.registry.objects) == before_count
+    @test !haskey(model.registry.objects, ObjectId(:outside))
+    @test candidate.status === unauthorized
+    @test model.status_conversion_records == records
+    @test model_status(model, :new_leaf) === official
+    @test PSE.refvalue(official, :TEff) === source_reference
+    @test source_reference[] === 7.0
+end
+
+end

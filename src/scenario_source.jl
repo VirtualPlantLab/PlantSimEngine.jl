@@ -207,8 +207,8 @@ function _scenario_source_models(model)
     add_application = function (application)
         process_model = model_(as_model_spec(application))
         if process_model isa ObjectModelOverrides
-            push!(models, process_model.base)
-            append!(models, values(process_model.overrides))
+            push!(models, _object_override_base(process_model))
+            append!(models, values(process_model.variants))
         else
             push!(models, process_model)
         end

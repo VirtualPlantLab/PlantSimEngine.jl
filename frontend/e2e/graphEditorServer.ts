@@ -40,7 +40,10 @@ export async function startGraphEditorServer(): Promise<GraphEditorServer> {
     let timeout: ReturnType<typeof setTimeout>;
 
     const consume = (chunk: Buffer) => {
-      if (settled) return;
+      if (settled) {
+        process.stderr.write(chunk);
+        return;
+      }
       log += chunk.toString();
       const match = log.match(/PSE_GRAPH_EDITOR_URL=(http:\/\/127\.0\.0\.1:\d+[^\s]*)/);
       if (match) {

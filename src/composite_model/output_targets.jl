@@ -30,9 +30,12 @@ struct OutputTargets{B,C}
 end
 
 function OutputTargets(binding::CompiledModelOutputDestinationBinding, alignment_id::Int)
+    return _output_targets(binding, _output_target_columns(binding), alignment_id)
+end
+function _output_targets(binding, columns, alignment_id::Int)
     count = length(binding.destination_ids)
     return OutputTargets(
-        binding,
+        OutputTargetColumns(binding, columns),
         OutputAssignmentCache(
             nothing,
             Vector{Int}(undef, count),
@@ -50,6 +53,26 @@ end
 struct OutputTargetColumns{B,C}
     source::B
     columns::C
+end
+
+# Snapshot only the carrier header; source, carriers, IDs and cells are borrowed.
+_output_target_binding(targets::OutputTargets) = getfield(getfield(targets, :binding), :source)
+_output_target_binding_type(::Type{T}) where {T<:OutputTargets} =
+    fieldtype(fieldtype(T, :binding), :source)
+_output_target_columns_type(::Type{T}) where {T<:OutputTargets} =
+    fieldtype(fieldtype(T, :binding), :columns)
+
+@generated function _output_target_columns(binding::B) where {B<:CompiledModelOutputDestinationBinding}
+    names = fieldtype(B, :plan).parameters[2]
+    values = Expr(:tuple, [:(getfield(getfield(binding, :columns), $(QuoteNode(name)))) for name in names]...)
+    return :(NamedTuple{$(QuoteNode(names))}($values))
+end
+@generated function _output_target_columns(binding::B, ::Type{C}) where {B<:CompiledModelOutputDestinationBinding,C<:NamedTuple}
+    names = fieldtype(B, :plan).parameters[2]
+    names === fieldnames(C) || return :(throw(ArgumentError("Prepared output column names changed.")))
+    values = Expr(:tuple, [:(getfield(getfield(binding, :columns), $(QuoteNode(name)))::$(fieldtype(C,index)))
+        for (index,name) in enumerate(names)]...)
+    return :($C($values))
 end
 
 @inline function Base.getproperty(view::OutputTargetColumns, name::Symbol)
@@ -95,7 +118,13 @@ end
 
 function _output_target_context(targets::OutputTargets)
     binding = getfield(targets, :binding)
-    return "application `$(binding.application_id)`, output variables `$(propertynames(targets.columns))`"
+    names = _diagnostic_symbol_list(propertynames(targets.columns); as_tuple=true)
+    return "application `$(binding.application_id)`, output variables `$(names)`"
+end
+
+_output_coverage_ids_text(ids) = string([id.value for id in ids])
+function _output_coverage_ids_text(ids::Vector{ObjectId{Symbol}})
+    return _diagnostic_symbol_list(Symbol[id.value for id in ids])
 end
 
 function _output_table_columns(
@@ -148,21 +177,43 @@ function _validate_output_table_columns(
     return nothing
 end
 
-function _validate_output_column_lengths(
+@inline function _validate_output_column_length(targets, name::Symbol, column, row_count)
+    column_count = length(column)
+    column_count == row_count || throw(
+        DimensionMismatch(
+            "Output column `$(name)` for $(_output_target_context(targets)) " *
+            "has $(column_count) rows, but the ID column has $(row_count).",
+        ),
+    )
+    return nothing
+end
+
+@generated function _validate_output_column_lengths(
     targets::OutputTargets,
     ids,
-    columns::NamedTuple,
-)
-    row_count = length(ids)
-    for (name, column) in pairs(columns)
-        length(column) == row_count || throw(
-            DimensionMismatch(
-                "Output column `$(name)` for $(_output_target_context(targets)) " *
-                "has $(length(column)) rows, but the ID column has $(row_count).",
-            ),
-        )
+    columns::NamedTuple{Names},
+) where {Names}
+    checks = [
+        :(_validate_output_column_length(
+            targets, $(QuoteNode(name)), getfield(columns, $index), row_count,
+        ))
+        for (index, name) in enumerate(Names)
+    ]
+    return quote
+        row_count = length(ids)
+        $(checks...)
+        return row_count
     end
-    return row_count
+end
+
+# Exact prepared identities can retain their type throughout the diagnostic.
+# An open or differently typed ID column still accepts arbitrary identities.
+_output_coverage_id_type(ids, target_ids) = ObjectId
+function _output_coverage_id_type(
+    ::AbstractVector{ObjectId{T}},
+    ::AbstractVector{ObjectId{T}},
+) where {T}
+    return isconcretetype(T) ? ObjectId{T} : ObjectId
 end
 
 function _output_coverage_error(
@@ -171,21 +222,22 @@ function _output_coverage_error(
 )
     binding = getfield(targets, :binding)
     target_ids = binding.destination_ids
-    row_ids = ObjectId[ObjectId(id) for id in ids]
-    counts = Dict{ObjectId,Int}()
+    ID = _output_coverage_id_type(ids, target_ids)
+    row_ids = ID[ObjectId(id) for id in ids]
+    counts = Dict{ID,Int}()
     sizehint!(counts, length(row_ids))
     for object_id in row_ids
         counts[object_id] = get(counts, object_id, 0) + 1
     end
-    duplicate_ids = ObjectId[
+    duplicate_ids = ID[
         object_id for (object_id, count) in counts
         if count > 1
     ]
-    unknown_ids = ObjectId[
+    unknown_ids = ID[
         object_id for object_id in keys(counts)
         if !haskey(binding.destination_index, object_id)
     ]
-    missing_ids = ObjectId[
+    missing_ids = ID[
         object_id for object_id in target_ids
         if !haskey(counts, object_id)
     ]
@@ -198,21 +250,21 @@ function _output_coverage_error(
         extra_ids = isempty(unknown_ids) ? duplicate_ids : unknown_ids
         push!(
             details,
-            "extra result ID(s) `$([id.value for id in extra_ids])`",
+            "extra result ID(s) `$(_output_coverage_ids_text(extra_ids))`",
         )
     elseif !isempty(unknown_ids)
         push!(
             details,
-            "unknown result ID(s) `$([id.value for id in unknown_ids])`",
+            "unknown result ID(s) `$(_output_coverage_ids_text(unknown_ids))`",
         )
     end
     isempty(duplicate_ids) || push!(
         details,
-        "duplicate result ID(s) `$([id.value for id in duplicate_ids])`",
+        "duplicate result ID(s) `$(_output_coverage_ids_text(duplicate_ids))`",
     )
     isempty(missing_ids) || push!(
         details,
-        "missing destination ID(s) `$([id.value for id in missing_ids])`",
+        "missing destination ID(s) `$(_output_coverage_ids_text(missing_ids))`",
     )
     isempty(details) && push!(
         details,

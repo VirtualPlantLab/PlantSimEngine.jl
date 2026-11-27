@@ -94,6 +94,35 @@ end
     end
 end
 
+@testset "final state copies the visible fields and preserves shared values" begin
+    leaf = Object(:leaf; scale=:Leaf, status=Status(
+        data=zeros(Int, 4), alias=Int[], matrix=zeros(Int, 2, 2), cycle=Any[], nullable=nothing,
+    ))
+    simulation = run!(CompositeModel(leaf, Object(:soil; status=Status(water=2.0))); steps=0)
+    live = model_status(simulation, :leaf)
+    # Establish the relationships on the registered status after preparation.
+    live.data .= 1:4
+    live.alias = live.data
+    live.matrix = reshape(live.data, 2, 2)
+    push!(live.cycle, live.cycle)
+
+    expected = deepcopy(NamedTuple(live))
+    snapshot = final_state(simulation, :leaf)
+    @test typeof(snapshot) === typeof(expected)
+    @test keys(snapshot) == keys(live)
+    @test snapshot.nullable === nothing
+    @test !haskey(snapshot, :water)
+    @test final_state(simulation, :soil) == (water=2.0,)
+    @test snapshot.data == expected.data
+    @test snapshot.data === snapshot.alias
+    @test snapshot.data !== live.data
+    @test snapshot.cycle !== live.cycle && only(snapshot.cycle) === snapshot.cycle
+    # Compare the relationship between reshaped arrays with Julia's own deepcopy.
+    snapshot.matrix[1] = expected.matrix[1] = 20
+    @test snapshot.data == expected.data
+    @test live.data[1] == 1
+end
+
 @testset "requested mutable initial values survive continuation and reentry" begin
     model = CompositeModel(
         Object(:scene; scale=:Scene),
@@ -423,11 +452,46 @@ end
     @test getproperty.(rows, :timestep) == [1, 2, 5, 6]
     @test getproperty.(rows, :value) == [1, 2, 5, 6]
     @test all(row -> row.object_id == :leaf, rows)
-    target = simulation.output_request_targets[
-        :plant_1_leaves
-    ][2][ObjectId(:leaf)]
+    target = simulation.output_requests[:plant_1_leaves].targets[ObjectId(:leaf)]
     @test [
         (membership.start_time, membership.end_time)
         for membership in target.memberships
     ] == [(0.0, 2.0), (5.0, 6.0)]
+end
+
+@testset "final state preserves shared reference cells and packed array storage" begin
+    leaf = Object(:leaf; status=Status(
+        columns=PlantSimEngine.RefVector{Float64}([Ref(0.0), Ref(0.0)]),
+        cells=Base.RefValue{Float64}[],
+        flags=falses(4),
+        matrix_flags=falses(2, 2),
+        chunks=UInt64[],
+    ))
+    simulation = run!(CompositeModel(leaf); steps=0)
+    live = model_status(simulation, :leaf)
+    cell = Ref(3.5)
+    live.columns = PlantSimEngine.RefVector{Float64}([cell, cell])
+    live.cells = parent(live.columns)
+    live.matrix_flags = reshape(live.flags, 2, 2)
+    live.chunks = getfield(live.flags, :chunks)
+
+    expected = deepcopy(NamedTuple(live))
+    snapshot = final_state(simulation, :leaf)
+    @test typeof(snapshot) === typeof(expected)
+    @test snapshot.columns == expected.columns
+    @test snapshot.flags == expected.flags
+    @test snapshot.matrix_flags == expected.matrix_flags
+    @test parent(snapshot.columns) === snapshot.cells
+    @test snapshot.cells[1] === snapshot.cells[2]
+    @test snapshot.cells[1] !== cell
+    @test getfield(snapshot.flags, :chunks) === snapshot.chunks
+    @test getfield(snapshot.matrix_flags, :chunks) === snapshot.chunks
+    @test snapshot.chunks !== live.chunks
+    snapshot.cells[1][] = 23.0
+    @test snapshot.columns[1] == snapshot.columns[2] == 23.0
+    @test cell[] == 3.5
+    snapshot.matrix_flags[1] = true
+    @test snapshot.flags[1]
+    @test !live.flags[1]
+    @test current_step(simulation) == 0
 end
