@@ -94,9 +94,17 @@ function construction_trace(; schema=ViewConstructionTrace(), prototype=nothing)
     step!(simulation); checkpoint!()
     key = (:writer, ObjectId(1))
     private = simulation.compiled.status_views_by_target[key].private_outputs.private
+    original_retention = simulation.output_retention
     register_object!(model, Object(2; scale=:Leaf, parent=0))
     step!(simulation); checkpoint!()
     @test simulation.compiled.status_views_by_target[key].private_outputs.private === private
+    @test simulation.output_retention === original_retention
+    @test last(stream(simulation, :writer, 2, :private)) == (3.0, 6f0)
+    @test PSE._model_output_retention_covers_addition(original_retention, simulation.compiled)
+    # The changed reader needs two steps of private history from the new leaf.
+    insufficient = deepcopy(original_retention)
+    insufficient.dependency_horizons[(:writer, :private)] = 1.0
+    @test !PSE._model_output_retention_covers_addition(insufficient, simulation.compiled)
     remove_object!(model, 1)
     remove_object!(model, 2)
     step!(simulation); checkpoint!()

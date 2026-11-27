@@ -632,6 +632,7 @@ function PlantSimEngine.run!(
     constants,
     context,
 )
+    status.biomass += 1.0
     return nothing
 end
 
@@ -666,6 +667,7 @@ function PlantSimEngine.run!(
     constants,
     context,
 )
+    status.initialized_Rm == -Inf || return nothing
     leaf = register_object!(
         runtime_model(context),
         Object(
@@ -891,24 +893,46 @@ end
         environment=(duration=Hour(1),),
     )
 
+    prepared_model = deepcopy(model)
     compiled = Advanced.refresh_bindings!(model)
     @test compiled.application_order ==
           (:respiration, :creator, :biomass_source)
-    simulation = run!(model; steps=1, outputs=:all)
-    leaf_status = model_status(model, :exact_new_leaf)
-    @test leaf_status.biomass == 4.0
-    @test leaf_status.Rm == 8.0
-    @test model_status(model, :scene).initialized_Rm == 8.0
-    @test isempty(
-        outputs(simulation)[
-            (:respiration, ObjectId(:exact_new_leaf), :Rm)
-        ],
-    )
-    @test last.(
-        outputs(simulation)[
-            (:biomass_source, ObjectId(:exact_new_leaf), :biomass)
-        ],
-    ) == [4.0]
+    request = OutputRequest(Many(scale=:Leaf), :Rm; application=:respiration)
+    leaf_id = ObjectId(:exact_new_leaf)
+    respiration_key = (:respiration, leaf_id, :Rm)
+    biomass_key = (:biomass_source, leaf_id, :biomass)
+    function check_two_steps!(sim)
+        step!(sim)
+        leaf = model_status(sim.model, leaf_id)
+        @test leaf.Rm == model_status(sim.model, :scene).initialized_Rm == 8.0
+        @test leaf.biomass == 5.0
+        @test isempty(outputs(sim)[respiration_key])
+        @test collect(outputs(sim)[biomass_key]) == [(1.0, 5.0)]
+
+        # The next respiration must use the published 5.0 even if canonical biomass changes.
+        leaf.biomass = 40.0
+        step!(sim)
+        @test leaf.Rm == 10.0
+        @test leaf.biomass == 41.0
+        @test collect(outputs(sim)[respiration_key]) == [(2.0, 10.0)]
+        @test collect(outputs(sim)[biomass_key]) == [(1.0, 5.0), (2.0, 41.0)]
+        return NamedTuple(leaf)
+    end
+
+    simulation = run!(model; steps=0, outputs=request)
+    ordinary_state = check_two_steps!(simulation)
+    PSE = PlantSimEngine
+    batches = Dict(group.application.id => typeof(only(group.batches))
+        for group in simulation.execution_plan.groups)
+    schema(B) = PSE.PreparedExecutionBatchSchema{Vector{B}}()
+    respiration = schema(batches[:respiration])
+    creator = schema(PSE._execution_batch_type_with_call_schemas(batches[:creator], (; respiration)))
+    biomass_source = schema(batches[:biomass_source])
+    prepared = PSE._prepare_execution_batch_schemas(
+        run!(prepared_model; steps=0, outputs=request), (; respiration, creator, biomass_source))
+    @test check_two_steps!(prepared) == ordinary_state
+    @test collect(outputs(prepared)[respiration_key]) == collect(outputs(simulation)[respiration_key])
+    @test collect(outputs(prepared)[biomass_key]) == collect(outputs(simulation)[biomass_key])
 end
 
 @testset "initializer resolves distributed current and prior sources" for replaced_history in (false, true)

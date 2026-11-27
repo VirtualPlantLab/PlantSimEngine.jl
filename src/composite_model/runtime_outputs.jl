@@ -4947,6 +4947,19 @@ function _model_output_retention_covers_binding(
     end
 end
 
+function _model_output_retention_covers_input(input::CompiledTemporalInput, plan, compiled)
+    return _model_output_retention_covers_binding(plan, compiled, input.binding)
+end
+
+function _model_output_retention_covers_view(view::CompiledModelStatusView, plan, compiled)
+    for index in eachindex(view.temporal_inputs)
+        covers = Base.@inline _with_metadata_entry(_model_output_retention_covers_input,
+            view.temporal_inputs, index, plan, compiled)
+        covers || return false
+    end
+    return true
+end
+
 function _model_output_retention_covers_addition(
     plan::OutputRetentionPlan,
     compiled::CompiledCompositeModel,
@@ -4954,8 +4967,15 @@ function _model_output_retention_covers_addition(
     for (application_id, object_id) in compiled.changed_execution_target_ids
         id = _index_object_id(compiled.model.registry.objects, object_id)
         key = (application_id, id)
-        isnothing(get(compiled.status_views_by_target, key, nothing)) && continue
-        # Use the same temporal bindings that populate this target's status view.
+        view = get(compiled.status_views_by_target, key, nothing)
+        isnothing(view) && continue
+        if compiled.status_view_schema isa CompiledMetadataTable
+            # Narrow to this application's view before visiting its temporal inputs.
+            covers = Base.@inline _with_model_status_view(_model_output_retention_covers_view,
+                compiled.status_view_schema, application_id, view, plan, compiled)
+            covers || return false
+            continue
+        end
         for binding in get(compiled.input_bindings_by_target, key, ())
             binding.carrier_hint === :temporal_stream || continue
             _model_output_retention_covers_binding(plan, compiled, binding) || return false

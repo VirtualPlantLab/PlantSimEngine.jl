@@ -193,6 +193,14 @@ end
         args[1], args[2], args[3], args[4], args[5], args[6])
 end
 
+# A targeted call runs before the topology barrier. Its raw temporal bindings
+# can read an authored initial value while the producer stream is unavailable.
+function _targeted_newborn_execution_target_type(
+    ::Type{CompiledExecutionTarget{M,V,IB,BI,OT,OB,CB,EB,RC,I}},
+) where {M,V,IB,BI,OT,OB,CB,EB,RC,I}
+    return CompiledExecutionTarget{M,V,fieldtype(V, :temporal_inputs),BI,OT,OB,CB,EB,RC,I}
+end
+
 # Incoming metadata can be abstract: callers inline these finite checks before
 # dispatching the typed factory, without a runtime generated-method fallback.
 @generated function _with_execution_target_type(f, ::ClosedExecutionCohortSchema{T},
@@ -202,8 +210,9 @@ end
     branches = Expr[]
     names = (:object_id, :model, :status_view, :bound_inputs,
         :output_targets, :call_bindings, :environment_binding)
-    for Target in fieldtypes(T)
-        Target <: CompiledExecutionTarget || error("Closed target factory needs canonical execution-target schemas.")
+    for CanonicalTarget in fieldtypes(T)
+        CanonicalTarget <: CompiledExecutionTarget || error("Closed target factory needs canonical execution-target schemas.")
+        Target = iszero(N) ? CanonicalTarget : _targeted_newborn_execution_target_type(CanonicalTarget)
         Context = fieldtype(Target, :context)
         Context <: RunContext && isconcretetype(Context) || error("A prepared target requires a real concrete context.")
         Calls = fieldtype(Context, :calls)
@@ -765,7 +774,7 @@ end
     C = fieldtype(RC, :constants)
     E = fieldtype(RC, :environment) # CallTargets.environment is deliberately Any.
     for B in _prepared_execution_batch_types(BT)
-        Target = eltype(fieldtype(B, :targets))
+        Target = _targeted_newborn_execution_target_type(eltype(fieldtype(B, :targets)))
         TargetContext = fieldtype(Target, :context)
         A = fieldtype(TargetContext, :application)
         Calls = fieldtype(TargetContext, :calls)
